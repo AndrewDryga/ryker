@@ -1,12 +1,8 @@
 defmodule Ryker.ControlPlane.ReceivedInputCardTest do
   @moduledoc """
-  The Received input card and its Input details.
-
-  Input details open on extracted metadata a person can read, and only then
-  offer the raw source envelope, the normalized input and the original message
-  as separate bodies. Raw is what the adapter received and normalized is what
-  Ryker made of it; showing the second under the first's name told an
-  operator that the source had sent fields Ryker had actually added.
+  Received inputs expose raw, normalized and original records as peer
+  disclosures. Their technical identity stays in HTML, not a redundant
+  metadata row; raw and normalized remain distinct and lazy.
   """
   use Ryker.DataCase, async: true
   import Ecto.Query
@@ -28,7 +24,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     "client_msg_id" => "raw-only-field"
   }
 
-  test "input details lead with metadata and keep raw, normalized and original apart" do
+  test "input records are three peer disclosures and the input identity stays in HTML" do
     {entry, episode} = admitted!(source_envelope: @envelope)
     html = rendered(episode, [])
     document = LazyHTML.from_document(html)
@@ -40,8 +36,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
 
     # The sender is a person: their name, linked to their Slack profile, never
     # the raw ID (Andrew, 2026-09-26: "Slack user U0BHTNFCW6S" is not
-    # readable). Slack has not named them here yet; the ID stays in Details,
-    # under a label that says it is one.
+    # readable). Slack has not named them here yet.
     sender = LazyHTML.query(message, ".ui-message-header strong a")
     assert LazyHTML.text(sender) == "Slack user"
 
@@ -63,35 +58,24 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
            |> LazyHTML.text() =~
              "Terraform plan"
 
-    assert Enum.count(LazyHTML.query(message, ".ui-message-footer > .input-details")) == 1
+    # A redundant Details disclosure and ID row made three records require two
+    # expansion steps in production (Andrew, 2026-10-25).
+    assert LazyHTML.query(message, ".case-message")
+           |> LazyHTML.attribute("data-input-id") == ["ingress-input:#{entry.id}"]
 
-    assert LazyHTML.query(message, ".input-details > summary .ui-disclosure-label")
-           |> LazyHTML.text() == "Details"
+    assert LazyHTML.query(
+             message,
+             ".ui-message-footer > .input-body > summary .ui-disclosure-label"
+           )
+           |> Enum.map(&LazyHTML.text/1) ==
+             ["Raw input (JSON)", "Normalized input (JSON)", "Original message"]
 
-    details = LazyHTML.query(document, "#input-details-#{entry.id}")
-    assert Enum.count(details) == 1
-    text = LazyHTML.text(details)
+    assert Enum.empty?(LazyHTML.query(message, ".input-details"))
+    refute LazyHTML.text(message) =~ "Input ID"
+    refute LazyHTML.text(message) =~ "Details"
+    refute "Copy Input ID" in LazyHTML.attribute(LazyHTML.query(message, "button"), "aria-label")
 
-    labels =
-      details
-      |> LazyHTML.query(".ui-disclosure-body > .ui-facts > div > dt")
-      |> Enum.map(&LazyHTML.text/1)
-
-    # Who sent it and where are in the card's header (Andrew, 2026-09-28).
-    assert labels == ["Input ID"]
-
-    refute text =~ "time reported by the source"
-    refute text =~ "time assigned at ingress"
-    refute text =~ "Extracted metadata"
-    refute text =~ "Event identity"
-    refute text =~ "Execution mode"
-
-    assert details
-           |> LazyHTML.query("button[data-copy-value]")
-           |> LazyHTML.attribute("data-copy-value")
-           |> Enum.take(2) == ["ingress-input:#{entry.id}"]
-
-    # Metadata precedes the three bodies, and the bodies come in the approved order.
+    # Bodies remain in the approved order.
     positions =
       for id <- [
             "input-raw-#{entry.id}",
@@ -101,12 +85,99 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
           do: :binary.match(html, ~s(id="#{id}")) |> elem(0)
 
     assert positions == Enum.sort(positions)
-    assert :binary.match(html, ~s(id="input-details-#{entry.id}")) |> elem(0) < hd(positions)
 
     # Bodies are lazy: nothing raw-only or normalized is in the page until opened.
     refute html =~ "raw-only-field"
     assert html =~ ~s(data-artifact="input-#{entry.id}-raw")
     assert html =~ ~s(data-artifact="input-#{entry.id}-normalized")
+  end
+
+  # Harvested sender shape: the Google Cloud Monitoring notification carried
+  # username beside app_id, but the UI showed the raw app ID instead.
+  test "a Slack app is named from its retained sender metadata" do
+    envelope =
+      Map.merge(@envelope, %{"app_id" => "A123", "username" => "Google Cloud Monitoring"})
+
+    {entry, episode} = admitted!([source_envelope: envelope], actor: %{kind: :app, ref: "A123"})
+
+    message =
+      rendered(episode, [])
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#story-message-#{entry.id}")
+
+    assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
+             "Google Cloud Monitoring"
+
+    refute LazyHTML.query(message, ".ui-message-header") |> LazyHTML.text() =~ "A123"
+  end
+
+  test "missing or expired Slack app metadata does not expose a raw app ID or a stale name" do
+    for envelope <- [nil, %{"username" => ""}, %{"username" => %{}}] do
+      {entry, episode} = admitted!([source_envelope: envelope], actor: %{kind: :app, ref: "A123"})
+
+      message =
+        rendered(episode, [])
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("#story-message-#{entry.id}")
+
+      assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
+               "Slack app"
+    end
+
+    {entry, episode} =
+      admitted!([source_envelope: %{"username" => "Old app name"}],
+        actor: %{kind: :app, ref: "A123"}
+      )
+
+    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
+      set: [operational_pruned_at: DateTime.utc_now()]
+    )
+
+    message =
+      rendered(episode, [])
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#story-message-#{entry.id}")
+
+    assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() == "Slack app"
+    refute LazyHTML.text(message) =~ "Old app name"
+  end
+
+  test "recorded app names are escaped and redacted like message content" do
+    envelope = Map.put(@envelope, "username", "<b>Monitoring</b> password=hunter2")
+    {entry, episode} = admitted!([source_envelope: envelope], actor: %{kind: :app, ref: "A123"})
+
+    message =
+      rendered(episode, [])
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#story-message-#{entry.id}")
+
+    sender = LazyHTML.query(message, ".ui-message-header strong")
+
+    assert LazyHTML.text(sender) =~ "<b>Monitoring</b>"
+    assert LazyHTML.text(sender) =~ "[redacted]"
+    refute LazyHTML.text(sender) =~ "hunter2"
+    assert Enum.empty?(LazyHTML.query(sender, "b"))
+  end
+
+  test "edited events use the edited sender metadata and bot profiles can supply a name" do
+    for envelope <- [
+          %{
+            "subtype" => "message_changed",
+            "username" => "Old sender",
+            "message" => %{"username" => "Google Cloud Monitoring"}
+          },
+          %{"bot_profile" => %{"name" => "Google Cloud Monitoring"}}
+        ] do
+      {entry, episode} = admitted!([source_envelope: envelope], actor: %{kind: :app, ref: "A123"})
+
+      message =
+        rendered(episode, [])
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("#story-message-#{entry.id}")
+
+      assert LazyHTML.query(message, ".ui-message-header strong") |> LazyHTML.text() ==
+               "Google Cloud Monitoring"
+    end
   end
 
   test "kernel lifecycle cards do not repeat metadata owned by input details" do
@@ -216,13 +287,15 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
 
     # Provider destinations belong beside the subject, visible before the
     # technical input record rather than in a detached far-edge footer.
-    details_at = :binary.match(html, ~s(id="input-details-#{entry.id}")) |> elem(0)
+    details_at = :binary.match(html, ~s(id="input-raw-#{entry.id}")) |> elem(0)
     links_at = :binary.match(html, "provider-links") |> elem(0)
     assert links_at < details_at
     assert Enum.count(LazyHTML.query(card, ".provider-subject .provider-links")) == 1
     assert html =~ "Open run ↗"
     assert html =~ "Open workspace ↗"
     refute html =~ "javascript:"
+    assert LazyHTML.attribute(card, "data-input-id") == ["ingress-input:#{entry.id}"]
+    assert Enum.count(LazyHTML.query(document, ".provider-message + .input-body")) == 1
   end
 
   test "an expired input loses its recognized card rather than showing a later revision" do

@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   that came in with their retained bodies and provenance, the replies that
   went out, and the heading the whole page carries.
   """
-  import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.{ConsolePeople, EpisodeTrace, Paths, ProviderMessage}
   alias Ryker.ControlPlane.EpisodeTrace.Attachments
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
@@ -290,10 +289,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       # People mentioned in the text are named while the card is drawn; the
       # names known then are part of the card, so a later one redraws it.
       names: Slack.Names.revision(),
-      display_actor:
-        if(input.source_kind == "slack" and input.actor_kind != :user,
-          do: Slack.Names.name(input.source_ref, input.actor_ref)
-        ),
+      display_actor: slack_actor(input, options),
       actor_ref: input.actor_ref,
       workspace: if(input.source_kind == "slack", do: input.source_ref),
       text: artifact.text,
@@ -316,6 +312,43 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   defp slack_person(_input), do: nil
 
+  # App IDs cannot be resolved by the people/channel directory. Slack already
+  # names the sender in its retained event; use that revision, never a later
+  # message's identity or a guessed name derived from its notification text.
+  defp slack_actor(
+         %{source_kind: "slack", actor_kind: kind, operational_pruned_at: nil} = input,
+         options
+       )
+       when kind in [:app, :bot] do
+    name = slack_sender_name(input.source_envelope)
+    redaction_options = Keyword.put(options, :max_bytes, 160)
+    artifact = InspectionRedactor.artifact(name, redaction_options)
+
+    case artifact do
+      %{state: :retained, text: text} when is_binary(text) and text != "" -> text
+      _unavailable -> actor_label(input)
+    end
+  end
+
+  defp slack_actor(%{source_kind: "slack", actor_kind: kind} = input, _options)
+       when kind in [:app, :bot],
+       do: actor_label(input)
+
+  defp slack_actor(_input, _options), do: nil
+
+  defp slack_sender_name(%{"subtype" => "message_changed", "message" => message}),
+    do: slack_sender_name(message)
+
+  defp slack_sender_name(%{} = envelope) do
+    profile = envelope["bot_profile"]
+    profile_name = if is_map(profile), do: profile["name"]
+
+    [envelope["username"], profile_name]
+    |> Enum.find(&(is_binary(&1) and String.trim(&1) != ""))
+  end
+
+  defp slack_sender_name(_envelope), do: nil
+
   defp actor_label(%{actor_kind: :user, source_kind: "slack"}), do: "Slack user"
 
   # A message sent in Chat names its person, as their sign-in named them.
@@ -327,12 +360,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   end
 
   defp actor_label(%{actor_kind: :user}), do: "User"
+  defp actor_label(%{source_kind: "slack", actor_kind: :app}), do: "Slack app"
+  defp actor_label(%{source_kind: "slack", actor_kind: :bot}), do: "Slack bot"
   defp actor_label(_input), do: "Source event"
 
-  # Input details, in the approved order: readable extracted metadata first,
-  # then the raw source envelope, the normalized input and the original message
-  # as independently collapsed bodies. Raw is the adapter's payload; normalized
-  # is what Ryker made of it; neither is ever shown under the other's name.
+  # Input records, in the approved order: the raw source envelope, normalized
+  # input and original message as independent bodies. Raw is the adapter's
+  # payload; normalized is what Ryker made of it. Their names stay distinct.
   defp input_details(input, options) do
     expired = not is_nil(input.operational_pruned_at)
     disclosed = Keyword.get(options, :disclosed, MapSet.new())
@@ -348,7 +382,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       )
 
     %{
-      metadata: input_metadata(input),
       raw: %{
         absent: raw_absent(input),
         artifact_id: raw_id,
@@ -360,11 +393,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       }
     }
   end
-
-  # The card's header already says who sent it and where; a raw sender ID and
-  # "Slack" under Details told a person nothing (Andrew, 2026-09-28).
-  defp input_metadata(input),
-    do: compact_details([{"Input ID", "ingress-input:#{input.id}", identifier: true}])
 
   # A control-plane input is typed into Ryker itself, so no adapter stands
   # between the person and the record. Reporting that one failed to hand over a

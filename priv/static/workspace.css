@@ -546,6 +546,7 @@
 .ui-message-body > :last-child { margin-bottom:0; }
 .ui-message-footer { min-width:0; margin:0; padding:0; border-top:1px solid var(--ryker-stroke); color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 .ui-message-footer > .ui-disclosure { margin:0; padding:0; border:0; }
+.ui-message-footer > .input-body + .input-body { border-top:1px solid var(--ryker-stroke); }
 .ui-message-footer > .ui-disclosure > summary { min-height:44px; padding:8px var(--message-inset); font-size:12px; font-weight:400; }
 .ui-message-footer > .ui-disclosure > .ui-disclosure-body { padding:0 var(--message-inset) 14px; }
 .ryker-app .ui-message-footer .ui-facts > div { grid-template-columns:minmax(0,1fr); gap:2px; }
@@ -924,10 +925,8 @@
 .standing-rule-definition { margin-top:6px; }
 .participation[data-rules-state="not_recorded"] .participation-rules .case-event-summary { color:var(--ryker-text-secondary); }
 
-/* Input details: metadata first, then each body as its own disclosure. */
-.input-details { margin:0; padding:0; border:0; }
-.input-details .ui-facts { margin-top:4px; }
-.input-body { margin-top:8px; border-top:1px solid var(--stroke); padding-top:6px; }
+/* The three retained input records are peer disclosures, not a nested card. */
+.input-body { margin:0; border-top:1px solid var(--stroke); padding:0; }
 .input-body .artifact-unavailable { margin:6px 0 0; color:var(--ryker-text-secondary); }
 
 /* One processing-time explanation: decision, settings and rules. */

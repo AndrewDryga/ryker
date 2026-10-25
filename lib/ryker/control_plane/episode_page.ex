@@ -1736,6 +1736,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       sender={@message[:display_actor] || @message.actor}
       person={@message[:person]}
       class="case-message"
+      data-input-id={if @message[:details], do: "ingress-input:#{@message.id}"}
     >
       <:meta>
         <time :if={@message.at} datetime={DateTime.to_iso8601(@message.at)}>
@@ -1810,7 +1811,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # provider, and the provider is a format, not an authenticated sender.
   defp provider_header(assigns) do
     ~H"""
-    <div class={"provider-message provider-#{@provider.provider}"} data-provider={@provider.provider}>
+    <div
+      class={"provider-message provider-#{@provider.provider}"}
+      data-provider={@provider.provider}
+      data-input-id={"ingress-input:#{@id}"}
+    >
       <.card_heading title={@provider.name}>
         <:detail>via {source_transport(@provider)}</:detail>
         <:meta :if={@provider.state}>
@@ -1925,36 +1930,28 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp source_name("slack"), do: "Slack"
   defp source_name(source), do: Episodes.label(source)
 
-  # Extracted metadata is visible as soon as the disclosure opens; the raw
-  # envelope, the normalized input and the original message are each their own
-  # collapsed body underneath, loaded when opened. Raw and normalized are never
+  # The raw envelope, the normalized input and the original message are peer
+  # collapsed bodies, loaded when opened. Raw and normalized are never
   # shown under each other's name, and an unrecorded envelope says so.
   defp input_details(assigns) do
     ~H"""
-    <.disclosure
-      id={"input-details-#{@message.id}"}
-      label="Details"
-      class="input-details"
-    >
-      <.fact_list facts={@message.details.metadata} />
-      <.input_body
-        id={"input-raw-#{@message.id}"}
-        title="Raw input (JSON)"
-        body={@message.details.raw}
-        absent={@message.details.raw.absent}
-      />
-      <.input_body
-        id={"input-normalized-#{@message.id}"}
-        title="Normalized input (JSON)"
-        body={@message.details.normalized}
-        absent="The normalized input was not retained."
-      />
-      <.disclosure class="input-body" id={"input-original-#{@message.id}"} label="Original message">
-        <p :if={!@message.available} class="artifact-unavailable">
-          Source content not recorded or expired.
-        </p>
-        <pre :if={@message.available}>{@message.text}</pre>
-      </.disclosure>
+    <.input_body
+      id={"input-raw-#{@message.id}"}
+      title="Raw input (JSON)"
+      body={@message.details.raw}
+      absent={@message.details.raw.absent}
+    />
+    <.input_body
+      id={"input-normalized-#{@message.id}"}
+      title="Normalized input (JSON)"
+      body={@message.details.normalized}
+      absent="The normalized input was not retained."
+    />
+    <.disclosure class="input-body" id={"input-original-#{@message.id}"} label="Original message">
+      <p :if={!@message.available} class="artifact-unavailable">
+        Source content not recorded or expired.
+      </p>
+      <pre :if={@message.available}>{@message.text}</pre>
     </.disclosure>
     """
   end

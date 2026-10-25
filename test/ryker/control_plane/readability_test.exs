@@ -8,6 +8,19 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     %{css: Assets.call(conn, []).resp_body}
   end
 
+  test "peer input records keep full-width separators without a second details shell", %{css: css} do
+    # Flattening the production input card must not remove separators or retain
+    # the old nested disclosure's extra vertical padding (Andrew, 2026-10-25).
+    assert [_, peer] =
+             Regex.run(~r/\.ui-message-footer > \.input-body \+ \.input-body \{([^}]+)\}/, css)
+
+    assert peer =~ "border-top:1px solid var(--ryker-stroke)"
+    assert [_, body] = Regex.run(~r/^\.input-body \{([^}]+)\}/m, css)
+    assert body =~ "margin:0"
+    assert body =~ "padding:0"
+    refute css =~ ~r/^\.input-details[\s.{]/m
+  end
+
   test "nested message attachments and raw events share the message footer inset", %{css: css} do
     # Real context messages wrap their attachments/raw event in an inner
     # container. Direct-child footer rules left those rows against the edge.
