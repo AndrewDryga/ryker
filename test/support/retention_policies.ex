@@ -510,6 +510,12 @@ defmodule Ryker.RetentionPolicies do
         "operator-confirmed preference, guidance, or standing authority, kept while in force; one that ended keeps only a digest of its words and goes at the history horizon"
     },
     %{
+      table: "person_fact_withdrawals",
+      class: :kept,
+      why:
+        "content-free person cutoffs and withdrawn source identities, kept independently of current facts so retention and later learning never let old inputs undo forgetting"
+    },
+    %{
       table: "person_facts",
       class: :kept,
       why:

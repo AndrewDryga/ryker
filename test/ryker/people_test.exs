@@ -48,23 +48,68 @@ defmodule Ryker.PeopleTest do
     assert People.about("slack:user:UBOB", public) == ["Works on Lisbon time."]
   end
 
-  test "a person taking a fact back forgets it, and the message it came from never teaches it again",
-       %{workspace: workspace, public: public, now: now} do
-    told = said!(workspace, "CPUBLIC", "UCARA", "my birthday is 2 May", at: ago(now, 120))
-    learn!([told], [item(told, "birthday", "Birthday is 2 May.")])
+  # Replay the existing null-retraction contract in both arrival orders. A
+  # retraction processed before its old positive statement used to do nothing,
+  # so replay restored the exact sentence the person had already taken back.
+  for learned <- [false, true],
+      replay_key <- ["birthday", "birth-date"],
+      batch <- [:separate, :ordered, :reversed] do
+    test "taking a fact back on an #{if learned, do: "existing", else: "empty"} profile prevents historical replay as #{replay_key} in #{batch} batches",
+         %{workspace: workspace, public: public, now: now} do
+      told = said!(workspace, "CPUBLIC", "UCARA", "my birthday is 2 May", at: ago(now, 120))
 
-    took_back = said!(workspace, "CPUBLIC", "UCARA", "forget my birthday", at: ago(now, 60))
-    learn!([took_back], [item(took_back, "birthday", nil)])
-    assert People.about("slack:user:UCARA", public) == []
-    assert kinds("slack:user:UCARA") == [:forgotten]
+      if unquote(learned),
+        do: learn!([told], [item(told, "birthday", "Birthday is 2 May.")])
 
-    learn!([told], [item(told, "birthday", "Birthday is 2 May.")])
-    assert People.about("slack:user:UCARA", public) == []
+      took_back = said!(workspace, "CPUBLIC", "UCARA", "forget my birthday", at: ago(now, 60))
 
-    again = said!(workspace, "CPUBLIC", "UCARA", "fine, it's 2 May", at: DateTime.add(now, 60))
-    learn!([again], [item(again, "birthday", "Birthday is 2 May.")])
-    assert People.about("slack:user:UCARA", public) == ["Birthday is 2 May."]
-    assert kinds("slack:user:UCARA") == ["birthday"]
+      if unquote(batch) == :separate do
+        learn!([took_back], [item(took_back, "birthday", nil)])
+      else
+        items = [
+          item(told, unquote(replay_key), "Birthday is 2 May."),
+          item(took_back, "birthday", nil)
+        ]
+
+        items = if unquote(batch) == :reversed, do: Enum.reverse(items), else: items
+        learn!([told, took_back], items)
+      end
+
+      assert People.about("slack:user:UCARA", public) == []
+      assert kinds("slack:user:UCARA") == if(unquote(learned), do: [:forgotten], else: [])
+
+      learn!([told], [item(told, unquote(replay_key), "Birthday is 2 May.")])
+      assert People.about("slack:user:UCARA", public) == []
+
+      again = said!(workspace, "CPUBLIC", "UCARA", "fine, it's 2 May", at: DateTime.add(now, 60))
+      learn!([again], [item(again, "birthday", "Birthday is 2 May.")])
+      assert People.about("slack:user:UCARA", public) == ["Birthday is 2 May."]
+      assert kinds("slack:user:UCARA") == ["birthday"]
+    end
+  end
+
+  # A latest-per-key reduction discarded the earlier retraction entirely.
+  # Its later replacement is valid, but must not erase the old replay boundary.
+  for reversed <- [false, true] do
+    test "a later same-key statement preserves its batch's earlier withdrawal with reversed order #{reversed}",
+         %{workspace: workspace, public: public, now: now} do
+      told = said!(workspace, "CPUBLIC", "UCARA", "my birthday is 2 May", at: ago(now, 120))
+      took_back = said!(workspace, "CPUBLIC", "UCARA", "forget my birthday", at: ago(now, 60))
+      again = said!(workspace, "CPUBLIC", "UCARA", "fine, it's 2 May", at: ago(now, 30))
+
+      items = [
+        item(told, "birthday", "Birthday is 2 May."),
+        item(took_back, "birthday", nil),
+        item(again, "birthday", "Birthday is 2 May.")
+      ]
+
+      items = if unquote(reversed), do: Enum.reverse(items), else: items
+      learn!([told, took_back, again], items)
+      assert People.about("slack:user:UCARA", public) == ["Birthday is 2 May."]
+      learn!([told], [item(told, "birth-date", "Birthday is 2 May.")])
+      assert People.about("slack:user:UCARA", public) == ["Birthday is 2 May."]
+      assert kinds("slack:user:UCARA") == ["birthday"]
+    end
   end
 
   # A forgotten fact kept its kind, such as "medical-leave", which says what

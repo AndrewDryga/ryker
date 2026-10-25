@@ -7,6 +7,7 @@ defmodule Ryker.ConcurrencyCase do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.ConversationObservation
+  alias Ryker.People.FactWithdrawal
   alias Ryker.Repo
 
   using do
@@ -98,6 +99,8 @@ defmodule Ryker.ConcurrencyCase do
   def delete_entries!(entry_query) do
     entries = Repo.all(entry_query)
     ids = Enum.map(entries, & &1.id)
+    messages = Enum.map(entries, & &1.native_input_id)
+    Repo.delete_all(from(w in FactWithdrawal, where: w.source_message_ref in ^messages))
     refs = Enum.map(entries, &Inbox.ref/1)
 
     Repo.delete_all(from(note in ConversationObservation, where: note.source_input_id in ^ids))

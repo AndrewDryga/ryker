@@ -53,6 +53,9 @@ defmodule Ryker.People.PersonFact.Query do
     )
   end
 
+  def ordered_by_person_and_key(queryable \\ all()),
+    do: order_by(queryable, [person_facts: f], asc: f.person_ref, asc: f.key)
+
   def ordered_by_key(queryable), do: order_by(queryable, [person_facts: f], asc: f.key)
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def select_facts(queryable), do: select(queryable, [person_facts: f], f.fact)

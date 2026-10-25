@@ -23,8 +23,10 @@ defmodule Ryker.People do
   learning pass reads; an operator forgets everything about a person on
   Memory › People; editing or deleting the message forgets what it taught,
   and deleting a Slack channel what was said in it. Forgetting erases the
-  words and keeps the row, so the message they came from never teaches them
-  again, and nothing said before an operator forgot it brings it back. They
+  words and records content-free withdrawal boundaries separately from the
+  current facts, so a changed fact label or a later statement cannot make a
+  withdrawn source teach them again. Nothing said before an explicit forget
+  refreshes the profile; already-kept other facts remain intact. They
   are kept until forgotten: a birthday is worth remembering for more than
   the ninety days conversation memory keeps.
   """
@@ -32,7 +34,8 @@ defmodule Ryker.People do
   alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Ingress
-  alias Ryker.People.PersonFact
+  alias Ryker.People.{FactWithdrawal, PersonFact}
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack
 
@@ -63,10 +66,19 @@ defmodule Ryker.People do
   @spec learn_in_transaction([map()], [Ingress.Inbox.Entry.t()]) :: :ok
   def learn_in_transaction(items, entries) when is_list(items) and is_list(entries) do
     by_id = Map.new(entries, &{&1.id, &1})
+    statements = Enum.flat_map(items, &statement(&1, by_id))
+    :ok = lock_authors_in_transaction(entries)
     now = Repo.now!()
 
-    items
-    |> Enum.flat_map(&statement(&1, by_id))
+    # A later positive may replace a retraction's key, but never its withdrawal
+    # custody. Establish every boundary before any positive can be learned.
+    statements
+    |> Enum.filter(&is_nil(&1.fact))
+    |> Enum.sort_by(&{&1.person, &1.key})
+    |> Enum.each(&keep(&1, now))
+
+    statements
+    |> Enum.reject(&(is_nil(&1.fact) or withdrawn_source?(&1.person, &1.entry)))
     |> Enum.sort_by(& &1.entry.occurred_at, DateTime)
     |> Enum.reduce(%{}, &Map.put(&2, {&1.person, &1.key}, &1))
     |> Map.values()
@@ -86,7 +98,7 @@ defmodule Ryker.People do
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.each(&AdvisoryLock.hold!("person-facts:" <> &1))
+    |> Enum.each(&lock_person!/1)
   end
 
   defp statement(%{"source_input_id" => id, "key" => key, "fact" => fact} = item, by_id)
@@ -134,9 +146,16 @@ defmodule Ryker.People do
   # fact not kept yet has no row to lock, so two passes both inserted it and
   # the later crashed on the unique index, and both counted the cap before
   # either wrote (2026-10-04 review).
-  defp keep(%{entry: entry, person: person, key: key, fact: fact}, now) do
-    AdvisoryLock.hold!("person-facts:" <> person)
+  defp keep(%{entry: entry, person: person, fact: fact} = statement, now) do
+    lock_person!(person)
+    if is_nil(fact), do: withdraw!(person, entry, now)
 
+    if is_nil(fact) or not withdrawn_source?(person, entry),
+      do: keep_current(statement, now),
+      else: :ok
+  end
+
+  defp keep_current(%{entry: entry, person: person, key: key, fact: fact}, now) do
     existing =
       person
       |> PersonFact.Query.by_person()
@@ -152,6 +171,23 @@ defmodule Ryker.People do
     end
   end
 
+  defp lock_person!(person) do
+    key = "person-facts:" <> person
+    AdvisoryLock.hold!(key)
+  end
+
+  defp withdrawn_source?(person, %Ingress.Inbox.Entry{
+         native_input_id: message,
+         occurred_at: occurred_at
+       }) do
+    person
+    |> FactWithdrawal.Query.by_person()
+    |> FactWithdrawal.Query.blocking_source(message, occurred_at)
+    |> Repo.exists?()
+  end
+
+  defp withdrawn_source?(_person, _entry), do: true
+
   defp change(existing, entry, fact, person) do
     cond do
       existing && not newer?(entry, existing) -> :none
@@ -162,21 +198,18 @@ defmodule Ryker.People do
     end
   end
 
-  # Taking back what is not kept changes nothing.
+  # Every retraction already has a withdrawal boundary; only a kept row
+  # needs its words erased.
   defp forgetting(%PersonFact{status: :kept}), do: :forget
   defp forgetting(_nothing_kept), do: :none
 
-  # A statement older than the one kept, or than the moment it was forgotten,
-  # or from the very message it was forgotten from, changes nothing.
-  defp newer?(entry, %PersonFact{status: :forgotten} = existing_fact) do
-    since = Enum.max([existing_fact.said_at, existing_fact.forgotten_at], DateTime)
-
-    entry.native_input_id != existing_fact.source_message_ref and
-      DateTime.compare(entry.occurred_at, since) == :gt
-  end
-
-  defp newer?(entry, %PersonFact{} = existing_fact),
+  # Durable withdrawals already reject withdrawn sources and historical inputs.
+  # The replaceable row only orders statements; processing time must not block
+  # a genuine statement made after a learned retraction in the same batch.
+  defp newer?(%Ingress.Inbox.Entry{} = entry, %PersonFact{} = existing_fact),
     do: DateTime.compare(entry.occurred_at, existing_fact.said_at) != :lt
+
+  defp newer?(_entry, _existing_fact), do: false
 
   defp kept_count(person) do
     person
@@ -220,10 +253,25 @@ defmodule Ryker.People do
     :ok
   end
 
-  defp forget!(existing, entry, now) do
-    existing
+  # A valid retraction matters even before its old positive statement has
+  # been learned. Preserve it before looking for a replaceable current row.
+  defp withdraw!(person, %Ingress.Inbox.Entry{} = entry, %DateTime{} = now) do
+    record_withdrawals(
+      [{person, nil}, {person, entry.native_input_id}],
+      entry.occurred_at,
+      now
+    )
+  end
+
+  defp withdraw!(_person, _entry, _now),
+    do: Repo.rollback({:invalid_person_fact_retraction, :entry})
+
+  defp forget!(%PersonFact{} = existing_fact, %Ingress.Inbox.Entry{} = entry, %DateTime{} = now) do
+    record_withdrawals([{existing_fact.person_ref, existing_fact.source_message_ref}], now, now)
+
+    existing_fact
     |> Ecto.Changeset.change(
-      key: forgotten_key(existing.person_ref, existing.key),
+      key: forgotten_key(existing_fact.person_ref, existing_fact.key),
       fact: nil,
       status: :forgotten,
       forgotten_at: now,
@@ -236,6 +284,9 @@ defmodule Ryker.People do
 
     :ok
   end
+
+  defp forget!(_existing_fact, _entry, _now),
+    do: Repo.rollback({:invalid_person_fact_retraction, :entry})
 
   # Said in a Slack channel anyone in the workspace can read, a fact may be
   # used wherever that person asks. Said anywhere else, only there: a direct
@@ -365,12 +416,24 @@ defmodule Ryker.People do
   @doc """
   Forgets everything Ryker learned about one person. Anything they said
   before now never brings it back; what they say later is learned again.
+  Returns `{:ok, count}`, including zero; an invalid person reference returns
+  `{:error, {:invalid_person_forgetting, :person_ref}}` without writing.
   """
-  @spec forget_person(String.t()) :: {:ok, non_neg_integer()}
+  @spec forget_person(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def forget_person(person_ref) when is_binary(person_ref) do
-    Repo.transaction(fn ->
-      forget_where(PersonFact.Query.by_person(person_ref))
-    end)
+    if Reference.text?(person_ref, 1024, 4096) do
+      Repo.transaction(fn ->
+        lock_person!(person_ref)
+        now = Repo.now!()
+        query = PersonFact.Query.by_person(person_ref)
+        {count, sources} = forget_where(query, now)
+        boundary = cutoff(sources, now)
+        record_withdrawals([{person_ref, nil}], boundary, now)
+        count
+      end)
+    else
+      {:error, {:invalid_person_forgetting, :person_ref}}
+    end
   end
 
   @doc """
@@ -380,7 +443,7 @@ defmodule Ryker.People do
   @spec forget_fact(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
   def forget_fact(fact_id) when is_binary(fact_id) do
     case Ecto.UUID.cast(fact_id) do
-      {:ok, id} -> Repo.transaction(fn -> forget_where(PersonFact.Query.by_id(id)) end)
+      {:ok, id} -> Repo.transaction(fn -> forget_one(id) end)
       :error -> {:ok, 0}
     end
   end
@@ -388,7 +451,9 @@ defmodule Ryker.People do
   @doc "Forgets what one message taught, when its author edits or deletes it."
   @spec forget_message_in_transaction(String.t() | nil) :: :ok
   def forget_message_in_transaction(message_ref) when is_binary(message_ref) do
-    forget_where(PersonFact.Query.by_source_message(message_ref))
+    query = PersonFact.Query.by_source_message(message_ref)
+    now = Repo.now!()
+    forget_where(query, now)
     :ok
   end
 
@@ -397,26 +462,83 @@ defmodule Ryker.People do
   @doc "Forgets what was said in a conversation that is gone."
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    forget_where(PersonFact.Query.by_conversation(conversation_ref))
+    query = PersonFact.Query.by_conversation(conversation_ref)
+    now = Repo.now!()
+    forget_where(query, now)
     :ok
   end
 
-  defp forget_where(facts) do
-    now = Repo.now!()
+  defp forget_one(id) do
+    case Repo.fetch(PersonFact.Query.by_id(id)) do
+      {:ok, %PersonFact{person_ref: person}} ->
+        lock_person!(person)
+        now = Repo.now!()
+        query = id |> PersonFact.Query.by_id() |> PersonFact.Query.by_person(person)
+        {count, sources} = forget_where(query, now)
+        boundary = cutoff(sources, now)
+        if count > 0, do: record_withdrawals([{person, nil}], boundary, now)
+        count
 
-    {count, _rows} =
+      {:error, :not_found} ->
+        0
+    end
+  end
+
+  defp forget_where(facts, now) do
+    # Operator writes and source deletion lock their overlapping rows in the
+    # same order. Deletion already owns its source fence; taking person locks
+    # here would invert that order against profile authorization.
+    sources =
       facts
       |> PersonFact.Query.kept()
-      |> PersonFact.Query.forget_at(now)
-      |> Repo.update_all([])
+      |> PersonFact.Query.ordered_by_person_and_key()
+      |> PersonFact.Query.lock_for_update()
+      |> Repo.all()
 
-    count
+    ids = Enum.map(sources, & &1.id)
+
+    {count, _rows} =
+      ids |> PersonFact.Query.by_ids() |> PersonFact.Query.forget_at(now) |> Repo.update_all([])
+
+    withdrawals = Enum.map(sources, &{&1.person_ref, &1.source_message_ref})
+    record_withdrawals(withdrawals, now, now)
+    {count, sources}
+  end
+
+  defp cutoff(sources, now) do
+    said_at = Enum.map(sources, & &1.said_at)
+    Enum.max([now | said_at], DateTime)
+  end
+
+  defp record_withdrawals(sources, boundary, now) do
+    sources
+    |> Enum.uniq()
+    |> Enum.sort_by(fn {person, message} -> {person, message || ""} end)
+    |> Enum.map(fn {person, message} ->
+      %{
+        id: Repo.generate_id(),
+        person_ref: person,
+        source_message_ref: message,
+        withdrawn_at: boundary,
+        inserted_at: now,
+        updated_at: now
+      }
+    end)
+    |> Enum.chunk_every(1000)
+    |> Enum.each(fn rows ->
+      conflict = FactWithdrawal.Query.advance()
+
+      Repo.insert_all(FactWithdrawal, rows,
+        on_conflict: conflict,
+        conflict_target: [:person_ref, :source_message_ref]
+      )
+    end)
   end
 
   # A forgotten fact keeps a digest of its kind in place of the kind:
   # "medical-leave" said what was forgotten (2026-10-04 review). The digest
-  # still finds the row, so nothing said before the forgetting teaches it
-  # again. `forget_where/1` computes the same digest in SQL.
+  # still finds the replaceable current row. FactWithdrawal holds the durable
+  # replay boundary. `forget_where/2` computes the same kind digest in SQL.
   defp forgotten_key(person, key) do
     digest = Crypto.sha256_hex(person <> "\n" <> key)
     "f" <> binary_part(digest, 0, 47)

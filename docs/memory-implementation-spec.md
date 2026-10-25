@@ -375,8 +375,15 @@ A result from before `people` existed has none and applies as before.
 Such facts are kept until forgotten, not for the conversation-memory horizon: a birthday is worth
 remembering longer than the talk it came up in. The author taking it back, editing or deleting the
 message, deleting the Slack channel, or an operator forgetting the person on Memory › People
-forgets it; a forgotten fact keeps no words and its row, so neither its message nor anything said
-before the forgetting teaches it again. Routing and Work read the asking person's facts as
+forgets it. A forgotten fact keeps no words. Separate content-free withdrawal records preserve
+source identities and historical cutoffs even when later learning replaces the current fact row
+or chooses a different kind. Explicitly forgetting a person or fact blocks older profile inputs;
+already-kept other facts stay intact, and new statements can teach facts again. Forgetting an
+empty profile still records that cutoff. Editing or deleting a message, or deleting its channel,
+blocks the affected sources while leaving unrelated retained sources usable. Learned retractions
+use the message time and are recorded before selecting the latest positive statements, so a
+genuinely later statement in the same batch remains learnable without losing the withdrawal.
+Routing and Work read the asking person's facts as
 `person_asking`, only when there are any, with a note to use them for courtesy only; a fact said
 in a direct message, a private channel, a channel shared with another organisation, Chat or GitHub
 is used only there.

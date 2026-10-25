@@ -214,6 +214,8 @@ defmodule Ryker.Fixtures.Personalization do
   @doc "Remove only the unique conversation owned by a committed learning fixture."
   def cleanup_learning!(entry) do
     conversation = entry.destination_conversation_ref
+    person = People.person_ref(entry)
+    Repo.delete_all(People.FactWithdrawal.Query.by_person(person))
     {:ok, workspace, _channel} = Ryker.ConversationRef.parse_slack(conversation)
 
     runs =
