@@ -59,7 +59,7 @@ defmodule Ryker.Transcription.Service do
 
   def transcribe(data, options) when is_binary(data) and data != "" and is_list(options) do
     settings = settings(options)
-    deadline = System.monotonic_time(:millisecond) + settings.timeout_ms
+    deadline = settings.monotonic_ms.() + settings.timeout_ms
     servers_deadline = deadline - div(settings.timeout_ms, 4)
 
     if url?(settings.url) and url?(settings.detect_url) do
@@ -79,7 +79,7 @@ defmodule Ryker.Transcription.Service do
   def transcribe(_data, _options), do: {:error, :failed}
 
   defp fallback(data, options, settings, deadline) do
-    case deadline - System.monotonic_time(:millisecond) do
+    case deadline - settings.monotonic_ms.() do
       remaining when remaining > 0 ->
         options = Keyword.put(options, :timeout_ms, remaining)
         settings.fallback.transcribe(data, options)
@@ -192,7 +192,7 @@ defmodule Ryker.Transcription.Service do
   end
 
   defp post(settings, base, audio, language, deadline) do
-    case deadline - System.monotonic_time(:millisecond) do
+    case deadline - settings.monotonic_ms.() do
       remaining when remaining > 0 ->
         fields = [{"language", language}, {"response_format", "verbose_json"}]
         settings.request.(inference(base), fields, audio, min(remaining, @request_timeout_ms))
@@ -315,6 +315,8 @@ defmodule Ryker.Transcription.Service do
         end),
       fallback: Keyword.get(options, :fallback, Local),
       languages: Keyword.get_lazy(options, :languages, fn -> Languages.configured() end),
+      monotonic_ms:
+        Keyword.get(options, :monotonic_ms, fn -> System.monotonic_time(:millisecond) end),
       request: Keyword.get(options, :request, &request/4),
       timeout_ms:
         Keyword.get_lazy(options, :timeout_ms, fn ->

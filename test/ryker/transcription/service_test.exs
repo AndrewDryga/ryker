@@ -107,22 +107,26 @@ defmodule Ryker.Transcription.ServiceTest do
   # stuck service spent is gone from what Ryker's own model gets.
   test "a stuck service leaves Ryker's own model only the rest of the recording's time",
        %{dir: dir} do
+    clock = :atomics.new(1, [])
+
     request = fn _url, _fields, _audio, _timeout_ms ->
-      # A stuck service spends part of the recording's time.
-      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
-      Process.sleep(200)
+      :atomics.add_get(clock, 1, 200)
       {:error, {:service, "did not answer in 30 s"}}
     end
 
+    recording = six_parts()
+
+    options =
+      dir
+      |> options(request, recording)
+      |> Keyword.merge(timeout_ms: 5_000, monotonic_ms: fn -> :atomics.get(clock, 1) end)
+
     capture_log(fn ->
-      assert Service.transcribe(
-               "m4a bytes",
-               dir |> options(request, six_parts()) |> Keyword.put(:timeout_ms, 5_000)
-             ) == {:ok, "words from Ryker's own model"}
+      assert Service.transcribe("m4a bytes", options) == {:ok, "words from Ryker's own model"}
     end)
 
     assert_received {:fallback, "m4a bytes", timeout_ms}
-    assert timeout_ms > 0 and timeout_ms <= 4_800
+    assert timeout_ms == 4_800
   end
 
   # On the CPU, large-v3-turbo writes 30 seconds of speech in about 15, so
@@ -174,21 +178,53 @@ defmodule Ryker.Transcription.ServiceTest do
   end
 
   test "a recording whose time the service spent is not read again", %{dir: dir} do
+    # Host contention once spent the server share before the test reached its
+    # sleep, so it exercised fallback instead of budget exhaustion (2026-10-25).
+    clock = :atomics.new(1, [])
+
     request = fn _url, _fields, _audio, _timeout_ms ->
-      # A stuck service spends all of the recording's time.
-      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
-      Process.sleep(600)
+      :atomics.add_get(clock, 1, 600)
       {:error, {:service, "did not answer in 0 s"}}
     end
 
+    recording = six_parts()
+
+    options =
+      dir
+      |> options(request, recording)
+      |> Keyword.merge(timeout_ms: 500, monotonic_ms: fn -> :atomics.get(clock, 1) end)
+
     capture_log(fn ->
-      assert Service.transcribe(
-               "m4a bytes",
-               dir |> options(request, six_parts()) |> Keyword.put(:timeout_ms, 500)
-             ) == {:error, :timeout}
+      assert Service.transcribe("m4a bytes", options) == {:error, :timeout}
     end)
 
     refute_received {:fallback, _data, _timeout_ms}
+  end
+
+  for elapsed <- [800, 1_000] do
+    test "conversion spending #{elapsed} ms preserves the total recording deadline", %{dir: dir} do
+      {:ok, clock} = Agent.start_link(fn -> [0, unquote(elapsed), unquote(elapsed)] end)
+      monotonic_ms = fn -> Agent.get_and_update(clock, fn [now | rest] -> {now, rest} end) end
+
+      request = fn _url, _fields, _audio, _timeout ->
+        flunk("the server budget is already spent")
+      end
+
+      options =
+        dir
+        |> options(request, six_parts())
+        |> Keyword.merge(timeout_ms: 1_000, monotonic_ms: monotonic_ms)
+
+      capture_log(fn ->
+        if unquote(elapsed) < 1_000 do
+          assert Service.transcribe("m4a bytes", options) == {:ok, "words from Ryker's own model"}
+          assert_received {:fallback, "m4a bytes", 200}
+        else
+          assert Service.transcribe("m4a bytes", options) == {:error, :timeout}
+          refute_received {:fallback, _data, _timeout}
+        end
+      end)
+    end
   end
 
   test "without whisper servers, Ryker's own model reads the recording in its time", %{dir: dir} do
