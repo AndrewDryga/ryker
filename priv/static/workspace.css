@@ -655,8 +655,6 @@
 .context-message-details > .ui-disclosure > summary { min-height:44px; padding:8px 0; font-size:12px; font-weight:400; }
 .context-message-details > .ui-disclosure > .ui-disclosure-body { padding:0 0 14px; }
 .context-message-details .context-rows { margin:0 0 8px; }
-.conversation-recall { max-width:80ch; margin:0; overflow-wrap:anywhere; }
-.conversation-recall + .conversation-recall { margin-top:20px; padding-top:16px; border-top:1px solid var(--stroke); }
 .conversation-recall h4 { font-size:16px; margin:0 0 14px; color:var(--ink); }
 .conversation-recall > div { margin:12px 0; }
 .conversation-recall h5 { font:600 13px/1.4 var(--font-sans); color:var(--ryker-text-secondary); margin:0 0 4px; }
@@ -1309,11 +1307,7 @@
 .fact-link-note { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .saved-understanding .summary-goal { margin:0 0 6px; font-size:15px; line-height:23px; }
 .saved-understanding .summary-situation { margin:0 0 12px; font-size:14px; line-height:22px; }
-.knowledge-entries { display:grid; gap:0; }
-.knowledge-entry { min-width:0; padding:16px 0; overflow-wrap:anywhere; }
-.knowledge-entry + .knowledge-entry { border-top:1px solid var(--ryker-stroke); }
-.knowledge-entry:first-child { padding-top:0; }
-.knowledge-entry:last-child { padding-bottom:0; }
+.knowledge-entries { display:grid; gap:12px; }
 .prompt-source-body .knowledge-entry-title { position:static; margin:0 0 6px; padding:0; border:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
 .knowledge-entry-body { max-width:80ch; font-size:14px; line-height:22px; }
 .knowledge-entry-body .markdown-preview + .markdown-preview { margin-top:8px; }
@@ -1364,7 +1358,7 @@
 /* Candidate groups in a briefing: the short description rides in the row summary */
 .prompt-source-doc { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; font-weight:400; }
 .prompt-source-doc::before { content:" · "; white-space:pre; }
-/* Candidates are quiet rows split by hairlines, not cards inside a card: the
+/* Continuation candidates are quiet rows split by hairlines: the
    title is the one ivory line, match evidence and history sit under it on a
    4px rhythm, and 16px separates one candidate from the next. */
 .context-candidates { display:grid; }
@@ -1528,6 +1522,24 @@
 .candidate-state:empty { display:none; }
 .context-note-topics { display:flex; flex-wrap:wrap; gap:4px; list-style:none; margin:6px 0 0; padding:0; }
 .context-note-topics li { padding:0 8px; border:1px solid var(--stroke); border-radius:10px; font-size:12px; line-height:18px; color:var(--ryker-text-secondary); }
+/* Each recalled object owns its title, content and source details. A complete
+   frame remains visible even when a section contains only one rule or fact. */
+.prompt-source-body .knowledge-entry,
+.prompt-source-body .conversation-recall,
+.prompt-source-body .learned-topic,
+.prompt-source-body .context-candidate.context-outcome { --knowledge-item-inset:16px; box-sizing:border-box; min-width:0; max-width:100%; margin:0; padding:var(--knowledge-item-inset); border:1px solid var(--ryker-stroke-strong); border-radius:6px; background:var(--ryker-surface-raised); overflow-wrap:anywhere; }
+.prompt-source-body .conversation-recall { margin-bottom:12px; }
+.learned-topics { display:grid; gap:12px; max-width:none; }
+.prompt-source-body .context-outcome + .context-outcome { margin-top:12px; }
+.knowledge-entry > .knowledge-provenance,
+.conversation-recall > .knowledge-provenance,
+.learned-topic > .learned-topic-details { margin:12px calc(-1 * var(--knowledge-item-inset)) calc(-1 * var(--knowledge-item-inset)); padding:0 var(--knowledge-item-inset); border-top:1px solid var(--ryker-stroke); }
+@media (max-width:580px) {
+  .prompt-source-body .knowledge-entry,
+  .prompt-source-body .conversation-recall,
+  .prompt-source-body .learned-topic,
+  .prompt-source-body .context-candidate.context-outcome { --knowledge-item-inset:12px; }
+}
 /* Utilities follow the exact text inside the same block, outside its scroll area. */
 .copy-block { position:relative; display:flex; flex-direction:column; align-items:stretch; gap:8px; min-width:0; }
 .ryker-app .copy-block-button { align-self:flex-end; position:relative; display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }

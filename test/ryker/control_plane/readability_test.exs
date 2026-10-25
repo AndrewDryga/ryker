@@ -268,6 +268,30 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert css =~ ".wait-match dd { margin:0; min-width:0;"
   end
 
+  test "each selected knowledge item has a complete boundary rather than a separator line", %{
+    css: css
+  } do
+    # A single standing rule had no boundary at all; two facts looked like one
+    # text block. First/last-child resets must not remove an item's own edges.
+    assert [_, item] =
+             Regex.run(
+               ~r/\.prompt-source-body \.knowledge-entry,\s*\.prompt-source-body \.conversation-recall,\s*\.prompt-source-body \.learned-topic,\s*\.prompt-source-body \.context-candidate\.context-outcome \{([^}]+)\}/,
+               css
+             )
+
+    assert item =~ "box-sizing:border-box"
+    assert item =~ "min-width:0"
+    assert item =~ "border:1px solid var(--ryker-stroke-strong)"
+    assert item =~ "border-radius:6px"
+    assert item =~ "background:var(--ryker-surface-raised)"
+    assert item =~ "padding:var(--knowledge-item-inset)"
+    assert css =~ ".knowledge-entries { display:grid; gap:12px; }"
+    assert css =~ ".learned-topics { display:grid; gap:12px; max-width:none; }"
+
+    refute css =~ ".knowledge-entry:first-child { padding-top:0; }"
+    refute css =~ ".knowledge-entry:last-child { padding-bottom:0; }"
+  end
+
   test "the open mobile workspace menu remains inside the viewport", %{css: css} do
     # At 390px the menu's 320px content box opened from the More trigger and
     # widened the document to 447px. Anchor it to the full mobile navigation.
