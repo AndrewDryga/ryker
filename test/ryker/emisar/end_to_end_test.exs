@@ -500,6 +500,44 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert Ryker.Emisar.ApprovalMessageWorker.run_once(message_options(adapters)) == {:ok, :idle}
   end
 
+  # Pre-receipt transcripts cannot prove which explicit guidance they read.
+  # Withhold their review details without stranding an already waiting task.
+  test "an older unproven briefing keeps its approval watch and terminal continuation" do
+    claim = claim_episode!("review-before-guidance-custody")
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+
+    assert {:ok, recorded} =
+             Tools.call("record_emisar_approval", approval_arguments(),
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
+             )
+
+    {:ok, fake} = FakeWorkCoopAPI.start_link([approval_reply(recorded["record_ref"])])
+    assert {:ok, first} = Executor.run(claim, executor_options(fake))
+    deliver!(first, "1788019200.000150")
+
+    Repo.update_all(Ryker.Work.Session.Query.by_id(claim.session.id),
+      set: [guidance_exposures: nil]
+    )
+
+    {:ok, slack} = FakeSlackAPI.start_link(observer: self())
+    adapters = adapters_for!(slack)
+    refresh!(adapters)
+    assert_receive {:slack_posted, _, _, _, _, message_ref}
+    assert_receive {:slack_updated, _, ^message_ref, %{"message" => neutral}, _}
+    assert neutral =~ "unavailable"
+    refute neutral =~ "emisar.example"
+    assert Inspectors.episode(claim.episode.key).state == :waiting_for_event
+    assert Inspectors.emisar_approval(@connection_ref, "apr-e2e").status == :monitoring
+
+    assert {:ok, %{status: :resumed}} =
+             Approvals.observe(@connection_ref, "apr-e2e", lease!(), terminal_run_state(), 5)
+
+    assert Inspectors.episode(claim.episode.key).state == :working
+    assert Inspectors.emisar_approval(@connection_ref, "apr-e2e").status == :resumed
+    assert Repo.get!(Turn, claim.turn.id).delivery_document == first.turn.delivery_document
+    assert Repo.get!(Ryker.Work.Session, claim.session.id).guidance_exposures == nil
+  end
+
   test "withdrawn producer custody neutralizes even an answered review" do
     claim = claim_episode!("review-source-withdrawal")
     assert KnowledgeSnapshot.expose(claim, []) == :ok

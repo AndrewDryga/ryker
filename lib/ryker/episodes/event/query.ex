@@ -76,6 +76,27 @@ defmodule Ryker.Episodes.Event.Query do
   def select_admissions(queryable),
     do: select(queryable, [episode_kernel_events: e], {e.episode_id, e.dedupe_key, e.payload})
 
+  @doc "The newest active asker, then the latest historical asker; queued inputs never rebind privacy."
+  def select_asking_actor(%Episode{} = episode) do
+    episode.id
+    |> by_episode_id()
+    |> by_kind(:input_admitted)
+    |> before_sequence(episode.next_sequence)
+    |> excluding_dedupe_keys(episode.queued_input_refs)
+    |> where(
+      [episode_kernel_events: e],
+      not is_nil(fragment("?::jsonb ->> 'actor_ref'", e.payload))
+    )
+    |> order_by([episode_kernel_events: e],
+      desc: e.dedupe_key in ^episode.active_input_refs,
+      desc: e.sequence
+    )
+    |> limit_to(1)
+    |> select_actor_refs()
+  end
+
+  def select_asking_actor(_episode), do: where(all(), false) |> select_actor_refs()
+
   def select_actor_refs(queryable) do
     select(
       queryable,

@@ -27,6 +27,95 @@ defmodule Ryker.Work.ExecutorTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # Retained correction words and complete reply are harvested fixtures.
+  # Removing a saved rule before submission must remove it from provider input.
+  test "deleted correction guidance never reaches an unsent provider turn" do
+    correction = Ryker.Fixtures.Corrections.correction!()
+
+    assert {:ok, saved} =
+             FixedTools.call("remember_correction", correction.arguments,
+               binding: correction.binding,
+               answer_authorizer: fn _ -> true end
+             )
+
+    claim = correction |> Ryker.Fixtures.Corrections.later!() |> Map.delete(:state_token)
+    [guidance] = claim.turn.submission["context"]["operator_context"]["guidance"]
+    assert guidance["behavior_ref"] == saved["behavior_ref"]
+    assert {:ok, _} = Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted)
+    assert Ryker.Behaviors.model_context(claim.episode, nil, nil)["guidance"] == []
+
+    {:ok, fake} = fake_for(claim, [captured_complete_reply()])
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+    assert [submitted] = Map.values(FakeAPI.state(fake).frozen_submissions)
+    assert get_in(submitted, ["context", "operator_context", "guidance"]) in [nil, []]
+  end
+
+  test "a native transcript containing withdrawn guidance rotates before another provider turn" do
+    correction = Ryker.Fixtures.Corrections.correction!()
+
+    assert {:ok, saved} =
+             FixedTools.call("remember_correction", correction.arguments,
+               binding: correction.binding,
+               answer_authorizer: fn _ -> true end
+             )
+
+    claim = correction |> Ryker.Fixtures.Corrections.later!() |> Map.delete(:state_token)
+    assert KnowledgeSnapshot.expose_submission(claim) == :ok
+
+    assert {:ok, session} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "remote:guidance:#{claim.episode.id}"
+             )
+
+    claim = %{claim | session: session}
+    assert {:ok, _} = Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted)
+    {:ok, fake} = fake_for(claim, [captured_complete_reply()])
+
+    create_session = fn fallback ->
+      FakeAPI.update(fake, fn state ->
+        %{state | session: Map.put(state.session, "id", "remote:guidance-replacement")}
+      end)
+
+      fallback.()
+    end
+
+    assert {:ok, %{status: :accepted, turn: answered}} =
+             Executor.run(claim, protocol_options(fake, %{create_session: create_session}))
+
+    refute answered.session_id == claim.session.id
+    assert [submitted] = Map.values(FakeAPI.state(fake).frozen_submissions)
+    assert get_in(submitted, ["context", "operator_context", "guidance"]) in [nil, []]
+    assert Repo.get!(Session, claim.session.id).guidance_exposures[saved["behavior_ref"]]
+  end
+
+  # A pending pre-upgrade row can bind for the first time after migration.
+  # Do not spend a Work retry before replacing its unproven native custody.
+  test "an older unbound session replaces unproven guidance custody before its first submission" do
+    claim = claim_episode!("older-unbound-guidance")
+    session = claim.session |> Ecto.Changeset.change(guidance_exposures: nil) |> Repo.update!()
+    claim = %{claim | session: session}
+    {:ok, fake} = fake_for(claim, [captured_complete_reply()])
+
+    create_session = fn fallback ->
+      FakeAPI.update(fake, fn state ->
+        %{state | session: Map.put(state.session, "id", "older-guidance:#{state.create_count}")}
+      end)
+
+      fallback.()
+    end
+
+    assert {:ok, %{status: :accepted, turn: answered}} =
+             Executor.run(claim, protocol_options(fake, %{create_session: create_session}))
+
+    refute answered.session_id == session.id
+    assert FakeAPI.state(fake).submit_count == 1
+  end
+
   for origin <- [:automated, :human_followup, :human_followup_rotated] do
     test "an unchanged #{origin} notification settles into an event-only wait without a Slack delivery" do
       # The harvested TFC turn posted another unchanged-status reply at 11:16 UTC.

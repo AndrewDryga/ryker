@@ -21,6 +21,46 @@ defmodule Ryker.Records.DerivedContextTest do
   @captured "testdata/learning/recorded-private-source-citation.json"
   @source "testdata/learning/retained-haproxy-lifecycle.json"
 
+  # Task records may survive fitting after direct guidance is trimmed. Their
+  # inherited guidance receipts must still revoke the recipient's native context.
+  test "inherited task records retain guidance withdrawal fences" do
+    correction = Ryker.Fixtures.Corrections.correction!()
+
+    assert {:ok, saved} =
+             FixedTools.call("remember_correction", correction.arguments,
+               binding: correction.binding,
+               answer_authorizer: fn _ -> true end
+             )
+
+    producer = Ryker.Fixtures.Corrections.later!(correction)
+    offer = Repo.fetch!(Records.Record.Query.by_ref(saved["record_ref"]))
+    assert KnowledgeSnapshot.expose_submission(producer) == :ok
+
+    assert {:ok, _record} =
+             Records.create(
+               Records.token(producer.turn),
+               "guidance-history",
+               "guidance_offer",
+               offer.payload
+             )
+
+    recipient = replacement!(producer)
+    assert {:ok, submission} = Inspectors.submission(recipient)
+    assert submission["context"]["records"] != []
+    submission = put_in(submission, ["context", "operator_context", "guidance"], [])
+
+    assert KnowledgeSnapshot.expose_submission(%{
+             recipient
+             | turn: %{recipient.turn | submission: submission}
+           }) == :ok
+
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) == :ok
+    assert {:ok, _} = Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted)
+
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) ==
+             {:error, :work_knowledge_context_stale}
+  end
+
   # A fitted replacement briefing can keep task records while omitting the
   # optional original note. Its inherited roots must keep their automatic role.
   test "automatic source roles survive inheritance through retained task records" do

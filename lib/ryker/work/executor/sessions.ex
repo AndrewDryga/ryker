@@ -67,6 +67,9 @@ defmodule Ryker.Work.Executor.Sessions do
       end
 
     case result do
+      {:ok, bound_claim, remote_session} ->
+        use_or_rotate_session(bound_claim, remote_session, settings)
+
       {:error, {:coop_session_replacement_required, _session_id, _generation}} ->
         replace_lost_session(claim, settings)
 
@@ -143,6 +146,7 @@ defmodule Ryker.Work.Executor.Sessions do
     case Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
       :ok -> {:ok, claim, remote}
       {:error, :work_knowledge_context_stale} -> rotate_session(claim, settings)
+      {:error, reason} -> {:error, reason}
     end
   end
 

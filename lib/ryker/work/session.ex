@@ -39,6 +39,7 @@ defmodule Ryker.Work.Session do
     field(:workspace_task, Ryker.CanonicalJSON.Type)
     field(:source_exposure_count, :integer)
     field(:knowledge_exposure_count, :integer)
+    field(:guidance_exposures, Ryker.CanonicalJSON.Type, default: %{})
 
     # Only a routing session started ahead of time has one: `starting` while
     # Coop creates it, `ready` once open, `claimed` by exactly one message's
@@ -121,6 +122,7 @@ defmodule Ryker.Work.Session do
           workspace_task: map() | nil,
           source_exposure_count: non_neg_integer() | nil,
           knowledge_exposure_count: non_neg_integer() | nil,
+          guidance_exposures: map() | nil,
           ready_state: :starting | :ready | :claimed | :retired | nil,
           warm_until: DateTime.t() | nil,
           cleanup_status:

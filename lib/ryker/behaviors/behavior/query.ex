@@ -266,5 +266,7 @@ defmodule Ryker.Behaviors.Behavior.Query do
   def select_ids(queryable), do: select(queryable, [operator_behaviors: b], b.id)
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_for_share_skip_locked(queryable), do: lock(queryable, "FOR SHARE SKIP LOCKED")
+
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
 end

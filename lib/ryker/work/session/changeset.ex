@@ -68,6 +68,7 @@ defmodule Ryker.Work.Session.Changeset do
 
     %Session{}
     |> cast(attrs, @insert_fields)
+    |> put_change(:guidance_exposures, %{})
     |> validate_required(@insert_required)
     |> validate_length(:policy, min: 1, max: 1_024, count: :codepoints)
     |> validate_format(:policy_digest, Crypto.sha256_hex_pattern())

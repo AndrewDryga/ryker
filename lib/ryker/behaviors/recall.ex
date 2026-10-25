@@ -161,7 +161,8 @@ defmodule Ryker.Behaviors.Recall do
     ids
   end
 
-  defp guidance_document(behavior) do
+  @doc "Internal — the exact stable model projection of one guidance revision."
+  def guidance_document(%Behavior{} = behavior) do
     %{
       "behavior_ref" => behavior.ref,
       "revision" => behavior.revision,
@@ -186,6 +187,8 @@ defmodule Ryker.Behaviors.Recall do
     |> Map.put("assignment_ref", behavior.payload["assignment_ref"])
     |> put_edit_provenance(behavior)
   end
+
+  def guidance_document(_behavior), do: nil
 
   defp requirements(behavior) do
     for description <- behavior.payload["requirements"] || [] do

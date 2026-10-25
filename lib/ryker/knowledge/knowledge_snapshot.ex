@@ -1,5 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @moduledoc "Reauthorize the sources of an exact retained knowledge revision used by Work."
+  alias Ryker.Behaviors
   alias Ryker.Episodes
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeExposure
@@ -13,8 +14,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @stale {:error, :work_knowledge_context_stale}
 
   def authorize_session(%Episodes.Episode{} = destination, %Work.Session{} = session) do
-    case Repo.transaction(fn -> session_valid?(destination, session) end) do
-      {:ok, true} -> :ok
+    case Repo.transaction(fn -> authorize_retained_session(destination, session) end) do
+      {:ok, :ok} -> :ok
+      {:ok, {:error, :work_derived_context_busy}} -> {:error, :work_derived_context_busy}
+      {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
       _ -> @stale
     end
   end
@@ -77,21 +80,25 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
        do: Repo.rollback(:work_memory_source_capacity_exceeded)
 
     with true <- turn.session_id == session.id,
-         true <- session_valid?(destination, session),
+         :ok <- authorize_retained_session(destination, session),
          :ok <- still_valid(destination, session.repository_ref, context.knowledge),
          references <- fetch_and_lock_dependency_heads!(context.sources),
          {:ok, custody} <-
            validated_disclosures(destination, session.repository_ref, context),
-         {:ok, automatic} <- automatic_sources(context, current, kind) do
+         {:ok, automatic} <- automatic_sources(context, current, kind),
+         {:ok, guidance} <-
+           Behaviors.GuidanceSnapshot.authorize(context.guidance, destination, current, kind) do
       Enum.each(references, &record_knowledge(&1, session, turn))
       record_inherited_knowledge(context.inherited, session, turn)
       record_sources(custody.roots, session, custody.input_only, automatic)
       inherit_automatic_sources(context.inherited, current)
+      Behaviors.GuidanceSnapshot.retain!(current, guidance, context.inherited)
       attest_exposure_counts(current)
       # What a run was shown is part of its request's record.
       Ryker.Episodes.broadcast_episode_updated(session.episode_id)
       Enum.each(references, &Ryker.Knowledge.broadcast_knowledge_updated(&1["knowledge_id"]))
     else
+      {:error, :work_derived_context_busy} -> Repo.rollback(:work_derived_context_busy)
       _ -> Repo.rollback(:work_knowledge_context_stale)
     end
   end
@@ -150,10 +157,14 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     receiving =
       session.episode_id == destination.id and Work.Session.same_identity?(session, receiver)
 
-    if exposure_counts_attested?(session) and
-         authorize_session(destination, receiving_scope) == :ok and
-         (receiving or sources_valid?(destination, repository, sources)),
-       do: sources
+    with true <- exposure_counts_attested?(session),
+         :ok <- authorize_retained_session(destination, receiving_scope),
+         true <- receiving or sources_valid?(destination, repository, sources) do
+      sources
+    else
+      {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
+      _ -> nil
+    end
   end
 
   defp authorized_producer_sources(_destination, _session, _repository, _receiver), do: nil
@@ -203,6 +214,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   defp document_context!(%Episodes.Episode{} = destination, %Work.Session{} = session, documents) do
     {derived, ordinary} = Enum.split_with(documents, &Records.DerivedContext.derived?/1)
+    {guidance, ordinary} = Enum.split_with(ordinary, &(&1["kind"] == "guidance"))
     {inputs, memory_documents} = Enum.split_with(ordinary, &(&1["kind"] == "work_input"))
 
     case Records.DerivedContext.resolve(derived, destination, session.repository_ref, session) do
@@ -229,6 +241,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
           )
 
         %{
+          guidance: guidance,
           knowledge: knowledge,
           sources: sources,
           inherited: inherited.session_ids,
@@ -477,18 +490,22 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     end
   end
 
-  defp session_valid?(%Episodes.Episode{} = destination, %Work.Session{} = session) do
-    current = Repo.peek(Work.Session.Query.by_id(session.id))
+  defp authorize_retained_session(%Episodes.Episode{} = destination, %Work.Session{} = session) do
+    query = Work.Session.Query.by_id(session.id)
 
-    if current && exposure_counts_consistent?(current) do
-      receiving_session = %{current | repository_ref: session.repository_ref}
-      retained_session_valid?(destination, receiving_session)
+    with {:ok, %Work.Session{} = current} <- Repo.fetch(query),
+         true <- exposure_counts_consistent?(current),
+         receiving_session <- %{current | repository_ref: session.repository_ref},
+         :ok <- Behaviors.GuidanceSnapshot.authorize_session(destination, receiving_session),
+         true <- retained_session_valid?(destination, receiving_session) do
+      :ok
     else
-      false
+      {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
+      _ -> @stale
     end
   end
 
-  defp session_valid?(_destination, _session), do: false
+  defp authorize_retained_session(_destination, _session), do: @stale
 
   defp retained_session_valid?(destination, session) do
     query =
@@ -601,9 +618,17 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          context <- document_context!(destination, current, documents),
          :ok <- still_valid(destination, current.repository_ref, context.knowledge),
          {:ok, _custody} <- validated_disclosures(destination, current.repository_ref, context),
-         {:ok, _automatic} <- automatic_sources(context, current, :submission) do
+         {:ok, _automatic} <- automatic_sources(context, current, :submission),
+         {:ok, _guidance} <-
+           Behaviors.GuidanceSnapshot.authorize(
+             context.guidance,
+             destination,
+             current,
+             :submission
+           ) do
       true
     else
+      {:error, :work_derived_context_busy} -> Repo.rollback(:work_derived_context_busy)
       _ -> false
     end
   end
@@ -642,8 +667,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       [context["current"]] ++
         Enum.flat_map(~w(related rollups knowledge observations), &(context[&1] || []))
 
+    guidance = get_in(briefing, ["operator_context", "guidance"]) || []
+
     (work_input_documents(briefing) ++
-       memory ++ Records.DerivedContext.submission_documents(briefing))
+       guidance ++ memory ++ Records.DerivedContext.submission_documents(briefing))
     |> Enum.reject(&is_nil/1)
   end
 

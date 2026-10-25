@@ -160,6 +160,14 @@ explicit history searches keep their source provenance and may cross environment
 memory disclosures conservatively carry the automatic role, while proven input-only custody keeps
 its original-input exception. A stale unsent briefing follows the existing rebuild path; a
 contaminated native session uses the existing rotation path and keeps its retained history.
+Guidance disclosures also retain content-free receipts on the locked native Session: exact ref,
+revision and projection digest, with a sticky automatic role. Frozen briefing authorization,
+explicit memory reads and native reuse recheck active status, expiry, visibility and applicable
+automatic scope. Inherited task records carry those receipts even when direct guidance is trimmed.
+Unproven pre-upgrade native guidance custody rotates before reuse; it is never backfilled as empty.
+Older producer history without those receipts is withheld from model briefings and review details;
+approval watches and terminal continuation remain active while their cards show unavailable details.
+Existing transcripts and completed results remain retained, and unauthorized results stay held.
 The existing source-exposure table has no per-turn disclosure cutoff, so this uses the producer
 session's accumulated dependencies conservatively. Later disclosures can make an earlier record
 unavailable; do not claim precise per-record source attribution or copy every root onto every row.
