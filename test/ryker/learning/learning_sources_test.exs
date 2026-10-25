@@ -6,9 +6,35 @@ defmodule Ryker.Learning.LearningSourcesTest do
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+
+  # Forget preserved fingerprints and revisions, so the locked check accepted
+  # withdrawn memory even after the query prefilter had stopped returning it.
+  test "only input-only custody accepts a forgotten original receipt" do
+    [entry | _] = LearningFixtures.inputs!(isolate: true)
+    [receipt] = LearningSources.for_entry(entry)
+    {:ok, scope} = Continuity.destination_context(entry, entry.repository_ref)
+    assert KnowledgeFixtures.forget!(entry) == :ok
+    refute LearningSources.valid?([receipt], scope)
+
+    assert LearningSources.validated_disclosures([receipt], [], scope) ==
+             {:ok,
+              %{
+                roots: [receipt],
+                input_only: MapSet.new([{receipt["observation_id"], receipt["source_input_id"]}])
+              }}
+
+    assert LearningSources.validated_disclosures([], [receipt], scope) == :error
+    assert LearningSources.validated_disclosures([receipt], [receipt], scope) == :error
+  end
+
+  test "a compact knowledge reference cannot claim to be an authenticated input" do
+    reference = LearningSources.knowledge_reference(Ecto.UUID.generate(), 1, 1)
+    assert LearningSources.validated_disclosures([reference], [], %{}) == :error
+  end
 
   test "observation custody binds original content independently of optional navigation metadata" do
     # Reader availability can change between a frozen submission and recall.

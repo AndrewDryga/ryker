@@ -55,10 +55,11 @@ defmodule Ryker.Records.DerivedContext do
   end
 
   @doc "Filter optional history without changing its retained audit representation."
-  def filter(documents, destination, repository) do
+  def filter(documents, %Episodes.Episode{} = destination, repository, receiver)
+      when is_struct(receiver, Work.Session) or is_nil(receiver) do
     {:ok, selected} =
       Repo.transaction(fn ->
-        {proofs, sessions} = context(documents, destination, repository)
+        {proofs, sessions} = context(documents, destination, repository, receiver)
 
         proofs
         |> Enum.filter(fn {_document, proof} ->
@@ -70,11 +71,16 @@ defmodule Ryker.Records.DerivedContext do
     selected
   end
 
-  @doc "Resolve only exact host-owned projections; references never authorize arbitrary prose."
-  def resolve([], _destination, _repository), do: {:ok, %{sources: [], session_ids: []}}
+  def filter(_documents, _destination, _repository, _receiver), do: []
 
-  def resolve(documents, destination, repository) do
-    {proofs, sessions} = context(documents, destination, repository)
+  @doc "Resolve only exact host-owned projections; references never authorize arbitrary prose."
+  def resolve([], %Episodes.Episode{}, _repository, receiver)
+      when is_struct(receiver, Work.Session) or is_nil(receiver),
+      do: {:ok, %{sources: [], session_ids: []}}
+
+  def resolve(documents, %Episodes.Episode{} = destination, repository, receiver)
+      when is_struct(receiver, Work.Session) or is_nil(receiver) do
+    {proofs, sessions} = context(documents, destination, repository, receiver)
 
     cond do
       Enum.any?(sessions, fn {_, session} ->
@@ -92,21 +98,29 @@ defmodule Ryker.Records.DerivedContext do
     end
   end
 
+  def resolve(_documents, _destination, _repository, _receiver), do: @stale
+
   defp merged_context(proofs, sessions) do
+    # This native transcript already owns its records and their complete
+    # disclosure ledger. Re-reading them must not turn its raw inputs into
+    # recalled memory. A different receiver inherits strictly checked roots.
+    inherited = Map.reject(sessions, fn {_id, context} -> context.receiving end)
+
     groups =
-      Enum.map(sessions, fn {_, session} -> session.sources end) ++
+      Enum.map(inherited, fn {_, session} -> session.sources end) ++
         Enum.map(proofs, fn {_, proof} -> proof.sources end)
 
     case Learning.LearningSources.merge(groups) do
       sources when is_list(sources) ->
-        {:ok, %{sources: sources, session_ids: Map.keys(sessions)}}
+        {:ok, %{sources: sources, session_ids: Map.keys(inherited)}}
 
       _ ->
         {:error, :work_memory_source_capacity_exceeded}
     end
   end
 
-  defp context(documents, destination, repository) do
+  defp context(documents, %Episodes.Episode{} = destination, repository, receiver)
+       when is_struct(receiver, Work.Session) or is_nil(receiver) do
     proofs = Enum.map(documents, &{&1, proof(&1, destination)})
 
     ids =
@@ -123,25 +137,35 @@ defmodule Ryker.Records.DerivedContext do
         # Exposure rows are accumulated for the whole native transcript. Taking
         # that union is conservative: later disclosures may invalidate an older
         # record, but must never make its old roots source-free or younger.
+        receiving_session = %{session | repository_ref: repository}
+
         sources =
-          Knowledge.KnowledgeSnapshot.producer_sources(destination, %{
-            session
-            | repository_ref: repository
-          })
+          Knowledge.KnowledgeSnapshot.producer_sources(
+            destination,
+            receiving_session,
+            receiver
+          )
 
         turn_ids = for {id, sid} <- owners, sid == session.id, do: id
+
+        receiving =
+          session.episode_id == destination.id and Work.Session.same_identity?(session, receiver)
 
         {session.id,
          %{
            id: session.id,
            turn_ids: turn_ids,
            sources: sources,
+           receiving: receiving,
            environment_ref: session.environment_ref
          }}
       end)
 
     {proofs, contexts}
   end
+
+  defp context(_documents, _destination, _repository, _receiver),
+    do: Repo.rollback(:work_knowledge_context_stale)
 
   defp eligible?(nil, _sessions, _destination, _repository), do: false
 

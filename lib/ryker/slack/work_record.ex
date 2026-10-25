@@ -120,11 +120,12 @@ defmodule Ryker.Slack.WorkRecord do
   # them all, as the task's page does.
   defp shown_in_channel(%{turn: %Work.Turn{session_id: session_id}} = snapshot)
        when is_binary(session_id) do
-    repository =
+    session =
       session_id
       |> Work.Session.Query.by_id()
-      |> Work.Session.Query.select_repository_refs()
-      |> Repo.one()
+      |> Repo.peek()
+
+    repository = if session, do: session.repository_ref
 
     shown =
       snapshot.records
@@ -135,7 +136,7 @@ defmodule Ryker.Slack.WorkRecord do
           "ref" => &1.ref
         })
       )
-      |> Records.DerivedContext.filter(snapshot.episode, repository)
+      |> Records.DerivedContext.filter(snapshot.episode, repository, session)
       |> MapSet.new(& &1["document"]["ref"])
 
     %{snapshot | records: Enum.filter(snapshot.records, &MapSet.member?(shown, &1.ref))}

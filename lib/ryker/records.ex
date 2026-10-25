@@ -192,14 +192,16 @@ defmodule Ryker.Records do
   The episode's retained records a Work turn is shown, for the repository
   its session works in: each record's model document, newest first.
   """
-  @spec model_records(Episodes.Episode.t(), String.t() | nil) :: [map()]
-  def model_records(%Episodes.Episode{} = destination_episode, repository) do
+  @spec model_records(Episodes.Episode.t(), Work.Session.t()) :: [map()]
+  def model_records(%Episodes.Episode{} = destination_episode, %Work.Session{} = session) do
     destination_episode.id
     |> retained_records()
     |> Enum.map(&DerivedContext.record/1)
-    |> DerivedContext.filter(destination_episode, repository)
+    |> DerivedContext.filter(destination_episode, session.repository_ref, session)
     |> Enum.map(& &1["document"])
   end
+
+  def model_records(_episode, _session), do: []
 
   @doc """
   Whether this episode already holds an unanswered question.

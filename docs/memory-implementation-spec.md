@@ -142,6 +142,16 @@ custody or have missing rows. Successful exposure records source/knowledge row c
 same session lock, including an intentionally empty submission. Reuse requires that marker and
 matching retained counts. This attests Ryker-accounted disclosures, not untracked native or
 live-platform reads. Failed exposure cannot initialize the marker.
+Source exposures distinguish authenticated inputs from memory disclosures. Forget does not make
+the original message unanswerable, but it invalidates every recalled or derived use of that
+source. The input-only exception is recorded only after exact input authentication; any memory
+disclosure permanently removes it for that session, preserving the earliest receipt. Older
+exposures conservatively carry no input-only exception. Summaries and records inherited by another
+session require sources that have not been forgotten, even when their producer could still answer
+the original message. Reading the exact same session's own task records is already accounted for
+by that session's complete ledger; it does not reclassify its raw inputs as recalled memory.
+Receiver identity binds both session and episode. Reuse checks all retained exposure roles before
+continuing a native session.
 The existing source-exposure table has no per-turn disclosure cutoff, so this uses the producer
 session's accumulated dependencies conservatively. Later disclosures can make an earlier record
 unavailable; do not claim precise per-record source attribution or copy every root onto every row.

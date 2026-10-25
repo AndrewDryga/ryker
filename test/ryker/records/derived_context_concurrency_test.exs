@@ -36,7 +36,8 @@ defmodule Ryker.Records.DerivedContextConcurrencyTest do
           assert Repo.transaction(fn ->
                    KnowledgeSnapshot.producer_sources(
                      claim.episode,
-                     Repo.get!(Session, claim.session.id)
+                     Repo.get!(Session, claim.session.id),
+                     claim.session
                    )
                  end) == {:ok, []}
 
@@ -61,7 +62,8 @@ defmodule Ryker.Records.DerivedContextConcurrencyTest do
         result =
           KnowledgeSnapshot.producer_sources(
             receiver.episode,
-            Repo.get!(Session, producer.session.id)
+            Repo.get!(Session, producer.session.id),
+            receiver.session
           )
 
         send(parent, {:producer_result, self(), result})

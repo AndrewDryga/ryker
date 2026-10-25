@@ -5,6 +5,7 @@ defmodule Ryker.Fixtures.Knowledge do
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Memories
   alias Ryker.Repo
 
   @doc "Store-contract fixture, not an admission memory API or a model-result recording."
@@ -128,4 +129,18 @@ defmodule Ryker.Fixtures.Knowledge do
         })
       end)
   end
+
+  @doc "Run the production Forget transition for a retained source, without inventing a learned fact."
+  def forget!(%Entry{} = entry) do
+    fact = %Memories.MemoryEntry{
+      answer_provenance: %{"input_ref" => "ingress-input:" <> entry.id}
+    }
+
+    {:ok, _outcome} =
+      Repo.transaction(fn -> Memories.Forgetting.forget_fact_in_transaction(fact) end)
+
+    :ok
+  end
+
+  def forget!(_entry), do: raise(ArgumentError, "a retained input is required")
 end

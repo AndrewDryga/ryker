@@ -29,7 +29,7 @@ defmodule Ryker.Records.Outcomes do
     |> candidate_episodes()
     |> Enum.flat_map(&build_outcome/1)
     |> Enum.map(&DerivedContext.outcome/1)
-    |> DerivedContext.filter(current_episode, repository)
+    |> DerivedContext.filter(current_episode, repository, nil)
     |> Enum.map(& &1["document"])
     |> Enum.sort_by(&sort_key(&1, current_episode), :desc)
     |> Enum.take(@maximum_outcomes)

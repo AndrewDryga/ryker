@@ -769,7 +769,7 @@ defmodule Ryker.GitHub.RouterTest do
 
       assert KnowledgeSnapshot.authorize_submission(
                claim.episode,
-               claim.session.repository_ref,
+               claim.session,
                submission
              ) == :ok
 
@@ -784,7 +784,7 @@ defmodule Ryker.GitHub.RouterTest do
 
         assert KnowledgeSnapshot.authorize_submission(
                  claim.episode,
-                 claim.session.repository_ref,
+                 claim.session,
                  tampered
                ) == {:error, :work_knowledge_context_stale}
       end

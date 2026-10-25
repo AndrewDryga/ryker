@@ -3,6 +3,7 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
   alias Ryker.Admission.ConversationSummaries
   alias Ryker.{CanonicalJSON, Continuity, Repo}
   alias Ryker.Continuity.{Compaction, ConversationRollup, ConversationSummary}
+  alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.{Learning, WorkSessions}
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Learning.{LearningSources, Observations}
@@ -253,6 +254,37 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
       assert [document] = Continuity.model_context(episode, entry.repository_ref)["rollups"]
       assert document["environment_ref"] == entry.work_profile["environment_ref"]
     end
+  end
+
+  # Forget cleared fresh recall but left the current handover and raw native
+  # exposures authorized, so the same forgotten prose reached later turns.
+  test "forgotten original roots cannot remain automatic current-summary context" do
+    {source, _target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    {:ok, scope} = Continuity.destination_context(source, source.repository_ref)
+
+    source
+    |> summary!()
+    |> Ecto.Changeset.change(identity_key: scope.identity_key)
+    |> Repo.update!()
+
+    episode = Repo.get!(Ryker.Episodes.Episode, source.episode_id)
+    assert Continuity.model_context(episode, source.repository_ref)["current"] != nil
+    assert KnowledgeFixtures.forget!(source) == :ok
+    assert Continuity.model_context(episode, source.repository_ref)["current"] == nil
+  end
+
+  test "forgetting a recalled original invalidates the retained native transcript" do
+    {source, _target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    assert {:ok, claim} = Ryker.Work.Custody.claim_next("forgotten-source", 60, :work)
+    assert claim.episode.id == source.episode_id
+    note = Repo.get!(Ryker.Learning.ConversationObservation, source.id)
+    assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [Observations.document(note)]) == :ok
+    assert KnowledgeFixtures.forget!(source) == :ok
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   defp sources! do

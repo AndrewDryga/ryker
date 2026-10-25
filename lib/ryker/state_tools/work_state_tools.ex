@@ -30,7 +30,7 @@ defmodule Ryker.StateTools.WorkStateTools do
 
   defp current_work_state(limit, binding) do
     records =
-      Records.model_records(binding.episode, binding.session.repository_ref)
+      Records.model_records(binding.episode, binding.session)
       |> Enum.take(-limit)
 
     platform_actions = Delivery.PlatformActionCustody.model_actions(binding.episode.id)

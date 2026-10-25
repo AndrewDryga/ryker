@@ -246,14 +246,16 @@ defmodule Ryker.Slack.TaskCardProjection do
            Records.DerivedContext.resolve(
              [Records.DerivedContext.record(Records.Record.document(record))],
              source_episode,
-             source_session.repository_ref
+             source_session.repository_ref,
+             source_session
            ),
          %Work.Session{} = session <- snapshot.session,
          {:ok, _} <-
            Records.DerivedContext.resolve(
              snapshot_documents(snapshot),
              episode,
-             session.repository_ref
+             session.repository_ref,
+             session
            ) do
       true
     else

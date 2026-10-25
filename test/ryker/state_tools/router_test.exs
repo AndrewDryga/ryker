@@ -3164,7 +3164,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert error =~ "source_kind"
     assert error =~ "slack"
-    assert Records.model_records(claim.episode, claim.session.repository_ref) == []
+    assert Records.model_records(claim.episode, claim.session) == []
 
     tools = Tools.list(bound_options(claim))
     schema = Enum.find(tools, &(&1["name"] == "propose_automation"))["inputSchema"]

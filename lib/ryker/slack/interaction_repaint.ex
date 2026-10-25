@@ -169,7 +169,8 @@ defmodule Ryker.Slack.InteractionRepaint do
            Records.DerivedContext.resolve(
              repaint_sources(turn, document),
              episode,
-             session.repository_ref
+             session.repository_ref,
+             session
            ) do
       :public
     else

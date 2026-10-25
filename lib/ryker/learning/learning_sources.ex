@@ -254,14 +254,34 @@ defmodule Ryker.Learning.LearningSources do
     [receipt(source)]
   end
 
-  def authorize_context(context, entry) do
-    with {:ok, scope} <- Observations.fetch_and_lock_scope(entry, entry.repository_ref),
-         true <- valid?(context.source_dependencies, scope) do
-      context.source_dependencies
+  def authorize_context(%Admission.Context{} = context, %Ingress.Inbox.Entry{} = entry) do
+    with sources when is_list(sources) <- context.source_dependencies,
+         {:ok, scope} <- Observations.fetch_and_lock_scope(entry, entry.repository_ref) do
+      input_receipts = context.input |> Ingress.Input.document() |> input_sources() || []
+      input_keys = source_keys(input_receipts)
+
+      {inputs, remaining} =
+        Enum.split_with(sources, fn source ->
+          key = source_key(source)
+          MapSet.member?(input_keys, key)
+        end)
+
+      candidate_receipts = Enum.map(context.candidates, &candidate_sources/1)
+      documents = context.observations ++ context.knowledge
+      memory_receipts = Enum.map(documents, &document_sources/1)
+      groups = [remaining | candidate_receipts ++ memory_receipts]
+      memories = merge(groups)
+
+      case validated_disclosures(inputs, memories, scope) do
+        {:ok, _custody} -> sources
+        _ -> nil
+      end
     else
       _ -> nil
     end
   end
+
+  def authorize_context(_context, _entry), do: nil
 
   defp receipt(source) do
     %{
@@ -629,8 +649,47 @@ defmodule Ryker.Learning.LearningSources do
 
   @doc "Validate once and return the exact authorized roots for this transaction."
   def validated_roots(sources, scope) when is_list(sources) do
-    with {^sources, roots} <- resolve([sources]),
-         true <- available_references?(sources),
+    case resolve([sources]) do
+      {^sources, roots} ->
+        input_only = MapSet.new()
+        validate_roots(sources, roots, scope, input_only)
+
+      _ ->
+        :error
+    end
+  end
+
+  def validated_roots(_, _), do: :error
+
+  @doc """
+  Validate authenticated input receipts separately from recalled or derived
+  sources. Only a source disclosed exclusively as an input may remain valid
+  after Forget. The same source in both roles is always memory custody.
+  """
+  def validated_disclosures(inputs, memories, scope) when is_list(inputs) and is_list(memories) do
+    with true <- Enum.all?(inputs, &valid_shape?/1),
+         {_normalized, memory_roots} <- resolve([memories]),
+         {sources, roots} <- resolve([inputs, memories]) do
+      input_keys = source_keys(inputs)
+      memory_keys = source_keys(memory_roots)
+      input_only = MapSet.difference(input_keys, memory_keys)
+
+      case validate_roots(sources, roots, scope, input_only) do
+        {:ok, roots} -> {:ok, %{roots: roots, input_only: input_only}}
+        _ -> :error
+      end
+    else
+      _ -> :error
+    end
+  end
+
+  def validated_disclosures(_, _, _), do: :error
+
+  defp source_keys(sources), do: MapSet.new(sources, &source_key/1)
+  defp source_key(source), do: {source["observation_id"], source["source_input_id"]}
+
+  defp validate_roots(sources, roots, scope, input_only) do
+    with true <- available_references?(sources),
          true <- future_inputs_absent?(roots, scope) do
       ids = roots |> Enum.map(& &1["observation_id"]) |> Enum.uniq()
 
@@ -644,15 +703,16 @@ defmodule Ryker.Learning.LearningSources do
       notes = notes |> Observations.authorized_notes(scope) |> Map.new(&{&1.id, &1})
       cutoff = horizon_cutoff()
 
-      if Enum.all?(roots, &valid_receipt?(&1, notes[&1["observation_id"]], scope, cutoff)),
-        do: {:ok, roots},
-        else: :error
+      if Enum.all?(
+           roots,
+           &valid_receipt?(&1, notes[&1["observation_id"]], scope, cutoff, input_only)
+         ),
+         do: {:ok, roots},
+         else: :error
     else
       _ -> :error
     end
   end
-
-  def validated_roots(_, _), do: :error
 
   defp available_references?(sources) do
     sources
@@ -667,13 +727,22 @@ defmodule Ryker.Learning.LearningSources do
     end)
   end
 
-  defp valid_receipt?(_receipt, nil, _scope, _cutoff), do: false
+  defp valid_receipt?(_receipt, nil, _scope, _cutoff, _input_only), do: false
 
-  defp valid_receipt?(_receipt, %{source_result_ref: "source-conflict:" <> _}, _scope, _cutoff),
-    do: false
+  defp valid_receipt?(
+         _receipt,
+         %{source_result_ref: "source-conflict:" <> _},
+         _scope,
+         _cutoff,
+         _input_only
+       ),
+       do: false
 
-  defp valid_receipt?(receipt, source, scope, cutoff) do
-    receipt_matches_source?(receipt, source) and source.workspace_ref == scope.workspace_ref and
+  defp valid_receipt?(receipt, source, scope, cutoff, input_only) do
+    key = source_key(receipt)
+
+    (is_nil(source.forgotten_at) or MapSet.member?(input_only, key)) and
+      receipt_matches_source?(receipt, source) and source.workspace_ref == scope.workspace_ref and
       unexpired?(DateTime.to_iso8601(source.updated_at), cutoff) and
       unexpired?(receipt["retained_at"], cutoff)
   end

@@ -362,15 +362,27 @@ defmodule Ryker.Continuity.Handover do
 
   defp exact_candidate(_draft, _turn), do: {:error, :conversation_summary_candidate_mismatch}
 
-  defp upsert_summary(draft, episode, turn, result_ref, context) do
-    case Knowledge.KnowledgeSnapshot.summary_sources(turn.session_id) do
-      {:ok, dependencies} ->
-        persist_staged_summary(draft, episode, turn, result_ref, context, dependencies)
+  defp upsert_summary(
+         %ConversationSummaryDraft{} = draft,
+         %Episodes.Episode{} = episode,
+         %Work.Turn{} = turn,
+         result_ref,
+         context
+       ) do
+    with {:ok, dependencies} <- Knowledge.KnowledgeSnapshot.summary_sources(turn.session_id),
+         true <- Learning.LearningSources.valid?(dependencies, context) do
+      persist_staged_summary(draft, episode, turn, result_ref, context, dependencies)
+    else
+      false ->
+        {:error, {:conversation_summary_unavailable, "source_unavailable"}}
 
       {:error, reason} ->
         {:error, {:conversation_summary_unavailable, reason}}
     end
   end
+
+  defp upsert_summary(_draft, _episode, _turn, _result_ref, _context),
+    do: {:error, {:conversation_summary_unavailable, "source_unavailable"}}
 
   defp persist_staged_summary(draft, episode, turn, result_ref, context, dependencies) do
     attributes = %{

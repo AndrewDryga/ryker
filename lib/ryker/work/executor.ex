@@ -61,7 +61,7 @@ defmodule Ryker.Work.Executor do
            :ok <-
              Knowledge.KnowledgeSnapshot.authorize_submission(
                claim.episode,
-               claim.session.repository_ref,
+               claim.session,
                claim.turn.submission
              ),
            {:ok, remote_turn} <- Remote.fetch_bound_turn(claim, settings),
@@ -103,7 +103,7 @@ defmodule Ryker.Work.Executor do
   defp authorize_or_rebuild(claim, remote_session, settings, rebuilt? \\ false) do
     case Knowledge.KnowledgeSnapshot.authorize_submission(
            claim.episode,
-           claim.session.repository_ref,
+           claim.session,
            claim.turn.submission
          ) do
       :ok ->

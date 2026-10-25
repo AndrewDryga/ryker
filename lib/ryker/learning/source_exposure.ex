@@ -8,5 +8,6 @@ defmodule Ryker.Learning.SourceExposure do
     field(:observation_id, :binary_id, primary_key: true)
     field(:source_input_id, :binary_id, primary_key: true)
     field(:receipt, Ryker.CanonicalJSON.Type)
+    field(:input_only, :boolean, default: false)
   end
 end

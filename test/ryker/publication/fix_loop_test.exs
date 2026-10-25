@@ -87,7 +87,7 @@ defmodule Ryker.Publication.FixLoopTest do
     # The host's own words carry no raw source, so Work may show them as they are.
     assert KnowledgeSnapshot.authorize_submission(
              fix.episode,
-             fix.session.repository_ref,
+             fix.session,
              submission
            ) == :ok
 

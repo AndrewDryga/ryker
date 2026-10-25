@@ -349,9 +349,6 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
-  def select_repository_refs(queryable),
-    do: select(queryable, [episode_work_sessions: s], s.repository_ref)
-
   def select_episode_ids(queryable),
     do: select(queryable, [episode_work_sessions: s], s.episode_id)
 

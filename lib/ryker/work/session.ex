@@ -165,4 +165,14 @@ defmodule Ryker.Work.Session do
       do: offer_ref
 
   def coop_task_ref(%__MODULE__{external_ref: external_ref}), do: external_ref
+
+  @doc "Whether two retained session rows name the same episode's native transcript."
+  def same_identity?(%__MODULE__{id: id, episode_id: episode_id}, %__MODULE__{
+        id: id,
+        episode_id: episode_id
+      })
+      when is_binary(id) and is_binary(episode_id),
+      do: true
+
+  def same_identity?(_producer, _receiver), do: false
 end

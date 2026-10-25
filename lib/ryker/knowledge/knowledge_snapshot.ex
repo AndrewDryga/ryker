@@ -1,5 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @moduledoc "Reauthorize the sources of an exact retained knowledge revision used by Work."
+  alias Ryker.Episodes
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeRevision
@@ -46,24 +47,24 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     unless exposure_counts_consistent?(current),
       do: Repo.rollback(:work_knowledge_context_stale)
 
-    {knowledge, sources, inherited} =
-      document_context!(destination, session.repository_ref, documents)
+    context = document_context!(destination, session, documents)
 
     # Each search page is bounded, but all pages share one retained transcript.
     # Check its union under the same session lock before disclosing new text.
     # Re-reading an existing root costs no extra capacity or retained lifetime.
-    if is_list(sources) and
-         is_nil(Learning.LearningSources.merge([session_sources(session.id), sources])),
+    if is_list(context.sources) and
+         is_nil(Learning.LearningSources.merge([session_sources(session.id), context.sources])),
        do: Repo.rollback(:work_memory_source_capacity_exceeded)
 
     with true <- turn.session_id == session.id,
          true <- session_valid?(destination, session),
-         :ok <- still_valid(destination, session.repository_ref, knowledge),
-         references <- fetch_and_lock_dependency_heads!(sources),
-         true <- sources_valid?(destination, session.repository_ref, sources) do
+         :ok <- still_valid(destination, session.repository_ref, context.knowledge),
+         references <- fetch_and_lock_dependency_heads!(context.sources),
+         {:ok, custody} <-
+           validated_disclosures(destination, session.repository_ref, context) do
       Enum.each(references, &record_knowledge(&1, session, turn))
-      record_inherited_knowledge(inherited, session, turn)
-      record_sources(Learning.LearningSources.expand(sources), session)
+      record_inherited_knowledge(context.inherited, session, turn)
+      record_sources(custody.roots, session, custody.input_only)
       attest_exposure_counts(current)
       # What a run was shown is part of its request's record.
       Ryker.Episodes.broadcast_episode_updated(session.episode_id)
@@ -73,12 +74,24 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     end
   end
 
-  @doc "Within the owning transaction, resolve proven Ryker-accounted disclosure custody."
-  def producer_sources(destination, session) do
-    if Repo.in_transaction?(), do: fetch_and_lock_producer_sources(destination, session)
+  @doc """
+  Within the owning transaction, resolve proven disclosure custody for an
+  exact receiver. Own-session records use its already authorized transcript;
+  another receiver, including nil for a historical read, requires unforgotten roots.
+  """
+  def producer_sources(%Episodes.Episode{} = destination, %Work.Session{} = session, receiver)
+      when is_struct(receiver, Work.Session) or is_nil(receiver) do
+    if Repo.in_transaction?(), do: fetch_and_lock_producer_sources(destination, session, receiver)
   end
 
-  defp fetch_and_lock_producer_sources(destination, session) do
+  def producer_sources(_destination, _session, _receiver), do: nil
+
+  defp fetch_and_lock_producer_sources(
+         %Episodes.Episode{} = destination,
+         %Work.Session{} = session,
+         receiver
+       )
+       when is_struct(receiver, Work.Session) or is_nil(receiver) do
     # The receiver may already hold its UPDATE lock. Never wait on another
     # producer here: reciprocal historical reads must yield, not deadlock.
     current =
@@ -93,13 +106,32 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
           do: {:error, :work_derived_context_busy}
 
       {:ok, current} ->
-        receiving_scope = %{current | repository_ref: session.repository_ref}
-
-        if exposure_counts_attested?(current) and
-             authorize_session(destination, receiving_scope) == :ok,
-           do: session_sources(current.id)
+        authorized_producer_sources(destination, current, session.repository_ref, receiver)
     end
   end
+
+  defp fetch_and_lock_producer_sources(_destination, _session, _receiver), do: nil
+
+  defp authorized_producer_sources(
+         %Episodes.Episode{} = destination,
+         %Work.Session{} = session,
+         repository,
+         receiver
+       )
+       when is_struct(receiver, Work.Session) or is_nil(receiver) do
+    receiving_scope = %{session | repository_ref: repository}
+    sources = session_sources(session.id)
+
+    receiving =
+      session.episode_id == destination.id and Work.Session.same_identity?(session, receiver)
+
+    if exposure_counts_attested?(session) and
+         authorize_session(destination, receiving_scope) == :ok and
+         (receiving or sources_valid?(destination, repository, sources)),
+       do: sources
+  end
+
+  defp authorized_producer_sources(_destination, _session, _repository, _receiver), do: nil
 
   # A session created before exposure counts were attested carries none; a
   # disclosure or a validity check tolerates that, a handover or a source read
@@ -144,15 +176,21 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     not Repo.exists?(begun) and not Repo.exists?(Records.Record.Query.by_session_id(session_id))
   end
 
-  defp document_context!(destination, repository, documents) do
+  defp document_context!(%Episodes.Episode{} = destination, %Work.Session{} = session, documents) do
     {derived, ordinary} = Enum.split_with(documents, &Records.DerivedContext.derived?/1)
+    {inputs, memories} = Enum.split_with(ordinary, &(&1["kind"] == "work_input"))
 
-    case Records.DerivedContext.resolve(derived, destination, repository) do
+    case Records.DerivedContext.resolve(derived, destination, session.repository_ref, session) do
       {:ok, inherited} ->
-        sources =
-          Learning.LearningSources.merge([
-            inherited.sources | Enum.map(ordinary, &Learning.LearningSources.document_sources/1)
-          ])
+        inputs =
+          inputs
+          |> Enum.map(&Learning.LearningSources.document_sources/1)
+          |> Learning.LearningSources.merge()
+
+        memory_sources = Enum.map(memories, &Learning.LearningSources.document_sources/1)
+        memories = Learning.LearningSources.merge([inherited.sources | memory_sources])
+
+        sources = Learning.LearningSources.merge([inputs, memories])
 
         knowledge =
           Enum.filter(
@@ -161,12 +199,21 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
                 match?(%{"source_ref" => "knowledge:" <> _}, &1))
           )
 
-        {knowledge, sources, inherited.session_ids}
+        %{
+          knowledge: knowledge,
+          sources: sources,
+          inherited: inherited.session_ids,
+          inputs: inputs,
+          memories: memories
+        }
 
       {:error, reason} ->
         Repo.rollback(reason)
     end
   end
+
+  defp document_context!(_destination, _session, _documents),
+    do: Repo.rollback(:work_knowledge_context_stale)
 
   defp record_inherited_knowledge([], _session, _turn), do: :ok
 
@@ -230,9 +277,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     )
   end
 
-  defp record_sources([], _session), do: :ok
+  defp record_sources([], %Work.Session{}, %MapSet{}), do: :ok
 
-  defp record_sources(receipts, session) do
+  defp record_sources(receipts, %Work.Session{} = session, %MapSet{} = input_only) do
     ids = receipts |> Enum.map(& &1["observation_id"]) |> Enum.uniq()
 
     existing =
@@ -240,7 +287,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       |> Learning.SourceExposure.Query.by_session_id()
       |> Learning.SourceExposure.Query.by_observation_ids(ids)
       |> Repo.all()
-      |> Map.new(&{{&1.observation_id, &1.source_input_id}, &1.receipt})
+      |> Map.new(&{{&1.observation_id, &1.source_input_id}, &1})
 
     # The parent session is locked. Preserve earliest custody, skip unchanged
     # rows, and batch writes instead of making two network round trips per root.
@@ -248,30 +295,38 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       Enum.flat_map(receipts, fn receipt ->
         identity = {receipt["observation_id"], receipt["source_input_id"]}
         previous = existing[identity]
+        previous_receipt = if previous, do: previous.receipt
+        earliest = earliest_receipt!(previous_receipt, receipt)
 
-        earliest = earliest_receipt!(previous, receipt)
+        only_input =
+          MapSet.member?(input_only, identity) and (is_nil(previous) or previous.input_only)
 
-        if earliest == previous,
-          do: [],
-          else: [
-            %{
-              session_id: session.id,
-              observation_id: elem(identity, 0),
-              source_input_id: elem(identity, 1),
-              receipt: earliest
-            }
-          ]
+        if not is_nil(previous) and earliest == previous.receipt and
+             only_input == previous.input_only,
+           do: [],
+           else: [
+             %{
+               session_id: session.id,
+               observation_id: elem(identity, 0),
+               source_input_id: elem(identity, 1),
+               receipt: earliest,
+               input_only: only_input
+             }
+           ]
       end)
 
     rows
     |> Enum.chunk_every(500)
     |> Enum.each(fn chunk ->
       Repo.insert_all(Learning.SourceExposure, chunk,
-        on_conflict: {:replace, [:receipt]},
+        on_conflict: {:replace, [:receipt, :input_only]},
         conflict_target: [:session_id, :observation_id, :source_input_id]
       )
     end)
   end
+
+  defp record_sources(_receipts, _session, _input_only),
+    do: Repo.rollback(:work_knowledge_context_stale)
 
   defp earliest_receipt!(nil, receipt), do: receipt
 
@@ -348,7 +403,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     with :ok <-
            authorize_submission(
              claim.episode,
-             claim.session.repository_ref,
+             claim.session,
              claim.turn.submission
            ) do
       expose(claim, submission_documents(claim.turn.submission))
@@ -391,27 +446,54 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     session_id
     |> Learning.SourceExposure.Query.by_session_id()
     |> Learning.SourceExposure.Query.ordered_by_observation()
-    |> Learning.SourceExposure.Query.select_receipts()
     |> Repo.stream(max_rows: 500)
     # Even maximum-size receipts fit the 8 MiB validation budget in these batches.
     # Check the whole transcript without reverting to per-root round trips.
     |> Stream.chunk_every(500)
-    |> Enum.all?(&Learning.LearningSources.valid?(Learning.LearningSources.merge([&1]), scope))
+    |> Enum.all?(&exposure_batch_valid?(&1, scope))
   end
 
-  def authorize_submission(destination, repository, submission) do
+  defp exposure_batch_valid?(exposures, scope) do
+    {inputs, memories} = Enum.split_with(exposures, & &1.input_only)
+    inputs = Enum.map(inputs, & &1.receipt)
+    memories = Enum.map(memories, & &1.receipt)
+
+    match?({:ok, _}, Learning.LearningSources.validated_disclosures(inputs, memories, scope))
+  end
+
+  def authorize_submission(
+        %Episodes.Episode{id: episode_id} = destination,
+        %Work.Session{episode_id: episode_id} = session,
+        submission
+      ) do
     documents = submission_documents(submission)
 
     case Repo.transaction(fn ->
-           {knowledge, sources, _inherited} =
-             document_context!(destination, repository, documents)
+           context = document_context!(destination, session, documents)
 
-           still_valid(destination, repository, knowledge) == :ok and
-             sources_valid?(destination, repository, sources)
+           still_valid(destination, session.repository_ref, context.knowledge) == :ok and
+             match?({:ok, _}, validated_disclosures(destination, session.repository_ref, context))
          end) do
       {:ok, true} -> :ok
       {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
       _ -> @stale
+    end
+  end
+
+  def authorize_submission(_destination, _session, _submission), do: @stale
+
+  # Kernel-only work with no source body still accepts its host transition
+  # after its channel is deleted; the write fence separately drops its draft.
+  defp validated_disclosures(_destination, _repository, %{inputs: [], memories: []}),
+    do: {:ok, %{roots: [], input_only: MapSet.new()}}
+
+  defp validated_disclosures(destination, repository, context) do
+    case Learning.Observations.fetch_and_lock_scope(destination, repository) do
+      {:ok, scope} ->
+        Learning.LearningSources.validated_disclosures(context.inputs, context.memories, scope)
+
+      _ ->
+        :error
     end
   end
 

@@ -59,7 +59,7 @@ defmodule Ryker.Work.SubmissionBuilder do
          previous <- previous_turn(episode.id, turn.id),
          {:ok, contract} <- Contract.select(episode.execution_mode),
          :ok <- Contract.authorize_continuation(contract, previous, session),
-         records <- Records.model_records(episode, session.repository_ref),
+         records <- Records.model_records(episode, session),
          {:ok, metadata} <-
            context_metadata(episode, session, snapshot.active, contract.mode, options),
          {:ok, context, eligible} <-
@@ -349,20 +349,27 @@ defmodule Ryker.Work.SubmissionBuilder do
         "related_outcomes" => Records.Outcomes.recall(episode, session.repository_ref)
       }
       |> maybe_put_repository_knowledge(session.repository_ref)
-      |> put_prior_outcome(previous, episode, session.repository_ref)
+      |> put_prior_outcome(previous, episode, session)
       |> Map.merge(metadata)
 
     fit_inputs(context, snapshot, &input_document(&1, episode, origins, notes))
   end
 
-  defp put_prior_outcome(context, nil, _episode, _repository), do: context
+  defp put_prior_outcome(context, nil, %Episodes.Episode{}, %Session{}), do: context
 
-  defp put_prior_outcome(context, previous, episode, repository) do
-    case historical_delivery(previous, episode, repository) do
+  defp put_prior_outcome(
+         context,
+         %Turn{} = previous,
+         %Episodes.Episode{} = episode,
+         %Session{} = session
+       ) do
+    case historical_delivery(previous, episode, session) do
       nil -> context
       delivery -> Map.put(context, "prior_outcome", delivery)
     end
   end
+
+  defp put_prior_outcome(context, _previous, _episode, _session), do: context
 
   # The earlier messages go oldest first until the briefing fits with no
   # optional notes, and then as many notes as fit go back in: a note never
@@ -443,7 +450,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   end
 
   defp continuation_context(episode, session, snapshot, records, previous, metadata) do
-    delivery = historical_delivery(previous, episode, session.repository_ref)
+    delivery = historical_delivery(previous, episode, session)
 
     context =
       %{
@@ -1040,16 +1047,19 @@ defmodule Ryker.Work.SubmissionBuilder do
     }
   end
 
-  defp historical_delivery(turn, episode, repository) do
+  defp historical_delivery(%Turn{} = turn, %Episodes.Episode{} = episode, %Session{} = session) do
     document = Records.DerivedContext.delivery_document(turn)
 
     case Records.DerivedContext.filter(
            [Records.DerivedContext.delivery(document)],
            episode,
-           repository
+           session.repository_ref,
+           session
          ) do
       [_] -> document
       [] -> nil
     end
   end
+
+  defp historical_delivery(_turn, _episode, _session), do: nil
 end

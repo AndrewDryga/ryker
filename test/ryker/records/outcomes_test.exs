@@ -55,11 +55,21 @@ defmodule Ryker.Records.OutcomesTest do
 
     assert {:ok, {:ok, _}} =
              Repo.transaction(fn ->
-               Records.DerivedContext.resolve([wrapped], same.episode, "shared-infra")
+               Records.DerivedContext.resolve(
+                 [wrapped],
+                 same.episode,
+                 "shared-infra",
+                 same.session
+               )
              end)
 
     assert Repo.transaction(fn ->
-             Records.DerivedContext.resolve([wrapped], foreign.episode, "shared-infra")
+             Records.DerivedContext.resolve(
+               [wrapped],
+               foreign.episode,
+               "shared-infra",
+               foreign.session
+             )
            end) ==
              {:ok, {:error, :work_knowledge_context_stale}}
   end
@@ -212,7 +222,7 @@ defmodule Ryker.Records.OutcomesTest do
 
     submission = probe.turn.submission
     assert length(submission["context"]["related_outcomes"]) == 2
-    assert KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission) == :ok
+    assert KnowledgeSnapshot.authorize_submission(probe.episode, probe.session, submission) == :ok
 
     completed.episode
     |> Ecto.Changeset.change(updated_at: DateTime.add(DateTime.utc_now(), 1, :second))
@@ -237,7 +247,7 @@ defmodule Ryker.Records.OutcomesTest do
       status: :open
     })
 
-    assert KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission) == :ok
+    assert KnowledgeSnapshot.authorize_submission(probe.episode, probe.session, submission) == :ok
     assert %{episode: %{state: :complete}} = complete!(probe, "Historical context remains valid.")
   end
 

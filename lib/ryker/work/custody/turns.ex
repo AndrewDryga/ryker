@@ -1028,7 +1028,7 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <-
            Knowledge.KnowledgeSnapshot.authorize_submission(
              episode,
-             session.repository_ref,
+             session,
              turn.submission
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),

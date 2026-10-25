@@ -34,6 +34,81 @@ defmodule Ryker.Continuity.ContinuityTest do
 
   @now ~U[2026-09-04 12:00:00.000000Z]
 
+  # Forget withdraws learning, while the exact authenticated message remains
+  # answerable. A recalled copy must never borrow that input-only exception.
+  test "an authenticated original remains answerable after it is forgotten for learning" do
+    {entry, work, submission} = raw_work!()
+    assert KnowledgeFixtures.forget!(entry) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, submission) ==
+             :ok
+
+    assert KnowledgeSnapshot.expose_submission(work.claim) == :ok
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) == :ok
+  end
+
+  test "a memory disclosure permanently removes the original-input exception" do
+    {entry, work, submission} = raw_work!()
+
+    exposure_query =
+      work.claim.session.id
+      |> SourceExposure.Query.by_session_id()
+      |> SourceExposure.Query.by_observation_ids([entry.id])
+
+    before_exposure = Repo.fetch!(exposure_query)
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accept!(work, submission)
+    summary = Continuity.model_context(work.episode, "tenant-infra")["current"]
+    assert summary != nil
+    assert KnowledgeSnapshot.expose(work.claim, [summary]) == :ok
+    assert KnowledgeSnapshot.expose_submission(work.claim) == :ok
+    assert KnowledgeFixtures.forget!(entry) == :ok
+
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) ==
+             {:error, :work_knowledge_context_stale}
+
+    after_exposure = Repo.fetch!(exposure_query)
+    assert before_exposure.input_only == true
+    assert after_exposure.input_only == false
+    assert after_exposure.receipt == before_exposure.receipt
+  end
+
+  test "an answerable forgotten input cannot publish a new learned summary" do
+    {entry, work, submission} = raw_work!()
+    assert KnowledgeFixtures.forget!(entry) == :ok
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accepted = accept!(work, submission)
+    assert accepted.turn.result_ref == "result:#{work.claim.turn.id}"
+    assert Repo.all(ConversationSummary) == []
+  end
+
+  test "input-only permission never authorizes a forgotten source for historical derivation" do
+    {entry, work, submission} = raw_work!()
+    accept!(work, submission)
+    assert KnowledgeFixtures.forget!(entry) == :ok
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) == :ok
+
+    assert Repo.transaction(fn ->
+             KnowledgeSnapshot.producer_sources(work.episode, work.claim.session, nil)
+           end) == {:ok, nil}
+  end
+
+  test "a forgotten summary cannot borrow its matching authenticated input's exception" do
+    {entry, work, submission} = raw_work!()
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accept!(work, submission)
+    summary = Continuity.model_context(work.episode, "tenant-infra")["current"]
+    assert summary != nil
+
+    submission =
+      put_in(submission, ["context", "operator_context", "continuity", "current"], summary)
+
+    assert KnowledgeFixtures.forget!(entry) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, submission) ==
+             {:error, :work_knowledge_context_stale}
+  end
+
   for kind <- [:summary, :rollup], existing? <- [false, true] do
     test "#{if existing?, do: "updated", else: "new"} #{kind} is immediately searchable under host clock skew" do
       assert_searchable_clock_continuity!(unquote(kind), unquote(existing?))
@@ -283,7 +358,7 @@ defmodule Ryker.Continuity.ContinuityTest do
         "context" => %{"operator_context" => %{"continuity" => %{"related" => [document]}}}
       }
 
-      assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", frozen) ==
+      assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, frozen) ==
                {:error, :work_knowledge_context_stale}
 
       assert KnowledgeSnapshot.expose(work.claim, [document]) ==
@@ -561,7 +636,7 @@ defmodule Ryker.Continuity.ContinuityTest do
           [Map.delete(input, unquote(field))]
         end)
 
-      assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed) ==
+      assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, changed) ==
                {:error, :work_knowledge_context_stale}
     end
   end
@@ -575,7 +650,7 @@ defmodule Ryker.Continuity.ContinuityTest do
           [Map.put(input, "source_dependencies", replacement)]
         end)
 
-      assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed) ==
+      assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, changed) ==
                {:error, :work_knowledge_context_stale}
     end
   end
@@ -594,7 +669,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     [item] = get_in(rebuilt, ["context", "inputs", "items"])
     assert item["content"]["source_dependencies"] == []
     assert Enum.any?(item["source_dependencies"], &(&1["source_input_id"] == entry.id))
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, rebuilt) ==
+             :ok
   end
 
   test "historical truncation retains exact raw lineage and malformed ingress fails closed" do
@@ -604,7 +681,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"]["truncated"]
     assert Enum.any?(historical["source_dependencies"], &(&1["source_input_id"] == entry.id))
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, rebuilt) ==
+             :ok
 
     event = Repo.get!(Ryker.Episodes.Event, historical["source_event_id"])
     payload = Map.delete(event.payload["payload"], "native_input_id")
@@ -615,7 +694,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, malformed} = Inspectors.submission(work.claim)
 
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", malformed) ==
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, malformed) ==
              {:error, :work_knowledge_context_stale}
   end
 
@@ -628,7 +707,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert active_input["current"]
     assert active_input["source_dependencies"] == nil
 
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", active) ==
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, active) ==
              {:error, :work_knowledge_context_stale}
 
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
@@ -636,7 +715,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"] == %{"unavailable" => "source_not_current"}
     refute Jason.encode!(historical) =~ "nomad-hst01"
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, rebuilt) ==
+             :ok
   end
 
   test "a delta's withdrawn first input cannot reintroduce its original prose" do
@@ -655,7 +736,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     first = get_in(delta, ["context", "continuity", "first_input"])
     assert first["content"] == %{"unavailable" => "source_not_current"}
     refute Jason.encode!(first) =~ "nomad-hst01"
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", delta) == :ok
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, delta) == :ok
 
     assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) ==
              {:error, :work_knowledge_context_stale}
@@ -694,14 +775,16 @@ defmodule Ryker.Continuity.ContinuityTest do
     raw =
       put_in(submission, ["context", "inputs", "items"], [%{original | "content" => envelope}])
 
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", raw) ==
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, raw) ==
              {:error, :work_knowledge_context_stale}
 
     assert {:ok, current} = Inspectors.submission(work.claim)
     [notice] = get_in(current, ["context", "inputs", "items"])
     assert notice["content"] == %{"event_kind" => "delete", "unavailable" => "source_deleted"}
     refute Jason.encode!(current) =~ "nomad-hst01"
-    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", current) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(work.episode, work.claim.session, current) ==
+             :ok
 
     assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) ==
              {:error, :work_knowledge_context_stale}

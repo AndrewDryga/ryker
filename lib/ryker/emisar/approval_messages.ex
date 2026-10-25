@@ -189,7 +189,7 @@ defmodule Ryker.Emisar.ApprovalMessages do
 
   defp review_document(approvals, records, documents, destination, session) do
     if approvals != [] and length(records) == length(approvals) do
-      case Records.DerivedContext.resolve(documents, destination, session.repository_ref) do
+      case Records.DerivedContext.resolve(documents, destination, session.repository_ref, session) do
         {:ok, _} -> statuses_document(approvals)
         {:error, :work_derived_context_busy} -> Repo.rollback(:work_derived_context_busy)
         _ -> @neutral
