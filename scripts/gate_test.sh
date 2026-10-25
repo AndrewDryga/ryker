@@ -59,8 +59,11 @@ case $target in
     ;;
 esac
 FAKE
-# No model-world eval is running here, whatever the host is doing.
-printf '#!/bin/sh\nexit 1\n' >"$work/bin/pgrep"
+# This rig alone decides whether a model-world eval is running.
+cat >"$work/bin/pgrep" <<'FAKE'
+#!/bin/sh
+[ "${GATE_TEST_WORLD:-0}" = 1 ]
+FAKE
 chmod 0755 "$repo/scripts/gate.sh" "$repo/scripts/elixir-test.sh" "$work/bin/make" "$work/bin/pgrep"
 
 git -C "$repo" init -q
@@ -129,6 +132,60 @@ mkdir "$work/lock" && echo "$dead" >"$work/lock/pid"
 echo "after a crash" >>"$repo/untracked.txt"
 gate
 check "a lock whose holder died is taken over" 0 "$?"
+
+# A cancelled contender used to delete the holder's shared worktree despite
+# never acquiring its lock. The FIFO observes the waiting event, with no race
+# against a sleep or against a real gate running on this host.
+git -C "$repo" worktree add --quiet --detach "$work/home/tree" HEAD
+echo active-holder >"$work/home/tree/owner-marker"
+mkdir "$work/lock"
+echo $$ >"$work/lock/pid"
+echo "isolated holder" >"$work/lock/what"
+echo "queued cancellation" >>"$repo/untracked.txt"
+mkfifo "$work/queued-output"
+(
+  cd "$repo" || exit
+  exec env PATH="$work/bin:$PATH" GATE_TEST_STATE="$work" \
+    RYKER_GATE_HOME="$work/home" RYKER_GATE_LOCK="$work/lock" \
+    scripts/gate.sh >"$work/queued-output" 2>&1
+) &
+contender=$!
+IFS= read -r queued_line <"$work/queued-output"
+check "the contender waits for the holder" \
+  "gate: waiting for the gate already running: isolated holder" "$queued_line"
+kill -TERM "$contender"
+wait "$contender"
+check "a cancelled contender exits without running tests" 130 "$?"
+check "the contender leaves the holder's worktree" present \
+  "$([[ -f $work/home/tree/owner-marker ]] && echo present || echo absent)"
+check "the contender leaves the holder's lock" "$$" "$(cat "$work/lock/pid" 2>/dev/null)"
+rm -rf "$work/lock"
+git -C "$repo" worktree remove --force "$work/home/tree" 2>/dev/null || true
+
+# Taking the lock does not grant ownership of a previous --keep worktree.
+# A run waiting for an eval has not yet created its own snapshot tree.
+git -C "$repo" worktree add --quiet --detach "$work/home/tree" HEAD
+echo kept-snapshot >"$work/home/tree/owner-marker"
+echo "eval-wait cancellation" >>"$repo/untracked.txt"
+mkfifo "$work/eval-output"
+(
+  cd "$repo" || exit
+  exec env PATH="$work/bin:$PATH" GATE_TEST_STATE="$work" GATE_TEST_WORLD=1 \
+    RYKER_GATE_HOME="$work/home" RYKER_GATE_LOCK="$work/lock" \
+    scripts/gate.sh >"$work/eval-output" 2>&1
+) &
+contender=$!
+IFS= read -r eval_line <"$work/eval-output"
+check "the lock owner waits for the eval before creating its snapshot" \
+  "gate: waiting for the model-world eval to finish" "$eval_line"
+check "the waiting run owns the lock" "$contender" "$(cat "$work/lock/pid" 2>/dev/null)"
+kill -TERM "$contender"
+wait "$contender"
+check "a cancelled eval waiter exits cleanly" 130 "$?"
+check "the waiter preserves the earlier kept snapshot" present \
+  "$([[ -f $work/home/tree/owner-marker ]] && echo present || echo absent)"
+check "the waiter releases only its own lock" absent \
+  "$([[ -e $work/lock ]] && echo present || echo absent)"
 
 if ((failures > 0)); then
   echo "gate_test: $failures failure(s)"

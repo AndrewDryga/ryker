@@ -72,6 +72,7 @@ snapshot=$(git commit-tree --no-gpg-sign "$snapshot_tree" -p HEAD \
   -m "gate snapshot of $(git rev-parse --short HEAD) with $changes changed files")
 
 holding=0
+owns_tree=0
 groups=()
 
 # Stops what the gate started, removes its worktree and gives up the lock.
@@ -83,7 +84,7 @@ finish() {
     kill -TERM -- "-$group" 2>/dev/null || true
   done
   wait 2>/dev/null || true
-  if ((keep == 0)) && [[ -d $tree ]]; then
+  if ((holding == 1 && owns_tree == 1 && keep == 0)) && [[ -d $tree ]]; then
     git worktree remove --force "$tree" 2>/dev/null || rm -rf "$tree"
   fi
   if ((holding == 1)); then
@@ -138,6 +139,7 @@ done
 rm -rf "$tree"
 git worktree prune
 git worktree add --quiet --detach --force "$tree" "$snapshot"
+owns_tree=1
 
 # Dependencies and the Hex install are this checkout's own; the build is the
 # gate's, kept between runs so a gate compiles only what changed since the
