@@ -4,6 +4,7 @@ defmodule Ryker.Learning.DispatcherTest do
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Fixtures.Personalization
   alias Ryker.Ingress.Inbox.Entry
@@ -198,6 +199,19 @@ defmodule Ryker.Learning.DispatcherTest do
     execution_timeout_seconds: 600,
     api: API
   }
+
+  # An idle result never reached the provider pause and stranded a committed
+  # fixture in the gate. Eligibility must follow PostgreSQL even when Ecto's
+  # host-generated receipt clock is ahead.
+  test "personal context inputs are claimable even when the host clock is ahead" do
+    database_time = DatabaseClock.behind_host!()
+    {entry, _fact, _run} = Personalization.learning_context!(@settings)
+
+    assert {:ok, %{inputs: [claimed]}} = Batches.claim("profile-clock", @settings)
+    assert claimed.id == entry.id
+    assert DateTime.compare(entry.updated_at, database_time) != :gt
+    assert DateTime.compare(entry.inserted_at, database_time) != :gt
+  end
 
   test "a profile forgotten after session creation is never submitted to the worker" do
     # Creating the remote session is a network boundary. Facts can be withdrawn

@@ -177,6 +177,7 @@ defmodule Ryker.Fixtures.Personalization do
     raw = LearningFixtures.isolate_retained_input(raw)
     raw = Map.put(raw, "actor_ref", "profile-author:" <> raw["id"])
     entry = LearningFixtures.retained_input!(raw, policy)
+    [entry] = LearningFixtures.normalize_queue_timestamps!([entry])
 
     text =
       "testdata/learning/retained-rollout-correction.json"
