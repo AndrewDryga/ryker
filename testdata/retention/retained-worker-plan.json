@@ -1,0 +1,22 @@
+{
+  "provenance": {
+    "source": "persisted normalized worker discard plan",
+    "captured_on": "2026-10-25",
+    "pseudonymized": true
+  },
+  "plan": {
+    "operation_id": "discard-plan:retained-copy",
+    "revision": 3,
+    "session_id": "worker-session:retained-copy",
+    "workspace": {
+      "accepted_dirty": false,
+      "accepted_unmerged": false,
+      "branch": "work/retained-copy",
+      "dirty": true,
+      "head": "8c6e3b4a9d914acfc077d79159569ff44160fa5b",
+      "running": false,
+      "status_digest": "0c869149d82f699caa6202dc00f2a98cefcbfef3f088c34d9df42b70b2c86300",
+      "unmerged": true
+    }
+  }
+}

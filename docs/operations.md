@@ -155,6 +155,9 @@ definition changes before dispatch obtains the schedule lock, no work starts. Re
 schedule and confirm its current definition. Retrying the same successful action returns its
 existing receipt and never starts another occurrence.
 
+Deleting a retained working copy confirms its current cleanup plan. A changed plan requires a
+new confirmation before cleanup can accept its uncommitted changes or unmerged commits.
+
 If saving a completed result is blocked, retain its workspace and retry completion after repairing
 the cause. An explicit completion retry captures a fresh snapshot under a new operation key;
 automatic transport retries retain their existing key. The saved answer and completed model turn

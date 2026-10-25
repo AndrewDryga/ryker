@@ -204,6 +204,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       learning_retry_at: learning_retry_at(learning_batch),
       repository: workspace_label(session, names),
       discard_after: session.discard_after,
+      discard_plan_fingerprint: session.discard_plan_fingerprint,
       ref: session.external_ref,
       state: episode_state,
       status: session.cleanup_status,

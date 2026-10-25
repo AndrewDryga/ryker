@@ -572,7 +572,8 @@ defmodule Ryker.ControlPlane.Router do
   # the old token stopped matching and the person got a bare 403, never the
   # page saying what happened (2026-10-04 review).
   @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry: person-fact:forget: memory:forget:
-    behavior:active: behavior:disabled: behavior:deleted: schedule:active: schedule:paused: schedule:deleted:)
+    behavior:active: behavior:disabled: behavior:deleted: schedule:active: schedule:paused: schedule:deleted:
+    retention:discard_changes: retention:discard_unmerged:)
 
   defp confirmed(secret, canonical_action, resource_ref, token) do
     case CSRF.signed_action(secret, resource_ref, token) do
@@ -1003,10 +1004,10 @@ defmodule Ryker.ControlPlane.Router do
 
   defp confirmation("retention", resource_ref, "discard-changes", options) do
     case options.projection.workspace.(resource_ref) do
-      {:ok, %{action: :discard_changes, status: :retained}} ->
+      {:ok, %{action: :discard_changes, status: :retained} = workspace} ->
         {:ok, "Delete this working copy and its uncommitted changes?",
          "Ryker asks the worker to delete this working copy, including changes that were never committed and any commits that were never merged anywhere. This can't be undone.",
-         "retention:discard_changes", :danger}
+         "retention:discard_changes:" <> workspace.discard_plan_fingerprint, :danger}
 
       _unavailable ->
         {:error, :not_found}
@@ -1015,10 +1016,10 @@ defmodule Ryker.ControlPlane.Router do
 
   defp confirmation("retention", resource_ref, "discard", options) do
     case options.projection.workspace.(resource_ref) do
-      {:ok, %{action: :discard_unmerged, status: :retained}} ->
+      {:ok, %{action: :discard_unmerged, status: :retained} = workspace} ->
         {:ok, "Delete this working copy and its unmerged commits?",
          "Ryker asks the worker to delete this working copy, including commits that were never merged anywhere. The worker checks the copy again first and keeps it if it has uncommitted changes. This can't be undone.",
-         "retention:discard_unmerged", :danger}
+         "retention:discard_unmerged:" <> workspace.discard_plan_fingerprint, :danger}
 
       _unavailable ->
         {:error, :not_found}
@@ -1110,6 +1111,26 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("memory", resource_ref, "forget", "memory:forget:" <> fingerprint, actions, _conn),
     do: actions.forget_memory.(resource_ref, fingerprint)
 
+  defp perform(
+         "retention",
+         resource_ref,
+         "discard",
+         "retention:discard_unmerged:" <> fingerprint,
+         actions,
+         conn
+       ),
+       do: actions.discard_retention.(resource_ref, fingerprint, conn.assigns.viewer)
+
+  defp perform(
+         "retention",
+         resource_ref,
+         "discard-changes",
+         "retention:discard_changes:" <> fingerprint,
+         actions,
+         conn
+       ),
+       do: actions.discard_retention_changes.(resource_ref, fingerprint, conn.assigns.viewer)
+
   defp perform("schedule", resource_ref, "run-now", "schedule:run-now:" <> version, actions, conn) do
     revision = String.to_integer(version)
     actions.run_schedule.(resource_ref, revision, conn.assigns.viewer)
@@ -1162,12 +1183,6 @@ defmodule Ryker.ControlPlane.Router do
 
   defp perform("retention", resource_ref, "rearm", actions, viewer),
     do: actions.rearm_retention.(resource_ref, viewer)
-
-  defp perform("retention", resource_ref, "discard", actions, viewer),
-    do: actions.discard_retention.(resource_ref, viewer)
-
-  defp perform("retention", resource_ref, "discard-changes", actions, viewer),
-    do: actions.discard_retention_changes.(resource_ref, viewer)
 
   defp perform("slack_interaction", resource_ref, "rearm", actions, viewer),
     do: actions.rearm_slack_interaction.(resource_ref, viewer)

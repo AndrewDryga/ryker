@@ -86,8 +86,8 @@ defmodule Ryker.ControlPlane.Actions do
     %{
       act_on_lab_record: lab_record_action(placements, task_policies),
       delete_lab_message: lab_message_deleter(placements),
-      discard_retention: &discard_retention/2,
-      discard_retention_changes: &discard_retention_changes/2,
+      discard_retention: &discard_retention/3,
+      discard_retention_changes: &discard_retention_changes/3,
       edit_lab_message: lab_message_editor(placements),
       drop_learning: &drop_learning/3,
       forget_memory: &Memories.forget/2,
@@ -1033,12 +1033,22 @@ defmodule Ryker.ControlPlane.Actions do
     )
   end
 
-  defp discard_retention_changes(ref, viewer) do
-    Operator.Retention.discard_changes(ref, Actor.of(viewer), action_ref(:discard_changes))
+  defp discard_retention_changes(ref, fingerprint, viewer) do
+    Operator.Retention.discard_changes(
+      ref,
+      fingerprint,
+      Actor.of(viewer),
+      action_ref(:discard_changes)
+    )
   end
 
-  defp discard_retention(ref, viewer) do
-    Operator.Retention.discard_unmerged(ref, Actor.of(viewer), action_ref(:discard_unmerged))
+  defp discard_retention(ref, fingerprint, viewer) do
+    Operator.Retention.discard_unmerged(
+      ref,
+      fingerprint,
+      Actor.of(viewer),
+      action_ref(:discard_unmerged)
+    )
   end
 
   defp action_ref(action),

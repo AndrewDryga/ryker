@@ -2632,7 +2632,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert workspace.summary == "coop_unavailable"
     refute inspect(workspace) =~ "private transport detail"
     refute Map.has_key?(workspace, :discard_plan)
-    refute Map.has_key?(workspace, :discard_plan_fingerprint)
+    # A destructive question carries only its observed digest; a blocked copy has no such plan.
+    assert is_nil(workspace.discard_plan_fingerprint)
     # A repository-less Chat cleanup failure remains inspectable from Failures,
     # but it is not presented as a repository checkout on Workspaces.
     refute workspace in WorkspaceProjection.copies(%{}).current

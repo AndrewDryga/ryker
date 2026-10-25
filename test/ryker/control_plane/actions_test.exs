@@ -14,10 +14,10 @@ defmodule Ryker.ControlPlane.ActionsTest do
     assert callbacks.rearm_retention.("missing-session", nil) ==
              {:error, :operator_failure_not_found}
 
-    assert callbacks.discard_retention.("missing-session", nil) ==
+    assert callbacks.discard_retention.("missing-session", String.duplicate("a", 64), nil) ==
              {:error, :retention_session_not_found}
 
-    assert callbacks.discard_retention_changes.("missing-session", nil) ==
+    assert callbacks.discard_retention_changes.("missing-session", String.duplicate("a", 64), nil) ==
              {:error, :retention_session_not_found}
 
     assert callbacks.run_schedule.("missing-schedule", 1, nil) ==

@@ -22,11 +22,17 @@ defmodule Ryker.Operator.Retention do
   def rearm(session_ref, actor_ref, action_ref),
     do: change(:rearm, session_ref, nil, actor_ref, action_ref)
 
-  @spec discard_unmerged(String.t(), String.t(), String.t()) ::
-          {:ok, map()} | {:error, term()}
-  def discard_unmerged(session_ref, actor_ref, action_ref),
-    do: change(:discard_unmerged, session_ref, nil, actor_ref, action_ref)
-
+  @doc """
+  Requests a fresh cleanup plan for the observed retained copy, accepting its
+  unmerged commits. Returns `{:ok, %{outcome: :discard_requested | :duplicate,
+  action: action, session: session}}` or `{:error, reason}`: a changed plan is
+  `:retention_discard_plan_stale`, dirty work is `:retention_dirty_workspace`,
+  a missing/incompatible plan is `:retention_unmerged_plan_missing` or
+  `:retention_unmerged_discard_unavailable`, a missing session is
+  `:retention_session_not_found`, and a reused action key with a different
+  request is `:retention_operator_action_conflict`. Malformed references or
+  plan fingerprints return `{:invalid_retention_operator, field}` reasons.
+  """
   @spec discard_unmerged(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def discard_unmerged(session_ref, expected_plan_fingerprint, actor_ref, action_ref) do
@@ -40,15 +46,15 @@ defmodule Ryker.Operator.Retention do
   end
 
   @doc """
-  Lets a copy kept for uncommitted changes go, with any unmerged commits it also holds.
-
-  A copy with uncommitted changes was kept and checked again forever, with no
-  way for a person to end it (2026-10-09).
+  Requests a fresh cleanup plan for the observed copy's uncommitted changes
+  and any unmerged commits it holds. Returns `{:ok, %{outcome:
+  :discard_requested | :duplicate, action: action, session: session}}` or
+  `{:error, reason}`: `:retention_discard_plan_stale` for a changed plan,
+  `:retention_changes_discard_unavailable` for an incompatible current state,
+  `:retention_session_not_found`, or `:retention_operator_action_conflict`.
+  Malformed references or plan fingerprints return
+  `{:invalid_retention_operator, field}` reasons. No worker deletion runs here.
   """
-  @spec discard_changes(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def discard_changes(session_ref, actor_ref, action_ref),
-    do: change(:discard_changes, session_ref, nil, actor_ref, action_ref)
-
   @spec discard_changes(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def discard_changes(session_ref, expected_plan_fingerprint, actor_ref, action_ref),
@@ -56,7 +62,7 @@ defmodule Ryker.Operator.Retention do
 
   defp change(action, session_ref, expected_plan_fingerprint, actor_ref, action_ref) do
     with :ok <- reference(session_ref, :session_ref),
-         :ok <- optional_fingerprint(expected_plan_fingerprint),
+         :ok <- expected_fingerprint(action, expected_plan_fingerprint),
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(action_ref, :action_ref) do
       request = %{
@@ -175,7 +181,7 @@ defmodule Ryker.Operator.Retention do
        )
        when is_map(workspace) and is_binary(fingerprint) do
     cond do
-      is_binary(expected_plan_fingerprint) and expected_plan_fingerprint != fingerprint ->
+      expected_plan_fingerprint != fingerprint ->
         Repo.rollback(:retention_discard_plan_stale)
 
       workspace["dirty"] == true ->
@@ -224,7 +230,7 @@ defmodule Ryker.Operator.Retention do
          expected_plan_fingerprint
        )
        when is_map(workspace) and is_binary(fingerprint) do
-    if is_binary(expected_plan_fingerprint) and expected_plan_fingerprint != fingerprint do
+    if expected_plan_fingerprint != fingerprint do
       Repo.rollback(:retention_discard_plan_stale)
     else
       updated =
@@ -289,14 +295,14 @@ defmodule Ryker.Operator.Retention do
 
   defp reference(_value, field), do: {:error, {:invalid_retention_operator, field}}
 
-  defp optional_fingerprint(nil), do: :ok
+  defp expected_fingerprint(:rearm, nil), do: :ok
 
-  defp optional_fingerprint(value) when is_binary(value) do
+  defp expected_fingerprint(action, value) when action in [:discard_unmerged, :discard_changes] do
     if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_retention_operator, :expected_plan_fingerprint}}
   end
 
-  defp optional_fingerprint(_value),
+  defp expected_fingerprint(_action, _value),
     do: {:error, {:invalid_retention_operator, :expected_plan_fingerprint}}
 end

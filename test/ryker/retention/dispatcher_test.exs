@@ -257,11 +257,13 @@ defmodule Ryker.Retention.DispatcherTest do
 
     assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:changes:close")
     assert {:ok, {:executed, %{phase: :retained}}} = run(api, "cleanup:changes:plan")
-    assert Repo.get!(Session, session.id).retained_reason == "dirty"
+    retained = Repo.get!(Session, session.id)
+    assert retained.retained_reason == "dirty"
 
     assert {:ok, %{outcome: :discard_requested, session: requested}} =
              Ryker.Operator.Retention.discard_changes(
                session.external_ref,
+               retained.discard_plan_fingerprint,
                "operator:local",
                "retention-action:discard-changes:one"
              )

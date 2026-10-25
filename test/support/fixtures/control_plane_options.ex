@@ -39,11 +39,11 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:lab_message_delete, conversation_id, item_id})
           {:ok, %{status: :recorded}}
         end,
-        discard_retention: fn ref, _viewer ->
+        discard_retention: fn ref, _fingerprint, _viewer ->
           send(parent, {:discarded_retention, ref})
           {:ok, %{ref: ref}}
         end,
-        discard_retention_changes: fn ref, _viewer ->
+        discard_retention_changes: fn ref, _fingerprint, _viewer ->
           send(parent, {:discarded_retention_changes, ref})
           {:ok, %{ref: ref}}
         end,
@@ -1141,6 +1141,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             {:ok,
              %{
                action: :discard_unmerged,
+               discard_plan_fingerprint: String.duplicate("a", 64),
                execution_kind: :work,
                kind: "coop_session",
                repository: "ryker",
@@ -1155,6 +1156,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             {:ok,
              %{
                action: :discard_changes,
+               discard_plan_fingerprint: String.duplicate("a", 64),
                execution_kind: :work,
                kind: "coop_session",
                repository: "ryker",

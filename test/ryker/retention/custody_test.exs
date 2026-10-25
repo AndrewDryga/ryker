@@ -363,6 +363,7 @@ defmodule Ryker.Retention.CustodyTest do
 
     assert RetentionOperator.discard_unmerged(
              session.external_ref,
+             String.duplicate("a", 64),
              "operator:local",
              "retention-action:rearm:one"
            ) == {:error, :retention_operator_action_conflict}
@@ -410,6 +411,7 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, %{action: discard_action, outcome: :discard_requested, session: replanning}} =
              RetentionOperator.discard_unmerged(
                unmerged.external_ref,
+               unmerged.discard_plan_fingerprint,
                "operator:local",
                "retention-action:discard:unmerged"
              )
@@ -418,6 +420,7 @@ defmodule Ryker.Retention.CustodyTest do
              CanonicalJSON.digest(%{
                "action" => "discard_unmerged",
                "actor_ref" => "operator:local",
+               "expected_plan_fingerprint" => unmerged.discard_plan_fingerprint,
                "session_ref" => unmerged.external_ref
              })
 
@@ -431,12 +434,14 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, %{outcome: :duplicate}} =
              RetentionOperator.discard_unmerged(
                unmerged.external_ref,
+               unmerged.discard_plan_fingerprint,
                "operator:local",
                "retention-action:discard:unmerged"
              )
 
     assert RetentionOperator.discard_unmerged(
              dirty.external_ref,
+             dirty.discard_plan_fingerprint,
              "operator:local",
              "retention-action:discard:dirty"
            ) == {:error, :retention_dirty_workspace}
@@ -469,12 +474,28 @@ defmodule Ryker.Retention.CustodyTest do
       try do
         assert_receive {:session_locked, blocker_backend}, 5_000
 
-        first = operator_action_task(parent, session.external_ref, action_ref, :first)
+        first =
+          operator_action_task(
+            parent,
+            session.external_ref,
+            session.discard_plan_fingerprint,
+            action_ref,
+            :first
+          )
+
         Process.put(task_key, [first | Process.get(task_key)])
         assert_receive {:operator_started, :first, first_backend}, 5_000
         Ryker.ConcurrencyCase.await_blocked_by(first_backend, blocker_backend)
 
-        second = operator_action_task(parent, session.external_ref, action_ref, :second)
+        second =
+          operator_action_task(
+            parent,
+            session.external_ref,
+            session.discard_plan_fingerprint,
+            action_ref,
+            :second
+          )
+
         Process.put(task_key, [second | Process.get(task_key)])
         assert_receive {:operator_started, :second, second_backend}, 5_000
         Ryker.ConcurrencyCase.await_blocked_by(second_backend, first_backend)
@@ -755,10 +776,10 @@ defmodule Ryker.Retention.CustodyTest do
     Custody.mark_closed(session.id, close_claim.lease_ref)
   end
 
-  defp operator_action_task(parent, session_ref, action_ref, label) do
+  defp operator_action_task(parent, session_ref, fingerprint, action_ref, label) do
     Ryker.ConcurrencyCase.unboxed_task(fn ->
       send(parent, {:operator_started, label, Ryker.ConcurrencyCase.backend_pid()})
-      RetentionOperator.discard_unmerged(session_ref, "operator:local", action_ref)
+      RetentionOperator.discard_unmerged(session_ref, fingerprint, "operator:local", action_ref)
     end)
   end
 
