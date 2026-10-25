@@ -375,7 +375,9 @@ A result from before `people` existed has none and applies as before.
 Such facts are kept until forgotten, not for the conversation-memory horizon: a birthday is worth
 remembering longer than the talk it came up in. The author taking it back, editing or deleting the
 message, deleting the Slack channel, or an operator forgetting the person on Memory › People
-forgets it. A forgotten fact keeps no words. Separate content-free withdrawal records preserve
+forgets it. A forgotten fact keeps no words. Its key is a digest prefixed with `~`, outside the
+model's valid key namespace, so an ordinary kind cannot occupy or overwrite its tombstone.
+Separate content-free withdrawal records preserve
 source identities and historical cutoffs even when later learning replaces the current fact row
 or chooses a different kind. Explicitly forgetting a person or fact blocks older profile inputs;
 already-kept other facts stay intact, and new statements can teach facts again. Forgetting an

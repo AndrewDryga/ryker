@@ -10,7 +10,8 @@ defmodule Ryker.People.PersonFact do
     the message itself across revisions; `said_at` is when it was said.
   - `conversation_ref` is where it was said, and `private` whether that place
     is a direct message or a private channel, where it stays.
-  - A forgotten one has no `fact` and keeps the rest. Durable
+  - A forgotten one has no `fact` and its key is a digest prefixed with `~`,
+    outside the model's key namespace. It keeps the rest. Durable
     `Ryker.People.FactWithdrawal` records preserve its replay boundary even
     when a later statement replaces this row.
   """

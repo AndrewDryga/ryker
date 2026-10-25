@@ -85,14 +85,14 @@ defmodule Ryker.People.PersonFact.Query do
 
   @doc """
   The update that forgets each fact `queryable` selects at `now`: its kind
-  becomes a digest of the person and the kind, and what was said goes.
+  becomes a digest in the reserved forgotten namespace, and what was said goes.
   """
   def forget_at(queryable, now) do
     update(queryable, [person_facts: f],
       set: [
         key:
           fragment(
-            "'f' || left(encode(sha256(convert_to(? || chr(10) || ?, 'UTF8')), 'hex'), 47)",
+            "'~' || left(encode(sha256(convert_to(? || chr(10) || ?, 'UTF8')), 'hex'), 47)",
             f.person_ref,
             f.key
           ),

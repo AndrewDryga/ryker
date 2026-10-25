@@ -326,7 +326,7 @@ defmodule Ryker.PeopleTest do
     Repo.all(from(f in PersonFact, where: f.person_ref == ^person_ref))
     |> Enum.map(fn
       %{status: :forgotten, key: key} ->
-        if key =~ ~r/\Af[0-9a-f]{47}\z/, do: :forgotten, else: key
+        if key =~ ~r/\A~[0-9a-f]{47}\z/, do: :forgotten, else: key
 
       %{key: key} ->
         key

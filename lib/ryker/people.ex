@@ -550,6 +550,6 @@ defmodule Ryker.People do
   # replay boundary. `forget_where/2` computes the same kind digest in SQL.
   defp forgotten_key(person, key) do
     digest = Crypto.sha256_hex(person <> "\n" <> key)
-    "f" <> binary_part(digest, 0, 47)
+    "~" <> binary_part(digest, 0, 47)
   end
 end
