@@ -2207,16 +2207,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
             {"observed_at", "Observed"}
           ],
           is_binary(payload[key]) do
-        value =
-          if key == "observed_at",
-            do: readable_candidate_time(payload[key]),
-            else: human(payload[key])
-
-        ["<span>", label, " · ", escape(value), "</span>"]
+        ["<span>", label, " · ", escape(knowledge_meta_value(key, payload[key])), "</span>"]
       end
 
     if values == [], do: [], else: ["<p class=\"knowledge-meta\">", values, "</p>"]
   end
+
+  defp knowledge_meta_value("observed_at", value), do: readable_candidate_time(value)
+
+  defp knowledge_meta_value("scope", value)
+       when value not in ~w(global workspace conversation current_channel user mine operator),
+       do: value
+
+  defp knowledge_meta_value(_key, value), do: human(value)
 
   # The retained component has no GitHub owner/repository. Today's mutable
   # settings cannot supply that historical identity; relative paths stay text.
@@ -2447,7 +2450,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     Components.disclosure_html(label, body,
       class: "context-candidate context-record context-outcome",
-      label_content: SlackMarkdown.mentions(label, workspace),
+      label_content: SlackMarkdown.render(label, workspace),
       meta: finished(item["finished_at"])
     )
   end

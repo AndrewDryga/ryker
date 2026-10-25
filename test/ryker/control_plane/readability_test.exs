@@ -292,6 +292,31 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert facts =~ "grid-template-columns:minmax(0,1fr)"
   end
 
+  test "wait conditions remain full-width rows inside the page surface", %{css: css} do
+    # Live review of a retained wait found attachment conditions beside one
+    # another: the page's generic dl columns overrode the new card's grid.
+    assert [_, conditions] = Regex.run(~r/\.ryker-app \.wait-match \{([^}]+)\}/, css)
+    assert conditions =~ "grid-template-columns:minmax(0,1fr)"
+    assert conditions =~ "min-width:0"
+
+    assert [_, cells] = Regex.run(~r/\.wait-match dt, \.wait-match dd \{([^}]+)\}/, css)
+    assert cells =~ "padding:0"
+    assert cells =~ "border:0"
+  end
+
+  test "phone tool details give the actual query a full-width line", %{css: css} do
+    # The failed Slack search's full query was forced into a 118px side column
+    # on a 320px screen even though the page itself did not overflow.
+    assert [_, row] =
+             Regex.run(
+               ~r/@media \(max-width:580px\) \{ \.action-facts > div \{([^}]+)\}/,
+               css
+             )
+
+    assert row =~ "grid-template-columns:minmax(0,1fr)"
+    assert row =~ "gap:2px"
+  end
+
   test "candidate evidence cannot squeeze event reasons into a side column", %{css: css} do
     # Full-page Chromium screenshots caught unreadably narrow rejection text
     # despite a passing page-overflow check; geometry is also browser-tested.

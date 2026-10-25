@@ -90,7 +90,8 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
             "status" => "open",
             "payload" => %{
               "what" => "Readiness passed.",
-              "reason" => "Both probes returned 200."
+              "reason" => "Both probes returned 200.",
+              "scope" => "Example/service run-AbC123 predeployment"
             }
           }
         ]
@@ -107,6 +108,10 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
 
     assert LazyHTML.query(document, ".knowledge-entry-body") |> LazyHTML.text() =~
              "Readiness passed."
+
+    # Humanizing an enum must not lowercase identifiers in a free-text scope.
+    assert LazyHTML.query(document, ".knowledge-meta") |> LazyHTML.text() =~
+             "Example/service run-AbC123 predeployment"
 
     assert LazyHTML.query(document, ".knowledge-actions a")
            |> LazyHTML.attribute("href")
@@ -207,6 +212,32 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
     assert outcome |> LazyHTML.query("strong") |> LazyHTML.text() == "discarded"
     assert Enum.empty?(LazyHTML.query(outcome, "script"))
     assert LazyHTML.text(outcome) =~ "<script>bad()</script>"
+  end
+
+  test "related outcome disclosure titles render the source's link instead of Slack syntax" do
+    # The richer retained history starts its attachment text with a labelled
+    # Slack link. Mention-only formatting exposed that raw control syntax.
+    document =
+      readable(%{
+        "related_outcomes" => [
+          %{
+            "trigger" => %{
+              "content" => %{
+                "attachments" => [
+                  %{"pretext" => "Run notification for <https://example.com/run|Example/service>"}
+                ]
+              }
+            }
+          }
+        ]
+      })
+
+    title = LazyHTML.query(document, ".context-outcome > summary .ui-disclosure-label")
+    assert LazyHTML.text(title) == "Run notification for Example/service"
+
+    assert LazyHTML.query(title, "a") |> LazyHTML.attribute("href") == [
+             "https://example.com/run"
+           ]
   end
 
   test "source token links reveal the original JSON without extra buttons in the readable body" do
