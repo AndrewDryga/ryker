@@ -52,8 +52,8 @@ defmodule Ryker.Emisar.Approval.Query do
   def by_statuses(queryable, statuses),
     do: where(queryable, [episode_emisar_approvals: a], a.status in ^statuses)
 
-  @doc "An account's watches, each with the card that asked and its episode."
-  def watches(connection_ref), do: connection_ref |> by_connection() |> with_joined_origin()
+  # An account's watches, each with the card that asked and its episode.
+  defp watches(connection_ref), do: connection_ref |> by_connection() |> with_joined_origin()
 
   @doc "Each watch with the card that asked and its episode."
   def with_joined_origin(queryable) do
@@ -126,8 +126,8 @@ defmodule Ryker.Emisar.Approval.Query do
     )
   end
 
-  @doc "Still watched, though its card was answered or its request cancelled."
-  def ended(queryable) do
+  # Still watched, though its card was answered or its request cancelled.
+  defp ended(queryable) do
     queryable
     |> by_statuses([:monitoring, :blocked])
     |> where(
@@ -179,14 +179,38 @@ defmodule Ryker.Emisar.Approval.Query do
       |> unleased_at(now)
       |> select_ids()
 
+    # The ID subquery keeps its snapshot when a row changes before locking.
+    # Repeat eligibility on the locking row so its current values win too.
     all()
     |> where([episode_emisar_approvals: a], a.id in subquery(eligible))
+    |> by_status(:monitoring)
+    |> due_at(now)
+    |> unleased_at(now)
     |> order_by([episode_emisar_approvals: a],
       asc_nulls_first: a.next_attempt_at,
       asc: a.inserted_at,
       asc: a.id
     )
     |> limit(1)
+    |> lock_next_free()
+  end
+
+  @doc "One ended watch without a live observer, locking only its approval row."
+  def next_ended(connection_ref, now) do
+    eligible =
+      connection_ref
+      |> watches()
+      |> ended()
+      |> unleased_at(now)
+      |> select_ids()
+
+    # Recheck the current lease and status on the locking row here as well.
+    all()
+    |> where([episode_emisar_approvals: a], a.id in subquery(eligible))
+    |> by_statuses([:monitoring, :blocked])
+    |> unleased_at(now)
+    |> ordered_by_least_recently_updated()
+    |> limit_to(1)
     |> lock_next_free()
   end
 

@@ -187,7 +187,7 @@ defmodule Ryker.Emisar.Approvals do
   def error_code(_reason), do: "emisar_approval_monitoring_blocked"
 
   @doc """
-  Closes this account's approval watches that nothing waits for any more.
+  Closes at most one approval watch of this account that nothing waits for any more.
 
   A watch ends for good once its task is closed or its wait was answered. A
   blocked one could only be refused on every retry and sat on the Failures
@@ -201,33 +201,18 @@ defmodule Ryker.Emisar.Approvals do
   @spec close_ended(String.t()) :: {:ok, [Approval.t()]} | {:error, term()}
   def close_ended(connection_ref) do
     with :ok <- reference(connection_ref, 64, :connection_ref) do
-      connection_ref |> ended_watches() |> close_watches()
+      Repo.transaction(fn -> close_locked(connection_ref) end)
     end
   end
 
-  defp ended_watches(connection_ref) do
-    connection_ref
-    |> Approval.Query.watches()
-    |> Approval.Query.ended()
-    |> Approval.Query.ordered_by_least_recently_updated()
-    |> Approval.Query.limit_to(100)
-    |> Approval.Query.select_ids()
-    |> Repo.all()
-  end
-
   # Nothing to close touches nothing: every write here notifies the control
-  # plane, and this runs on each idle poll.
-  defp close_watches([]), do: {:ok, []}
-
-  defp close_watches(ids) do
-    Repo.transaction(fn -> close_locked(ids) end)
-  end
-
-  defp close_locked(ids) do
+  # plane, and this runs on each monitoring cycle.
+  defp close_locked(connection_ref) do
     now = Repo.now!()
 
-    ids
-    |> fetch_and_lock_unleased(now)
+    connection_ref
+    |> Approval.Query.next_ended(now)
+    |> Repo.all()
     |> Enum.map(fn approval ->
       update!(approval, %{
         closed_at: now,

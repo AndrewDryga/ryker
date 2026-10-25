@@ -1,7 +1,7 @@
 defmodule Ryker.Emisar.ApprovalDispatcherTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
-  alias Ryker.Emisar.{ApprovalDispatcher, RunState}
+  alias Ryker.Emisar.{ApprovalDispatcher, Approvals, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Episode
@@ -101,6 +101,104 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert resumed = Inspectors.episode(episode.key)
     assert resumed.state == :working
     assert Inspectors.emisar_approval(@connection_ref, "apr-terminal").status == :resumed
+  end
+
+  # A busy account never reached its idle cleanup, so a closed task's remote
+  # approval could still execute if someone approved it. Cleanup and active
+  # observation must each make progress, one withdrawal per dispatcher turn.
+  test "busy approval observation cannot starve withdrawals from closed tasks" do
+    first_closed = waiting_approval!("closed-first")
+
+    assert {:ok, %{approval: %{request_id: "apr-closed-first"}}} =
+             Approvals.claim_next(@connection_ref, "in-flight-observer", 86_400)
+
+    closed = [first_closed, waiting_approval!("closed-second")]
+
+    for episode <- closed do
+      assert {:ok, _} =
+               Episodes.apply(%Command.CancelEpisode{
+                 cancel_ref: "cancel:#{episode.id}",
+                 episode_key: episode.key,
+                 expected_owner: %{kind: episode.owner_kind, ref: episode.owner_ref},
+                 occurred_at: DateTime.utc_now(),
+                 reason: "The task was closed."
+               })
+    end
+
+    waiting_approval!("still-watched")
+
+    states = %{
+      "run-closed-first" => state("closed-first", "cancelled"),
+      "run-closed-second" => state("closed-second", "cancelled"),
+      "run-still-watched" => state("still-watched", "pending_approval")
+    }
+
+    settings =
+      options({:error, :not_used})
+      |> Keyword.merge(api: RunsAPI, client: {self(), states})
+
+    for expected_closed <- 1..2 do
+      if expected_closed == 2 do
+        Repo.update_all(
+          Ryker.Emisar.Approval.Query.by_request(@connection_ref, "apr-closed-first"),
+          set: [lease_expires_at: ~U[2000-01-01 00:00:00.000000Z]]
+        )
+      end
+
+      Repo.update_all(
+        Ryker.Emisar.Approval.Query.by_request(@connection_ref, "apr-still-watched"),
+        set: [next_attempt_at: nil]
+      )
+
+      assert ApprovalDispatcher.run_once(settings) ==
+               {:ok, {:monitoring, "apr-still-watched", "pending_approval"}}
+
+      ended =
+        Enum.map(
+          ["apr-closed-first", "apr-closed-second"],
+          &Inspectors.emisar_approval(@connection_ref, &1)
+        )
+
+      assert Enum.count(ended, &(&1.status == :closed)) == expected_closed
+      if expected_closed == 1, do: assert(hd(ended).status == :monitoring)
+      assert_receive {:cancel_run, cancelled_run, reason}
+      assert cancelled_run in ["run-closed-first", "run-closed-second"]
+      assert reason =~ "no longer needs it"
+      refute_receive {:cancel_run, _, _}
+      assert_receive {:wait_for_run, "run-still-watched", _}
+    end
+  end
+
+  # A broken card can block monitoring while Emisar is healthy. Closing that
+  # task must still withdraw its pending run, which otherwise stays approvable.
+  test "a presentation-blocked watch still withdraws its pending run when its task closes" do
+    episode = waiting_approval!("blocked-presentation")
+    assert {:ok, %{lease_ref: lease_ref}} = Approvals.claim_next(@connection_ref, "monitor", 60)
+
+    assert {:ok, _} =
+             Approvals.block(
+               @connection_ref,
+               "apr-blocked-presentation",
+               lease_ref,
+               {:emisar_approval_presentation_permanent, :invalid_destination}
+             )
+
+    assert {:ok, _} =
+             Episodes.apply(%Command.CancelEpisode{
+               cancel_ref: "cancel:#{episode.id}",
+               episode_key: episode.key,
+               expected_owner: %{kind: episode.owner_kind, ref: episode.owner_ref},
+               occurred_at: DateTime.utc_now(),
+               reason: "The task was closed."
+             })
+
+    assert ApprovalDispatcher.run_once(options({:ok, state("blocked-presentation", "cancelled")})) ==
+             {:ok, {:closed, ["apr-blocked-presentation"]}}
+
+    ended = Inspectors.emisar_approval(@connection_ref, "apr-blocked-presentation")
+    assert ended.remote_status == "cancelled"
+    assert_receive {:cancel_run, "run-blocked-presentation", _reason}
+    refute_receive {:wait_for_run, _, _}
   end
 
   # Each pending approval was read every three seconds with no wait, and its

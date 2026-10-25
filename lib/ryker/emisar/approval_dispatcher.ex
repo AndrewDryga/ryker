@@ -43,34 +43,36 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   @spec run_once(keyword() | map()) :: result()
   def run_once(options) do
     with {:ok, settings} <- settings(options),
+         {:ok, closed} <- close_ended(settings),
          {:ok, claim} <-
            Approvals.claim_next(
              settings.connection_ref,
              settings.worker_ref,
              settings.lease_seconds
            ) do
-      execute(claim, settings)
+      execute(claim, settings, closed)
     end
   end
 
-  # With nothing to observe, close this account's watches that nothing waits
-  # for any more, so none sits blocked under a retry that is always refused,
-  # and withdraw their runs that still wait in Emisar.
-  defp execute(nil, settings) do
+  # Busy accounts may never go idle. Retire one ended watch on every cycle,
+  # before taking a polling lease, so cleanup and observation both progress.
+  defp close_ended(settings) do
     case Approvals.close_ended(settings.connection_ref) do
-      {:ok, []} ->
-        {:ok, :idle}
-
       {:ok, closed} ->
         Enum.each(closed, &withdraw(&1, settings))
-        {:ok, {:closed, Enum.map(closed, & &1.request_id)}}
+        {:ok, closed}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp execute(claim, settings) do
+  defp execute(nil, _settings, []), do: {:ok, :idle}
+
+  defp execute(nil, _settings, closed),
+    do: {:ok, {:closed, Enum.map(closed, & &1.request_id)}}
+
+  defp execute(claim, settings, _closed) do
     case settings.api.wait_for_run(settings.client, claim.approval.run_id, wait(claim, settings)) do
       {:ok, state} ->
         observe_presented(claim, state, settings)
@@ -86,11 +88,11 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   # Emisar asks a client to cancel a run it no longer needs rather than leave
   # the request open until someone decides or it expires. A closed Chat task's
   # approval stayed open (2026-10-12): anyone could still approve it, and the
-  # action would have run with nothing waiting for its result. A blocked watch
-  # cannot reach Emisar, and a run already sent to a runner is the console
-  # operator's to stop, so only a watched run still waiting is withdrawn.
-  defp withdraw(%Approval{status: :monitoring, remote_status: status} = approval, settings)
-       when status in ["pending", "pending_approval"] do
+  # action would have run with nothing waiting for its result. A watch blocked
+  # by its card can still reach Emisar. Try withdrawing its exact pending run
+  # too; a run already sent to a runner is the console operator's to stop.
+  defp withdraw(%Approval{status: watch, remote_status: status} = approval, settings)
+       when watch in [:monitoring, :blocked] and status in ["pending", "pending_approval"] do
     case settings.api.cancel_run(settings.client, approval.run_id, @withdrawal_reason) do
       {:ok, state} ->
         withdrawn(approval, state, settings)
