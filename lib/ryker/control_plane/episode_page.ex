@@ -1008,15 +1008,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # tool calls, informative cards, consecutive calls collapsed into one card
   # where it fits (like queues)". Tool calls and Slack status updates that
   # follow each other within a stage read as one card, a line per step, each
-  # opening to its full card. A goal, evidence, a reply or a step that failed
-  # ends the run, so what the work concluded, and what went wrong, keeps a
-  # card of its own. One request's timeline was 43,000 pixels of these.
+  # opening to its full card. A failure remains a tool call, expanded so its
+  # reason is visible. Goals, evidence and replies still end the run.
   defp tool_runs(entries) do
     entries
     |> Enum.reduce([], &add_to_run(&1, &2, tool_step?(&1)))
     |> Enum.reverse()
     |> Enum.map(fn
-      %{kind: :event, step: %{stage: "Status"}} = entry ->
+      %{kind: :event, step: %{stage: stage}} = entry when stage in ["Tool call", "Status"] ->
         %{kind: :tool_run, id: "steps-" <> entry.id, at: entry.at, entries: [entry]}
 
       entry ->
@@ -1038,9 +1037,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp new_run(first, second),
     do: %{kind: :tool_run, id: "steps-" <> first.id, at: first.at, entries: [first, second]}
 
-  defp tool_step?(%{kind: :event, step: %{stage: stage} = step})
+  defp tool_step?(%{kind: :event, step: %{stage: stage}})
        when stage in ["Tool call", "Status"],
-       do: step[:tone] not in [:bad, :warn] and step[:state] not in ["failed", "cancelled"]
+       do: true
 
   defp tool_step?(_entry), do: false
 
@@ -1081,7 +1080,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
               <.service_badge service={line.service} />
               <span class="tool-run-title">{line.title}</span>
               <span class="tool-run-text" title={line.detail}>{line.detail}</span>
-              <span class="tool-run-duration"><span :if={line.failed}>Failed </span>{line.duration}</span>
+              <span class="tool-run-duration"><span :if={line.failed}>{if entry.step.state == "cancelled", do: "Cancelled", else: "Failed"} </span>{line.duration}</span>
             </summary>
             <div class="tool-run-body">
               <ToolCard.render :if={entry.step.stage == "Tool call"} step={entry.step} grouped />
@@ -1120,7 +1119,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
         "case-entry case-#{@entry.kind}",
         compact_entry?(@entry) && "case-checkpoint",
         message_container?(@entry) && "message-container",
-        minor_entry?(@entry) && "case-minor"
+        minor_entry?(@entry) && "case-minor",
+        @entry.kind == :event && @entry.step.stage == "Thinking" && "case-model-note"
       ]}
       data-entry-kind={@entry.kind}
       data-direction={message_direction(@entry)}
@@ -1168,7 +1168,15 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Observations"}
           step={@entry.step}
         />
-        <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
+        <.model_note
+          :if={@entry.kind == :event && @entry.step.stage == "Thinking"}
+          step={@entry.step}
+        />
+        <.event_wait :if={@entry.kind == :event && @entry.step[:wait]} step={@entry.step} />
+        <.event
+          :if={@entry.kind == :event && !card_stage?(@entry.step.stage) && !@entry.step[:wait]}
+          step={@entry.step}
+        />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
         <.feedback :if={@entry.kind == :feedback} feedback={@entry.feedback} />
       </div>
@@ -1249,7 +1257,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "Search",
       "Work setup",
       "Work plan",
-      "Observations"
+      "Observations",
+      "Thinking"
     ]
   end
 
@@ -2080,6 +2089,57 @@ defmodule Ryker.ControlPlane.EpisodePage do
         class="case-event-details"
       >
         <.event_details step={@step} />
+      </.disclosure>
+    </div>
+    """
+  end
+
+  defp model_note(assigns) do
+    assigns =
+      assign(assigns, :heading, String.replace_prefix(assigns.step.title, "Model's note: ", ""))
+
+    ~H"""
+    <aside class="model-note" aria-label="Model's note">
+      <p class="model-note-label">Model's note</p>
+      <h3 :if={@heading != "Model's note"}>{@heading}</h3>
+      <div :if={@step.summary} class="model-note-text markdown-preview">
+        {SlackMarkdown.html(@step.summary)}
+      </div>
+    </aside>
+    """
+  end
+
+  defp event_wait(assigns) do
+    ~H"""
+    <div class="case-event-content event-wait">
+      <.card_heading title="Wait prepared" />
+      <p class="wait-verification">{@step.wait.verification}</p>
+      <p class="wait-trigger">
+        <span>{@step.wait.trigger}</span><span>{if @step.wait.deadline,
+          do: "Until " <> @step.wait.deadline,
+          else: "No deadline"}</span>
+      </p>
+      <dl :if={@step.wait.conditions != []} class="wait-match">
+        <div :for={condition <- @step.wait.conditions}>
+          <dt>{condition.label}</dt>
+          <dd>
+            <a :if={condition.href} href={condition.href}>{condition.value}</a><span :if={
+              !condition.href
+            }>{condition.value}</span>
+          </dd>
+        </div>
+      </dl>
+      <.fact_list :if={@step.wait.timing != []} facts={@step.wait.timing} />
+      <p :if={@step.current_warning} class="action-error">
+        <strong>Current scheduling status:</strong> {@step.current_warning}
+      </p>
+      <.disclosure
+        id={"wait-details-#{@step.id}"}
+        label="Technical details"
+        class="case-event-details"
+      >
+        <.event_details step={@step} />
+        <.json_disclosure id={"wait-record-#{@step.id}"} label="Wait record" text={@step.wait.record} />
       </.disclosure>
     </div>
     """

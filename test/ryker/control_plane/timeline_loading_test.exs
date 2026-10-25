@@ -114,7 +114,9 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert Enum.all?(links, fn {id, href} -> href == "##{id}" end)
 
     # The identity is the evidence key, never the reader's position in the page.
-    assert Enum.any?(links, fn {id, _href} -> String.starts_with?(id, "event-activity-") end)
+    assert Enum.any?(links, fn {id, _href} -> String.starts_with?(id, "steps-event-activity-") end)
+
+    assert Enum.count(LazyHTML.query(document, ".tool-run-step[id^='event-activity-']")) == 1
   end
 
   test "worker startup diagnostics read as setup instead of user-requested tool work" do
@@ -167,7 +169,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert LazyHTML.query(run, ".tool-run > .case-card-heading h3") |> LazyHTML.text() ==
              "Tool activity"
 
-    assert LazyHTML.query(run, ".case-card-heading-detail") |> LazyHTML.text() == "4 steps"
+    assert LazyHTML.query(run, ".case-card-heading-detail") |> LazyHTML.text() == "5 steps"
 
     lines =
       run
@@ -184,11 +186,12 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
              {"Emisar", "Emisar actions looked up", "gcp compute instances list"},
              # Which action ran where; why is the opened card's (2026-09-28).
              {"Emisar", "Emisar run requested", "cloud-init.log_tail · emisar-3hgr"},
-             {"Ryker", "Work state read", ""}
+             {"Ryker", "Work state read", ""},
+             {"Emisar", "List Emisar packs", ""}
            ]
 
     assert LazyHTML.query(run, ".tool-run-badge[data-service=emisar] svg.emisar-mark")
-           |> Enum.count() == 2
+           |> Enum.count() == 3
 
     # Ryker's own calls carry Ryker's mark, as Emisar's carry Emisar's.
     assert LazyHTML.query(
@@ -222,13 +225,13 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
            |> Enum.all?(&String.starts_with?(&1, "event-activity-"))
 
     assert LazyHTML.query(run, "details.tool-run-detail .tool-run-body .action-card")
-           |> Enum.count() == 4
+           |> Enum.count() == 5
 
-    # The failed call is a card of its own after the run.
-    failed =
-      document |> LazyHTML.query(".case-entry:not(.case-tool_run) .action-card") |> Enum.to_list()
+    # Failure keeps the same row and is expanded so its error cannot disappear.
+    assert Enum.count(LazyHTML.query(run, ".tool-run-detail[open]")) == 1
 
-    assert Enum.any?(failed, &(LazyHTML.text(&1) =~ "failed"))
+    assert LazyHTML.query(run, ".tool-run-detail[open] .tool-run-duration") |> LazyHTML.text() =~
+             "Failed"
   end
 
   # Andrew, 2026-09-28: "Run command — The worker reported that a command ran,
@@ -287,7 +290,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
              |> LazyHTML.query("article.case-minor")
              |> Enum.filter(&(LazyHTML.text(&1) =~ "Checking the deploy script"))
 
-    assert LazyHTML.text(note) =~ "Model's note: Checking the deploy script"
+    assert LazyHTML.query(note, ".model-note-label") |> LazyHTML.text() == "Model's note"
+
+    assert LazyHTML.query(note, ".model-note h3") |> LazyHTML.text() ==
+             "Checking the deploy script"
   end
 
   defp activity!(work, sequence, kind, payload) do

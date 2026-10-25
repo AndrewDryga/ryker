@@ -633,8 +633,8 @@
 .candidate-response { min-width:0; margin-top:8px; }
 .candidate-decision-reason { margin:10px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
 /* The new title an answer gave its request, on that answer's card. */
-.ryker-app .title-update { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:16px 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
-.title-update strong { min-width:0; color:var(--ryker-text); font-weight:600; }
+.ryker-app .title-update { display:grid; gap:4px; margin:16px 0; padding:10px 14px; border-left:2px solid var(--ryker-accent-strong); color:var(--ryker-text-secondary); font-size:12px; line-height:18px; overflow-wrap:anywhere; }
+.title-update strong { min-width:0; color:var(--ryker-text); font-size:15px; line-height:22px; font-weight:600; }
 .candidate-response-raw { margin-top:8px; border-left-color:var(--ryker-info); }
 .prompt-assembly { margin:0; }
 .episode-request > .prompt-assembly { margin-top:24px; }
@@ -853,13 +853,6 @@
   .context-record { padding:12px; }
 }
 
-.applied-context { display:grid; gap:14px; margin:16px 0; padding:12px 16px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface-raised); }
-.applied-context h4 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
-.applied-context ul { display:grid; gap:6px; list-style:none; margin:0; padding:0; }
-.applied-context li { display:flex; flex-wrap:wrap; gap:2px 8px; margin:0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; white-space:pre-wrap; overflow-wrap:anywhere; }
-.applied-context li strong { color:var(--ryker-text); font-size:14px; font-weight:600; }
-.applied-context a { display:inline-block; margin-top:6px; color:var(--ryker-text-secondary); font-size:13px; line-height:18px; }
-.applied-context a:hover { color:var(--ryker-text); }
 /* Mobile keeps the same order: title, action, description, help, then stacked toolbar controls. */
 @media (max-width:600px) {
   .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:20px 16px; }
@@ -1315,6 +1308,44 @@
 .fact-link-note { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .saved-understanding .summary-goal { margin:0 0 6px; font-size:15px; line-height:23px; }
 .saved-understanding .summary-situation { margin:0 0 12px; font-size:14px; line-height:22px; }
+.knowledge-entries { display:grid; gap:0; }
+.knowledge-entry { min-width:0; padding:16px 0; overflow-wrap:anywhere; }
+.knowledge-entry + .knowledge-entry { border-top:1px solid var(--ryker-stroke); }
+.knowledge-entry:first-child { padding-top:0; }
+.knowledge-entry:last-child { padding-bottom:0; }
+.prompt-source-body .knowledge-entry-title { position:static; margin:0 0 6px; padding:0; border:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
+.knowledge-entry-body { max-width:80ch; font-size:14px; line-height:22px; }
+.knowledge-entry-body .markdown-preview + .markdown-preview { margin-top:8px; }
+.knowledge-entry-body small, .continuity-resume small { display:block; margin-top:8px; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
+.knowledge-meta { display:flex; flex-wrap:wrap; gap:4px 12px; margin:8px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
+.knowledge-meta:empty { display:none; }
+.knowledge-provenance { margin:12px 0 0; }
+.knowledge-provenance > summary { min-height:44px; font-size:12px; }
+.knowledge-actions { display:flex; justify-content:flex-end; margin-top:16px; }
+.knowledge-actions a { display:inline-flex; align-items:center; min-height:44px; font-size:13px; }
+.conversation-continuity { display:grid; gap:20px; min-width:0; }
+.continuity-resume { padding-bottom:12px; border-bottom:1px solid var(--ryker-stroke); }
+.continuity-resume small { margin:0; }
+.continuity-resume p { margin:4px 0 0; color:var(--ryker-text); font-size:14px; }
+.continuity-opening > h4, .continuity-reply > h4 { margin:0 0 8px; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
+.continuity-opening > a { display:inline-flex; align-items:center; min-height:44px; font-size:13px; }
+.continuity-opening .context-omission { margin:0; font-size:13px; color:var(--ryker-text-secondary); }
+.repository-understanding { max-width:88ch; font-size:14px; line-height:22px; overflow-wrap:anywhere; }
+.repository-understanding > .knowledge-document-title { position:static; margin:0 0 12px; font-size:14px; line-height:22px; color:var(--ryker-text); }
+.summary-narrative { margin:16px 0; max-width:80ch; font-size:14px; line-height:22px; }
+.summary-narrative h5 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
+.case-model-note .case-entry-body { background:transparent; border:0; border-radius:0; }
+.model-note { max-width:84ch; padding-left:16px; border-left:2px solid var(--ryker-stroke-strong); overflow-wrap:anywhere; }
+.model-note-label { margin:0 0 4px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.04em; }
+.model-note h3 { margin:0 0 6px; color:var(--ryker-text); font-size:14px; line-height:22px; }
+.model-note-text { color:var(--ryker-text-secondary); font-size:13px; line-height:21px; }
+.event-wait .wait-verification { margin:0; max-width:80ch; color:var(--ryker-text); font-size:14px; line-height:22px; }
+.wait-trigger { display:flex; flex-wrap:wrap; gap:4px 16px; margin:12px 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
+.wait-match { display:grid; gap:8px; margin:0; padding:12px 0; border-top:1px solid var(--ryker-stroke); }
+.wait-match > div { display:grid; grid-template-columns:minmax(0,160px) minmax(0,1fr); gap:4px 16px; }
+.wait-match dt { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
+.wait-match dd { margin:0; min-width:0; font-size:13px; line-height:20px; overflow-wrap:anywhere; }
+@media (max-width:580px) { .wait-match > div { grid-template-columns:minmax(0,1fr); } }
 .summary-context .context-items { display:flex; flex-wrap:wrap; gap:4px 12px; }
 .summary-context .context-items > li + li { margin:0; padding:0; border:0; }
 @media (max-width:580px) { .ryker-app .context-fields > .context-field { grid-template-columns:minmax(0,1fr); gap:0; } }

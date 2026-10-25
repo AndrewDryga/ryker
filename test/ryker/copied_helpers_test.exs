@@ -48,8 +48,7 @@ defmodule Ryker.CopiedHelpersTest do
      ~w(Ryker.Slack.HomeInteraction.optional_reference?/1 Ryker.Slack.Interaction.optional_reference?/1)},
     {"A stored value as a map, or an empty one.",
      ~w(Ryker.ControlPlane.ProviderMessage.map/1 Ryker.ControlPlane.RequestContextHTML.map_value/1)},
-    {"A stored value as a string, or nil.",
-     ~w(Ryker.ControlPlane.EpisodeRequest.safe_title/1 Ryker.ControlPlane.ProviderMessage.string/1
+    {"A stored value as a string, or nil.", ~w(Ryker.ControlPlane.ProviderMessage.string/1
         Ryker.ControlPlane.ToolCard.string/1)},
     {"Text that is not empty, or nil.", ~w(Ryker.ControlPlane.LearningActivity.present_text/1
         Ryker.ControlPlane.RequestContextHTML.present/1)},

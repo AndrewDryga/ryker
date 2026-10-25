@@ -253,7 +253,7 @@ defmodule Ryker.ControlPlane.SentPrompts do
       if(is_integer(send.bytes), do: Units.bytes(send.bytes)),
       state(send.state),
       if(send.matches?,
-        do: "matches what was sent",
+        do: nil,
         else: "could not be checked against what was sent"
       )
     ]

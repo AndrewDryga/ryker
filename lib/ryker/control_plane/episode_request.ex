@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.SentPrompts
   alias Ryker.ControlPlane.Units
-  alias Ryker.Episodes
   alias Ryker.Wording
 
   # Background calls about a request that send no reply: learning from its
@@ -55,7 +54,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       )
       |> assign(:record_links, request[:record_links] || %{})
       |> assign(:contract_section, Enum.find(request.sections, &(&1.id == "contract")))
-      |> assign(:applied, applied_context(request))
       |> assign(
         :prompt_section,
         if(request.phase == :submission, do: Enum.find(request.sections, &(&1.id == "request")))
@@ -99,21 +97,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       <p :if={@result? && @explanation && !@choice} class="request-rationale">
         <small :if={@reason_from_model?}>Model's reason</small>{@explanation}
       </p>
-      <section
-        :if={@applied != []}
-        class="applied-context"
-        aria-label="Saved context used by this call"
-      >
-        <div :for={group <- @applied}>
-          <h4>{group.title}</h4>
-          <ul>
-            <li :for={entry <- group.entries}>
-              <strong :if={entry.title}>{entry.title}</strong><span>{entry.text}</span>
-            </li>
-          </ul>
-          <a href={group.href}>Manage {group.manage} →</a>
-        </div>
-      </section>
       <.decision_list :if={@decision != []} facts={@decision} />
       <section :if={@answers != []} class="routing-answers" aria-label="Selected reply">
         <Components.message_block :for={answer <- @answers} sender="Ryker" context="Selected reply">
@@ -482,80 +465,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     </section>
     """
   end
-
-  defp applied_context(%{phase: :submission} = request) do
-    case document(request, "context") do
-      %{"operator_context" => context} when is_map(context) ->
-        [
-          %{
-            title: "Standing rules used",
-            manage: "rules",
-            href: "/rules",
-            entries: context_entries(context["standing_assignments"], "title", "task")
-          },
-          %{
-            title: "Preferences used",
-            manage: "preferences",
-            href: "/instructions?show=preferences#saved",
-            entries: preference_entries(context["preferences"])
-          },
-          %{
-            title: "Guidance recalled",
-            manage: "guidance",
-            href: "/instructions?show=guidance#saved",
-            entries: context_entries(context["guidance"], "subject", "summary")
-          },
-          %{
-            title: "Memory recalled",
-            manage: "memory",
-            href: "/memory",
-            entries: context_entries(context["memory"], "subject", "value")
-          }
-        ]
-        |> Enum.reject(&(&1.entries == []))
-
-      _ ->
-        []
-    end
-  end
-
-  defp applied_context(_), do: []
-
-  defp context_entries(entries, title_key, text_key) when is_list(entries) do
-    Enum.flat_map(entries, fn
-      %{} = entry ->
-        case entry[text_key] do
-          text when is_binary(text) -> [%{title: safe_title(entry[title_key]), text: text}]
-          _ -> []
-        end
-
-      _ ->
-        []
-    end)
-  end
-
-  defp context_entries(_, _, _), do: []
-  defp safe_title(value) when is_binary(value), do: value
-  defp safe_title(_), do: nil
-
-  defp preference_entries(entries) when is_map(entries) do
-    entries
-    |> Enum.sort()
-    |> Enum.flat_map(fn
-      {key, %{"value" => value}} when is_binary(value) ->
-        [
-          %{
-            title: Episodes.label(key),
-            text: Episodes.label(value)
-          }
-        ]
-
-      _ ->
-        []
-    end)
-  end
-
-  defp preference_entries(_), do: []
 
   # Ryker's wait for the worker ran out while the call kept running; it picked
   # the same call back up. Part of this call, not a separate retry.

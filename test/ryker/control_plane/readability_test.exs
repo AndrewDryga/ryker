@@ -256,16 +256,16 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   # without loosing the data/features". Group names read as the cards' other section labels and
   # each entry at the cards' body size.
   test "a briefing's saved context reads at the card's own sizes", %{css: css} do
-    assert [_, group] = Regex.run(~r/^\.applied-context h4 \{([^}]+)\}/m, css)
-    assert group =~ "font-size:11px"
-    assert group =~ "text-transform:uppercase"
+    refute css =~ ".applied-context"
+    assert css =~ ".knowledge-entry-body { max-width:80ch; font-size:14px; line-height:22px; }"
 
-    assert [_, entry] = Regex.run(~r/^\.applied-context li \{([^}]+)\}/m, css)
-    assert entry =~ "font-size:14px"
-    assert entry =~ "line-height:20px"
+    assert css =~
+             ".knowledge-actions { display:flex; justify-content:flex-end; margin-top:16px; }"
 
-    assert [_, title] = Regex.run(~r/^\.applied-context li strong \{([^}]+)\}/m, css)
-    assert title =~ "font-size:14px"
+    assert css =~
+             ".model-note-text { color:var(--ryker-text-secondary); font-size:13px; line-height:21px; }"
+
+    assert css =~ ".wait-match dd { margin:0; min-width:0;"
   end
 
   test "the open mobile workspace menu remains inside the viewport", %{css: css} do

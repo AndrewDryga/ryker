@@ -1,7 +1,173 @@
 defmodule Ryker.ControlPlane.PromptReadabilityTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.RequestContextHTML
+  alias Ryker.ControlPlane.{PageRead, RepositoryNames, RequestContextHTML}
   alias Ryker.InspectionRedactor
+
+  test "continuity separates the opening source, previous reply and actual resume cause" do
+    # Shape harvested from a resumed production request. A bounded opening
+    # snapshot was rendered as pages of JSON, digests and source dependencies.
+    continuity = %{
+      "first_input" => %{
+        "actor_ref" => "local-operator",
+        "occurred_at" => "2026-10-20T22:35:21Z",
+        "source_ref" => "slack-source:v1:T123:C456:message:1792535721.651629",
+        "content" => %{
+          "json_preview" => ~s({"content":{"text":"unfinished...),
+          "original_bytes" => 1388,
+          "sha256" => String.duplicate("a", 64),
+          "truncated" => true
+        }
+      },
+      "previous_delivery" => %{
+        "delivery" => "reply",
+        "message" => "The saved plan awaits **confirmation**.",
+        "outcome" => %{"state" => "waiting_for_event", "record_refs" => ["record:evidence:one"]}
+      },
+      "host_continuation" => %{
+        "requested" => %{"kind" => "wait", "wait_kind" => "event", "deadline_at" => nil},
+        "resume_cause" => "new_input"
+      },
+      "prior_input_count" => 2
+    }
+
+    document = readable(%{"continuity" => continuity})
+
+    assert LazyHTML.query(document, ".continuity-resume") |> LazyHTML.text() =~
+             "New message received"
+
+    assert LazyHTML.query(document, ".continuity-opening") |> LazyHTML.text() =~ "Opening message"
+
+    assert LazyHTML.query(document, ".continuity-opening a") |> LazyHTML.attribute("href") ==
+             ["https://slack.com/archives/C456/p1792535721651629"]
+
+    assert LazyHTML.query(document, ".continuity-reply .ui-message strong") |> LazyHTML.text() =~
+             "Ryker"
+
+    assert LazyHTML.query(document, ".continuity-reply .markdown-preview strong")
+           |> LazyHTML.text() == "confirmation"
+
+    assert LazyHTML.query(document, ".continuity-opening") |> LazyHTML.text() =~ "truncated"
+    assert Enum.empty?(LazyHTML.query(document, ".continuity-opening .context-fields"))
+
+    assert Enum.count(LazyHTML.query(document, ".conversation-continuity .knowledge-provenance")) ==
+             1
+
+    refute LazyHTML.text(document) =~ "unfinished"
+  end
+
+  test "selected knowledge leads with useful text and keeps provenance secondary" do
+    # Same retained shapes as the production briefing, without tenant identity.
+    document =
+      readable(%{
+        "operator_context" => %{
+          "memory" => [
+            %{
+              "subject" => "Service owner",
+              "value" => "The owner is Dana.",
+              "scope" => "conversation",
+              "memory_ref" => "memory:one"
+            }
+          ],
+          "guidance" => [%{"subject" => "Review style", "summary" => "Lead with risks."}],
+          "preferences" => %{"response_detail" => %{"value" => "concise", "scope" => "operator"}},
+          "standing_assignments" => [
+            %{
+              "task" => "Review the saved plan.",
+              "authority_ceiling" => "read_only",
+              "assignment_ref" => "rule:one"
+            }
+          ]
+        },
+        "repository_knowledge" => %{
+          "content" => "# Deployment\n\nCheck readiness before rollout.",
+          "sha256" => String.duplicate("b", 64),
+          "source_commit" => "abc123"
+        },
+        "records" => [
+          %{
+            "kind" => "finding",
+            "ref" => "record:finding:one",
+            "status" => "open",
+            "payload" => %{
+              "what" => "Readiness passed.",
+              "reason" => "Both probes returned 200."
+            }
+          }
+        ]
+      })
+
+    assert LazyHTML.query(document, ".knowledge-entry-title") |> LazyHTML.text() =~
+             "Service owner"
+
+    assert LazyHTML.query(document, ".knowledge-entry-body") |> LazyHTML.text() =~
+             "The owner is Dana."
+
+    assert LazyHTML.query(document, ".repository-understanding .knowledge-document-title")
+           |> LazyHTML.text() == "Deployment"
+
+    assert LazyHTML.query(document, ".knowledge-entry-body") |> LazyHTML.text() =~
+             "Readiness passed."
+
+    assert LazyHTML.query(document, ".knowledge-actions a")
+           |> LazyHTML.attribute("href")
+           |> Enum.sort() ==
+             Enum.sort([
+               "/memory",
+               "/instructions?show=guidance#saved",
+               "/instructions?show=preferences#saved",
+               "/rules"
+             ])
+
+    assert Enum.empty?(LazyHTML.query(document, ".knowledge-entry > .context-fields"))
+    assert LazyHTML.query(document, ".knowledge-provenance") |> LazyHTML.text() =~ "memory:one"
+  end
+
+  test "a previous accepted outcome reads the delivery inside its retained envelope" do
+    # A restarted session wraps its prior delivery with provenance, unlike a
+    # continued session's direct previous_delivery. Neither may lose the reply.
+    document =
+      readable(%{
+        "prior_outcome" => %{
+          "source_turn_ref" => "turn:prior",
+          "delivery" => %{
+            "delivery" => "reply",
+            "message" => "Both instances pass readiness.",
+            "outcome" => %{"state" => "waiting_for_event"}
+          }
+        }
+      })
+
+    assert LazyHTML.query(document, ".continuity-reply .ui-message") |> LazyHTML.text() =~
+             "Both instances pass readiness."
+  end
+
+  test "historical repository paths never use a mutable current repository identity" do
+    # The retained knowledge carries a commit, not its GitHub owner/repository.
+    # A settings rename/repoint must not fabricate a historical source URL.
+    document =
+      PageRead.run(fn ->
+        PageRead.memo({RepositoryNames, :all}, fn -> %{"repo-ref" => "acme/repointed"} end)
+
+        readable(%{
+          "repository_ref" => "repo-ref",
+          "repository_knowledge" => %{
+            "content" => "# RYKER.md\n\n## Components\n\nRead [README.md](README.md).",
+            "source_commit" => String.duplicate("a", 40)
+          }
+        })
+      end)
+
+    assert LazyHTML.query(document, ".repository-understanding a") |> Enum.empty?()
+    assert LazyHTML.query(document, ".repository-understanding") |> LazyHTML.text() =~ "README.md"
+  end
+
+  defp readable(context) do
+    context
+    |> InspectionRedactor.artifact()
+    |> RequestContextHTML.assembly("$.work", "knowledge")
+    |> IO.iodata_to_binary()
+    |> LazyHTML.from_fragment()
+  end
 
   test "source glyphs align with their first line and remaining copy controls finish at the right" do
     css = File.read!("priv/static/workspace.css")

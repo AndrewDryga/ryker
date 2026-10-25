@@ -279,9 +279,108 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         title: record_title(record, card),
         current_warning: Delivery.ChatCard.wait_warning(record),
         observation: observation(record, anchors),
+        wait: wait_details(record),
         tone: nil
       }
     )
+  end
+
+  defp wait_details(%Records.Record{kind: "event_wait"} = record) do
+    with {:ok, %{payload: payload}} <-
+           Records.RecordPayload.prepare(record.kind, record.payload, record.ref),
+         %{state: :retained, truncated: false, text: text} <- InspectionRedactor.artifact(payload),
+         {:ok, sanitized} <- Jason.decode(text) do
+      matcher = sanitized["event_matcher"]
+
+      timing =
+        [
+          {"Check again", wait_time(matcher["poll_after"] || matcher["at"])},
+          {"Delay", matcher["delay"]},
+          {"If time runs out", matcher["on_timeout"]}
+        ]
+        |> Enum.filter(fn {_label, value} -> is_binary(value) or is_number(value) end)
+
+      %{
+        verification: sanitized["verification"],
+        trigger: wait_trigger(matcher),
+        deadline: wait_time(sanitized["deadline_at"]),
+        conditions: wait_conditions(matcher["match"], []),
+        timing: compact_details(timing),
+        record: text
+      }
+    else
+      _unavailable -> nil
+    end
+  end
+
+  defp wait_details(_record), do: nil
+
+  defp wait_trigger(%{"type" => "source_event", "source_kind" => kind}) when is_binary(kind),
+    do: capitalize(kind) <> " event"
+
+  defp wait_trigger(%{"type" => "source_event"}), do: "Matching source event"
+  defp wait_trigger(%{"type" => type}) when type in ["after", "at"], do: "Scheduled time"
+  defp wait_trigger(_matcher), do: "Recorded event condition"
+
+  defp wait_conditions(value, [_ | _] = path) when is_map(value) and map_size(value) == 0,
+    do: [wait_condition(value, path)]
+
+  defp wait_conditions(value, path) when is_map(value) do
+    value
+    |> Enum.sort()
+    |> Enum.flat_map(fn {key, nested} -> wait_conditions(nested, path ++ [key]) end)
+  end
+
+  defp wait_conditions([_ | _] = value, path) do
+    if Enum.all?(value, &is_map/1) do
+      value
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {nested, index} ->
+        wait_conditions(nested, path ++ ["match #{index}"])
+      end)
+    else
+      [wait_condition(value, path)]
+    end
+  end
+
+  defp wait_conditions(nil, []), do: []
+  defp wait_conditions(value, path), do: [wait_condition(value, path)]
+
+  defp wait_condition(value, path) do
+    label = Enum.map_join(path, " · ", &capitalize(human(&1)))
+    %{label: label, value: wait_value(value, List.last(path)), href: wait_url(value)}
+  end
+
+  defp wait_value(nil, _field), do: "No value (null)"
+  defp wait_value([], _field), do: "Empty list"
+  defp wait_value(value, _field) when is_map(value), do: "Any object"
+  defp wait_value(value, _field) when is_list(value), do: "Exactly " <> Jason.encode!(value)
+
+  defp wait_value(value, field) when field in ["bot_id", "app_id", "user"] and is_binary(value),
+    do: Slack.Names.name(Slack.Names.workspace(), value)
+
+  defp wait_value(value, _field), do: to_string(value)
+
+  defp wait_url(value) when is_binary(value) do
+    case URI.parse(value) do
+      %URI{scheme: scheme, host: host, userinfo: nil}
+      when scheme in ["https", "http"] and is_binary(host) ->
+        value
+
+      _not_url ->
+        nil
+    end
+  end
+
+  defp wait_url(_value), do: nil
+
+  defp wait_time(nil), do: nil
+
+  defp wait_time(value) do
+    case UTCDateTime.parse(value) do
+      {:ok, at} -> UTCDateTime.readable(at)
+      _invalid -> nil
+    end
   end
 
   defp record_owner(%Records.Record{turn_id: turn_id}) when is_binary(turn_id),

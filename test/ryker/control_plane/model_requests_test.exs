@@ -107,8 +107,8 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert text =~ "Differs from the prompt text above"
 
     assert sent |> LazyHTML.query(".ui-disclosure-meta") |> Enum.map(&LazyHTML.text/1) == [
-             "#{Units.bytes(byte_size(original <> opening <> schema <> closing))} · matches what was sent",
-             "#{Units.bytes(byte_size(head <> schema <> "</json-schema>"))} · matches what was sent",
+             Units.bytes(byte_size(original <> opening <> schema <> closing)),
+             Units.bytes(byte_size(head <> schema <> "</json-schema>")),
              "#{Units.bytes(byte_size("another prompt" <> closing))} · could not be checked against what was sent"
            ]
 

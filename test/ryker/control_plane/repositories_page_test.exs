@@ -506,7 +506,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     sent = LazyHTML.query(card, "#knowledge-run-run-2 .sent-prompts")
 
     assert sent |> LazyHTML.query("summary") |> LazyHTML.text() |> squeeze() =~
-             "Initial send 2 KiB · matches what was sent"
+             "Initial send 2 KiB"
 
     assert sent |> LazyHTML.query("pre") |> LazyHTML.text() == "<coop-output-contract>"
     assert card |> LazyHTML.query("#knowledge-run-run-1 .sent-prompts") |> Enum.count() == 0

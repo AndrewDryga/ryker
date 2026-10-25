@@ -23,6 +23,89 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
   @received ~U[2026-09-04 22:51:44.000000Z]
 
+  test "a prepared wait shows its actual verification and source filter before technical details" do
+    # Harvested event-only wait shape: the old card hid the exact lifecycle
+    # condition and showed only generic boilerplate and an opaque trigger enum.
+    {_entry, episode} = admitted_input!()
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
+
+    record = %Ryker.Records.Record{
+      id: Ecto.UUID.generate(),
+      ref: "record:event_wait:source-update",
+      kind: "event_wait",
+      status: :open,
+      inserted_at: @received,
+      payload: %{
+        "kind" => "source_event",
+        "deadline_at" => nil,
+        "verification" => "Verify the deployment after the next lifecycle notification.",
+        "event_matcher" => %{
+          "type" => "source_event",
+          "source_kind" => "slack",
+          "poll_after" => nil,
+          "on_timeout" => nil,
+          "match" => %{
+            "deployment" => nil,
+            "errors" => [],
+            "metadata" => %{},
+            "attachments" => [
+              %{"title" => "Run run-example", "title_link" => "https://example.com/run/example"}
+            ]
+          }
+        }
+      }
+    }
+
+    trace = EpisodeTrace.project(episode, [], [record])
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: %{detail | trace: trace},
+        requests: nil,
+        params: %{}
+      )
+
+    document = LazyHTML.from_fragment(html)
+    wait = LazyHTML.query(document, ".event-wait")
+    assert LazyHTML.text(wait) =~ "Verify the deployment after the next lifecycle notification."
+    assert LazyHTML.text(wait) =~ "Slack event"
+    assert LazyHTML.text(wait) =~ "Run run-example"
+    assert LazyHTML.text(wait) =~ "No deadline"
+    assert LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ "No value (null)"
+    assert LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ "Empty list"
+    assert LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ "Any object"
+    refute LazyHTML.text(wait) =~ "Ryker continues when the awaited event"
+
+    assert LazyHTML.query(wait, ".wait-match a") |> LazyHTML.attribute("href") == [
+             "https://example.com/run/example"
+           ]
+  end
+
+  test "older untyped wait timing fields cannot crash the timeline" do
+    # The retained-payload reader accepts historical matcher objects. A new
+    # presentation must not assume their optional timing fields are strings.
+    {_entry, episode} = admitted_input!()
+
+    record = %Ryker.Records.Record{
+      id: Ecto.UUID.generate(),
+      ref: "record:event_wait:older",
+      kind: "event_wait",
+      status: :open,
+      inserted_at: @received,
+      payload: %{
+        "kind" => "event",
+        "deadline_at" => "2026-10-26T12:00:00Z",
+        "verification" => "Recheck the saved deployment.",
+        "event_matcher" => %{"delay" => %{"old" => "shape"}, "on_timeout" => %{"old" => "shape"}}
+      }
+    }
+
+    trace = EpisodeTrace.project(episode, [], [record])
+
+    assert Enum.find(trace.steps, &(&1.record_ref == record.ref)).wait.verification ==
+             "Recheck the saved deployment."
+  end
+
   test "a task stopped before starting shows its request and remedy instead of an empty model briefing" do
     # Harvested from the second runner request, not the older Docker-blocked task.
     source = "testdata/work/hosted-runner-not-started.json" |> File.read!() |> Jason.decode!()

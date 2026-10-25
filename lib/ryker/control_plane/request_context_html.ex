@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.ControlPlane.ConversationMemory
-  alias Ryker.ControlPlane.Kit
+  alias Ryker.ControlPlane.KnowledgeDocument
   alias Ryker.ControlPlane.MemoryFormat
   alias Ryker.ControlPlane.PromptDocument
   alias Ryker.ControlPlane.RepositoryNames
@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack
+  alias Ryker.Text
   alias Ryker.Wording
 
   @sources %{
@@ -1960,6 +1961,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
      "Standing rules that applied to this request."}
   end
 
+  defp operator_context_metadata("person_asking") do
+    {"About the person asking", "memory", nil, "What this person told Ryker about themselves."}
+  end
+
   defp operator_context_metadata(key), do: metadata(key, nil)
 
   defp source_metadata(key, parent) when key in ["global", "channel"] do
@@ -2101,16 +2106,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp body("continuity", value, path, _prefix) when is_map(value) do
     if String.contains?(path, ".operator_context."),
-      do: [
-        recall(value),
-        Components.disclosure_html(
-          "Saved component",
-          fields(value, 0),
-          class: "context-inline-disclosure"
-        )
-      ],
-      else: fields(value, 0)
+      do: recall(value),
+      else: continuity(value)
   end
+
+  defp body(key, value, _path, _prefix)
+       when key in ~w(memory guidance preferences standing_assignments records retained_cases person_asking),
+       do: knowledge_entries(key, value)
+
+  defp body("repository_knowledge", %{"content" => content} = value, _path, _prefix)
+       when is_binary(content), do: repository_knowledge(value)
+
+  defp body("prior_outcome", value, _path, _prefix) when is_map(value),
+    do: previous_delivery(value)
 
   # Ryker's own Slack ID rides along so the model knows its mention; it is the
   # same on every message and tells a reader nothing, so the card says only how
@@ -2129,6 +2137,259 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp body(_key, value, _path, _prefix), do: fields(value, 0)
 
+  # These are the frozen values sent to the model, not today's memory. Only
+  # presentation changes: every remaining field stays under Source details.
+  defp knowledge_entries(key, value) do
+    items = knowledge_items(key, value)
+
+    [
+      "<div class=\"knowledge-entries\">",
+      Enum.map(items, &knowledge_entry(&1, key)),
+      "</div>",
+      knowledge_action(key)
+    ]
+  end
+
+  defp knowledge_items("preferences", value) when is_map(value) do
+    value
+    |> Enum.sort()
+    |> Enum.map(fn
+      {key, %{} = preference} -> Map.put(preference, "subject", human(key))
+      {key, preference} -> %{"subject" => human(key), "value" => preference}
+    end)
+  end
+
+  defp knowledge_items(_key, value), do: List.wrap(value)
+
+  defp knowledge_entry(item, key) when is_map(item) do
+    payload = if is_map(item["payload"]), do: item["payload"], else: item
+
+    title_key =
+      Enum.find(~w(subject title requested_outcome claim problem), &present(payload[&1]))
+
+    title = if title_key, do: payload[title_key], else: human(item["kind"] || key)
+
+    text_keys =
+      ~w(value task what summary observation detail message reason why cause outcome attempted_actions completion_contract scope_note said_about_themselves)
+      |> Enum.filter(&(not blank?(payload[&1])))
+
+    remaining = Map.drop(payload, List.wrap(title_key) ++ text_keys)
+    metadata = if payload == item, do: remaining, else: Map.put(item, "payload", remaining)
+
+    [
+      "<article class=\"knowledge-entry\"><h4 class=\"knowledge-entry-title\">",
+      escape(title),
+      "</h4><div class=\"knowledge-entry-body\">",
+      Enum.map(text_keys, fn field ->
+        [
+          if(field in ~w(reason why completion_contract),
+            do: ["<small>", escape(field_label(field)), "</small>"],
+            else: []
+          ),
+          readable_knowledge(payload[field])
+        ]
+      end),
+      "</div>",
+      knowledge_meta(payload),
+      provenance(metadata),
+      "</article>"
+    ]
+  end
+
+  defp knowledge_entry(item, _key), do: fields(item, 0)
+
+  defp knowledge_meta(payload) do
+    values =
+      for {key, label} <- [
+            {"state", "State"},
+            {"authority_ceiling", "Mode"},
+            {"scope", "Scope"},
+            {"observed_at", "Observed"}
+          ],
+          is_binary(payload[key]) do
+        value =
+          if key == "observed_at",
+            do: readable_candidate_time(payload[key]),
+            else: human(payload[key])
+
+        ["<span>", label, " · ", escape(value), "</span>"]
+      end
+
+    if values == [], do: [], else: ["<p class=\"knowledge-meta\">", values, "</p>"]
+  end
+
+  # The retained component has no GitHub owner/repository. Today's mutable
+  # settings cannot supply that historical identity; relative paths stay text.
+  defp repository_knowledge(value) do
+    source = %{github_repository: nil, commit: nil}
+
+    {title, {:safe, html}} = KnowledgeDocument.render(value["content"], source)
+
+    [
+      "<section class=\"repository-understanding\">",
+      if(title,
+        do: ["<h4 class=\"knowledge-document-title\">", escape(title), "</h4>"],
+        else: []
+      ),
+      "<div class=\"markdown-preview knowledge-document\">",
+      html,
+      "</div>",
+      provenance(Map.delete(value, "content")),
+      "</section>"
+    ]
+  end
+
+  defp readable_knowledge(text) when is_binary(text),
+    do: ["<div class=\"markdown-preview\">", SlackMarkdown.preview(text), "</div>"]
+
+  defp readable_knowledge(items) when is_list(items), do: Enum.map(items, &readable_knowledge/1)
+  defp readable_knowledge(value), do: fields(value, 0)
+
+  defp provenance(metadata) do
+    populated = Map.reject(metadata, fn {_key, value} -> blank?(value) end)
+
+    if map_size(populated) == 0,
+      do: [],
+      else:
+        Components.disclosure_html("Source details", fields(populated, 0),
+          class: "knowledge-provenance"
+        )
+  end
+
+  defp knowledge_action(key) do
+    action =
+      case key do
+        "memory" -> {"/memory", "Manage memory"}
+        "guidance" -> {"/instructions?show=guidance#saved", "Manage guidance"}
+        "preferences" -> {"/instructions?show=preferences#saved", "Manage preferences"}
+        "standing_assignments" -> {"/rules", "Manage rules"}
+        _ -> nil
+      end
+
+    case action do
+      {href, label} ->
+        ["<div class=\"knowledge-actions\"><a href=\"", href, "\">", label, " →</a></div>"]
+
+      nil ->
+        []
+    end
+  end
+
+  defp continuity(value) do
+    continuation =
+      if is_map(value["host_continuation"]), do: value["host_continuation"], else: %{}
+
+    [
+      "<div class=\"conversation-continuity\"><div class=\"continuity-resume\"><small>Why this run resumed</small><p>",
+      escape(resume_cause(continuation["resume_cause"])),
+      "</p></div>",
+      continuity_opening(value["first_input"]),
+      delivery_message(value["previous_delivery"]),
+      provenance(continuity_metadata(value)),
+      "</div>"
+    ]
+  end
+
+  defp continuity_metadata(value) do
+    value
+    |> Map.update("first_input", nil, fn
+      %{} = input -> Map.delete(input, "content")
+      other -> other
+    end)
+    |> Map.update("previous_delivery", nil, fn
+      %{} = delivery -> Map.delete(delivery, "message")
+      other -> other
+    end)
+  end
+
+  defp resume_cause("new_input"), do: "New message received"
+  defp resume_cause("deadline_elapsed"), do: "Wait deadline reached"
+  defp resume_cause("host_continuation"), do: "Continuing the saved request"
+  defp resume_cause("deadline"), do: "Wait deadline reached"
+  defp resume_cause("source_event"), do: "Matching event received"
+  defp resume_cause(nil), do: "Not recorded"
+  defp resume_cause(cause), do: human(cause)
+
+  defp continuity_opening(%{} = input) do
+    content = input["content"]
+
+    text =
+      case content do
+        %{"json_preview" => preview} when is_binary(preview) ->
+          case Jason.decode(preview) do
+            {:ok, %{} = decoded} -> message_text(decoded)
+            _truncated -> nil
+          end
+
+        _ ->
+          message_text(content)
+      end
+
+    [
+      "<section class=\"continuity-opening\"><h4>Opening message</h4>",
+      if text do
+        Components.message_block_html(actor_label(input), readable_knowledge(text),
+          person: slack_person(input),
+          meta: escape(readable_candidate_time(input["occurred_at"]))
+        )
+      else
+        opening_absence(content)
+      end,
+      source_message_link(input["source_ref"], "View opening message"),
+      "</section>"
+    ]
+  end
+
+  defp continuity_opening(_input), do: []
+
+  defp opening_absence(%{"truncated" => true}),
+    do: "<p class=\"context-omission\">Only a truncated source snapshot was retained.</p>"
+
+  defp opening_absence(_content),
+    do: "<p class=\"context-omission\">Message text is not available in this snapshot.</p>"
+
+  defp source_message_link("slack-source:v1:" <> rest = ref, label) do
+    [workspace | _] = String.split(rest, ":")
+
+    case Slack.SourceRef.parse(ref, workspace) do
+      {:ok, %{message_ref: message, channel_ref: channel}} when is_binary(message) ->
+        [
+          "<a href=\"",
+          escape(Slack.archive_url(channel, message)),
+          "\">",
+          escape(label),
+          " →</a>"
+        ]
+
+      _invalid ->
+        []
+    end
+  end
+
+  defp source_message_link(_ref, _label), do: []
+
+  defp previous_delivery(%{"delivery" => %{} = delivery} = envelope),
+    do: [previous_delivery(delivery), provenance(Map.delete(envelope, "delivery"))]
+
+  defp previous_delivery(%{} = delivery) do
+    [delivery_message(delivery), provenance(Map.delete(delivery, "message"))]
+  end
+
+  defp previous_delivery(_delivery), do: []
+
+  defp delivery_message(%{} = delivery) do
+    [
+      "<section class=\"continuity-reply\"><h4>Previous answer</h4>",
+      if(present(delivery["message"]),
+        do: Components.message_block_html("Ryker", readable_knowledge(delivery["message"])),
+        else: readable_knowledge(human(delivery["delivery"] || "No reply recorded"))
+      ),
+      "</section>"
+    ]
+  end
+
+  defp delivery_message(_delivery), do: []
+
   # Each earlier outcome as what it was: what was asked, by whom and when,
   # what Ryker answered, and how it ended. Andrew, 2026-09-28: the row dumped
   # every stored field, "Not supplied", refs, Slack's block JSON and raw
@@ -2146,42 +2407,49 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp outcome(item) do
     trigger = if is_map(item["trigger"]), do: item["trigger"], else: %{}
-    asked = trigger |> get_in(["content", "text"]) |> present()
+    asked = message_text(trigger["content"])
     answer = answer_text(item["result"])
 
     workspace = slack_workspace(trigger) || Slack.Names.workspace()
 
-    [
-      "<article class=\"context-candidate context-record context-outcome\"><header class=\"candidate-heading\"><h4>",
-      if(asked,
-        do: SlackMarkdown.mentions(first_line(asked), workspace),
-        else: "Earlier request"
-      ),
-      "</h4>",
-      finished(item["finished_at"]),
-      "</header><div class=\"candidate-readable\">",
+    label =
+      if asked, do: asked |> first_line() |> Text.shorten_to_word(140), else: "Earlier request"
+
+    body = [
+      "<div class=\"candidate-readable\">",
       candidate_outcome(ended(item)),
       "<dl class=\"candidate-messages\">",
       if(asked,
         do: [
-          "<div><dt>Asked</dt><dd><div class=\"markdown-preview\">",
-          SlackMarkdown.preview(asked, workspace),
-          "</div><span class=\"candidate-message-meta\">",
-          byline(who(trigger), readable_candidate_time(trigger["occurred_at"])),
-          "</span></dd></div>"
+          "<div><dt>Asked</dt><dd>",
+          Components.message_block_html(actor_label(trigger), readable_knowledge(asked),
+            person: slack_person(trigger),
+            meta: [
+              "<span class=\"candidate-message-meta\">",
+              escape(readable_candidate_time(trigger["occurred_at"])),
+              "</span>"
+            ]
+          ),
+          "</dd></div>"
         ],
         else: []
       ),
       if(answer,
         do: [
-          "<div><dt>Ryker answered</dt><dd class=\"markdown-preview\">",
-          SlackMarkdown.preview(answer, workspace),
+          "<div><dt>Ryker answered</dt><dd>",
+          Components.message_block_html("Ryker", readable_knowledge(answer)),
           "</dd></div>"
         ],
         else: []
       ),
-      "</dl></div></article>"
+      "</dl></div>"
     ]
+
+    Components.disclosure_html(label, body,
+      class: "context-candidate context-record context-outcome",
+      label_content: SlackMarkdown.mentions(label, workspace),
+      meta: finished(item["finished_at"])
+    )
   end
 
   defp answer_text(%{"message" => message}), do: present(message)
@@ -2455,30 +2723,45 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: "Ryker read it in the channel. It was not a direct message or an @Ryker mention."
 
   defp recall(value) do
-    Enum.map(~w(current related rollups observations knowledge), fn
-      "observations" ->
-        value["observations"] |> List.wrap() |> Enum.filter(&is_map/1) |> notes()
+    groups = ~w(current related rollups observations knowledge)
 
-      "knowledge" ->
-        value["knowledge"] |> List.wrap() |> Enum.filter(&is_map/1) |> topics()
+    [
+      Enum.map(groups, fn
+        "observations" ->
+          value["observations"] |> List.wrap() |> Enum.filter(&is_map/1) |> notes()
 
-      group ->
-        value[group]
-        |> List.wrap()
-        |> Enum.filter(&is_map/1)
-        |> Enum.map(fn item ->
-          [
-            "<section class=\"conversation-recall\" data-memory-kind=\"",
-            group,
-            "\"><h4 title=\"",
-            escape(item["source_ref"]),
-            "\">",
-            escape(recall_title(group)),
-            "</h4>",
-            recall_fields(Map.get(item, "state", item)),
-            "</section>"
-          ]
-        end)
+        "knowledge" ->
+          value["knowledge"] |> List.wrap() |> Enum.filter(&is_map/1) |> topics()
+
+        group ->
+          value[group]
+          |> List.wrap()
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(fn item ->
+            [
+              "<section class=\"conversation-recall\" data-memory-kind=\"",
+              group,
+              "\"><h4>",
+              escape(recall_title(group)),
+              "</h4>",
+              recall_fields(Map.get(item, "state", item)),
+              "<p class=\"knowledge-meta\">",
+              escape(readable_candidate_time(item["updated_at"])),
+              "</p>",
+              topic_sources(item["source_reads"]),
+              provenance(Map.delete(item, "state")),
+              "</section>"
+            ]
+          end)
+      end),
+      provenance(recall_remainder(value, groups))
+    ]
+  end
+
+  defp recall_remainder(value, groups) do
+    Enum.reduce(groups, Map.drop(value, groups), fn group, remainder ->
+      invalid = value[group] |> List.wrap() |> Enum.reject(&is_map/1)
+      if invalid == [], do: remainder, else: Map.put(remainder, group, invalid)
     end)
   end
 
@@ -2655,11 +2938,15 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp recall_title("current"), do: "This conversation"
   defp recall_title("knowledge"), do: "Maintained topic"
+  defp recall_title("rollups"), do: "Earlier conversation summary"
+  defp recall_title("related"), do: "Related conversation summary"
   defp recall_title(group), do: human(group)
 
   defp recall_fields(state) when is_map(state) do
     lead = Enum.find(~w(goal title summary), &present(state[&1]))
-    remaining = Map.drop(state, List.wrap(lead) ++ ["situation"])
+    narrative = ~w(open_loops decisions unresolved_questions)
+    compact = ~w(active_topics participants topology purpose)
+    remaining = Map.drop(state, List.wrap(lead) ++ ["situation"] ++ narrative ++ compact)
 
     [
       "<div class=\"saved-understanding\">",
@@ -2668,30 +2955,47 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         else: []
       ),
       if(present(state["situation"]),
-        do: ["<p class=\"summary-situation\">", escape(state["situation"]), "</p>"],
+        do: [
+          "<div class=\"summary-situation\">",
+          readable_knowledge(state["situation"]),
+          "</div>"
+        ],
         else: []
       ),
+      Enum.map(narrative, fn key ->
+        if blank?(state[key]),
+          do: [],
+          else: [
+            "<div class=\"summary-narrative\"><h5>",
+            summary_label(key),
+            "</h5>",
+            readable_knowledge(state[key]),
+            "</div>"
+          ]
+      end),
       "<dl class=\"context-fields summary-context\">",
-      remaining
-      |> Enum.sort()
-      |> Enum.map(fn {key, value} ->
-        if blank?(value),
+      Enum.map(compact, fn key ->
+        if blank?(state[key]),
           do: [],
           else: [
             "<div class=\"context-field\"><dt>",
             escape(field_label(key)),
             "</dt><dd>",
-            recall_field(key, value),
+            recall_field(key, state[key]),
             "</dd></div>"
           ]
       end),
-      "</dl></div>"
+      "</dl>",
+      provenance(remaining),
+      "</div>"
     ]
   end
 
-  defp recall_fields(_) do
-    "<p>Saved summary is not structured. Its saved value is in the component below.</p>"
-  end
+  defp recall_fields(state), do: fields(state, 0)
+
+  defp summary_label("open_loops"), do: "Open work"
+  defp summary_label("unresolved_questions"), do: "Open questions"
+  defp summary_label("decisions"), do: "Decisions"
 
   # The people a conversation involved, as the model wrote them down: a Slack
   # ID or a mention there is the person, by name and linked to their profile.
@@ -3047,25 +3351,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp kept_name(person, _actor), do: person
 
-  # Who wrote a note or a message: a Slack person as above, anyone else as
-  # their label says.
-  defp who(input) do
-    case slack_person(input) do
-      nil ->
-        escape(actor_label(input))
-
-      person ->
-        Kit.person_html(person)
-    end
-  end
-
-  # "who · when", leaving out whichever is not known.
-  defp byline(who, at) do
-    [who, at && escape(at)]
-    |> Enum.reject(&(&1 in [nil, "", []]))
-    |> Enum.intersperse(" · ")
-  end
-
   defp actor_label(%{"actor" => actor} = input) when is_binary(actor),
     do: input |> Map.delete("actor") |> Map.put("actor_ref", actor) |> actor_label()
 
@@ -3118,6 +3403,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: Regex.match?(~r/<(?:[@#][UWCGD][A-Z0-9]+(?:\|[^>]*)?|https?:\/\/[^>]+)>/, body)
 
   defp actor_name("slack:user:" <> _, _actor), do: "Slack user"
+  defp actor_name("slack:bot:" <> ref, _actor), do: Slack.Names.name(Slack.Names.workspace(), ref)
+  defp actor_name("slack:app:" <> ref, _actor), do: Slack.Names.name(Slack.Names.workspace(), ref)
   defp actor_name("github:user:" <> _, _actor), do: "GitHub user"
   defp actor_name("ryker", _actor), do: "Ryker"
   defp actor_name("control_plane:user:" <> ref, actor), do: actor_name(ref, actor)

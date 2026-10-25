@@ -379,12 +379,17 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
     assert html =~ "Two connected production runners"
     assert html =~ "Cloud project ID is needed."
     refute html =~ ">Decisions<"
-    # Populated facts now use compact label/value rows, not nested headings;
-    # empty-field bookkeeping remains subordinate in the saved component.
+    # Only useful narrative gets a label; compact facts never become their own
+    # sections, and empty fields stay out of the human-facing understanding.
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".summary-narrative h5")
+           |> LazyHTML.text() == "Open work"
+
     assert Enum.empty?(
              html
              |> LazyHTML.from_fragment()
-             |> LazyHTML.query(".conversation-recall h5, .context-field h4")
+             |> LazyHTML.query(".summary-context h5, .context-field h4")
            )
   end
 end

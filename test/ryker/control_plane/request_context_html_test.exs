@@ -50,7 +50,11 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     [finished, stopped] = document |> LazyHTML.query(".context-outcome") |> Enum.to_list()
 
-    assert LazyHTML.query(finished, "h4") |> LazyHTML.text() == "And now?"
+    assert LazyHTML.query(finished, "summary .ui-disclosure-label") |> LazyHTML.text() ==
+             "And now?"
+
+    assert Enum.count(LazyHTML.query(document, "details.context-outcome")) == 2
+    assert Enum.empty?(LazyHTML.query(document, "details.context-outcome[open]"))
     assert LazyHTML.query(finished, "time") |> LazyHTML.text() == "finished 28 Sep, 04:32:29 UTC"
     assert LazyHTML.query(finished, ".candidate-outcome") |> LazyHTML.text() == "Finished"
 
@@ -1226,7 +1230,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     assert html =~ "Track recovery"
     assert html =~ "&lt;extra&gt;"
-    assert html =~ "Saved component"
+    assert html =~ "Source details"
     document = LazyHTML.from_fragment(html)
     assert Enum.empty?(LazyHTML.query(document, ".conversation-recall h5"))
     assert Enum.empty?(LazyHTML.query(document, ".context-inline-disclosure pre"))
@@ -1289,7 +1293,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(note) =~ "intended infrastructure configuration"
     assert Enum.empty?(LazyHTML.query(note, "details, pre"))
     assert LazyHTML.text(document) =~ "Conversation notes"
-    assert LazyHTML.text(document) =~ "Saved component"
+    assert Enum.empty?(LazyHTML.query(document, ".knowledge-provenance"))
     assert Enum.empty?(LazyHTML.query(document, "details[open]"))
   end
 
@@ -1300,7 +1304,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
           %{"knowledge" => [nil, %{"title" => "<topic>", "summary" => "<script>fact</script>"}]}
         ] do
       document = recall_document(memory)
-      assert LazyHTML.text(document) =~ "Saved component"
+
+      assert LazyHTML.text(document) =~ "malformed" or
+               LazyHTML.text(document) =~ "<script>fact</script>"
+
       assert Enum.empty?(LazyHTML.query(document, "script"))
     end
   end

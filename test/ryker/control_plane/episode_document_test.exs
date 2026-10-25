@@ -91,6 +91,21 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(LazyHTML.query(document, ".action-card")) == 1
     assert Enum.empty?(LazyHTML.query(document, ".case-minor .action-card"))
+    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
+
+    # A failure used to escape aggregation entirely, obscuring that it was the
+    # same tool call. Its error remains expanded, alongside adjacent calls.
+    failed = %{step | id: "failed-recorded-tool", state: "failed", tone: :bad}
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], [step, failed])
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
+    assert Enum.count(LazyHTML.query(document, ".tool-run-step")) == 2
+    assert Enum.count(LazyHTML.query(document, ".tool-run-detail[open]")) == 1
   end
 
   test "routing keeps its recorded choice and model reason in one compact outcome" do
@@ -1000,9 +1015,12 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     html = render_component(&EpisodeRequest.render/1, request: request)
 
     visible =
-      html |> LazyHTML.from_fragment() |> LazyHTML.query(".applied-context") |> LazyHTML.text()
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".prompt-group[data-group=memory]")
+      |> LazyHTML.text()
 
-    assert visible =~ "Standing rules used"
+    assert visible =~ "Rules"
     assert visible =~ "Review the posted plan <as text>"
     assert visible =~ "Response detail"
     assert visible =~ "Lead with availability risk"
@@ -1014,7 +1032,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     hrefs =
       html
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query(".applied-context a")
+      |> LazyHTML.query(".knowledge-actions a")
       |> LazyHTML.attribute("href")
 
     assert "/instructions?show=preferences#saved" in hrefs
@@ -1030,7 +1048,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
           request: %{request | sections: [%{hd(request.sections) | artifact: artifact}]}
         )
 
-      refute html =~ "applied-context"
+      refute html =~ "knowledge-entry-title"
     end
   end
 
