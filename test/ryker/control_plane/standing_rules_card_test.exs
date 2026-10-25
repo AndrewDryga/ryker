@@ -129,7 +129,9 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     [matched] = details.("matched")
 
     assert matched["Looks for"] ==
-             ~s(Slack events matching {"bot_id":"B-TERRAFORM"} in Slack channel C456)
+             "Slack events in Slack channel C456"
+
+    assert matched["bot_id"] == ~s("B-TERRAFORM")
 
     refute Enum.any?(["Rule", "Revision at the time", "Scope"], &Map.has_key?(matched, &1))
     assert matched["Source"] == "Slack, which this rule listens to"
@@ -138,7 +140,9 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     [missed] = details.("not_matched")
 
     assert missed["Looks for"] ==
-             ~s(GitHub events matching {"action":"submitted"} in Slack channel C456)
+             "GitHub events in Slack channel C456"
+
+    assert missed["action"] == ~s("submitted")
 
     assert missed["Source"] == "Slack; this rule only listens to GitHub"
     assert missed["Fields"] == "The message's fields did not match the filter"
@@ -147,7 +151,9 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     [paused] = details.("disabled")
 
     assert paused["Looks for"] ==
-             ~s(Slack events matching {"bot_id":"B-TERRAFORM"} in Slack channel C456)
+             "Slack events in Slack channel C456"
+
+    assert paused["bot_id"] == ~s("B-TERRAFORM")
 
     refute Map.has_key?(paused, "Source")
     refute Map.has_key?(paused, "Fields")
@@ -156,6 +162,68 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert document
            |> LazyHTML.query(".standing-rule[data-verdict=matched] a.standing-rule-link")
            |> LazyHTML.attribute("href") == ["/rules#behavior-behavior:review-terraform-plans"]
+  end
+
+  test "readable rule conditions retain nested fields and empty scalar distinctions" do
+    # Expanded rules previously exposed a JSON wall. Readable rows must not lose
+    # false/zero/null or arrays while removing that wall from the operator's view.
+    {entry, episode} = admitted!()
+
+    condition =
+      "Review Terraform plans"
+      |> rule("matched", "The recorded source and event filter matched this message.")
+      |> Map.put("criteria", %{
+        "source_kind" => "slack",
+        "filter" => %{
+          "attachments" => [%{"footer" => "Terraform plan"}],
+          "count" => 0,
+          "enabled" => false,
+          "missing" => nil,
+          "empty" => [],
+          "text_false" => "false",
+          "text_zero" => "0",
+          "text_null" => "null",
+          "a.b" => "literal dotted key",
+          "a" => %{"b" => "nested key"},
+          "a[0]" => "literal array key"
+        }
+      })
+
+    inventory!(entry, [condition])
+    document = episode |> rendered() |> LazyHTML.from_document()
+    details = LazyHTML.query(document, ".standing-rule-definition")
+
+    facts =
+      details
+      |> LazyHTML.query("dl > div")
+      |> Map.new(fn row ->
+        {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+         row |> LazyHTML.query("dd") |> LazyHTML.text() |> String.trim()}
+      end)
+
+    for {field, value} <- [
+          {"text_false", ~s("false")},
+          {"text_zero", ~s("0")},
+          {"text_null", ~s("null")},
+          {~s(["a.b"]), ~s("literal dotted key")},
+          {"a.b", ~s("nested key")},
+          {~s(["a[0]"]), ~s("literal array key")}
+        ] do
+      assert facts[field] == value
+    end
+
+    for {field, value} <- [
+          {"attachments[0].footer", "Terraform plan"},
+          {"count", "0"},
+          {"enabled", "false"},
+          {"missing", "null"},
+          {"empty", "Empty list"}
+        ] do
+      assert details |> LazyHTML.query("dt") |> LazyHTML.text() =~ field
+      assert details |> LazyHTML.query("dd") |> LazyHTML.text() =~ value
+    end
+
+    refute LazyHTML.text(details) =~ "events matching {"
   end
 
   test "an empty recorded inventory says no standing rules" do

@@ -348,14 +348,16 @@ defmodule Ryker.ControlPlane.Components do
     ~H"""
     <article class={["ui-message", @class]} data-author={@author} {@rest}>
       <h3 :if={@title} class="ui-message-title">{@title}</h3>
-      <header :if={@sender || @person || @context || @meta != []} class="ui-message-header">
-        <strong :if={@person}><Kit.person person={@person} /></strong>
-        <strong :if={@sender && !@person}>{@sender}</strong>
-        <span :if={@context} class="ui-message-context">{@context}</span>
-        <span :if={@meta != []} class="ui-message-meta">{render_slot(@meta)}</span>
-      </header>
-      <div class="ui-message-body markdown-preview">{render_slot(@inner_block)}</div>
-      <footer :if={@footer != []} class="ui-message-footer">{render_slot(@footer)}</footer>
+      <div class="ui-message-frame">
+        <header :if={@sender || @person || @context || @meta != []} class="ui-message-header">
+          <strong :if={@person}><Kit.person person={@person} /></strong>
+          <strong :if={@sender && !@person}>{@sender}</strong>
+          <span :if={@context} class="ui-message-context">{@context}</span>
+          <span :if={@meta != []} class="ui-message-meta">{render_slot(@meta)}</span>
+        </header>
+        <div class="ui-message-body markdown-preview">{render_slot(@inner_block)}</div>
+        <footer :if={@footer != []} class="ui-message-footer">{render_slot(@footer)}</footer>
+      </div>
     </article>
     """
   end
@@ -411,14 +413,19 @@ defmodule Ryker.ControlPlane.Components do
             target={fact.value}
           />
           <Kit.person :if={fact[:presentation] == :person} person={fact.value} />
-          <span :if={fact[:links]} class="fact-links"><span :for={
-            {item, index} <- Enum.with_index(fact.links)
-          }><span :if={index > 0}>, </span><a
-            :if={item.href}
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-          >{item.label}</a><span :if={!item.href}>{item.label}</span><span :if={item[:note]}> · {item.note}</span></span></span>
+          <ul :if={fact[:links]} class="fact-links">
+            <li :for={item <- fact.links}>
+              <a
+                :if={item.href}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+              >{item.label}</a><span :if={!item.href}>{item.label}</span><small
+                :if={item[:note]}
+                class="fact-link-note"
+              > · {item.note}</small>
+            </li>
+          </ul>
           <span
             :if={
               !fact[:links] && !fact[:identifier] &&

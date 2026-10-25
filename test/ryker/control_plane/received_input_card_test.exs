@@ -59,7 +59,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert LazyHTML.query(message, ".ui-message-meta time") |> LazyHTML.text() |> String.trim() ==
              "4 Sep, 22:51:44 UTC"
 
-    assert LazyHTML.query(message, ".ui-message > .ui-message-body") |> LazyHTML.text() =~
+    assert LazyHTML.query(message, ".ui-message > .ui-message-frame > .ui-message-body")
+           |> LazyHTML.text() =~
              "Terraform plan"
 
     assert Enum.count(LazyHTML.query(message, ".ui-message-footer > .input-details")) == 1

@@ -2534,9 +2534,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     [
       "<li class=\"context-note\" data-memory-kind=\"observation\" title=\"",
       escape(item["source_ref"]),
-      "\"><p class=\"context-note-text\">",
+      "\"><div class=\"context-note-text markdown-preview\">",
       note_text(item),
-      "</p>",
+      "</div>",
       if(meta != [], do: ["<p class=\"context-note-meta\">", meta, "</p>"], else: []),
       if(topics != [],
         do: [
@@ -2555,7 +2555,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp note_text(item) do
     case present(item["summary"]) do
       nil -> "No summary was recorded."
-      summary -> SlackMarkdown.mentions(summary, slack_workspace(item) || Slack.Names.workspace())
+      summary -> SlackMarkdown.preview(summary, slack_workspace(item) || Slack.Names.workspace())
     end
   end
 
@@ -3003,24 +3003,23 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp slack_workspace(_), do: nil
 
   defp message_body(body, input) do
-    case slack_workspace(input) || compact_slack_workspace(input, body) do
-      workspace when is_binary(workspace) ->
-        SlackMarkdown.render(body, workspace)
+    workspace = slack_workspace(input)
 
-      _ ->
-        escape(body)
+    if is_binary(workspace) or compact_slack_markup?(input, body) do
+      SlackMarkdown.render(body, workspace || Slack.Names.workspace())
+    else
+      escape(body)
     end
   end
 
   # Routing reads earlier messages as actor, at and text alone. One that names
-  # a person or a channel the way Slack writes them is from Slack, so it reads
+  # a person, channel or web link the way Slack writes them reads
   # in the installation's workspace: "@Ryker check health of our infra", never
   # "<@U0C1LCVNF52> check health…" (Andrew, 2026-09-28).
-  defp compact_slack_workspace(%{"source" => _source}, _body), do: nil
+  defp compact_slack_markup?(%{"source" => _source}, _body), do: false
 
-  defp compact_slack_workspace(_input, body) do
-    if Regex.match?(~r/<[@#][UWCGD][A-Z0-9]+(?:\|[^>]*)?>/, body), do: Slack.Names.workspace()
-  end
+  defp compact_slack_markup?(_input, body),
+    do: Regex.match?(~r/<(?:[@#][UWCGD][A-Z0-9]+(?:\|[^>]*)?|https?:\/\/[^>]+)>/, body)
 
   defp actor_name("slack:user:" <> _, _actor), do: "Slack user"
   defp actor_name("github:user:" <> _, _actor), do: "GitHub user"
@@ -3210,7 +3209,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp candidate_state(state), do: human(state)
 
   defp candidate_outcome(outcome) when is_binary(outcome) and outcome != "",
-    do: ["<p class=\"candidate-outcome\">", escape(outcome), "</p>"]
+    do: [
+      "<div class=\"candidate-outcome markdown-preview\">",
+      SlackMarkdown.preview(outcome),
+      "</div>"
+    ]
 
   defp candidate_outcome(_outcome), do: []
 

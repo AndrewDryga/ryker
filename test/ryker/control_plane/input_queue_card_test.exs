@@ -41,6 +41,11 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     html = rendered(episode)
     assert html =~ "queue-event-delta"
 
+    assert html
+           |> LazyHTML.from_document()
+           |> LazyHTML.query(".case-minor .input-queue")
+           |> Enum.empty?()
+
     positions =
       for id <- [
             "story-message-#{entry.id}",

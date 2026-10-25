@@ -224,7 +224,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     location = html |> LazyHTML.from_document() |> LazyHTML.query(".episode-location")
     refute LazyHTML.text(location) =~ "ryker"
 
-    assert fact(html, work.turn, "Repositories") == "ryker · can change it, coop · read only"
+    assert repository_rows(html, work.turn) == ["ryker · can change it", "coop · read only"]
     assert fact(html, work.turn, "Environment") == "None · the work ran outside any environment"
 
     for noise <- [
@@ -272,8 +272,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     assert fact(html, work.turn, "Request") == "New · this message started it"
     assert fact(html, work.turn, "Environment") == "Payments · this channel's environment"
 
-    assert fact(html, work.turn, "Repositories") ==
-             "acme/payments · can change it, acme/infra · read only"
+    assert repository_rows(html, work.turn) ==
+             ["acme/payments · can change it", "acme/infra · read only"]
 
     assert fact(html, work.turn, "Emisar") == "Production approvals"
     assert fact(html, work.turn, "Session") == "New · the model starts with only this briefing"
@@ -616,6 +616,13 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     |> LazyHTML.from_document()
     |> LazyHTML.query("#event-setup-#{id} .setup-facts dt")
     |> Enum.map(&LazyHTML.text/1)
+  end
+
+  defp repository_rows(html, %{id: id}) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#event-setup-#{id} .fact-links > li")
+    |> Enum.map(fn row -> row |> LazyHTML.text() |> String.split() |> Enum.join(" ") end)
   end
 
   defp fact(html, %{id: id}, label) do

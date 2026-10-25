@@ -3,6 +3,34 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.InspectionRedactor
 
+  test "candidate outcomes render retained link formatting safely instead of exposing Markdown syntax" do
+    # Dense real histories showed literal [title](URL) in every outcome, even
+    # though the adjacent message used the safe Markdown renderer.
+    candidate = %{
+      "state" => "complete",
+      "title" => "Earlier deployment",
+      "outcome" =>
+        "Replied: [Run details](https://example.com/run/123) — **discarded**. <script>bad()</script>"
+    }
+
+    document =
+      %{"candidates" => [candidate]}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "outcome-formatting")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    outcome = LazyHTML.query(document, ".candidate-outcome")
+
+    assert outcome |> LazyHTML.query("a") |> LazyHTML.attribute("href") == [
+             "https://example.com/run/123"
+           ]
+
+    assert outcome |> LazyHTML.query("strong") |> LazyHTML.text() == "discarded"
+    assert Enum.empty?(LazyHTML.query(outcome, "script"))
+    assert LazyHTML.text(outcome) =~ "<script>bad()</script>"
+  end
+
   test "source help is visible before expansion and readable sources end in highlight, not copy" do
     # The design lost the explanation in the fold and offered an ambiguous copy
     # of the readable view, rather than the actual submitted JSON.

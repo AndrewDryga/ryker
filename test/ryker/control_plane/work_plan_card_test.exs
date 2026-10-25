@@ -74,6 +74,28 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     assert optional =~ "Optional"
   end
 
+  test "a large evidence set has a counted disclosure without losing any destination" do
+    # Real rollout goals held eight long evidence titles as a comma wall.
+    # A small set stays direct; a larger set is inspectable as its own list.
+    work = claimed!()
+    goal!(work, "check-health", "Check infrastructure health")
+
+    evidence =
+      for number <- 1..4,
+          do: evidence!(work, "source-#{number}", %{"target" => "Source #{number}"})
+
+    state!(work, "check-health", "completed", %{"evidence_refs" => Enum.map(evidence, & &1.ref)})
+    {_detail, html} = rendered(work.episode)
+    document = LazyHTML.from_document(html)
+    fold = LazyHTML.query(document, ".plan-steps .plan-evidence")
+    assert fold |> LazyHTML.query("summary") |> LazyHTML.text() =~ "4 evidence records"
+    assert Enum.count(LazyHTML.query(fold, "a")) == 4
+
+    for record <- evidence do
+      assert LazyHTML.query(fold, "a[href='#event-record-#{record.id}']") |> Enum.count() == 1
+    end
+  end
+
   # Andrew rejected promoting Read only into the card (2026-10-15).
   test "authority, kind and record IDs stay under Details and history, with every change" do
     work = claimed!()

@@ -11,40 +11,51 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   test "message content has its own surface and sections outrank disclosure labels", %{css: css} do
     # Font-only fixes left sender/title plus message looking like title/subtitle.
     # The shared content surface must be present at every message nesting level.
-    assert [_, container] = Regex.run(~r/^\.ui-message \{([^}]+)\}/m, css)
-    assert container =~ "border:1px solid var(--ryker-stroke)"
-    assert container =~ "background:var(--ryker-surface-raised)"
+    assert [_, frame] = Regex.run(~r/^\.ui-message-frame \{([^}]+)\}/m, css)
+    assert frame =~ "border:1px solid var(--ryker-stroke)"
+    assert frame =~ "background:var(--bubble)"
+    refute css =~ "min-width:300px"
 
     assert [_, message] = Regex.run(~r/^\.ui-message-body \{([^}]+)\}/m, css)
-    assert message =~ "padding:14px 16px"
-    assert message =~ "background:var(--ryker-surface)"
+    assert message =~ "padding:6px 16px 14px"
+    assert message =~ "background:transparent"
     refute message =~ "border:"
     assert message =~ "font-size:16px"
 
     # Retained event bodies use inline Slack rendering, not paragraph markup;
     # their original line breaks must survive the shared message surface.
     assert [_, retained_body] =
-             Regex.run(~r/^\.context-message > \.ui-message-body \{([^}]+)\}/m, css)
+             Regex.run(~r/^\.context-message \.ui-message-body \{([^}]+)\}/m, css)
 
     assert retained_body =~ "white-space:pre-wrap"
 
     assert [_, sender] = Regex.run(~r/^\.ui-message-header strong \{([^}]+)\}/m, css)
     assert sender =~ "font-size:13px"
-    assert sender =~ "font-weight:400"
-    assert sender =~ "color:var(--ryker-text-secondary)"
+    assert sender =~ "font-weight:600"
+    assert sender =~ "color:var(--ink)"
 
     assert [_, header] = Regex.run(~r/^\.ui-message-header \{([^}]+)\}/m, css)
-    assert header =~ "align-items:start"
-    assert header =~ "padding:16px 20px 0"
+    assert header =~ "align-items:baseline"
+    assert header =~ "padding:14px 16px 0"
 
-    assert message =~ "margin:16px 20px 0"
+    assert message =~ "margin:0"
+    assert length(Regex.scan(~r/^\.ui-message-body \{/m, css)) == 1
 
     assert [_, footer] = Regex.run(~r/^\.ui-message-footer \{([^}]+)\}/m, css)
-    assert footer =~ "margin:8px 0 0"
-    assert footer =~ "padding:0 20px 12px"
+    assert footer =~ "margin:0"
+    assert footer =~ "padding:0"
+    assert footer =~ "border-top:1px solid var(--ryker-stroke)"
+    # A leftover history-only inset clipped the divider and doubled the
+    # disclosure's padding inside otherwise identical message frames.
+    refute css =~ ~r/\.context-messages-history \.ui-message-footer\s*\{/
 
-    assert [_, group] = Regex.run(~r/^\.prompt-group > header h4 \{([^}]+)\}/m, css)
-    assert group =~ "font-size:15px"
+    assert [_, group] =
+             Regex.run(
+               ~r/\.prompt-group > header h4,\s*\.final-prompt > header h4 \{([^}]+)\}/m,
+               css
+             )
+
+    assert group =~ "font-size:11px"
     assert [_, source] = Regex.run(~r/^\.prompt-source-title \{([^}]+)\}/m, css)
     assert source =~ "font-size:14px"
 
@@ -260,12 +271,12 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   test "timeline cards share one readable type hierarchy", %{css: css} do
     [_, shell] = Regex.run(~r/\.case-card-heading \{([^}]+)\}/, css)
     assert shell =~ "grid-template-columns:minmax(0,1fr) auto"
-    assert shell =~ "align-items:start"
+    assert shell =~ "align-items:baseline"
 
     [_, heading] = Regex.run(~r/\.case-card-heading h3 \{([^}]+)\}/, css)
 
-    assert heading =~ "font-size:17px"
-    assert heading =~ "line-height:24px"
+    assert heading =~ "font-size:18px"
+    assert heading =~ "line-height:26px"
     assert heading =~ "color:var(--ink)"
 
     [_, metadata] = Regex.run(~r/\.case-card-heading-meta \{([^}]+)\}/, css)

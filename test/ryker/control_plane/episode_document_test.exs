@@ -54,6 +54,45 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
+  test "an individual successful tool call keeps the same full card shell as its failed state" do
+    # The rollout styled every successful call as minor plumbing, shrinking
+    # its title and inset even when it contained real action/results/evidence.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+    [base | _] = snapshot.trace.steps
+    fixture = File.read!("testdata/control_plane/oom-evidence-link.json") |> Jason.decode!()
+    payload = hd(fixture["activities"])["payload"]
+
+    step =
+      Map.merge(base, %{
+        id: "single-recorded-tool",
+        stage: "Tool call",
+        band: :work,
+        title: payload["title"] || "Tool call",
+        state: "completed",
+        tone: nil,
+        summary: nil,
+        duration_ms: 12,
+        tool_kind: payload["kind"],
+        details: [],
+        artifacts:
+          for(
+            {key, label} <- [{"input", "Arguments"}, {"output", "Response"}],
+            payload[key],
+            do: %{label: label, artifact: InspectionRedactor.artifact(payload[key])}
+          )
+      })
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], [step])
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert Enum.count(LazyHTML.query(document, ".action-card")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".case-minor .action-card"))
+  end
+
   test "routing keeps its recorded choice and model reason in one compact outcome" do
     html =
       render_request(:admission, :result, [

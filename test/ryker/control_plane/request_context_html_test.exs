@@ -171,7 +171,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(earlier) =~ "11 messages"
     assert Enum.count(LazyHTML.query(earlier, ".context-message")) == 11
     assert Enum.count(LazyHTML.query(earlier, ".context-messages-history")) == 1
-    assert Enum.count(LazyHTML.query(earlier, ".ui-message > .ui-message-body")) == 11
+
+    assert Enum.count(
+             LazyHTML.query(earlier, ".ui-message > .ui-message-frame > .ui-message-body")
+           ) == 11
 
     assert Enum.count(LazyHTML.query(earlier, ".ui-message-footer > .context-message-details")) ==
              11
@@ -557,6 +560,35 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
            ]
 
     refute document =~ "Slack reference"
+  end
+
+  test "compact retained Slack history renders its web links without requiring a mention" do
+    # Routing retains actor/at/text only. Bot notifications often contain a
+    # Slack-formatted web link but no mention, leaving literal <URL|label> text.
+    message = %{
+      "actor" => "deployment-monitor",
+      "at" => "2026-09-18T17:00:00Z",
+      "text" => "Run notification for <https://example.com/run|saved plan>"
+    }
+
+    document =
+      %{"conversation_context" => %{"messages" => [message]}}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.context", "compact-history")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    body = LazyHTML.query(document, ".context-messages-history .ui-message-body")
+
+    assert body |> LazyHTML.query("a") |> LazyHTML.attribute("href") == [
+             "https://example.com/run"
+           ]
+
+    assert LazyHTML.text(body) =~ "saved plan"
+    refute LazyHTML.text(body) =~ "<https://"
+
+    assert document |> LazyHTML.query(".context-message-raw") |> LazyHTML.text() =~
+             message["text"]
   end
 
   # Andrew's screenshot of this block, 2026-09-13: thirteen alphabetised labels
@@ -1192,6 +1224,47 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     document = LazyHTML.from_fragment(html)
     assert Enum.empty?(LazyHTML.query(document, ".conversation-recall h5"))
     assert Enum.empty?(LazyHTML.query(document, ".context-inline-disclosure pre"))
+  end
+
+  test "readable source notes retain safe link and emphasis formatting" do
+    # The first rollout kept raw Slack links inside the human-readable notes,
+    # while the same text in a message rendered correctly.
+    document =
+      recall_document(%{
+        "observations" => [
+          %{
+            "summary" =>
+              "Read <https://example.com/run|the run> and **check it**. <script>bad()</script>",
+            "actor_ref" => "local-operator",
+            "occurred_at" => "2026-09-18T17:00:00Z"
+          }
+        ]
+      })
+
+    note = LazyHTML.query(document, ".context-note-text")
+
+    assert note |> LazyHTML.query("a") |> LazyHTML.attribute("href") == [
+             "https://example.com/run"
+           ]
+
+    assert note |> LazyHTML.query("strong") |> LazyHTML.text() == "check it"
+    assert Enum.empty?(LazyHTML.query(note, "script"))
+    assert LazyHTML.text(note) =~ "<script>bad()</script>"
+  end
+
+  test "fenced source notes keep code and trailing prose inside their readable block" do
+    # Inline rendering inside a paragraph lets the browser close that paragraph
+    # at a fenced code block, losing the note's structure and styling.
+    document =
+      recall_document(%{
+        "observations" => [%{"summary" => "Before\n```sh\necho hi\n```\nAfter"}]
+      })
+
+    note = LazyHTML.query(document, ".context-note-text")
+    assert note |> LazyHTML.query("pre") |> LazyHTML.text() =~ "echo hi"
+    assert LazyHTML.text(note) =~ "Before"
+    assert LazyHTML.text(note) =~ "After"
+    assert Enum.count(LazyHTML.query(note, "p")) == 2
   end
 
   test "retained source notes are readable even when no conversation summary was selected" do

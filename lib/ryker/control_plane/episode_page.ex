@@ -1253,8 +1253,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp minor_entry?(%{kind: :event, step: %{tone: tone}}) when tone in [:bad, :warn], do: false
 
   defp minor_entry?(%{kind: :event, step: %{stage: stage}})
-       when stage in ["Queue", "Tool call", "Maintenance", "Thinking"],
-       do: true
+       when stage in ["Queue", "Tool call", "Maintenance"],
+       do: false
+
+  defp minor_entry?(%{kind: :event, step: %{stage: "Thinking"}}),
+    do: true
 
   defp minor_entry?(%{kind: :event, step: step} = entry),
     do: compact_entry?(entry) and is_nil(step[:candidate_response])
@@ -1331,10 +1334,18 @@ defmodule Ryker.ControlPlane.EpisodePage do
             </span>
             {elem(plan_line(goal), 1)}
           </p>
-          <p :if={goal.evidence != []} class="plan-step-evidence">
+          <p :if={goal.evidence != [] && length(goal.evidence) <= 3} class="plan-step-evidence">
             <span class="plan-step-label">Evidence</span>
             <.record_links items={goal.evidence} />
           </p>
+          <.disclosure
+            :if={length(goal.evidence) > 3}
+            id={"plan-evidence-#{goal.id}"}
+            label={Wording.count(length(goal.evidence), "evidence record")}
+            class="plan-evidence"
+          >
+            <.record_links items={goal.evidence} />
+          </.disclosure>
         </li>
       </ol>
       <.disclosure
@@ -1671,8 +1682,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
             data-verdict={rule.verdict}
           >
             <div class="standing-rule-heading">
-              <p class="standing-rule-verdict">{verdict_label(rule.verdict)}</p>
               <strong>{rule.title}</strong>
+              <p class="standing-rule-verdict">{verdict_label(rule.verdict)}</p>
             </div>
             <p class="standing-rule-reason">{rule.reason}</p>
             <.disclosure
@@ -1842,12 +1853,46 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp rule_facts(rule) do
     [
       %{label: "Looks for", value: rule_criteria(rule.criteria) <> rule_place(rule.scope_ref)}
-      | rule_evidence(rule.criteria, rule.evidence)
-    ]
+    ] ++
+      rule_filter_facts(rule.criteria["filter"], "") ++
+      rule_evidence(rule.criteria, rule.evidence)
   end
 
-  defp rule_criteria(%{"source_kind" => source, "filter" => filter}),
-    do: "#{source_name(source)} events matching #{Jason.encode!(filter)}"
+  defp rule_criteria(%{"source_kind" => source}), do: "#{source_name(source)} events"
+
+  # Present the recorded filter, not an interpretation of what its matcher does.
+  # Paths retain array positions, and empty values remain distinct from absent fields.
+  defp rule_filter_facts(filter, path) when is_map(filter) and map_size(filter) > 0 do
+    filter
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.flat_map(fn {key, value} ->
+      rule_filter_facts(value, rule_filter_path(path, key))
+    end)
+  end
+
+  defp rule_filter_facts([_ | _] = values, path) do
+    values
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {value, index} -> rule_filter_facts(value, "#{path}[#{index}]") end)
+  end
+
+  defp rule_filter_facts(value, path) do
+    [%{label: if(path == "", do: "Filter", else: path), value: rule_filter_value(value)}]
+  end
+
+  defp rule_filter_path(path, key) do
+    if Regex.match?(~r/^[A-Za-z_][A-Za-z_0-9]*$/, key) do
+      if path == "", do: key, else: path <> "." <> key
+    else
+      path <> "[" <> Jason.encode!(key) <> "]"
+    end
+  end
+
+  defp rule_filter_value(""), do: "Empty text"
+  defp rule_filter_value(value) when is_binary(value), do: Jason.encode!(value)
+  defp rule_filter_value([]), do: "Empty list"
+  defp rule_filter_value(value) when is_map(value) and map_size(value) == 0, do: "Empty object"
+  defp rule_filter_value(value), do: Jason.encode!(value)
 
   defp rule_place("slack:" <> _rest = scope), do: " in " <> Slack.destination_name(scope)
   defp rule_place(_scope), do: ""
