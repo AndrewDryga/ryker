@@ -393,6 +393,9 @@ defmodule Ryker.Admission.Executor do
       {:error, {:admission_rejected, :work_scope_not_allowed} = reason} ->
         generation_spent(reason)
 
+      {:error, {:admission_rejected, :context_stale} = reason} ->
+        generation_spent(reason)
+
       {:error, reason} ->
         {:error, reason}
     end

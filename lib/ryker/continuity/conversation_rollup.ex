@@ -8,6 +8,8 @@ defmodule Ryker.Continuity.ConversationRollup do
     field(:scope_kind, Ecto.Enum, values: [:conversation, :repository])
     field(:scope_ref, :string)
     field(:repository_ref, :string)
+    field(:environment_ref, :string)
+    field(:environment_known, :boolean, default: true)
     field(:visibility, Ecto.Enum, values: [:public, :private, :direct, :conversation])
     field(:period_start, :utc_datetime_usec)
     field(:period_end, :utc_datetime_usec)

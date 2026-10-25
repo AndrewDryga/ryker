@@ -163,17 +163,21 @@ defmodule Ryker.Continuity.Compaction do
 
     if summary.visibility == :public and is_binary(summary.repository_ref) and
          Scope.public_source_visible?(summary) do
-      {summary.workspace_ref, :repository, summary.repository_ref, period_start}
+      {summary.workspace_ref, :repository, summary.repository_ref, period_start,
+       summary.environment_known, summary.environment_ref}
     else
-      {summary.workspace_ref, :conversation, summary.conversation_ref, period_start}
+      {summary.workspace_ref, :conversation, summary.conversation_ref, period_start,
+       summary.environment_known, summary.environment_ref}
     end
   end
 
   defp compact_group([first | _rest] = sources, retention_seconds) do
     identity = rollup_identity(first)
-    {workspace_ref, scope_kind, scope_ref, period_start} = identity
+    {workspace_ref, scope_kind, scope_ref, period_start, known, ref} = identity
 
-    existing = peek_and_lock_rollup(workspace_ref, scope_kind, scope_ref, period_start)
+    existing =
+      peek_and_lock_rollup(workspace_ref, scope_kind, scope_ref, period_start, known, ref)
+
     retained = if existing && existing.state != %{"retention" => "pruned"}, do: existing
 
     if retained && not Learning.LearningSources.sourced?(retained.source_dependencies) do
@@ -203,9 +207,9 @@ defmodule Ryker.Continuity.Compaction do
     complete_compaction(existing, sources, attributes)
   end
 
-  defp peek_and_lock_rollup(workspace_ref, scope_kind, scope_ref, period_start) do
+  defp peek_and_lock_rollup(workspace_ref, scope_kind, scope_ref, period_start, known, ref) do
     workspace_ref
-    |> ConversationRollup.Query.by_identity(scope_kind, scope_ref, period_start)
+    |> ConversationRollup.Query.by_identity(scope_kind, scope_ref, period_start, known, ref)
     |> ConversationRollup.Query.lock_for_update()
     |> Repo.peek()
   end
@@ -215,7 +219,7 @@ defmodule Ryker.Continuity.Compaction do
          sources,
          existing,
          retention_seconds,
-         {workspace_ref, scope_kind, scope_ref, period_start}
+         {workspace_ref, scope_kind, scope_ref, period_start, known, ref}
        ) do
     states = Enum.map(sources, &{&1.updated_at, &1.state}) ++ existing_states(existing)
     period_end = sources |> Enum.map(& &1.updated_at) |> latest_period_end(existing)
@@ -224,6 +228,8 @@ defmodule Ryker.Continuity.Compaction do
     new_refs = Enum.map(sources, & &1.ref)
 
     %{
+      environment_known: known,
+      environment_ref: ref,
       expires_at: DateTime.add(period_end, retention_seconds, :second),
       period_end: period_end,
       period_start: period_start,
@@ -354,6 +360,8 @@ defmodule Ryker.Continuity.Compaction do
     rollup
     |> Changeset.cast(attributes, [
       :expires_at,
+      :environment_ref,
+      :environment_known,
       :id,
       :period_end,
       :period_start,

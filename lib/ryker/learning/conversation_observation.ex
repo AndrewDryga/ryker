@@ -9,6 +9,8 @@ defmodule Ryker.Learning.ConversationObservation do
     field(:conversation_ref, :string)
     field(:thread_ref, :string)
     field(:repository_ref, :string)
+    field(:environment_ref, :string)
+    field(:environment_known, :boolean, default: true)
     field(:visibility, Ecto.Enum, values: [:public, :private, :direct, :conversation])
     field(:source_input_id, :binary_id)
     field(:source_episode_id, :binary_id)

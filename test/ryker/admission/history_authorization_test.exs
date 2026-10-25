@@ -50,6 +50,57 @@ defmodule Ryker.Admission.HistoryAuthorizationTest do
      active: active}
   end
 
+  # A resumed routing generation bypassed the new selector and could disclose
+  # its prepatch summary from another product. This must fail before submit.
+  for provenance <- [:foreign, :unknown, :unlabeled] do
+    test "a frozen #{provenance} thread summary is rebuilt before another model disclosure", %{
+      fixture: fixture,
+      scopes: scopes,
+      workspace: workspace,
+      now: now,
+      active: active
+    } do
+      pin!(active, scopes["incoming"])
+      entry = scoped_record!(fixture["incoming"], workspace, scopes["incoming"])
+      context = context!(entry, now)
+
+      summary = %{
+        "state" => %{"situation" => fixture["history"]["input"]["content"]["text"]},
+        "covered_through" => DateTime.to_iso8601(now),
+        "freshness" => "current"
+      }
+
+      summary =
+        case unquote(provenance) do
+          :foreign ->
+            Map.merge(summary, %{
+              "environment_ref" => scopes["active"]["environment_ref"],
+              "environment_known" => true
+            })
+
+          :unknown ->
+            Map.merge(summary, %{"environment_ref" => nil, "environment_known" => false})
+
+          :unlabeled ->
+            summary
+        end
+
+      snapshot =
+        context
+        |> Context.snapshot()
+        |> put_in(["conversation_context", "thread_summary"], summary)
+
+      claimed = claim!(entry, now)
+      assert {:ok, _} = Inbox.bind_context(Inbox.ref(entry), claimed.lease_ref, snapshot)
+      {:ok, fake} = FakeAPI.start_link([LocalRouting.hi_quick_reply()])
+
+      assert Executor.run(Inbox.ref(entry), executor_options(fake, claimed.lease_ref, now)) ==
+               {:error, {:admission_generation_spent, {:admission_rejected, :context_stale}}}
+
+      assert FakeAPI.state(fake).submit_count == 0
+    end
+  end
+
   for mismatch <- [:environment, :connection, :both] do
     @mismatch mismatch
     test "an identical health request cannot inherit another #{@mismatch} scope", %{

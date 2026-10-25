@@ -102,6 +102,7 @@ defmodule Ryker.Continuity.Handover do
              {:ok, state} <- ConversationSummaryState.prepare(draft.state),
              true <- CanonicalJSON.digest(state) == draft.state_fingerprint,
              {:ok, context} <- Scope.destination_context(episode, session.repository_ref),
+             context = Map.put(context, :environment_ref, session.environment_ref),
              :ok <- upsert_summary(draft, episode, turn, result_ref, context),
              {:ok, _draft} <- Repo.delete(draft) do
           :ok
@@ -376,6 +377,9 @@ defmodule Ryker.Continuity.Handover do
       compaction_error_code: nil,
       compaction_retry_at: nil,
       conversation_ref: context.conversation_ref,
+      environment_ref: context.environment_ref,
+      environment_known:
+        Learning.LearningSources.in_environment?(dependencies, context.environment_ref),
       identity_key: context.identity_key,
       repository_ref: context.repository_ref,
       source_episode_id: episode.id,
@@ -414,7 +418,7 @@ defmodule Ryker.Continuity.Handover do
     |> summary_changeset(%ConversationSummary{})
     |> Changeset.change(inserted_at: now, updated_at: now)
     |> Repo.insert(
-      conflict_target: :identity_key,
+      conflict_target: [:identity_key, :environment_known, :environment_ref],
       on_conflict: {:replace_all_except, [:id, :ref, :inserted_at]}
     )
     |> tap(fn _result ->
@@ -430,6 +434,8 @@ defmodule Ryker.Continuity.Handover do
       :compaction_error_code,
       :compaction_retry_at,
       :conversation_ref,
+      :environment_ref,
+      :environment_known,
       :id,
       :identity_key,
       :ref,

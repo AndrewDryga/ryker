@@ -7,6 +7,16 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
 
   def all, do: from(summaries in ConversationSummary, as: :conversation_summaries)
 
+  @doc "Known source provenance belonging to exactly this environment, including an explicit bare scope."
+  def by_environment(queryable, environment_ref) do
+    where(
+      queryable,
+      [conversation_summaries: r],
+      r.environment_known and
+        fragment("? IS NOT DISTINCT FROM ?", r.environment_ref, ^environment_ref)
+    )
+  end
+
   def by_id(queryable \\ all(), id),
     do: where(queryable, [conversation_summaries: s], s.id == ^id)
 
@@ -67,6 +77,13 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
     blocked =
       from([conversation_rollups: rollup] in ConversationRollup.Query.all(),
         where: rollup.workspace_ref == parent_as(:conversation_summaries).workspace_ref,
+        where: rollup.environment_known == parent_as(:conversation_summaries).environment_known,
+        where:
+          fragment(
+            "? IS NOT DISTINCT FROM ?",
+            rollup.environment_ref,
+            parent_as(:conversation_summaries).environment_ref
+          ),
         where: rollup.state != ^%{"retention" => "pruned"},
         where:
           fragment(

@@ -99,11 +99,15 @@ open. Environments are managed under **Work › Environments**.
 
 Learning batches keep the environment selected for each source message. Sharing a repository
 or conversation does not combine different environments into one batch or writable learned
-topic. Automatic outcome and case recall stays within the current environment; explicit memory
+topic. Automatic excerpts, conversation summaries, rollups, outcomes and cases stay within the
+current environment; explicit memory
 search can return other visible history and identifies its source environment. Retained cases keep
 that identity after raw history expires. Missing historical evidence stays unknown rather than
 being assigned to the conversation's current environment. Unknown history remains read-only and
-stays out of automatic case recall; it is distinct from work explicitly run without an environment.
+stays out of automatic recall; it is distinct from work explicitly run without an environment.
+Summary publication and weekly compaction keep environment-specific identities, so a shared
+conversation or repository cannot merge their histories. Mixed original-source provenance also
+stays outside automatic summary and rollup recall.
 
 Read-only and governed scheduled checks retain their chosen environment's repository set as
 read-only context, alongside its Emisar account. Removing that environment blocks dispatch; the

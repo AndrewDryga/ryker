@@ -298,13 +298,27 @@ defmodule Ryker.Admission do
   Internal — `Ryker.Admission.Executor` rechecks every episode whose evidence
   entered a frozen briefing. Returns `:ok`, or
   `{:error, {:admission_rejected, :work_scope_not_allowed}}` when any candidate
-  no longer belongs to the incoming environment and Emisar connection.
+  no longer belongs to the incoming environment and Emisar connection. A
+  withdrawn, changed or foreign frozen thread summary returns `context_stale`.
   A value other than a context returns `{:error, {:admission_rejected, :context}}`.
   """
   @spec reauthorize_work_scope(Context.t()) :: :ok | {:error, term()}
-  def reauthorize_work_scope(%Context{candidates: []}), do: :ok
-
   def reauthorize_work_scope(%Context{} = context) do
+    with :ok <-
+           ConversationSummaries.reauthorize(
+             context.input_entry,
+             context.conversation_context,
+             context.built_at
+           ) do
+      reauthorize_candidates(context)
+    end
+  end
+
+  def reauthorize_work_scope(_context), do: {:error, {:admission_rejected, :context}}
+
+  defp reauthorize_candidates(%Context{candidates: []}), do: :ok
+
+  defp reauthorize_candidates(%Context{} = context) do
     ids = context.candidates |> Enum.map(& &1.episode.id) |> Enum.uniq()
 
     eligible_count =
@@ -318,7 +332,7 @@ defmodule Ryker.Admission do
       else: {:error, {:admission_rejected, :work_scope_not_allowed}}
   end
 
-  def reauthorize_work_scope(_context), do: {:error, {:admission_rejected, :context}}
+  defp reauthorize_candidates(_context), do: {:error, {:admission_rejected, :context}}
 
   # An edit still belongs to its original episode. A route changed to another
   # environment cannot move that source or offer its old findings, and a model

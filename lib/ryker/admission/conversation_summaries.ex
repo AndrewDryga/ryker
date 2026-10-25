@@ -15,6 +15,7 @@ defmodule Ryker.Admission.ConversationSummaries do
   alias Ryker.Ingress
   alias Ryker.Learning
   alias Ryker.Repo
+  alias Ryker.Work
 
   @freshness_window 24 * 60 * 60
 
@@ -32,11 +33,30 @@ defmodule Ryker.Admission.ConversationSummaries do
     end
   end
 
+  @doc "Recheck a frozen summary's exact projection and sources before another disclosure."
+  def reauthorize(%Ingress.Inbox.Entry{} = entry, %{"thread_summary" => %{} = document}, now) do
+    if thread(entry, now)["document"] == document,
+      do: :ok,
+      else: {:error, {:admission_rejected, :context_stale}}
+  end
+
+  def reauthorize(%Ingress.Inbox.Entry{}, %{"thread_summary" => nil}, _now), do: :ok
+  def reauthorize(%Ingress.Inbox.Entry{}, nil, _now), do: :ok
+
+  def reauthorize(%Ingress.Inbox.Entry{}, %{} = bundle, _now)
+      when not is_map_key(bundle, "thread_summary"),
+      do: :ok
+
+  def reauthorize(_entry, _bundle, _now),
+    do: {:error, {:admission_rejected, :context_stale}}
+
   # The scope is the one the Work handover saved the summary under, so both
   # name the thread by the same identity key.
   defp selected_locked(entry, now) do
+    environment_ref = Work.EnvironmentContext.ref(entry)
+
     with {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref),
-         {:ok, summary} <- fetch_latest(scope.identity_key) do
+         {:ok, summary} <- fetch_latest(scope, environment_ref) do
       cond do
         after_cutoff?(summary, entry) ->
           unavailable("after_cutoff")
@@ -53,10 +73,13 @@ defmodule Ryker.Admission.ConversationSummaries do
     end
   end
 
-  defp fetch_latest(identity_key) do
+  defp fetch_latest(scope, environment_ref) do
     latest =
-      identity_key
+      scope.identity_key
       |> Continuity.ConversationSummary.Query.by_identity_key()
+      |> Continuity.ConversationSummary.Query.by_environment(environment_ref)
+      |> Learning.LearningSources.in_environment(environment_ref)
+      |> Learning.LearningSources.eligible(scope)
       |> Continuity.ConversationSummary.Query.ordered_by_recently_updated()
       |> Continuity.ConversationSummary.Query.limit_to(1)
 
@@ -82,6 +105,9 @@ defmodule Ryker.Admission.ConversationSummaries do
       "covered_through" => DateTime.to_iso8601(summary.updated_at),
       "covered_source" => summary.source_message_ref,
       "document" => %{
+        "source_ref" => summary.ref,
+        "environment_ref" => summary.environment_ref,
+        "environment_known" => summary.environment_known,
         "state" => summary.state,
         "covered_through" => DateTime.to_iso8601(summary.updated_at),
         "freshness" => freshness(summary, now)

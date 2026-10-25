@@ -164,6 +164,26 @@ defmodule Ryker.Learning.LearningSources do
   def eligible(query, scope),
     do: SourceDependency.Query.eligible(query, scope, retention_seconds(), @utc_timestamp_pattern)
 
+  @doc "Filter automatic derived context by the provenance of every original source."
+  def in_environment(query, environment_ref),
+    do: SourceDependency.Query.in_environment(query, environment_ref)
+
+  @doc "Whether all retained original roots prove the producing environment."
+  def in_environment?(sources, environment_ref) do
+    case expand(sources) do
+      [_ | _] = roots ->
+        encoded = CanonicalJSON.encode!(roots)
+
+        encoded
+        |> SourceDependency.Query.roots()
+        |> in_environment(environment_ref)
+        |> Repo.exists?()
+
+      _unproven ->
+        false
+    end
+  end
+
   defp future_inputs_absent?(roots, %{input_boundary: _} = scope) do
     roots
     |> CanonicalJSON.encode!()
@@ -591,9 +611,16 @@ defmodule Ryker.Learning.LearningSources do
     if Ecto.UUID.cast(id) == {:ok, id}, do: Repo.fetch(by_id.(id)), else: {:error, :not_found}
   end
 
-  defp summary_sources({:ok, %{state: state, source_dependencies: [_ | _] = sources}}, %{
-         "state" => state
-       }),
+  defp summary_sources(
+         {:ok,
+          %{
+            state: state,
+            environment_ref: ref,
+            environment_known: known,
+            source_dependencies: [_ | _] = sources
+          }},
+         %{"state" => state, "environment_ref" => ref, "environment_known" => known}
+       ),
        do: sources
 
   defp summary_sources(_, _), do: nil

@@ -84,7 +84,12 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
         source_result_ref: "host-cumulative-fixture"
       })
 
-    document = %{"source_ref" => summary.ref, "state" => summary.state}
+    document = %{
+      "source_ref" => summary.ref,
+      "state" => summary.state,
+      "environment_ref" => summary.environment_ref,
+      "environment_known" => summary.environment_known
+    }
 
     assert KnowledgeSnapshot.expose(claim, [document]) ==
              {:error, :work_memory_source_capacity_exceeded}
@@ -154,7 +159,12 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
         source_result_ref: "host-exposure-scale-fixture"
       })
 
-    document = %{"source_ref" => summary.ref, "state" => summary.state}
+    document = %{
+      "source_ref" => summary.ref,
+      "state" => summary.state,
+      "environment_ref" => summary.environment_ref,
+      "environment_known" => summary.environment_known
+    }
 
     {result, queries} = exposure_queries(fn -> KnowledgeSnapshot.expose(claim, [document]) end)
     assert result == :ok

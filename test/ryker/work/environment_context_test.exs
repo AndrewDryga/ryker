@@ -10,6 +10,33 @@ defmodule Ryker.Work.EnvironmentContextTest do
     end
   end
 
+  test "a retained bare source is different from a missing producer" do
+    assert EnvironmentContext.provenance(%{work_profile: nil}) == %{
+             environment_ref: nil,
+             environment_known: true
+           }
+
+    for missing <- [nil, %{}, %Episode{}] do
+      assert EnvironmentContext.provenance(missing) == %{
+               environment_ref: nil,
+               environment_known: false
+             }
+    end
+
+    assert EnvironmentContext.provenance(nil) == %{
+             environment_ref: nil,
+             environment_known: false
+           }
+
+    assert EnvironmentContext.provenance(%{
+             environment_ref: "product-a",
+             environment_known: false
+           }) == %{
+             environment_ref: "product-a",
+             environment_known: false
+           }
+  end
+
   test "a removed environment retains its source identity without replacement labels" do
     source = %{work_profile: %{"environment_ref" => "removed-product"}}
     assert EnvironmentContext.ref(source) == "removed-product"

@@ -185,6 +185,8 @@ defmodule Ryker.Admission.Context do
         "actor" => note["actor_ref"],
         "at" => Candidate.model_time(note["occurred_at"]),
         "summary" => Candidate.model_text(note["summary"]),
+        "environment_ref" => note["environment_ref"],
+        "environment_known" => note["environment_known"],
         "topics" => note["topics"]
       }
       |> Map.reject(fn {_key, value} -> value in [nil, []] end)

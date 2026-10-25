@@ -5,6 +5,16 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
 
   def all, do: from(rollups in ConversationRollup, as: :conversation_rollups)
 
+  @doc "Known source provenance belonging to exactly this environment, including an explicit bare scope."
+  def by_environment(queryable, environment_ref) do
+    where(
+      queryable,
+      [conversation_rollups: r],
+      r.environment_known and
+        fragment("? IS NOT DISTINCT FROM ?", r.environment_ref, ^environment_ref)
+    )
+  end
+
   def by_id(queryable \\ all(), id),
     do: where(queryable, [conversation_rollups: r], r.id == ^id)
 
@@ -18,12 +28,14 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
     do: where(queryable, [conversation_rollups: r], r.workspace_ref == ^workspace_ref)
 
   @doc "The rollup of one scope's week."
-  def by_identity(workspace_ref, scope_kind, scope_ref, period_start) do
+  def by_identity(workspace_ref, scope_kind, scope_ref, period_start, known, ref) do
     where(
       all(),
       [conversation_rollups: r],
       r.workspace_ref == ^workspace_ref and r.scope_kind == ^scope_kind and
-        r.scope_ref == ^scope_ref and r.period_start == ^period_start
+        r.scope_ref == ^scope_ref and r.period_start == ^period_start and
+        r.environment_known == ^known and
+        fragment("? IS NOT DISTINCT FROM ?", r.environment_ref, ^ref)
     )
   end
 

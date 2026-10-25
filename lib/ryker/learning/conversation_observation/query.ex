@@ -5,6 +5,16 @@ defmodule Ryker.Learning.ConversationObservation.Query do
 
   def all, do: from(observations in ConversationObservation, as: :conversation_observations)
 
+  @doc "Known source provenance belonging to exactly this environment, including an explicit bare scope."
+  def by_environment(queryable, environment_ref) do
+    where(
+      queryable,
+      [conversation_observations: r],
+      r.environment_known and
+        fragment("? IS NOT DISTINCT FROM ?", r.environment_ref, ^environment_ref)
+    )
+  end
+
   def by_identity(queryable \\ all(), identity_key),
     do: where(queryable, [conversation_observations: o], o.identity_key == ^identity_key)
 

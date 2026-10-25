@@ -122,6 +122,7 @@ defmodule Ryker.Continuity.Recall do
     current =
       context.identity_key
       |> ConversationSummary.Query.by_identity_key()
+      |> ConversationSummary.Query.by_environment(context.environment_ref)
       |> Repo.peek()
       |> learning_visible(context)
 
@@ -172,6 +173,8 @@ defmodule Ryker.Continuity.Recall do
     query =
       context
       |> searchable_summaries_query("workspace")
+      |> ConversationSummary.Query.by_environment(context.environment_ref)
+      |> Learning.LearningSources.in_environment(context.environment_ref)
       |> ConversationSummary.Query.excluding_identity_key(context.identity_key)
       |> ConversationSummary.Query.ordered_by_recently_updated()
       |> ConversationSummary.Query.limit_to(@maximum_candidates)
@@ -194,6 +197,8 @@ defmodule Ryker.Continuity.Recall do
     query =
       context
       |> ConversationRollup.Query.by_context()
+      |> ConversationRollup.Query.by_environment(context.environment_ref)
+      |> Learning.LearningSources.in_environment(context.environment_ref)
       |> ConversationRollup.Query.ordered_by_period_end_desc()
       |> ConversationRollup.Query.limit_to(@maximum_candidates)
       |> ConversationRollup.Query.visible_to(context)
@@ -218,8 +223,14 @@ defmodule Ryker.Continuity.Recall do
 
   defp learning_visible(nil, _context), do: nil
 
-  defp learning_visible(item, context),
-    do: if(derived_sources_valid?(item, context), do: item)
+  defp learning_visible(item, context) do
+    if derived_sources_valid?(item, context) and
+         Learning.LearningSources.in_environment?(
+           item.source_dependencies,
+           context.environment_ref
+         ),
+       do: item
+  end
 
   defp derived_sources_valid?(item, context) do
     Learning.LearningSources.sourced?(item.source_dependencies) and
@@ -275,6 +286,8 @@ defmodule Ryker.Continuity.Recall do
   defp summary_document(summary) do
     %{
       "transport" => summary.transport,
+      "environment_ref" => summary.environment_ref,
+      "environment_known" => summary.environment_known,
       "workspace_ref" => summary.workspace_ref,
       "conversation_ref" => summary.conversation_ref,
       "thread_ref" => summary.thread_ref,
@@ -291,6 +304,8 @@ defmodule Ryker.Continuity.Recall do
   defp rollup_document(rollup) do
     %{
       "workspace_ref" => rollup.workspace_ref,
+      "environment_ref" => rollup.environment_ref,
+      "environment_known" => rollup.environment_known,
       "scope_kind" => Atom.to_string(rollup.scope_kind),
       "scope_ref" => rollup.scope_ref,
       "period_end" => DateTime.to_iso8601(rollup.period_end),

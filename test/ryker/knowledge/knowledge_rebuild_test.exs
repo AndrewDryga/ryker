@@ -192,6 +192,8 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
       warm_reader!(first, %{
         "repository_ref" => summary.repository_ref,
         "source_ref" => summary.ref,
+        "environment_ref" => summary.environment_ref,
+        "environment_known" => summary.environment_known,
         "state" => summary.state,
         "updated_at" => DateTime.to_iso8601(summary.updated_at)
       })

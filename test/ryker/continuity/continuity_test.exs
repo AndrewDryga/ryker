@@ -59,6 +59,18 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert_received {:continuity_updated, ^conversation}
   end
 
+  test "published summaries retain the environment of their accepted source work" do
+    {_entry, work, submission} = raw_work!("product-a")
+    assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
+    accept!(work, submission)
+    summary = Repo.one!(ConversationSummary)
+    assert summary.environment_ref == "product-a"
+    assert summary.environment_known
+
+    assert Continuity.model_context(work.episode, "tenant-infra")["current"]["environment_ref"] ==
+             "product-a"
+  end
+
   # Every summary last changed at `at`. Compaction takes only summaries that
   # have been quiet for its whole window.
   defp summaries_changed_at!(at),
@@ -772,8 +784,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert Repo.transaction(fn -> Observations.receive_in_transaction(changed) end) == {:ok, :ok}
   end
 
-  defp raw_work! do
+  defp raw_work!(environment_ref \\ nil) do
     [entry | _] = LearningFixtures.inputs!(isolate: true)
+    entry = scope_raw_source!(entry, environment_ref)
     ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
     joined!(workspace, channel)
     episode = Repo.get!(Ryker.Episodes.Episode, entry.episode_id)
@@ -815,7 +828,8 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, _} =
              WorkSessions.pin_episode(episode.id, "ryker-read", String.duplicate("a", 64),
-               repository_ref: "tenant-infra"
+               repository_ref: "tenant-infra",
+               environment_ref: environment_ref
              )
 
     assert {:ok, claim} = Custody.claim_next("raw-source-review", 60, :work)
@@ -851,6 +865,37 @@ defmodule Ryker.Continuity.ContinuityTest do
     }
 
     {entry, work, submission}
+  end
+
+  defp scope_raw_source!(entry, nil), do: entry
+
+  defp scope_raw_source!(entry, environment_ref) do
+    classes =
+      Map.new([:conversational, :standard, :deep], fn kind ->
+        {kind, %{policy: "ryker-read", policy_digest: String.duplicate("a", 64)}}
+      end)
+
+    assert {:ok, profile} =
+             Ryker.Ingress.WorkProfile.new(%{
+               environment_ref: environment_ref,
+               parallel_goal_limit: 2,
+               policies: %{entry.repository_ref => classes},
+               repositories: [entry.repository_ref]
+             })
+
+    entry =
+      entry
+      |> Ecto.Changeset.change(
+        work_profile: Ryker.Ingress.WorkProfile.document(profile),
+        work_policy: profile.policy,
+        work_policy_digest: profile.policy_digest
+      )
+      |> Repo.update!()
+
+    assert Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end) ==
+             {:ok, :ok}
+
+    entry
   end
 
   for boundary <- [:count, :bytes] do

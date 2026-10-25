@@ -110,6 +110,29 @@ defmodule Ryker.Learning.SourceDependency.Query do
     |> without_future_inputs(scope)
   end
 
+  @doc "Automatic context whose every original source belongs to this environment."
+  def in_environment(queryable, environment_ref) do
+    from(item in queryable,
+      where:
+        fragment(
+          """
+          NOT EXISTS (
+            SELECT 1 FROM ryker_learning_roots(?) root
+            LEFT JOIN LATERAL (
+              SELECT o.* FROM conversation_observations o WHERE o.id=CASE
+                WHEN pg_input_is_valid(root->>'observation_id','uuid') THEN (root->>'observation_id')::uuid ELSE NULL END
+              OFFSET 0
+            ) o ON true
+            WHERE o.id IS NULL OR NOT o.environment_known
+              OR o.environment_ref IS DISTINCT FROM ?
+          )
+          """,
+          item.source_dependencies,
+          ^environment_ref
+        )
+    )
+  end
+
   @doc """
   A background topic can be newer than the Work input boundary. Both queued
   inputs already in the snapshot and arrivals after that snapshot are barred,

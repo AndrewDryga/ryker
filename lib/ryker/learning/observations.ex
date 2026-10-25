@@ -11,6 +11,7 @@ defmodule Ryker.Learning.Observations do
   alias Ryker.Memories
   alias Ryker.Publication
   alias Ryker.Slack
+  alias Ryker.Work
 
   @doc "Retain a deterministic excerpt of the original input with only that source's receipt."
   def record_excerpt_in_transaction(%Ingress.Inbox.Entry{status: :decided} = entry),
@@ -42,7 +43,12 @@ defmodule Ryker.Learning.Observations do
         }
       ) do
     with true <- Repo.in_transaction?(),
-         {:ok, %Publication.Publication{episode_id: ^episode_id, repository: ^repository}} <-
+         {:ok,
+          %Publication.Publication{
+            episode_id: ^episode_id,
+            repository: ^repository,
+            session_id: session_id
+          }} <-
            Repo.fetch(Publication.Publication.Query.by_id(publication_id)),
          %Publication.LifecycleEvent{
            kind: :review_feedback,
@@ -58,6 +64,8 @@ defmodule Ryker.Learning.Observations do
          } = event <- Repo.peek(Publication.LifecycleEvent.Query.by_id(id)),
          {:ok, %Episodes.Episode{} = episode} <-
            Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      environment = publication_environment(session_id)
+
       source = %{
         id: event.id,
         source_kind: "github",
@@ -75,7 +83,9 @@ defmodule Ryker.Learning.Observations do
         destination_transport: episode.destination_transport,
         destination_conversation_ref: episode.destination_conversation_ref,
         destination_thread_ref: episode.destination_thread_ref,
-        repository_ref: repository
+        repository_ref: repository,
+        environment_ref: environment.environment_ref,
+        environment_known: environment.environment_known
       }
 
       # The PR may be private even when the engineering task lives in a public
@@ -87,6 +97,15 @@ defmodule Ryker.Learning.Observations do
     else
       _ -> {:error, :publication_feedback_source_invalid}
     end
+  end
+
+  defp publication_environment(nil), do: Work.EnvironmentContext.provenance(nil)
+
+  defp publication_environment(session_id) do
+    session_id
+    |> Work.Session.Query.by_id()
+    |> Repo.peek()
+    |> Work.EnvironmentContext.provenance()
   end
 
   @doc false
@@ -109,7 +128,8 @@ defmodule Ryker.Learning.Observations do
       now = Keyword.get_lazy(options, :received_at, &Repo.now!/0)
       scope = Map.put(scope, :visibility, Keyword.get(options, :visibility, scope.visibility))
 
-      observation_scope = Map.drop(scope, [:environment_ref])
+      source_provenance = Work.EnvironmentContext.provenance(entry)
+      observation_scope = Map.merge(scope, source_provenance)
 
       # Keep a revision tombstone even when an edit has nothing to remember. A
       # slower classifier for the previous revision must never resurrect it.
@@ -142,7 +162,7 @@ defmodule Ryker.Learning.Observations do
       }
 
       fields =
-        ~w(transport workspace_ref conversation_ref repository_ref thread_ref visibility source_input_id source_episode_id source_message_ref source_result_ref source_fingerprint actor_ref execution_mode revision occurred_at note source_dependencies updated_at)a
+        ~w(transport workspace_ref conversation_ref repository_ref environment_ref environment_known thread_ref visibility source_input_id source_episode_id source_message_ref source_result_ref source_fingerprint actor_ref execution_mode revision occurred_at note source_dependencies updated_at)a
 
       updates = Enum.map(fields, &{&1, Map.fetch!(record, &1)})
 
@@ -291,6 +311,7 @@ defmodule Ryker.Learning.Observations do
         |> ConversationObservation.Query.by_ids()
         |> ConversationObservation.Query.by_workspace_ref(scope.workspace_ref)
         |> ConversationObservation.Query.having_note()
+        |> ConversationObservation.Query.by_environment(scope.environment_ref)
         |> Visibility.Query.visible_from(scope)
         |> ConversationObservation.Query.lock_for_share()
         |> Repo.all()
@@ -337,6 +358,7 @@ defmodule Ryker.Learning.Observations do
     scope.workspace_ref
     |> ConversationObservation.Query.by_workspace_ref()
     |> ConversationObservation.Query.having_note()
+    |> ConversationObservation.Query.by_environment(scope.environment_ref)
     |> ConversationObservation.Query.not_among(Knowledge.current_source_ids_query(scope))
     |> Visibility.Query.visible_from(scope)
     |> ConversationObservation.Query.ordered_by_recall_precedence(scope)
@@ -424,6 +446,8 @@ defmodule Ryker.Learning.Observations do
   def original_document(note) do
     %{
       "kind" => "conversation_observation",
+      "environment_ref" => note.environment_ref,
+      "environment_known" => note.environment_known,
       "source_ref" => "observation:#{note.id}",
       "summary" => note.note["summary"],
       "topics" => note.note["topics"],
