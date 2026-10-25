@@ -379,6 +379,8 @@ forgets it. A forgotten fact keeps no words. Separate content-free withdrawal re
 source identities and historical cutoffs even when later learning replaces the current fact row
 or chooses a different kind. Explicitly forgetting a person or fact blocks older profile inputs;
 already-kept other facts stay intact, and new statements can teach facts again. Forgetting an
+identical sentence under one kind also erases its kept copies under other kinds for that person;
+learned retractions preserve copies genuinely stated later than the retraction. Forgetting an
 empty profile still records that cutoff. Editing or deleting a message, or deleting its channel,
 blocks the affected sources while leaving unrelated retained sources usable. Learned retractions
 use the message time and are recorded before selecting the latest positive statements, so a

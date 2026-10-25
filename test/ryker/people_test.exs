@@ -112,6 +112,37 @@ defmodule Ryker.PeopleTest do
     end
   end
 
+  # Existing copies under other model keys are the same quoted sentence.
+  # A retraction erased only the named kind and left those older copies usable.
+  for newer_key <- [nil, "birthday", "birth-date"] do
+    test "taking back a known fact removes older copies while preserving later #{inspect(newer_key)} statements",
+         %{workspace: workspace, public: public, now: now} do
+      told = said!(workspace, "CPUBLIC", "UCARA", "my birthday is 2 May", at: ago(now, 120))
+
+      learn!([told], [
+        item(told, "birthday", "Birthday is 2 May."),
+        item(told, "birth-date", "Birthday is 2 May.")
+      ])
+
+      later = said!(workspace, "CPUBLIC", "UCARA", "fine, it's 2 May", at: ago(now, 30))
+
+      if unquote(newer_key),
+        do: learn!([later], [item(later, unquote(newer_key), "Birthday is 2 May.")])
+
+      took_back = said!(workspace, "CPUBLIC", "UCARA", "forget my birthday", at: ago(now, 60))
+      learn!([took_back], [item(took_back, "birthday", nil)])
+
+      if unquote(newer_key) do
+        assert People.about("slack:user:UCARA", public) == ["Birthday is 2 May."]
+        assert [%{key: key, source_input_id: id}] = People.facts("slack:user:UCARA")
+        assert key == unquote(newer_key)
+        assert id == later.id
+      else
+        assert People.about("slack:user:UCARA", public) == []
+      end
+    end
+  end
+
   # A forgotten fact kept its kind, such as "medical-leave", which says what
   # was forgotten (2026-10-04 review). It keeps only a digest of it, which
   # still stops anything said before from teaching it again.

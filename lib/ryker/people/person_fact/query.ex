@@ -26,6 +26,13 @@ defmodule Ryker.People.PersonFact.Query do
 
   def kept(queryable \\ all()), do: where(queryable, [person_facts: f], f.status == :kept)
 
+  def said_at_or_before(queryable \\ all(), occurred_at)
+
+  def said_at_or_before(queryable, %DateTime{} = occurred_at),
+    do: where(queryable, [person_facts: f], f.said_at <= ^occurred_at)
+
+  def said_at_or_before(queryable, _occurred_at), do: where(queryable, false)
+
   @doc """
   Usable in `conversation_ref`: said where anyone in the workspace can read
   it, or said in that conversation.

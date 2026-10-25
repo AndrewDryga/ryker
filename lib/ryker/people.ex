@@ -26,7 +26,8 @@ defmodule Ryker.People do
   words and records content-free withdrawal boundaries separately from the
   current facts, so a changed fact label or a later statement cannot make a
   withdrawn source teach them again. Nothing said before an explicit forget
-  refreshes the profile; already-kept other facts remain intact. They
+  refreshes the profile. Identical kept sentences under other labels are
+  forgotten together; already-kept different facts remain intact. They
   are kept until forgotten: a birthday is worth remembering for more than
   the ninety days conversation memory keeps.
   """
@@ -156,12 +157,15 @@ defmodule Ryker.People do
   end
 
   defp keep_current(%{entry: entry, person: person, key: key, fact: fact}, now) do
-    existing =
+    query =
       person
       |> PersonFact.Query.by_person()
       |> PersonFact.Query.by_keys([key, forgotten_key(person, key)])
-      |> PersonFact.Query.lock_for_update()
-      |> Repo.peek()
+
+    # Retraction uses the row only as a content hint. Locking this selected
+    # row before its copies would invert source withdrawal's stable row order.
+    query = if is_nil(fact), do: query, else: PersonFact.Query.lock_for_update(query)
+    existing = Repo.peek(query)
 
     case change(existing, entry, fact, person) do
       :none -> :ok
@@ -188,15 +192,18 @@ defmodule Ryker.People do
 
   defp withdrawn_source?(_person, _entry), do: true
 
-  defp change(existing, entry, fact, person) do
+  defp change(existing_fact, %Ingress.Inbox.Entry{} = entry, fact, person)
+       when is_struct(existing_fact, PersonFact) or is_nil(existing_fact) do
     cond do
-      existing && not newer?(entry, existing) -> :none
-      is_nil(fact) -> forgetting(existing)
-      existing -> :say
+      is_nil(fact) -> forgetting(existing_fact)
+      existing_fact && not newer?(entry, existing_fact) -> :none
+      existing_fact -> :say
       kept_count(person) >= @maximum_kept -> :none
       true -> :insert
     end
   end
+
+  defp change(_existing_fact, _entry, _fact, _person), do: :none
 
   # Every retraction already has a withdrawal boundary; only a kept row
   # needs its words erased.
@@ -267,21 +274,13 @@ defmodule Ryker.People do
     do: Repo.rollback({:invalid_person_fact_retraction, :entry})
 
   defp forget!(%PersonFact{} = existing_fact, %Ingress.Inbox.Entry{} = entry, %DateTime{} = now) do
-    record_withdrawals([{existing_fact.person_ref, existing_fact.source_message_ref}], now, now)
+    query =
+      existing_fact.person_ref
+      |> PersonFact.Query.by_person()
+      |> PersonFact.Query.by_facts([existing_fact.fact])
+      |> PersonFact.Query.said_at_or_before(entry.occurred_at)
 
-    existing_fact
-    |> Ecto.Changeset.change(
-      key: forgotten_key(existing_fact.person_ref, existing_fact.key),
-      fact: nil,
-      status: :forgotten,
-      forgotten_at: now,
-      source_input_id: entry.id,
-      source_message_ref: entry.native_input_id,
-      said_at: entry.occurred_at,
-      updated_at: now
-    )
-    |> Repo.update!()
-
+    forget_where(query, now)
     :ok
   end
 
@@ -439,6 +438,7 @@ defmodule Ryker.People do
   @doc """
   Forgets one thing Ryker knows about a person. As when the whole person is
   forgotten, nothing said before brings it back; saying it again later does.
+  Existing identical sentences under other kinds are forgotten together.
   """
   @spec forget_fact(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
   def forget_fact(fact_id) when is_binary(fact_id) do
@@ -469,18 +469,27 @@ defmodule Ryker.People do
   end
 
   defp forget_one(id) do
-    case Repo.fetch(PersonFact.Query.by_id(id)) do
-      {:ok, %PersonFact{person_ref: person}} ->
-        lock_person!(person)
-        now = Repo.now!()
-        query = id |> PersonFact.Query.by_id() |> PersonFact.Query.by_person(person)
-        {count, sources} = forget_where(query, now)
-        boundary = cutoff(sources, now)
-        if count > 0, do: record_withdrawals([{person, nil}], boundary, now)
-        count
+    selected_query = id |> PersonFact.Query.by_id() |> PersonFact.Query.kept()
 
-      {:error, :not_found} ->
-        0
+    # Reread under the person mutex for updated statements, keeping the initial
+    # words if source withdrawal erased them while we waited. Lock all actual
+    # matches together in their stable order, never the selected row first.
+    with {:ok, %PersonFact{person_ref: person} = selected_fact} <- Repo.fetch(selected_query),
+         :ok <- lock_person!(person) do
+      fact = Repo.peek(selected_query) || selected_fact
+      now = Repo.now!()
+
+      query =
+        person
+        |> PersonFact.Query.by_person()
+        |> PersonFact.Query.by_facts([fact.fact])
+
+      {count, sources} = forget_where(query, now)
+      boundary = cutoff([fact | sources], now)
+      record_withdrawals([{person, nil}], boundary, now)
+      count
+    else
+      {:error, :not_found} -> 0
     end
   end
 
