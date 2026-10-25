@@ -22,6 +22,9 @@ defmodule Ryker.Learning.Executor do
         {:error, :learning_lease_lost} ->
           {:error, :learning_lease_lost}
 
+        {:error, :learning_context_busy} ->
+          {:error, :learning_context_busy}
+
         {:error, reason} ->
           stop(claim, run, reason, settings)
       end
@@ -380,6 +383,9 @@ defmodule Ryker.Learning.Executor do
       case result do
         {:ok, applied} ->
           {:ok, {:applied, applied}}
+
+        {:error, :learning_context_busy} ->
+          {:error, :learning_context_busy}
 
         {:error, reason} ->
           Learning.end_attempt(run.id, reason, claim)

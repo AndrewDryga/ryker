@@ -315,7 +315,7 @@ defmodule Ryker.Learning do
         {:ok, run}
 
       {:error, reason} ->
-        mark_failed(id, reason, claim)
+        unless reason == :learning_context_busy, do: mark_failed(id, reason, claim)
         {:error, public_error(reason)}
     end
   end
@@ -723,6 +723,9 @@ defmodule Ryker.Learning do
     case authorize_run(existing) do
       {:ok, _entries, _thread} ->
         existing
+
+      {:error, :learning_context_busy} ->
+        Repo.rollback(:learning_context_busy)
 
       {:error, reason} ->
         Repo.update!(
@@ -1154,17 +1157,26 @@ defmodule Ryker.Learning do
          true <- Enum.map(entries, &manifest/1) == run.inputs,
          true <- CanonicalJSON.digest(run.prompt) == run.prompt_sha256,
          :ok <- Rebuilds.authorize_run(run),
+         :ok <- authorize_profiles(prompt, entries),
          {:ok, scope} <- Observations.fetch_and_lock_scope(first, first.repository_ref),
          true <- LearningSources.valid?(run.source_dependencies, scope),
          :ok <- Knowledge.still_current(first, first.repository_ref, run.knowledge) do
       {:ok, entries, thread}
     else
+      {:error, :work_derived_context_busy} -> {:error, :learning_context_busy}
       {:error, {:admission_rejected, :context_stale}} -> {:error, :learning_context_stale}
       _ -> {:error, :learning_source_stale}
     end
   end
 
   defp authorize_run(_), do: {:error, :learning_source_stale}
+
+  defp authorize_profiles(prompt, entries) do
+    with {:ok, %{} = document} <- Jason.decode(prompt) do
+      profiles = Map.get(document, "known_about_authors", [])
+      People.FactSnapshot.authorize_authors(profiles, entries)
+    end
+  end
 
   defp save_result(id, result, producer) do
     Repo.transaction(fn ->
@@ -1206,7 +1218,8 @@ defmodule Ryker.Learning do
   Applies pass `id`'s confirmed result to the conversation's topics:
   `{:ok, run}`, or `{:error, reason}`. A result that cannot apply fails the
   pass, except one whose validation is not confirmed yet
-  (`:learning_validation_unconfirmed`), which can be applied later.
+  (`:learning_validation_unconfirmed`) or whose profile facts are temporarily
+  locked (`:learning_context_busy`), which can be applied later.
   """
   def apply_result(id, claim \\ nil) do
     case owned_transaction(id, claim, &apply_locked/1) do
@@ -1214,7 +1227,9 @@ defmodule Ryker.Learning do
         {:ok, run}
 
       {:error, reason} ->
-        unless reason == :learning_validation_unconfirmed, do: mark_failed(id, reason, claim)
+        unless reason in [:learning_validation_unconfirmed, :learning_context_busy],
+          do: mark_failed(id, reason, claim)
+
         {:error, public_error(reason)}
     end
   end

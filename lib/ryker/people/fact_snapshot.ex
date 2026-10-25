@@ -2,6 +2,7 @@ defmodule Ryker.People.FactSnapshot do
   @moduledoc "Content-free source receipts for personal facts disclosed to a model."
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.People
   alias Ryker.People.PersonFact
   alias Ryker.Repo
@@ -18,6 +19,95 @@ defmodule Ryker.People.FactSnapshot do
   end
 
   def authorize(_facts, _person, _conversation), do: :error
+
+  @doc "Recheck exact keyed profiles from a learning prompt against its actual input authors."
+  def authorize_authors(documents, entries)
+      when is_list(documents) and length(documents) <= 16 and is_list(entries) do
+    # Acceptance can update these rows later in the same transaction. Take all
+    # authors in the writer's order before any SHARE lock, including authors
+    # without a saved profile, so two channels cannot deadlock upgrading facts.
+    case Repo.transaction(fn ->
+           :ok = People.lock_authors_in_transaction(entries)
+           authorize_authors_locked(documents, entries)
+         end) do
+      {:ok, result} -> result
+      _ -> :error
+    end
+  end
+
+  def authorize_authors(_documents, _entries), do: :error
+
+  defp authorize_authors_locked(documents, entries) do
+    Enum.reduce_while(documents, :ok, fn document, :ok ->
+      case authorize_author(document, entries) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp authorize_author(
+         %{"actor" => %{"kind" => "user", "ref" => ref} = actor, "facts" => facts} = document,
+         entries
+       )
+       when map_size(document) == 2 and map_size(actor) == 2 do
+    scopes = entries |> Enum.flat_map(&author_scope(&1, ref)) |> Enum.uniq()
+
+    case scopes do
+      [{person, conversation}] -> authorize_keyed(facts, person, conversation)
+      _ -> :error
+    end
+  end
+
+  defp authorize_author(_document, _entries), do: :error
+
+  defp author_scope(
+         %Ingress.Inbox.Entry{source_kind: source, actor_kind: :user, actor_ref: ref} = entry,
+         ref
+       )
+       when is_binary(source) and source != "" and is_binary(ref) and ref != "" do
+    [{People.person_ref(entry), entry.destination_conversation_ref}]
+  end
+
+  defp author_scope(_entry, _ref), do: []
+
+  defp authorize_keyed(facts, person, conversation)
+       when is_list(facts) and length(facts) in 1..12 do
+    if Enum.all?(facts, &keyed_fact?/1) do
+      sentences = Enum.map(facts, & &1["fact"])
+
+      with {:ok, receipts} <- resolve(sentences, person, conversation),
+           true <- current_keys?(receipts, facts) do
+        :ok
+      else
+        {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
+        _ -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp authorize_keyed(_facts, _person, _conversation), do: :error
+
+  defp keyed_fact?(%{"key" => key, "fact" => fact} = document) when map_size(document) == 2,
+    do: is_binary(key) and is_binary(fact)
+
+  defp keyed_fact?(_document), do: false
+
+  defp current_keys?(receipts, facts) do
+    ids = Map.keys(receipts)
+    # resolve/3 already holds these rows shared. Matching keys too prevents a
+    # different kind with identical wording from authorizing the old profile.
+    current =
+      ids
+      |> PersonFact.Query.by_ids()
+      |> PersonFact.Query.select_keyed_facts()
+      |> Repo.all()
+      |> MapSet.new()
+
+    Enum.all?(facts, &MapSet.member?(current, &1))
+  end
 
   defp resolve(facts, person, conversation) do
     if People.valid_facts?(facts) do

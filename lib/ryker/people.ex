@@ -74,6 +74,21 @@ defmodule Ryker.People do
     |> Enum.each(&keep(&1, now))
   end
 
+  @doc """
+  Internal — `Ryker.People.FactSnapshot` calls this inside its transaction,
+  before learning reads or writes profile rows. Locks every actual input
+  author in stable order. Returns `:ok`; raises on a database failure.
+  """
+  @spec lock_authors_in_transaction([Ingress.Inbox.Entry.t()]) :: :ok
+  def lock_authors_in_transaction(entries) when is_list(entries) do
+    entries
+    |> Enum.map(&person_ref/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(&AdvisoryLock.hold!("person-facts:" <> &1))
+  end
+
   defp statement(%{"source_input_id" => id, "key" => key, "fact" => fact} = item, by_id)
        when map_size(item) == 3 do
     with %Ingress.Inbox.Entry{} = entry <- by_id[id],

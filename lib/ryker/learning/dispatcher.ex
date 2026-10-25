@@ -1,7 +1,8 @@
 defmodule Ryker.Learning.Dispatcher do
   @moduledoc "Dispatches exclusively assigned original inputs; replying is a separate decision."
   alias Ryker.Backoff
-  alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession}
+  alias Ryker.Learning
+  alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession, LearningRun}
   require Logger
 
   @maximum_reconciliations 12
@@ -39,15 +40,40 @@ defmodule Ryker.Learning.Dispatcher do
     end
   end
 
-  defp resume_run(claim, %{status: :applied, remote_stopped_at: stopped} = run, _settings)
+  defp resume_run(
+         claim,
+         %LearningRun{status: :applied, remote_stopped_at: stopped} = run,
+         _settings
+       )
        when not is_nil(stopped), do: finish(claim, run)
 
-  defp resume_run(claim, %{started_at: nil}, settings), do: prepare(claim, settings)
+  # The accepted worker result is already terminal. Recheck current sources
+  # and retry only its local application after a busy profile becomes free.
+  defp resume_run(
+         claim,
+         %LearningRun{
+           status: :responded,
+           remote_stopped_at: %DateTime{},
+           validation_receipt: receipt
+         } = run,
+         settings
+       )
+       when is_map(receipt) do
+    case Learning.apply_result(run.id, claim) do
+      {:ok, applied} -> finish(claim, applied)
+      {:error, :learning_context_busy} -> busy_sources(claim, settings)
+      {:error, :learning_lease_lost} -> {:error, :learning_lease_lost}
+      {:error, reason} -> Batches.release(claim, reason, settings.step_delay_seconds)
+    end
+  end
 
-  defp resume_run(claim, %{remote_stopped_at: nil} = run, settings),
+  defp resume_run(claim, %LearningRun{started_at: nil}, settings), do: prepare(claim, settings)
+
+  defp resume_run(claim, %LearningRun{remote_stopped_at: nil} = run, settings),
     do: execute(claim, run, settings)
 
-  defp resume_run(claim, _run, settings), do: prepare(claim, settings)
+  defp resume_run(claim, %LearningRun{}, settings), do: prepare(claim, settings)
+  defp resume_run(_claim, _run, _settings), do: {:error, :invalid_learning_run}
 
   defp prepare(claim, settings) do
     cond do
@@ -83,6 +109,9 @@ defmodule Ryker.Learning.Dispatcher do
 
       {:error, :learning_source_stale} ->
         unavailable_sources(claim, settings)
+
+      {:error, :learning_context_busy} ->
+        busy_sources(claim, settings)
 
       {:error, :learning_capacity_exceeded} ->
         too_large(claim, settings)
@@ -138,9 +167,17 @@ defmodule Ryker.Learning.Dispatcher do
       {:error, :learning_lease_lost} ->
         {:error, :learning_lease_lost}
 
+      {:error, :learning_context_busy} ->
+        busy_sources(claim, settings)
+
       {:error, reason} ->
         failed(claim, Batches.fetch_outstanding(claim.batch.id), reason, settings)
     end
+  end
+
+  defp busy_sources(claim, settings) do
+    delay = max(1, settings.step_delay_seconds)
+    Batches.yield(claim, delay)
   end
 
   defp wait(claim, {:ok, %{status: status} = run}, settings) when status in [:stale, :rejected],

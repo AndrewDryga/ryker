@@ -1,14 +1,18 @@
 defmodule Ryker.Learning.DispatcherTest do
   use Ryker.DataCase, async: false
-  import Ryker.TestHelpers, only: [digest: 1]
+  use Ryker.ConcurrencyCase, async: false
   import Ecto.Query
+  import Ryker.TestHelpers, only: [digest: 1]
+  alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Fixtures.Personalization
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, Dispatcher, Executor, FleetSession, InputMembership}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.Observations
+  alias Ryker.People
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.Session
 
@@ -194,6 +198,102 @@ defmodule Ryker.Learning.DispatcherTest do
     execution_timeout_seconds: 600,
     api: API
   }
+
+  test "a profile forgotten after session creation is never submitted to the worker" do
+    # Creating the remote session is a network boundary. Facts can be withdrawn
+    # while it answers; its returning identity cannot authorize a stale prompt.
+    {_entry, fact, _run} = Personalization.learning_context!(@settings)
+    {:ok, fake} = FakeCoopAPI.start_link([])
+    parent = self()
+    Agent.update(fake, &Map.put(&1, :pause_after, {:create, parent}))
+    settings = Map.put(@settings, :client, fake)
+    runner = Task.async(fn -> Dispatcher.run_once(settings) end)
+
+    try do
+      assert_receive {:provider_paused, :create, caller, false}, 5_000
+      assert People.forget_fact(fact.id) == {:ok, 1}
+      send(caller, :continue_provider)
+      assert {:ok, _} = Task.await(runner, 5_000)
+      assert FakeCoopAPI.state(fake).submit_count == 0
+    after
+      if Process.alive?(runner.pid), do: Task.shutdown(runner, :brutal_kill)
+    end
+  end
+
+  for resume <- [:unchanged, :forgotten] do
+    test "a completed judgment waits for a busy profile and resumes with #{resume} authority" do
+      # A profile can become busy while validation returns. Completion must
+      # preserve the exact terminal proof and retry local application, not buy
+      # another start or disclose the saved prompt again (2026-10-25 review).
+      Sandbox.unboxed_run(Repo, fn ->
+        {entry, fact, _run} = Personalization.learning_context!(@settings)
+
+        result =
+          "testdata/learning/recorded-no-change-result.json"
+          |> File.read!()
+          |> Jason.decode!()
+          |> Map.fetch!("result")
+
+        {:ok, fake} = FakeCoopAPI.start_link([result])
+        parent = self()
+        Agent.update(fake, &Map.put(&1, :pause_after, {:accept, parent}))
+        settings = Map.put(@settings, :client, fake)
+        runner = unboxed_task(fn -> drive_to_pause!(settings, fake, 5) end)
+
+        try do
+          assert_receive {:provider_paused, :accept, executor, false}, 5_000
+
+          locker =
+            unboxed_task(fn ->
+              Repo.transaction(fn ->
+                fact.id
+                |> People.PersonFact.Query.by_id()
+                |> People.PersonFact.Query.lock_for_update()
+                |> Repo.fetch!()
+
+                send(parent, :fact_locked)
+                receive do: (:release -> :ok)
+              end)
+            end)
+
+          try do
+            assert_receive :fact_locked, 5_000
+            send(executor, :continue_provider)
+            assert {:ok, %{status: :queued, start_count: 1}} = Task.await(runner, 5_000)
+            [run] = Repo.all(LearningRun)
+            assert run.status == :responded
+            assert is_map(run.validation_receipt)
+            assert run.remote_stopped_at != nil
+            assert run.stop_receipt["state"] == "completed"
+            assert run.reconcile_attempt_count == 0
+            calls = FakeCoopAPI.state(fake).boundary_calls
+            make_due!()
+            assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
+            assert FakeCoopAPI.state(fake).boundary_calls == calls
+          after
+            send(locker.pid, :release)
+            Task.await(locker, 5_000)
+            stop_tasks([locker])
+          end
+
+          if unquote(resume) == :forgotten, do: assert(People.forget_fact(fact.id) == {:ok, 1})
+          calls = FakeCoopAPI.state(fake).boundary_calls
+          make_due!()
+          assert {:ok, batch} = Dispatcher.run_once(settings)
+          [run] = Repo.all(LearningRun)
+          assert run.status == if(unquote(resume) == :unchanged, do: :applied, else: :stale)
+          assert batch.start_count == 1
+          assert run.reconcile_attempt_count == 0
+          assert FakeCoopAPI.state(fake).boundary_calls == calls
+          assert FakeCoopAPI.state(fake).submit_count == 1
+          assert Repo.aggregate(KnowledgeRevision, :count) == 0
+        after
+          stop_tasks([runner])
+          Personalization.cleanup_learning!(entry)
+        end
+      end)
+    end
+  end
 
   @tag :recovery
   test "a crash after preparation resumes the same judgment with exactly one counted start" do
