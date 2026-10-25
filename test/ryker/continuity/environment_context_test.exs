@@ -287,6 +287,184 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
              {:error, :work_knowledge_context_stale}
   end
 
+  # Structural frozen-briefing variants of the retained source corpus.
+  # Fresh selectors already reject these; the executor must also reject an
+  # older frozen automatic briefing without banning explicit history search.
+  for provenance <- [:foreign_label, :local_label_foreign_roots, :unknown_label] do
+    test "frozen automatic Work context refuses #{provenance}" do
+      {source, target} = sources!()
+      summary_source = if unquote(provenance) == :unknown_label, do: target, else: source
+
+      {:ok, :ok} =
+        Repo.transaction(fn -> Observations.record_excerpt_in_transaction(summary_source) end)
+
+      saved = summary!(summary_source)
+
+      source_episode = Repo.get!(Ryker.Episodes.Episode, summary_source.episode_id)
+
+      [document] =
+        Continuity.model_context(source_episode, summary_source.repository_ref)["related"]
+
+      document =
+        case unquote(provenance) do
+          :foreign_label ->
+            document
+
+          :unknown_label ->
+            saved
+            |> Ecto.Changeset.change(environment_known: false)
+            |> Repo.update!()
+
+            Map.put(document, "environment_known", false)
+
+          :local_label_foreign_roots ->
+            saved
+            |> Ecto.Changeset.change(environment_ref: "product-b")
+            |> Repo.update!()
+
+            Map.put(document, "environment_ref", "product-b")
+        end
+
+      target_episode = Repo.get!(Ryker.Episodes.Episode, target.episode_id)
+      assert Continuity.model_context(target_episode, target.repository_ref)["related"] == []
+
+      claim = target_claim!(target)
+      assert claim.session.environment_ref == "product-b"
+
+      frozen = %{
+        "context" => %{"operator_context" => %{"continuity" => %{"related" => [document]}}}
+      }
+
+      assert Ryker.Knowledge.KnowledgeSnapshot.authorize_submission(
+               claim.episode,
+               claim.session,
+               frozen
+             ) ==
+               {:error, :work_knowledge_context_stale}
+
+      assert Ryker.Knowledge.KnowledgeSnapshot.expose_submission(%{
+               claim
+               | turn: %{claim.turn | submission: frozen}
+             }) == {:error, :work_knowledge_context_stale}
+
+      assert Ryker.Knowledge.KnowledgeSnapshot.session_sources(claim.session.id) == []
+    end
+  end
+
+  test "frozen authorization uses the retained session environment rather than caller fields" do
+    {source, target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    summary!(source)
+    source_episode = Repo.get!(Ryker.Episodes.Episode, source.episode_id)
+    [document] = Continuity.model_context(source_episode, source.repository_ref)["related"]
+    claim = target_claim!(target)
+    caller_session = %{claim.session | environment_ref: "product-a"}
+    frozen = automatic_submission(document)
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_submission(
+             claim.episode,
+             caller_session,
+             frozen
+           ) == {:error, :work_knowledge_context_stale}
+  end
+
+  test "explicit foreign source reads remain possible with their real provenance" do
+    {source, target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    summary!(source)
+    source_episode = Repo.get!(Ryker.Episodes.Episode, source.episode_id)
+    [document] = Continuity.model_context(source_episode, source.repository_ref)["related"]
+    assert document["environment_ref"] == "product-a"
+    claim = target_claim!(target)
+    assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [document]) == :ok
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
+             :ok
+
+    exposure = Repo.fetch!(Ryker.Learning.SourceExposure.Query.by_session_id(claim.session.id))
+    assert exposure.automatic_context == false
+  end
+
+  test "same-environment automatic context remains authorized" do
+    {_source, target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(target) end)
+    summary!(target)
+    episode = Repo.get!(Ryker.Episodes.Episode, target.episode_id)
+    [document] = Continuity.model_context(episode, target.repository_ref)["related"]
+    claim = target_claim!(target)
+    frozen = automatic_submission(document)
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_submission(
+             claim.episode,
+             claim.session,
+             frozen
+           ) == :ok
+  end
+
+  # A previously disclosed automatic root must not lose its role when an
+  # explicit reader encounters the same source later in this native session.
+  test "an explicit reread cannot hide a foreign automatic root in a retained transcript" do
+    {_source, target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(target) end)
+    summary!(target)
+    episode = Repo.get!(Ryker.Episodes.Episode, target.episode_id)
+    [document] = Continuity.model_context(episode, target.repository_ref)["related"]
+    claim = target_claim!(target)
+    frozen = automatic_submission(document)
+    claim = %{claim | turn: %{claim.turn | submission: frozen}}
+    assert Ryker.Knowledge.KnowledgeSnapshot.expose_submission(claim) == :ok
+    query = Ryker.Learning.SourceExposure.Query.by_session_id(claim.session.id)
+    before_exposure = Repo.fetch!(query)
+    assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [document]) == :ok
+
+    target.id
+    |> Ryker.Learning.ConversationObservation.Query.by_id()
+    |> Repo.fetch!()
+    |> Ecto.Changeset.change(environment_ref: "product-a")
+    |> Repo.update!()
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
+             {:error, :work_knowledge_context_stale}
+
+    after_exposure = Repo.fetch!(query)
+    assert after_exposure.automatic_context == true
+    assert after_exposure.input_only == false
+    assert after_exposure.receipt == before_exposure.receipt
+  end
+
+  test "historical memory receipts without a proven explicit role cannot authorize a foreign native transcript" do
+    {source, target} = sources!()
+    {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    claim = target_claim!(target)
+    [receipt] = LearningSources.for_entry(source)
+
+    Repo.insert!(%Ryker.Learning.SourceExposure{
+      session_id: claim.session.id,
+      observation_id: receipt["observation_id"],
+      source_input_id: receipt["source_input_id"],
+      receipt: receipt
+    })
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
+             {:error, :work_knowledge_context_stale}
+  end
+
+  defp automatic_submission(document) do
+    %{"context" => %{"operator_context" => %{"continuity" => %{"related" => [document]}}}}
+  end
+
+  defp target_claim!(target) do
+    claims =
+      for index <- 1..2 do
+        assert {:ok, claim} =
+                 Ryker.Work.Custody.claim_next("environment-target-#{index}", 60, :work)
+
+        claim
+      end
+
+    Enum.find(claims, &(&1.episode.id == target.episode_id))
+  end
+
   defp sources! do
     [first, second] = Learning.inputs!(isolate: true)
 

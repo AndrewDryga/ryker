@@ -16,6 +16,17 @@ defmodule Ryker.Learning.SourceExposure.Query do
     )
   end
 
+  @doc "Existing receiver roots whose producer custody requires the automatic role."
+  def with_joined_automatic_sources(queryable, session_ids) do
+    from([episode_work_source_exposures: e] in queryable,
+      join: p in SourceExposure,
+      as: :automatic_source_exposures,
+      on: p.observation_id == e.observation_id and p.source_input_id == e.source_input_id,
+      where: p.session_id in ^session_ids and p.automatic_context,
+      where: not e.automatic_context or e.input_only
+    )
+  end
+
   def ordered_by_observation(queryable),
     do: order_by(queryable, [episode_work_source_exposures: e], asc: e.observation_id)
 

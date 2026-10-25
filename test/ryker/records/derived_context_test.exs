@@ -21,6 +21,45 @@ defmodule Ryker.Records.DerivedContextTest do
   @captured "testdata/learning/recorded-private-source-citation.json"
   @source "testdata/learning/retained-haproxy-lifecycle.json"
 
+  # A fitted replacement briefing can keep task records while omitting the
+  # optional original note. Its inherited roots must keep their automatic role.
+  test "automatic source roles survive inheritance through retained task records" do
+    {producer, source, _record} = cited_source!()
+    note = Repo.get!(ConversationObservation, source.id)
+    document = Observations.document(note)
+
+    automatic = %{
+      "context" => %{"operator_context" => %{"continuity" => %{"observations" => [document]}}}
+    }
+
+    assert KnowledgeSnapshot.expose_submission(%{
+             producer
+             | turn: %{producer.turn | submission: automatic}
+           }) == :ok
+
+    recipient = replacement!(producer)
+    assert {:ok, submission} = Inspectors.submission(recipient)
+    assert submission["context"]["records"] != []
+    submission = put_in(submission, ["context", "operator_context", "continuity"], %{})
+
+    assert KnowledgeSnapshot.expose_submission(%{
+             recipient
+             | turn: %{recipient.turn | submission: submission}
+           }) == :ok
+
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) == :ok
+
+    note
+    |> Ecto.Changeset.change(environment_ref: "another-product")
+    |> Repo.update!()
+
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) ==
+             {:error, :work_knowledge_context_stale}
+
+    exposure = Repo.fetch!(SourceExposure.Query.by_session_id(recipient.session.id))
+    assert exposure.automatic_context == true
+  end
+
   # A stricter historical read is still not authorization for a malformed
   # receiver. Refuse at the boundary before retaining any task prose.
   test "malformed receivers cannot authorize retained task prose" do

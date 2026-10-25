@@ -256,6 +256,85 @@ defmodule Ryker.Work.ExecutorTest do
     refute answered.submission_fingerprint == turn.submission_fingerprint
   end
 
+  # Fresh recall was scoped, but saved automatic context still authorized the
+  # wrong product. Rebuild unsent work without spending another native session.
+  test "a saved foreign automatic briefing is rebuilt before the provider sees it" do
+    claim = claim_with_bound_empty_session!("foreign-frozen-context")
+    {source, document} = KnowledgeFixtures.learn!(claim.episode)
+    foreign = move_knowledge_environment!(source, document, "another-product")
+    {:ok, submission} = Inspectors.submission(claim)
+
+    context =
+      put_in(submission["context"], ["operator_context", "continuity", "knowledge"], [foreign])
+
+    submission = %{submission | "context" => context}
+
+    {:ok, turn} =
+      Custody.freeze_submission(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        submission
+      )
+
+    claim = %{claim | turn: turn}
+    candidate = captured_complete_reply()
+    {:ok, fake} = fake_for(claim, [candidate])
+
+    assert {:ok, %{status: :accepted, turn: answered}} = Executor.run(claim, options(fake))
+    assert [submitted] = Map.values(FakeAPI.state(fake).frozen_submissions)
+
+    assert get_in(submitted, ["context", "operator_context", "continuity", "knowledge"]) in [
+             nil,
+             []
+           ]
+
+    assert answered.session_id == claim.session.id
+    refute answered.submission_fingerprint == turn.submission_fingerprint
+  end
+
+  test "a native transcript with foreign automatic roots rotates before continuing" do
+    claim = claim_with_bound_empty_session!("foreign-native-context")
+    {source, document} = KnowledgeFixtures.learn!(claim.episode)
+    {:ok, submission} = Inspectors.submission(claim)
+
+    context =
+      put_in(submission["context"], ["operator_context", "continuity", "knowledge"], [document])
+
+    disclosure = %{submission | "context" => context}
+
+    assert KnowledgeSnapshot.expose_submission(%{
+             claim
+             | turn: %{claim.turn | submission: disclosure}
+           }) == :ok
+
+    move_knowledge_environment!(source, document, "another-product")
+    candidate = captured_complete_reply()
+    {:ok, fake} = fake_for(claim, [candidate])
+
+    create_session = fn fallback ->
+      FakeAPI.update(fake, fn state ->
+        %{state | session: Map.put(state.session, "id", "remote:environment-replacement")}
+      end)
+
+      fallback.()
+    end
+
+    assert {:ok, %{status: :accepted, turn: answered}} =
+             Executor.run(claim, protocol_options(fake, %{create_session: create_session}))
+
+    refute answered.session_id == claim.session.id
+    assert answered.submission["context"]["mode"] == "full"
+    assert [submitted] = Map.values(FakeAPI.state(fake).frozen_submissions)
+
+    assert get_in(submitted, ["context", "operator_context", "continuity", "knowledge"]) in [
+             nil,
+             []
+           ]
+
+    assert Repo.exists?(Ryker.Learning.SourceExposure.Query.by_session_id(claim.session.id))
+  end
+
   # A person edited the message a fact came from after Coop had the turn. Acceptance refused the
   # finished answer, the turn stopped for a person, and "finish saving" refused it again: the
   # answer was stranded (2026-10-04 review). The worker hands the turn to a new one, which runs
@@ -4851,6 +4930,35 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     %{claim | session: session, turn: turn}
+  end
+
+  # Keep the retained complete reply bytes; these cases test the host's
+  # disclosure/rotation boundary rather than asking a model to recreate it.
+  defp captured_complete_reply do
+    "testdata/work/terraform-automation-recovery.json"
+    |> File.read!()
+    |> Jason.decode!()
+    |> Map.fetch!("invalid_validation_calls")
+    |> hd()
+    |> Jason.encode!()
+  end
+
+  defp move_knowledge_environment!(source, document, environment_ref) do
+    source.id
+    |> Ryker.Learning.ConversationObservation.Query.by_id()
+    |> Repo.fetch!()
+    |> Ecto.Changeset.change(environment_ref: environment_ref, environment_known: true)
+    |> Repo.update!()
+
+    "knowledge:" <> id = document["source_ref"]
+
+    id
+    |> ConversationKnowledge.Query.by_id()
+    |> Repo.fetch!()
+    |> Ecto.Changeset.change(environment_ref: environment_ref, environment_known: true)
+    |> Repo.update!()
+
+    Map.merge(document, %{"environment_ref" => environment_ref, "environment_known" => true})
   end
 
   defp claim_with_bound_empty_session!(suffix, authority_digest \\ nil) do

@@ -152,6 +152,14 @@ the original message. Reading the exact same session's own task records is alrea
 by that session's complete ledger; it does not reclassify its raw inputs as recalled memory.
 Receiver identity binds both session and episode. Reuse checks all retained exposure roles before
 continuing a native session.
+Automatic frozen continuity also requires the destination environment and original sources to
+agree. Source exposures retain that automatic role even after an explicit reread, without renewing
+their receipts. Inherited task records preserve the automatic role on their original sources.
+Native reuse checks automatic roots against the session's pinned environment;
+explicit history searches keep their source provenance and may cross environments. Historical
+memory disclosures conservatively carry the automatic role, while proven input-only custody keeps
+its original-input exception. A stale unsent briefing follows the existing rebuild path; a
+contaminated native session uses the existing rotation path and keeps its retained history.
 The existing source-exposure table has no per-turn disclosure cutoff, so this uses the producer
 session's accumulated dependencies conservatively. Later disclosures can make an earlier record
 unavailable; do not claim precise per-record source attribution or copy every root onto every row.

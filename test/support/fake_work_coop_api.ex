@@ -81,6 +81,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           "target" => Keyword.get(options, :session_target, "codex:gpt-5.6-sol/high@work")
         },
         submissions: [],
+        frozen_submissions: %{},
         submit_count: 0,
         submit_error_count: 0,
         submit_errors: Keyword.get(options, :submit_errors, []),
@@ -374,6 +375,11 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
         binding,
         artifacts
       ) do
+    Agent.update(agent, fn state ->
+      submissions = Map.put(state.frozen_submissions, key, submission)
+      %{state | frozen_submissions: submissions}
+    end)
+
     submit_with_binding(
       agent,
       session_id,
