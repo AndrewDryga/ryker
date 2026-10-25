@@ -7,6 +7,7 @@ defmodule Ryker.Work.ExecutorTest do
   import Ecto.Query
   alias Ryker.Artifacts
   alias Ryker.Artifacts.Outputs
+  alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodeProjection, FailureProjection, ModelRequests}
   alias Ryker.Crypto
   alias Ryker.Episodes
@@ -77,7 +78,10 @@ defmodule Ryker.Work.ExecutorTest do
     end
   end
 
-  defp withdraw_personalization!(:facts, saved), do: Ryker.People.forget_fact(saved.id)
+  defp withdraw_personalization!(:facts, saved) do
+    expected_digest = CanonicalJSON.digest(saved.fact)
+    Ryker.People.forget_fact(saved.id, expected_digest)
+  end
 
   defp withdraw_personalization!(:preferences, saved),
     do: Ryker.Behaviors.set_status(saved.ref, :deleted)

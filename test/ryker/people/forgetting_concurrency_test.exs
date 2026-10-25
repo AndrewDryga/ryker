@@ -2,6 +2,7 @@ defmodule Ryker.People.ForgettingConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.AdvisoryLock
+  alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.People, as: PeopleFixtures
   alias Ryker.People
   alias Ryker.Repo
@@ -107,7 +108,8 @@ defmodule Ryker.People.ForgettingConcurrencyTest do
             unboxed_task(fn ->
               database_result(fn ->
                 send(parent, {:forget_started, backend_pid()})
-                People.forget_fact(selected.id)
+                expected_digest = CanonicalJSON.digest(selected.fact)
+                People.forget_fact(selected.id, expected_digest)
               end)
             end)
 
@@ -173,7 +175,8 @@ defmodule Ryker.People.ForgettingConcurrencyTest do
             forgetter =
               unboxed_task(fn ->
                 send(parent, {:forget_started, backend_pid()})
-                People.forget_fact(selected.id)
+                expected_digest = CanonicalJSON.digest(selected.fact)
+                People.forget_fact(selected.id, expected_digest)
               end)
 
             try do

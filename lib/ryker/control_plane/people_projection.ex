@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   something about from what they said about themselves (`Ryker.People`),
   and, for one person, what it learned and where they said it.
   """
+  alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{ConsolePeople, Paths}
   alias Ryker.ConversationRef
   alias Ryker.People
@@ -53,13 +54,16 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   def fetch_fact(fact_id) when is_binary(fact_id) do
     with {:ok, id} <- Ecto.UUID.cast(fact_id),
          {:ok, %{status: :kept} = fact} <- People.fetch_fact(id) do
+      facts = People.facts(fact.person_ref)
+
       {:ok,
        %{
          id: fact.id,
          text: fact.fact,
+         text_digest: CanonicalJSON.digest(fact.fact),
          name: name(fact.person_ref, fact.conversation_ref),
          person_ref: fact.person_ref,
-         others: length(People.facts(fact.person_ref)) - 1
+         others: Enum.count(facts, &(&1.fact != fact.fact))
        }}
     else
       _unknown -> :error

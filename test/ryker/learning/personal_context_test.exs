@@ -12,14 +12,16 @@ defmodule Ryker.Learning.PersonalContextTest do
   # messages. Forgetting a fact must retract that copy before another disclosure.
   test "forgotten profile context cannot authorize a saved learning prompt" do
     {entry, fact, run} = Personalization.learning_context!(@policy)
-    assert People.forget_fact(fact.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(fact.fact)
+    assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
     assert People.known_about_authors([entry]) == []
     assert Learning.authorize(run.id) == {:error, :learning_source_stale}
   end
 
   test "a retry rebuilds a prepared learning prompt after its profile is forgotten" do
     {entry, fact, run} = Personalization.learning_context!(@policy)
-    assert People.forget_fact(fact.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(fact.fact)
+    assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
     assert {:ok, replacement} = Learning.prepare([entry.id], @policy)
     refute replacement.id == run.id
     refute Map.has_key?(Jason.decode!(replacement.prompt), "known_about_authors")
@@ -63,7 +65,8 @@ defmodule Ryker.Learning.PersonalContextTest do
 
   test "forgotten profile context cannot be frozen for submission or accepted as knowledge" do
     {_entry, fact, run} = Personalization.learning_context!(@policy)
-    assert People.forget_fact(fact.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(fact.fact)
+    assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
     assert Learning.freeze_submit(run.id, 1) == {:error, :learning_source_stale}
 
     result =

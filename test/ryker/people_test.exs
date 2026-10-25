@@ -8,6 +8,7 @@ defmodule Ryker.PeopleTest do
   # these tests hold the host to what it does with any answer.
   use Ryker.DataCase, async: true
   import Ecto.Query
+  alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People
@@ -152,7 +153,8 @@ defmodule Ryker.PeopleTest do
     learn!([told], [item(told, "medical-leave", "On leave for surgery.")])
     [fact] = People.facts("slack:user:UERIN")
 
-    assert People.forget_fact(fact.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(fact.fact)
+    assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
     assert kinds("slack:user:UERIN") == [:forgotten]
 
     learn!([told], [item(told, "medical-leave", "On leave for surgery.")])
@@ -186,7 +188,8 @@ defmodule Ryker.PeopleTest do
     ])
 
     [birthday] = Enum.filter(People.facts("slack:user:UFAY"), &(&1.key == "birthday"))
-    assert People.forget_fact(birthday.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(birthday.fact)
+    assert People.forget_fact(birthday.id, expected_digest) == {:ok, 1}
     assert People.about("slack:user:UFAY", public) == ["Loves tea."]
 
     learn!([told], [item(told, "birthday", "Birthday is 3 June.")])

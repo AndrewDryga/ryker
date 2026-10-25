@@ -4,6 +4,7 @@ defmodule Ryker.Learning.DispatcherTest do
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Fixtures.Personalization
@@ -225,7 +226,8 @@ defmodule Ryker.Learning.DispatcherTest do
 
     try do
       assert_receive {:provider_paused, :create, caller, false}, 5_000
-      assert People.forget_fact(fact.id) == {:ok, 1}
+      expected_digest = CanonicalJSON.digest(fact.fact)
+      assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
       send(caller, :continue_provider)
       assert {:ok, _} = Task.await(runner, 5_000)
       assert FakeCoopAPI.state(fake).submit_count == 0
@@ -290,7 +292,11 @@ defmodule Ryker.Learning.DispatcherTest do
             stop_tasks([locker])
           end
 
-          if unquote(resume) == :forgotten, do: assert(People.forget_fact(fact.id) == {:ok, 1})
+          if unquote(resume) == :forgotten do
+            expected_digest = CanonicalJSON.digest(fact.fact)
+            assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
+          end
+
           calls = FakeCoopAPI.state(fake).boundary_calls
           make_due!()
           assert {:ok, batch} = Dispatcher.run_once(settings)

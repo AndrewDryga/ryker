@@ -1,5 +1,6 @@
 defmodule Ryker.People.DuplicateForgettingTest do
   use Ryker.DataCase, async: true
+  alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.People, as: PeopleFixtures
   alias Ryker.People
 
@@ -25,7 +26,8 @@ defmodule Ryker.People.DuplicateForgettingTest do
       learn!([source], [duplicate])
       learn!(other.entries, [other_birthday])
       saved = Enum.find(People.facts(context.person), &(&1.key == "birthday"))
-      result = People.forget_fact(saved.id)
+      expected_digest = CanonicalJSON.digest(saved.fact)
+      result = People.forget_fact(saved.id, expected_digest)
 
       refute birthday["fact"] in People.about(context.person, context.conversation)
       assert length(People.facts(context.person)) == 3

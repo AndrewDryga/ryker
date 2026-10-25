@@ -1,5 +1,6 @@
 defmodule Ryker.People.ForgettingReplayTest do
   use Ryker.DataCase, async: true
+  alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.People, as: PeopleFixtures
   alias Ryker.People
 
@@ -9,7 +10,8 @@ defmodule Ryker.People.ForgettingReplayTest do
     context = PeopleFixtures.retained_context!()
     learn!(context.entries, context.items)
     birthday = Enum.find(People.facts(context.person), &(&1.key == "birthday"))
-    assert People.forget_fact(birthday.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(birthday.fact)
+    assert People.forget_fact(birthday.id, expected_digest) == {:ok, 1}
     [item | _] = context.items
     replay = Map.put(item, "key", "birth-date")
     learn!(context.entries, [replay])

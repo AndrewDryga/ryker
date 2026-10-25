@@ -571,7 +571,7 @@ defmodule Ryker.ControlPlane.Router do
   # learning batch's budget, a stopped request's recovery. Once that changed,
   # the old token stopped matching and the person got a bare 403, never the
   # page saying what happened (2026-10-04 review).
-  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry:)
+  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry: person-fact:forget:)
 
   defp confirmed(secret, canonical_action, resource_ref, token) do
     case CSRF.signed_action(secret, resource_ref, token) do
@@ -805,7 +805,7 @@ defmodule Ryker.ControlPlane.Router do
         {:ok, "Forget \"#{fact.text}\"?",
          "Ryker stops using it and erases the words. Nothing said before brings it back; " <>
            "if #{subject(fact.name)} say it again later, it is learned again. You can't undo this.",
-         "person-fact:forget", :danger}
+         "person-fact:forget:" <> fact.text_digest, :danger}
 
       :error ->
         {:error, :not_found}
@@ -1095,6 +1095,16 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("learning", resource_ref, "drop", "learning:drop:" <> version, actions, conn),
     do: actions.drop_learning.(resource_ref, String.to_integer(version), conn.assigns.viewer)
 
+  defp perform(
+         "person-fact",
+         resource_ref,
+         "forget",
+         "person-fact:forget:" <> expected_digest,
+         actions,
+         _conn
+       ),
+       do: actions.forget_person_fact.(resource_ref, expected_digest)
+
   defp perform(kind, resource_ref, action, _canonical_action, actions, conn),
     do: perform(kind, resource_ref, action, actions, conn.assigns.viewer)
 
@@ -1112,9 +1122,6 @@ defmodule Ryker.ControlPlane.Router do
 
   defp perform("person", resource_ref, "forget", actions, _viewer),
     do: actions.forget_person.(resource_ref)
-
-  defp perform("person-fact", resource_ref, "forget", actions, _viewer),
-    do: actions.forget_person_fact.(resource_ref)
 
   defp perform("finding", resource_ref, "mark-explained", actions, _viewer),
     do: actions.mark_finding_explained.(resource_ref)

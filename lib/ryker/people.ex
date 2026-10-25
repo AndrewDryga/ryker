@@ -32,6 +32,7 @@ defmodule Ryker.People do
   the ninety days conversation memory keeps.
   """
   alias Ryker.AdvisoryLock
+  alias Ryker.CanonicalJSON
   alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Ingress
@@ -439,14 +440,23 @@ defmodule Ryker.People do
   Forgets one thing Ryker knows about a person. As when the whole person is
   forgotten, nothing said before brings it back; saying it again later does.
   Existing identical sentences under other kinds are forgotten together.
+  The expected digest binds this action to the sentence the person confirmed.
+  Returns `{:ok, count}` for the number erased, including `{:ok, 0}` when
+  the row is no longer kept. Returns `{:error, :confirmation_stale}` for an invalid id or
+  digest, or when the quoted sentence changed; a refusal writes nothing.
   """
-  @spec forget_fact(Ecto.UUID.t()) :: {:ok, non_neg_integer()}
-  def forget_fact(fact_id) when is_binary(fact_id) do
-    case Ecto.UUID.cast(fact_id) do
-      {:ok, id} -> Repo.transaction(fn -> forget_one(id) end)
-      :error -> {:ok, 0}
+  @spec forget_fact(Ecto.UUID.t(), String.t()) ::
+          {:ok, non_neg_integer()} | {:error, :confirmation_stale}
+  def forget_fact(fact_id, expected_digest) when is_binary(fact_id) do
+    with true <- Crypto.sha256_hex?(expected_digest),
+         {:ok, id} <- Ecto.UUID.cast(fact_id) do
+      Repo.transaction(fn -> forget_one(id, expected_digest) end)
+    else
+      _invalid -> {:error, :confirmation_stale}
     end
   end
+
+  def forget_fact(_fact_id, _expected_digest), do: {:error, :confirmation_stale}
 
   @doc "Forgets what one message taught, when its author edits or deletes it."
   @spec forget_message_in_transaction(String.t() | nil) :: :ok
@@ -468,15 +478,17 @@ defmodule Ryker.People do
     :ok
   end
 
-  defp forget_one(id) do
+  defp forget_one(id, expected_digest) do
     selected_query = id |> PersonFact.Query.by_id() |> PersonFact.Query.kept()
 
     # Reread under the person mutex for updated statements, keeping the initial
     # words if source withdrawal erased them while we waited. Lock all actual
     # matches together in their stable order, never the selected row first.
     with {:ok, %PersonFact{person_ref: person} = selected_fact} <- Repo.fetch(selected_query),
+         :ok <- confirm_fact!(selected_fact, expected_digest),
          :ok <- lock_person!(person) do
       fact = Repo.peek(selected_query) || selected_fact
+      :ok = confirm_fact!(fact, expected_digest)
       now = Repo.now!()
 
       query =
@@ -492,6 +504,17 @@ defmodule Ryker.People do
       {:error, :not_found} -> 0
     end
   end
+
+  # The row id survives a new statement of this kind. Checking both sides of
+  # the mutex wait prevents an old question from erasing unquoted words.
+  defp confirm_fact!(%PersonFact{status: :kept} = fact, expected_digest) do
+    if CanonicalJSON.digest(fact.fact) != expected_digest,
+      do: Repo.rollback(:confirmation_stale)
+
+    :ok
+  end
+
+  defp confirm_fact!(_fact, _expected_digest), do: Repo.rollback(:confirmation_stale)
 
   defp forget_where(facts, now) do
     # Operator writes and source deletion lock their overlapping rows in the

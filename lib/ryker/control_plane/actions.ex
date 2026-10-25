@@ -95,7 +95,7 @@ defmodule Ryker.ControlPlane.Actions do
       forget_finding: &Records.Findings.forget/1,
       forget_case: &Memories.Cases.delete/1,
       forget_person: &People.forget_person/1,
-      forget_person_fact: &People.forget_fact/1,
+      forget_person_fact: &People.forget_fact/2,
       accept_improvement: &Improvement.accept(&1, Actor.of(&2)),
       dismiss_improvement: &Improvement.dismiss(&1, Actor.of(&2)),
       mark_finding_explained: &Records.Findings.mark_explained/1,

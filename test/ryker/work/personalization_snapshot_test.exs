@@ -1,6 +1,7 @@
 defmodule Ryker.Work.PersonalizationSnapshotTest do
   use Ryker.DataCase, async: false
   alias Ryker.Behaviors
+  alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Personalization
@@ -17,7 +18,8 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
   # as opaque profile text: these host fences do not depend on its meaning.
   test "forgotten personal facts invalidate an unsent saved briefing" do
     {claim, fact} = Personalization.personal_context!()
-    assert People.forget_fact(fact.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(fact.fact)
+    assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
     assert People.about(fact.person_ref, claim.episode.destination_conversation_ref) == []
 
     assert KnowledgeSnapshot.authorize_submission(
@@ -31,7 +33,8 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
   test "forgotten personal facts invalidate the native transcript that read them" do
     {claim, fact} = Personalization.personal_context!()
     assert KnowledgeSnapshot.expose_submission(claim) == :ok
-    assert People.forget_fact(fact.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(fact.fact)
+    assert People.forget_fact(fact.id, expected_digest) == {:ok, 1}
 
     assert KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
              {:error, :work_knowledge_context_stale}
@@ -240,7 +243,11 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
     end
   end
 
-  defp withdraw!(:facts, source), do: People.forget_fact(source.id)
+  defp withdraw!(:facts, source) do
+    expected_digest = CanonicalJSON.digest(source.fact)
+    People.forget_fact(source.id, expected_digest)
+  end
+
   defp withdraw!(:preferences, source), do: Behaviors.set_status(source.ref, :deleted)
 
   test "a changed asker cannot reuse the earlier person's personal context" do

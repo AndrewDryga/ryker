@@ -1,5 +1,6 @@
 defmodule Ryker.People.FactKeyNamespaceTest do
   use Ryker.DataCase, async: true
+  alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Fixtures.People, as: PeopleFixtures
   alias Ryker.People
@@ -42,7 +43,8 @@ defmodule Ryker.People.FactKeyNamespaceTest do
     learn!(context.entries, [birthday, other])
     selected = Enum.find(People.facts(context.person), &(&1.key == birthday["key"]))
 
-    result = People.forget_fact(selected.id)
+    expected_digest = CanonicalJSON.digest(selected.fact)
+    result = People.forget_fact(selected.id, expected_digest)
 
     assert People.about(context.person, context.conversation) == [other["fact"]]
     assert result == {:ok, 1}
@@ -54,7 +56,8 @@ defmodule Ryker.People.FactKeyNamespaceTest do
     source = Enum.find(context.entries, &(&1.id == birthday["source_input_id"]))
     learn!(context.entries, [birthday])
     [selected] = People.facts(context.person)
-    assert People.forget_fact(selected.id) == {:ok, 1}
+    expected_digest = CanonicalJSON.digest(selected.fact)
+    assert People.forget_fact(selected.id, expected_digest) == {:ok, 1}
     later = PeopleFixtures.later_entry!(context, source, 60)
     repeated = Map.put(birthday, "source_input_id", later.id)
     learn!([later], [repeated])
