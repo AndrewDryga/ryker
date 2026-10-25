@@ -30,6 +30,29 @@ defmodule Ryker.Publication.FollowupsTest do
 
   @now ~U[2026-08-28 12:10:00.000000Z]
 
+  # Structural changed-head variant of this file's existing typed GitHub
+  # lifecycle observations: merging must not make an unreviewed head exact.
+  test "a merged foreign head cannot be attributed to the reviewed publication" do
+    %{publication: publication} = PublicationFixture.published!("audit-foreign-merge")
+    assert {:ok, claim} = Followups.claim_poll("audit-foreign-merge", 60)
+
+    status =
+      publication
+      |> lifecycle_status("passing", true, String.duplicate("b", 40))
+      |> Map.put("head_sha", String.duplicate("d", 40))
+
+    assert {:ok, followup} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+    assert followup.pr_state == :stale
+    assert followup.merge_sha == status["merge_sha"]
+    assert DateTime.to_iso8601(followup.merged_at) == "2026-08-28T12:05:00.000000Z"
+    assert followup.checks_state == :unknown
+    assert Repo.get!(Publication, publication.id).expected_remote_head_sha == status["head_sha"]
+    changed = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :status)
+    assert changed.observation == status
+    assert changed.wakeup_state == :none
+    refute Repo.get_by(LifecycleEvent, publication_id: publication.id, kind: :merged)
+  end
+
   # The next check of a follow-up that is never checked again.
   @never ~U[9999-01-01 00:00:00.000000Z]
 

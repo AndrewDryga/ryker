@@ -135,6 +135,9 @@ run queues one exact input while Work owns the task, then resumes verification w
 safely finishes. It never repeats the governed action. A merged task pull request similarly
 resumes the source task's remaining read-only verification; a merge alone is not deployment
 proof, and queued wakeups remain tracked through the turn that actually consumes them.
+The observed PR head must still match the reviewed commit after merge. A different merged head
+is marked stale, with its actual head, merge commit and merge time retained; it does not trigger
+verification as a successfully reviewed merge.
 
 General authenticated corrections are workspace guidance across conversations. Explicitly local
 instructions and private or shared source conversations stay conversation-scoped. The returned

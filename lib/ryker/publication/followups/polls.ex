@@ -89,16 +89,17 @@ defmodule Ryker.Publication.Followups.Polls do
             now
           )
 
-        status["head_sha"] != publication.commit_sha and not status["merged"] ->
+        status["head_sha"] != publication.commit_sha ->
           _publication = mark_stale_publication!(publication, status["head_sha"], now)
+
+          {attributes, summary} = changed_head_transition(status)
 
           transition_poll(
             followup,
             publication,
             status,
-            %{pr_state: :stale},
-            {:status, :failed,
-             "Someone changed the pull request outside Ryker, so Ryker stopped tracking it until a new change is reviewed."},
+            attributes,
+            {:status, :failed, summary},
             @far_future,
             now
           )
@@ -109,6 +110,20 @@ defmodule Ryker.Publication.Followups.Polls do
     else
       {:error, reason} -> Repo.rollback(reason)
     end
+  end
+
+  defp changed_head_transition(%{"merged" => true} = status) do
+    {%{
+       pr_state: :stale,
+       merge_sha: status["merge_sha"],
+       merged_at: parse_optional_datetime!(status["merged_at"])
+     },
+     "The pull request merged with a different head than Ryker reviewed. Automatic verification stopped; review the observed change before continuing."}
+  end
+
+  defp changed_head_transition(%{"merged" => false}) do
+    {%{pr_state: :stale},
+     "Someone changed the pull request outside Ryker, so Ryker stopped tracking it until a new change is reviewed."}
   end
 
   # A poll GitHub did not answer is due again after the delay. The deadline
