@@ -299,6 +299,13 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
              "Work still in progress"
            ]
 
+    # Disabled rows use flex layout: separate spans discarded the leading
+    # space before the dot. Keep the method/count in one inline formatting box.
+    labels = LazyHTML.query(LazyHTML.from_document(html), ".search-method-label")
+    assert Enum.count(labels) == 4
+    assert Enum.count(LazyHTML.query(labels, ".search-method-name")) == 4
+    assert Enum.count(LazyHTML.query(labels, ".search-method-found")) == 4
+
     # The briefing keeps to what was sent: no search facts, no work left out.
     briefing =
       html

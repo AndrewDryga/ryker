@@ -1640,9 +1640,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp search_method_label(assigns) do
     ~H"""
-    <span class="search-method-name">{@method.name}</span>
-    <span class="search-method-found"> · {@method.found} found<span :if={is_integer(@method.offered)}> / {@method.offered} offered</span>{if @method.limit,
-      do: " · limit reached"}</span>
+    <span class="search-method-label">
+      <span class="search-method-name">{@method.name}</span>
+      <span class="search-method-found"> · {@method.found} found<span :if={
+        is_integer(@method.offered)
+      }> / {@method.offered} offered</span>{if @method.limit,
+        do: " · limit reached"}</span>
+    </span>
     """
   end
 
