@@ -24,6 +24,32 @@ defmodule Ryker.Slack.ChannelFence do
     end
   end
 
+  @doc """
+  Serialize a retained source's use with its channel changes, without granting
+  access to the channel. A confirmed workspace rule may survive deletion of
+  its source; its current scope and row authorize that copy separately.
+  """
+  @spec synchronize_in_transaction(String.t(), String.t()) :: :ok | {:error, term()}
+  def synchronize_in_transaction(transport, conversation_ref) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :slack_channel_fence_transaction_required}
+
+      transport == "slack" ->
+        destination = slack_destination(conversation_ref)
+        synchronize_slack_destination(destination)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp synchronize_slack_destination({:channel, workspace_ref, channel_ref}),
+    do: share_in_transaction(workspace_ref, channel_ref)
+
+  defp synchronize_slack_destination(:direct), do: :ok
+  defp synchronize_slack_destination(:invalid), do: {:error, :invalid_slack_conversation}
+
   @spec authorize_public_in_transaction(String.t(), String.t()) :: :ok | {:error, term()}
   def authorize_public_in_transaction(transport, conversation_ref) do
     cond do

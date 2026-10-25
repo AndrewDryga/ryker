@@ -90,6 +90,11 @@ defmodule Ryker.Admission.ContextTest do
     assert Context.for_model(restored)["person_asking"] ==
              Context.for_model(context)["person_asking"]
 
+    # Keep the historical snapshot, but never disclose a forgotten profile
+    # again while routing a retried input from that snapshot.
+    assert Admission.reauthorize_work_scope(restored) ==
+             {:error, {:admission_rejected, :context_stale}}
+
     bob = record_input!(actor: %{kind: :user, ref: "UBOB"}, message_ref: "1787833000.000100")
     assert {:ok, bob_context} = build_context(bob)
     refute Map.has_key?(Context.for_model(bob_context), "person_asking")

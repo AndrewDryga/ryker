@@ -7,6 +7,78 @@ defmodule Ryker.Behaviors.GuidanceSnapshotConcurrencyTest do
   alias Ryker.Records.DerivedContext
   alias Ryker.StateTools.FixedTools
 
+  # A saved workspace rule may come from another channel. Fencing only its
+  # destination leaves the source row locked before a later source check,
+  # reversing channel deletion's order when preferences share that source.
+  test "cross-channel guidance fences its source before taking behavior rows" do
+    Sandbox.unboxed_run(Repo, fn ->
+      {correction, claim, saved} = guidance!()
+      workspace = correction.entry.source_ref
+      origin = Ryker.ConversationRef.slack(workspace, "C2")
+      behavior = saved["behavior_ref"] |> Behaviors.Behavior.Query.by_ref() |> Repo.fetch!()
+
+      payload =
+        Map.merge(behavior.payload, %{"scope" => "workspace", "visibility" => "workspace"})
+
+      behavior =
+        behavior
+        |> Ecto.Changeset.change(
+          scope_kind: :workspace,
+          scope_ref: behavior.workspace_ref,
+          source_conversation_ref: origin,
+          payload: payload
+        )
+        |> Repo.update!()
+
+      document = Behaviors.Recall.guidance_document(behavior)
+      submission = %{"context" => %{"operator_context" => %{"guidance" => [document]}}}
+      claim = %{claim | turn: %{claim.turn | submission: submission}}
+      parent = self()
+
+      deleter =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            :ok = Slack.ChannelFence.lock_in_transaction(workspace, "C2")
+            send(parent, {:source_locked, backend_pid()})
+            receive do: (:redact -> :ok)
+            Memories.Reviews.delete_slack_channel_in_transaction(workspace, "C2")
+          end)
+        end)
+
+      try do
+        assert_receive {:source_locked, blocking}, 5_000
+
+        reader =
+          unboxed_task(fn ->
+            send(parent, {:reader_started, backend_pid()})
+
+            KnowledgeSnapshot.authorize_submission(
+              claim.episode,
+              claim.session,
+              claim.turn.submission
+            )
+          end)
+
+        try do
+          assert_receive {:reader_started, backend}, 5_000
+          assert await_finished_or_blocked(reader, backend, blocking) == :waiting
+          send(deleter.pid, :redact)
+          assert Task.await(deleter, 5_000) == {:ok, :ok}
+          # Explicit workspace guidance remains a saved copy when its source
+          # channel goes; synchronization must not revoke that separate scope.
+          assert Task.await(reader, 5_000) == :ok
+        after
+          stop_tasks([reader])
+        end
+      after
+        send(deleter.pid, :redact)
+        stop_tasks([deleter])
+        Repo.delete_all(Behaviors.Behavior.Query.by_id(behavior.id))
+        cleanup!(correction)
+      end
+    end)
+  end
+
   # Review found that a saved guidance read could hold Behavior while waiting
   # for channel deletion, which held the channel while waiting for Behavior.
   test "guidance authorization waits outside the rows a channel deletion must redact" do

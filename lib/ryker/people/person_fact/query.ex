@@ -1,11 +1,17 @@
 defmodule Ryker.People.PersonFact.Query do
   @moduledoc "What people said about themselves, for every read of `person_facts`."
   use Ryker, :query
+  alias Ryker.ConversationRef
   alias Ryker.People.PersonFact
+  alias Ryker.Slack
 
   def all, do: from(facts in PersonFact, as: :person_facts)
 
   def by_id(queryable \\ all(), id), do: where(queryable, [person_facts: f], f.id == ^id)
+
+  def by_ids(queryable \\ all(), ids), do: where(queryable, [person_facts: f], f.id in ^ids)
+
+  def by_facts(queryable, facts), do: where(queryable, [person_facts: f], f.fact in ^facts)
 
   def by_person(queryable \\ all(), person_ref),
     do: where(queryable, [person_facts: f], f.person_ref == ^person_ref)
@@ -25,10 +31,25 @@ defmodule Ryker.People.PersonFact.Query do
   it, or said in that conversation.
   """
   def usable_in(queryable, conversation_ref) do
-    where(
-      queryable,
-      [person_facts: f],
-      f.private == false or f.conversation_ref == ^(conversation_ref || "")
+    case ConversationRef.parse_slack(conversation_ref || "") do
+      {:ok, workspace, _channel} -> usable_in_workspace(queryable, conversation_ref, workspace)
+      :error -> by_conversation(queryable, conversation_ref || "")
+    end
+  end
+
+  defp usable_in_workspace(queryable, conversation, workspace) do
+    queryable
+    |> join(:left, [person_facts: f], c in Slack.ChannelMembership,
+      as: :source_channel,
+      on:
+        f.conversation_ref ==
+          fragment("'slack:' || ? || ':' || ?", c.workspace_ref, c.channel_ref)
+    )
+    |> where(
+      [person_facts: f, source_channel: c],
+      f.conversation_ref == ^conversation or
+        (f.private == false and c.workspace_ref == ^workspace and c.status == :joined and
+           c.private == false and c.external_shared == false)
     )
   end
 
@@ -74,4 +95,5 @@ defmodule Ryker.People.PersonFact.Query do
   end
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_for_share_skip_locked(queryable), do: lock(queryable, "FOR SHARE SKIP LOCKED")
 end

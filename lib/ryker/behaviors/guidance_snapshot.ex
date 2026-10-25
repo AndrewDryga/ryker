@@ -118,22 +118,48 @@ defmodule Ryker.Behaviors.GuidanceSnapshot do
       |> Behavior.Query.visible_to(:guidance, context)
       |> Behavior.Query.ordered_by_ref()
 
-    rows = query |> Behavior.Query.lock_for_share_skip_locked() |> Repo.all()
+    # A workspace rule can originate outside this destination. Fence its
+    # source before taking Behavior: later personalization checks may need
+    # that same fence, while source deletion waits to redact the rule.
+    origins = Repo.all(query)
 
-    cond do
-      length(rows) != map_size(entries) and Repo.aggregate(query, :count) == map_size(entries) ->
-        {:error, :work_derived_context_busy}
+    with :ok <- fence_sources(origins) do
+      rows = query |> Behavior.Query.lock_for_share_skip_locked() |> Repo.all()
 
-      length(rows) == map_size(entries) and
-          Enum.all?(rows, &valid_entry?(&1, entries[&1.ref], context)) ->
-        :ok
+      cond do
+        length(rows) != map_size(entries) and Repo.aggregate(query, :count) == map_size(entries) ->
+          {:error, :work_derived_context_busy}
 
-      true ->
-        :error
+        length(rows) == map_size(entries) and
+          Enum.all?(rows, &valid_entry?(&1, entries[&1.ref], context)) and
+            same_origins?(origins, rows) ->
+          :ok
+
+        true ->
+          :error
+      end
     end
   end
 
   defp authorize_locked_entries(_entries, _destination, _session), do: :error
+
+  defp fence_sources(rows) do
+    rows
+    |> Enum.map(&{&1.source_transport, &1.source_conversation_ref})
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.reduce_while(:ok, fn {transport, conversation}, :ok ->
+      case Slack.ChannelFence.synchronize_in_transaction(transport, conversation) do
+        :ok -> {:cont, :ok}
+        _ -> {:halt, :error}
+      end
+    end)
+  end
+
+  defp same_origins?(before, after_rows) do
+    origins = Map.new(before, &{&1.id, {&1.source_transport, &1.source_conversation_ref}})
+    Enum.all?(after_rows, &(origins[&1.id] == {&1.source_transport, &1.source_conversation_ref}))
+  end
 
   defp valid_entry?(%Behavior{} = behavior, receipt, context) when is_map(receipt) do
     document = Recall.guidance_document(behavior)

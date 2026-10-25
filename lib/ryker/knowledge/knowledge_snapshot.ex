@@ -87,12 +87,15 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
            validated_disclosures(destination, session.repository_ref, context),
          {:ok, automatic} <- automatic_sources(context, current, kind),
          {:ok, guidance} <-
-           Behaviors.GuidanceSnapshot.authorize(context.guidance, destination, current, kind) do
+           Behaviors.GuidanceSnapshot.authorize(context.guidance, destination, current, kind),
+         {:ok, personalization} <-
+           Work.PersonalizationSnapshot.authorize(turn.submission, destination, current, kind) do
       Enum.each(references, &record_knowledge(&1, session, turn))
       record_inherited_knowledge(context.inherited, session, turn)
       record_sources(custody.roots, session, custody.input_only, automatic)
       inherit_automatic_sources(context.inherited, current)
       Behaviors.GuidanceSnapshot.retain!(current, guidance, context.inherited)
+      Work.PersonalizationSnapshot.retain!(current, personalization, context.inherited)
       attest_exposure_counts(current)
       # What a run was shown is part of its request's record.
       Ryker.Episodes.broadcast_episode_updated(session.episode_id)
@@ -497,6 +500,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          true <- exposure_counts_consistent?(current),
          receiving_session <- %{current | repository_ref: session.repository_ref},
          :ok <- Behaviors.GuidanceSnapshot.authorize_session(destination, receiving_session),
+         :ok <- Work.PersonalizationSnapshot.authorize_session(destination, receiving_session),
          true <- retained_session_valid?(destination, receiving_session) do
       :ok
     else
@@ -598,7 +602,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       ) do
     documents = submission_documents(submission)
 
-    case Repo.transaction(fn -> submission_valid?(destination, session, documents) end) do
+    case Repo.transaction(fn ->
+           submission_valid?(destination, session, documents, submission)
+         end) do
       {:ok, true} -> :ok
       {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
       _ -> @stale
@@ -610,7 +616,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp submission_valid?(
          %Episodes.Episode{id: episode_id} = destination,
          %Work.Session{} = session,
-         documents
+         documents,
+         submission
        ) do
     query = Work.Session.Query.by_id(session.id)
 
@@ -625,7 +632,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
              destination,
              current,
              :submission
-           ) do
+           ),
+         {:ok, _personalization} <-
+           Work.PersonalizationSnapshot.authorize(submission, destination, current, :submission) do
       true
     else
       {:error, :work_derived_context_busy} -> Repo.rollback(:work_derived_context_busy)
@@ -633,7 +642,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     end
   end
 
-  defp submission_valid?(_destination, _session, _documents), do: false
+  defp submission_valid?(_destination, _session, _documents, _submission), do: false
 
   # Kernel-only work with no source body still accepts its host transition
   # after its channel is deleted; the write fence separately drops its draft.

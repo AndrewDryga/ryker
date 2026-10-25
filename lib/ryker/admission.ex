@@ -304,13 +304,26 @@ defmodule Ryker.Admission do
   """
   @spec reauthorize_work_scope(Context.t()) :: :ok | {:error, term()}
   def reauthorize_work_scope(%Context{} = context) do
-    with :ok <-
+    facts = context.person_asking || []
+    actor = Ingress.Input.actor_ref(context.input)
+
+    with {:ok, _receipts} <-
+           People.FactSnapshot.authorize(
+             facts,
+             actor,
+             context.input_entry.destination_conversation_ref
+           ),
+         :ok <-
            ConversationSummaries.reauthorize(
              context.input_entry,
              context.conversation_context,
              context.built_at
            ) do
       reauthorize_candidates(context)
+    else
+      :error -> {:error, {:admission_rejected, :context_stale}}
+      {:error, :work_derived_context_busy} -> {:error, {:admission_rejected, :context_stale}}
+      error -> error
     end
   end
 

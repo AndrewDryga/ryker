@@ -71,7 +71,7 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
   test "each thing a person said can be forgotten on its own, asking first" do
     person = "control_plane:user:local-operator"
     birthday = fact!(person, "birthday", "Birthday is 12 March.", false)
-    fact!(person, "preferred-name", "Goes by Andy.", false)
+    preferred_name = fact!(person, "preferred-name", "Goes by Andy.", false)
 
     assert %{status: 200, body: body} =
              Pages.page(["memory", "people"], %{"person" => person}, %{
@@ -96,7 +96,8 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
     assert forgotten.status == 303
 
     assert Plug.Conn.get_resp_header(forgotten, "location") == [PeoplePage.path(person)]
-    assert People.about(person, "control-plane:lab:#{Ecto.UUID.generate()}") == ["Goes by Andy."]
+    assert People.about(person, preferred_name.conversation_ref) == ["Goes by Andy."]
+    assert People.about(person, "control-plane:lab:#{Ecto.UUID.generate()}") == []
     assert confirmation(forget).status == 404
 
     # The last one leaves nothing to come back to on this page.

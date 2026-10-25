@@ -12,6 +12,7 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
+  alias Ryker.Fixtures.Personalization
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
@@ -26,6 +27,66 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Work.{FinalPreflight, OperationKeys, Result, Session, StateBinding}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+
+  # Current recall alone did not retract facts/preferences from a frozen
+  # briefing or the native transcript. Prove the actual provider boundary.
+  for {fixture, source} <- [personal_context!: :facts, preference_context!: :preferences] do
+    @tag :personalization
+    test "withdrawn #{source} never reach an unsent provider turn" do
+      {claim, saved} = apply(Personalization, unquote(fixture), [])
+      withdraw_personalization!(unquote(source), saved)
+      {:ok, fake} = fake_for(claim, [captured_complete_reply()])
+      assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+      assert [submitted] = Map.values(FakeAPI.state(fake).frozen_submissions)
+      assert_personalization_absent(submitted, unquote(source))
+    end
+
+    @tag :personalization
+    test "a native transcript containing withdrawn #{source} rotates before provider reuse" do
+      {claim, saved} = apply(Personalization, unquote(fixture), [])
+      assert KnowledgeSnapshot.expose_submission(claim) == :ok
+
+      assert {:ok, session} =
+               Custody.bind_session(
+                 claim.episode.id,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 claim.session.generation,
+                 claim.session.create_generation,
+                 "remote:personal:#{claim.episode.id}"
+               )
+
+      claim = %{claim | session: session}
+      withdraw_personalization!(unquote(source), saved)
+      {:ok, fake} = fake_for(claim, [captured_complete_reply()])
+
+      create_session = fn fallback ->
+        FakeAPI.update(fake, fn state ->
+          %{state | session: Map.put(state.session, "id", "remote:personal-replacement")}
+        end)
+
+        fallback.()
+      end
+
+      assert {:ok, %{status: :accepted, turn: answered}} =
+               Executor.run(claim, protocol_options(fake, %{create_session: create_session}))
+
+      refute answered.session_id == session.id
+      assert [submitted] = Map.values(FakeAPI.state(fake).frozen_submissions)
+      assert_personalization_absent(submitted, unquote(source))
+    end
+  end
+
+  defp withdraw_personalization!(:facts, saved), do: Ryker.People.forget_fact(saved.id)
+
+  defp withdraw_personalization!(:preferences, saved),
+    do: Ryker.Behaviors.set_status(saved.ref, :deleted)
+
+  defp assert_personalization_absent(submitted, :facts),
+    do: assert(get_in(submitted, ["context", "operator_context", "person_asking"]) == nil)
+
+  defp assert_personalization_absent(submitted, :preferences),
+    do: assert(get_in(submitted, ["context", "operator_context", "preferences"]) in [nil, %{}])
 
   # Retained correction words and complete reply are harvested fixtures.
   # Removing a saved rule before submission must remove it from provider input.
