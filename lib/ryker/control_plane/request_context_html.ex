@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack
-  alias Ryker.Text
   alias Ryker.Wording
 
   @sources %{
@@ -2404,7 +2403,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         []
 
       items ->
-        ["<section class=\"context-candidates\">", Enum.map(items, &outcome/1), "</section>"]
+        ["<section class=\"context-outcomes\">", Enum.map(items, &outcome/1), "</section>"]
     end
   end
 
@@ -2415,53 +2414,45 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     workspace = slack_workspace(trigger) || Slack.Names.workspace()
 
-    label =
-      if asked, do: asked |> first_line() |> Text.shorten_to_word(140), else: "Earlier request"
-
-    body = [
-      "<div class=\"candidate-readable\">",
-      candidate_outcome(ended(item)),
-      "<dl class=\"candidate-messages\">",
-      if(asked,
-        do: [
-          "<div><dt>Asked</dt><dd>",
-          Components.message_block_html(actor_label(trigger), readable_knowledge(asked),
-            person: slack_person(trigger),
-            meta: [
-              "<span class=\"candidate-message-meta\">",
-              escape(readable_candidate_time(trigger["occurred_at"])),
-              "</span>"
-            ]
-          ),
-          "</dd></div>"
-        ],
-        else: []
-      ),
-      if(answer,
-        do: [
-          "<div><dt>Ryker answered</dt><dd>",
-          Components.message_block_html("Ryker", readable_knowledge(answer)),
-          "</dd></div>"
-        ],
-        else: []
-      ),
-      "</dl></div>"
+    [
+      "<article class=\"context-outcome\"><div class=\"outcome-exchange\">",
+      if asked do
+        Components.message_block_html(actor_label(trigger), readable_knowledge(asked),
+          class: "outcome-request",
+          rest: %{"aria-label" => "Request"},
+          person: slack_person(trigger),
+          meta: [
+            "<span class=\"candidate-message-meta\">",
+            escape(readable_candidate_time(trigger["occurred_at"])),
+            "</span>"
+          ]
+        )
+      else
+        []
+      end,
+      if answer do
+        Components.message_block_html("Ryker", readable_knowledge(answer),
+          class: "outcome-response",
+          rest: %{"aria-label" => "Ryker's reply"}
+        )
+      else
+        []
+      end,
+      "</div><div class=\"outcome-meta\"><div class=\"outcome-status markdown-preview\">",
+      SlackMarkdown.preview(ended(item), workspace),
+      "</div>",
+      outcome_time(item["finished_at"]),
+      "</div></article>"
     ]
-
-    Components.disclosure_html(label, body,
-      class: "context-candidate context-record context-outcome",
-      label_content: SlackMarkdown.render(label, workspace),
-      meta: finished(item["finished_at"])
-    )
   end
 
   defp answer_text(%{"message" => message}), do: present(message)
   defp answer_text(_result), do: nil
 
-  defp finished(at) do
+  defp outcome_time(at) do
     case readable_candidate_time(at) do
       nil -> []
-      at -> ["<time>finished ", escape(at), "</time>"]
+      readable -> ["<time datetime=\"", escape(at), "\">", escape(readable), "</time>"]
     end
   end
 
@@ -3557,8 +3548,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     }
 
   defp candidate_message(_message), do: nil
-
-  defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd() |> bounded(160)
 
   # The router read the opening and latest messages shown on this card. The
   # rest of that episode is its own timeline, one link away, rather than

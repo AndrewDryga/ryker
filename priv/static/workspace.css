@@ -1526,20 +1526,30 @@
    frame remains visible even when a section contains only one rule or fact. */
 .prompt-source-body .knowledge-entry,
 .prompt-source-body .conversation-recall,
-.prompt-source-body .learned-topic,
-.prompt-source-body .context-candidate.context-outcome { --knowledge-item-inset:16px; box-sizing:border-box; min-width:0; max-width:100%; margin:0; padding:var(--knowledge-item-inset); border:1px solid var(--ryker-stroke-strong); border-radius:6px; background:var(--ryker-surface-raised); overflow-wrap:anywhere; }
+.prompt-source-body .learned-topic { --knowledge-item-inset:16px; box-sizing:border-box; min-width:0; max-width:100%; margin:0; padding:var(--knowledge-item-inset); border:1px solid var(--ryker-stroke-strong); border-radius:6px; background:var(--ryker-surface-raised); overflow-wrap:anywhere; }
 .prompt-source-body .conversation-recall { margin-bottom:12px; }
 .learned-topics { display:grid; gap:12px; max-width:none; }
-.prompt-source-body .context-outcome + .context-outcome { margin-top:12px; }
 .knowledge-entry > .knowledge-provenance,
 .conversation-recall > .knowledge-provenance,
 .learned-topic > .learned-topic-details { margin:12px calc(-1 * var(--knowledge-item-inset)) calc(-1 * var(--knowledge-item-inset)); padding:0 var(--knowledge-item-inset); border-top:1px solid var(--ryker-stroke); }
 @media (max-width:580px) {
   .prompt-source-body .knowledge-entry,
   .prompt-source-body .conversation-recall,
-  .prompt-source-body .learned-topic,
-  .prompt-source-body .context-candidate.context-outcome { --knowledge-item-inset:12px; }
+  .prompt-source-body .learned-topic { --knowledge-item-inset:12px; }
 }
+/* A recalled request and its reply are one exchange, not another disclosure or
+   two unrelated cards. Only the outer top-right/bottom-left corners are rounded. */
+.context-outcomes { display:grid; gap:24px; min-width:0; }
+.context-outcome { min-width:0; margin:0; padding:0; }
+.outcome-exchange { display:grid; grid-template-columns:minmax(0,1fr); gap:0; min-width:0; }
+.outcome-exchange > .ui-message + .ui-message { margin-top:0; }
+.outcome-exchange > .ui-message:first-child > .ui-message-frame { border-radius:0 8px 0 0; }
+.outcome-exchange > .ui-message:last-child > .ui-message-frame { border-radius:0 0 0 8px; }
+.outcome-exchange > .ui-message + .ui-message > .ui-message-frame { border-top:0; }
+.outcome-exchange > .ui-message:only-child > .ui-message-frame { border-radius:0 8px 0 8px; }
+.outcome-exchange .ui-message-body { font-size:14px; line-height:22px; }
+.outcome-meta { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 12px; margin:6px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
+.outcome-meta .outcome-status > * { margin:0; font-size:inherit; line-height:inherit; color:inherit; }
 /* Utilities follow the exact text inside the same block, outside its scroll area. */
 .copy-block { position:relative; display:flex; flex-direction:column; align-items:stretch; gap:8px; min-width:0; }
 .ryker-app .copy-block-button { align-self:flex-end; position:relative; display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }

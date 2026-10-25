@@ -50,18 +50,22 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     [finished, stopped] = document |> LazyHTML.query(".context-outcome") |> Enum.to_list()
 
-    assert LazyHTML.query(finished, "summary .ui-disclosure-label") |> LazyHTML.text() ==
+    # Each outcome is one visible exchange, not a nested disclosure with
+    # label columns separating two already-labelled message bubbles.
+    assert Enum.count(LazyHTML.query(document, "article.context-outcome")) == 2
+    assert Enum.empty?(LazyHTML.query(document, ".context-outcome summary, .context-outcome dl"))
+    assert Enum.count(LazyHTML.query(finished, ".outcome-exchange > .ui-message")) == 2
+
+    assert LazyHTML.query(finished, ".outcome-exchange > .ui-message")
+           |> LazyHTML.attribute("aria-label") == ["Request", "Ryker's reply"]
+
+    assert LazyHTML.query(finished, ".outcome-meta time") |> LazyHTML.text() ==
+             "28 Sep, 04:32:29 UTC"
+
+    assert LazyHTML.query(finished, ".outcome-status") |> LazyHTML.text() == "Finished"
+
+    assert LazyHTML.query(finished, ".outcome-request .ui-message-body") |> LazyHTML.text() ==
              "And now?"
-
-    assert Enum.count(LazyHTML.query(document, "details.context-outcome")) == 2
-    assert Enum.empty?(LazyHTML.query(document, "details.context-outcome[open]"))
-    assert LazyHTML.query(finished, "time") |> LazyHTML.text() == "finished 28 Sep, 04:32:29 UTC"
-    assert LazyHTML.query(finished, ".candidate-outcome") |> LazyHTML.text() == "Finished"
-
-    assert finished |> LazyHTML.query("dt") |> Enum.map(&LazyHTML.text/1) == [
-             "Asked",
-             "Ryker answered"
-           ]
 
     assert LazyHTML.query(finished, ".candidate-message-meta") |> LazyHTML.text() =~
              "28 Sep, 04:29:46 UTC"

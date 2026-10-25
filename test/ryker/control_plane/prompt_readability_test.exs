@@ -214,9 +214,9 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
     assert LazyHTML.text(outcome) =~ "<script>bad()</script>"
   end
 
-  test "related outcome disclosure titles render the source's link instead of Slack syntax" do
-    # The richer retained history starts its attachment text with a labelled
-    # Slack link. Mention-only formatting exposed that raw control syntax.
+  test "related outcome source links appear once in the request, without raw Slack syntax" do
+    # The source's labelled link belongs in its message, not in a duplicate
+    # collapsible title above that same message.
     document =
       readable(%{
         "related_outcomes" => [
@@ -232,12 +232,30 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
         ]
       })
 
-    title = LazyHTML.query(document, ".context-outcome > summary .ui-disclosure-label")
-    assert LazyHTML.text(title) == "Run notification for Example/service"
+    message = LazyHTML.query(document, ".context-outcome .outcome-request .ui-message-body")
+    assert LazyHTML.text(message) == "Run notification for Example/service"
 
-    assert LazyHTML.query(title, "a") |> LazyHTML.attribute("href") == [
+    assert LazyHTML.query(document, ".context-outcome a") |> LazyHTML.attribute("href") == [
              "https://example.com/run"
            ]
+
+    assert Enum.empty?(LazyHTML.query(document, ".context-outcome summary"))
+    assert Enum.empty?(LazyHTML.query(document, ".outcome-response"))
+  end
+
+  test "an earlier reply without a retained request cannot acquire an invented request bubble" do
+    document =
+      readable(%{
+        "related_outcomes" => [
+          %{"result" => %{"message" => "The saved plan awaits confirmation."}}
+        ]
+      })
+
+    assert Enum.count(LazyHTML.query(document, ".outcome-exchange > .ui-message")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".outcome-request"))
+
+    assert LazyHTML.query(document, ".outcome-response .ui-message-body") |> LazyHTML.text() ==
+             "The saved plan awaits confirmation."
   end
 
   test "source token links reveal the original JSON without extra buttons in the readable body" do

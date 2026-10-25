@@ -275,7 +275,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     # text block. First/last-child resets must not remove an item's own edges.
     assert [_, item] =
              Regex.run(
-               ~r/\.prompt-source-body \.knowledge-entry,\s*\.prompt-source-body \.conversation-recall,\s*\.prompt-source-body \.learned-topic,\s*\.prompt-source-body \.context-candidate\.context-outcome \{([^}]+)\}/,
+               ~r/\.prompt-source-body \.knowledge-entry,\s*\.prompt-source-body \.conversation-recall,\s*\.prompt-source-body \.learned-topic \{([^}]+)\}/,
                css
              )
 
@@ -290,6 +290,25 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     refute css =~ ".knowledge-entry:first-child { padding-top:0; }"
     refute css =~ ".knowledge-entry:last-child { padding-bottom:0; }"
+  end
+
+  test "a retained request and reply share one joined diagonal-corner exchange", %{css: css} do
+    # The old layout left a gap and a label column between two related messages.
+    # Pair boundaries must survive the shared message's default sibling margin.
+    assert [_, pair] = Regex.run(~r/\.outcome-exchange \{([^}]+)\}/, css)
+    assert pair =~ "gap:0"
+    assert pair =~ "min-width:0"
+
+    assert css =~ ".outcome-exchange > .ui-message + .ui-message { margin-top:0; }"
+
+    assert css =~
+             ".outcome-exchange > .ui-message:first-child > .ui-message-frame { border-radius:0 8px 0 0; }"
+
+    assert css =~
+             ".outcome-exchange > .ui-message:last-child > .ui-message-frame { border-radius:0 0 0 8px; }"
+
+    assert css =~
+             ".outcome-exchange > .ui-message:only-child > .ui-message-frame { border-radius:0 8px 0 8px; }"
   end
 
   test "the open mobile workspace menu remains inside the viewport", %{css: css} do
