@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.SubscriptionPresentationTest do
     assert view.target_url == hd(@matcher["attachments"])["title_link"]
     # The reference stays on screen while the name is unresolved, so two
     # channels never read identically.
-    assert view.place == "Slack channel C0BLU1GACKC"
+    assert view.place == "Slack channel"
     assert view.repository == "emisar"
     assert view.episode_title == @episode.title
     assert view.episode_href == @episode.href

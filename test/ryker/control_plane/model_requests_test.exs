@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     full = html |> LazyHTML.from_fragment() |> LazyHTML.query(".final-prompt")
 
     assert LazyHTML.text(full) =~
-             "The model provider's own instructions are not part of this record."
+             "Prompt and response format prepared by Ryker."
 
     refute html =~ raw.artifact.sha256
     refute html =~ "xoxb-recorded-credential"
@@ -90,16 +90,17 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     request = timeline_request(episode, turn)
 
     assert [
-             %{title: "First message", matches?: true},
+             %{title: "Initial send", matches?: true},
              %{title: "Correction 1", matches?: true},
-             %{title: "Sent again from the start", matches?: false}
+             %{title: "Restarted send", matches?: false}
            ] = request.sent
 
     html = render_component(&EpisodeRequest.render/1, request: request)
     sent = html |> LazyHTML.from_fragment() |> LazyHTML.query(".sent-prompts")
     text = LazyHTML.text(sent)
 
-    assert text =~ "Sent to the model"
+    assert text =~ "Worker sends"
+    assert text =~ "co:op adds runtime instructions to the Ryker submission."
     assert text =~ "As above, unchanged"
     assert text =~ "<coop-output>Save only final generated images in .coop-output/turn-1."
     assert text =~ "«ünïcode» ✓"
@@ -128,7 +129,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     html = render_component(&EpisodeRequest.render/1, request: request)
     text = html |> LazyHTML.from_document() |> LazyHTML.text()
     refute html =~ "xoxb-recorded-credential"
-    assert text =~ "Full submitted request"
+    assert text =~ "Ryker submission"
     refute text =~ ~r/secrets redacted/i
     refute text =~ ~r/· redacted/i
     refute text =~ ~r/sensitive values are hidden/i
@@ -175,7 +176,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     # workarounds for not being the element it already was.
     assert Enum.count(LazyHTML.query(document, "section.final-prompt")) == 1
     assert Enum.empty?(LazyHTML.query(document, "details.final-prompt"))
-    assert LazyHTML.query(full, "header h4") |> LazyHTML.text() =~ "Full submitted request"
+    assert LazyHTML.query(full, "header h4") |> LazyHTML.text() =~ "Ryker submission"
 
     # Its components inside it stay collapsed.
     assert Enum.empty?(LazyHTML.query(full, ".prompt-source[open]"))
@@ -201,7 +202,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     refute LazyHTML.text(prompt_component) =~ "Retained submission"
     refute LazyHTML.text(prompt_component) =~ "exact retained prompt text"
     refute LazyHTML.text(full) =~ "alongside"
-    assert LazyHTML.text(full) |> String.downcase() =~ "provider"
+    assert LazyHTML.text(full) =~ "Prompt and response format prepared by Ryker."
     ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
     assert ids == Enum.uniq(ids)
     refute html =~ "xoxb-recorded-credential"

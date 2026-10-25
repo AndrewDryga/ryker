@@ -168,7 +168,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> LazyHTML.from_fragment()
 
     earlier = LazyHTML.query(document, "[data-source=earlier_messages]")
-    assert LazyHTML.text(earlier) =~ "11 messages"
+    assert LazyHTML.text(earlier) =~ "11/20 messages before 21 Sep, 05:48:52 UTC"
     assert Enum.count(LazyHTML.query(earlier, ".context-message")) == 11
     assert Enum.count(LazyHTML.query(earlier, ".context-messages-history")) == 1
 
@@ -185,7 +185,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              List.duplicate("Earlier context", 11)
 
     assert LazyHTML.text(earlier) =~ "Reply with exactly: progress validation complete."
-    assert LazyHTML.text(earlier) =~ "Up to 20 earlier messages"
+    refute LazyHTML.text(earlier) =~ "Up to 20 earlier messages"
     refute LazyHTML.text(earlier) =~ "Bodies not retained"
 
     summary = LazyHTML.query(document, "[data-source=thread_summary]")
@@ -256,7 +256,13 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # Work briefings retain the count separately from the message bundle. The
     # timeline labelled the missing bundle '0 messages', contradicting the count.
     artifact =
-      InspectionRedactor.artifact(%{"context_manifest" => %{"included" => 11, "requested" => 20}})
+      InspectionRedactor.artifact(%{
+        "context_manifest" => %{
+          "included" => 11,
+          "requested" => 20,
+          "cutoff" => "2026-10-25T05:25:59Z"
+        }
+      })
 
     document =
       artifact
@@ -265,9 +271,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> LazyHTML.from_fragment()
 
     earlier = LazyHTML.query(document, "[data-source=earlier_messages]")
-    assert LazyHTML.text(earlier) =~ "11 reported"
+    assert LazyHTML.text(earlier) =~ "11/20 messages reported before 25 Oct, 05:25:59 UTC"
     assert LazyHTML.text(earlier) =~ "Message bodies were not retained in this context."
-    refute LazyHTML.text(earlier) =~ "0 messages"
+    refute LazyHTML.text(earlier) =~ ~r/\b0 messages/
     refute LazyHTML.text(earlier) =~ "No earlier messages were supplied"
     assert Enum.empty?(LazyHTML.query(earlier, ".prompt-source-estimate"))
   end
@@ -496,7 +502,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     # The exact component beneath keeps the retained JSON for support.
     note = LazyHTML.query(notes, ".context-note")
-    assert note |> LazyHTML.query(".context-note-meta") |> LazyHTML.text() =~ "Slack user · "
+    assert note |> LazyHTML.query(".ui-message-header") |> LazyHTML.text() =~ "Slack user"
     refute LazyHTML.text(note) =~ "U0BHTNFCW6S"
 
     candidate = %{
@@ -1130,9 +1136,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
            |> LazyHTML.query(".prompt-group[data-group=summaries] > .prompt-source")
            |> LazyHTML.attribute("data-source") == ~w(thread_summary)
 
-    assert LazyHTML.text(document) =~ "1 message"
+    assert LazyHTML.text(document) =~ "1/20 messages before 21 Sep, 05:48:52 UTC"
     assert LazyHTML.text(document) =~ "Earlier question"
-    assert LazyHTML.text(document) =~ "Up to 20 earlier messages"
+    refute LazyHTML.text(document) =~ "Up to 20 earlier messages"
     assert LazyHTML.text(document) =~ "Thread summary"
 
     # The recorded reason picks the same words routing uses when it leaves a
@@ -1279,7 +1285,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     document = recall_document(memory)
     note = LazyHTML.query(document, ".context-note[data-memory-kind=observation]")
     assert LazyHTML.text(note) =~ hd(memory["observations"])["summary"]
-    assert LazyHTML.text(note) =~ "You ·"
+    assert LazyHTML.query(note, ".ui-message-header strong") |> LazyHTML.text() == "You"
     assert LazyHTML.text(note) =~ "intended infrastructure configuration"
     assert Enum.empty?(LazyHTML.query(note, "details, pre"))
     assert LazyHTML.text(document) =~ "Conversation notes"
@@ -1308,11 +1314,11 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> Jason.decode!()
 
     document = recall_document(%{"knowledge" => [topic]})
-    knowledge = LazyHTML.query(document, ".conversation-recall[data-memory-kind=knowledge]")
+    knowledge = LazyHTML.query(document, ".learned-topic[data-memory-kind=knowledge]")
     assert LazyHTML.text(knowledge) =~ topic["title"]
     assert LazyHTML.text(knowledge) =~ topic["summary"]
-    assert LazyHTML.text(knowledge) =~ "Maintained topic"
-    assert Enum.empty?(LazyHTML.query(knowledge, "details, pre"))
+    refute LazyHTML.text(knowledge) =~ "Maintained topic"
+    assert Enum.empty?(LazyHTML.query(knowledge, "pre"))
   end
 
   defp recall_document(memory) do
@@ -1583,8 +1589,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.query(option, ".candidate-heading h4") |> LazyHTML.text() =~
              "Restore the production deployment"
 
-    assert text =~ "idle 1 h"
-    assert LazyHTML.query(option, ".candidate-state") |> LazyHTML.text() == "Request finished"
+    assert text =~ "Request 1 hour ago"
+    refute text =~ "idle"
+    assert LazyHTML.query(option, ".candidate-state") |> LazyHTML.text() == ""
     assert text =~ "Replied: The replacement allocation is healthy."
     assert text =~ "Matched on"
     assert text =~ "shares 1 identifier · same thread · similar wording"

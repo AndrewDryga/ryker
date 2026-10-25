@@ -1295,13 +1295,12 @@
 .ui-disclosure-source > .ui-disclosure-body { padding:20px; }
 .ui-disclosure-source > .ui-disclosure-body > pre { padding:0; border:0; border-radius:0; background:transparent; }
 .ui-disclosure-source > summary .ui-disclosure-label { color:var(--ink); font-size:14px; font-weight:400; }
-.prompt-source .prompt-source-main::before { content:""; flex:none; align-self:center; width:8px; height:8px; margin-right:10px; border-radius:2px; background:var(--source-accent); }
+.prompt-source .prompt-source-main::before { content:""; flex:none; align-self:flex-start; width:8px; height:8px; margin:7px 10px 0 0; border-radius:2px; background:var(--source-accent); }
+.prompt-source > summary { align-items:flex-start; }
+.prompt-source > summary > .ui-icon { margin-top:4px; }
+.ryker-app a.prompt-source-estimate { color:var(--ryker-text-secondary); text-decoration:underline; text-underline-offset:3px; }
 .prompt-source-estimate, .prompt-source-status, .ui-disclosure-source > summary .ui-disclosure-meta { color:var(--ryker-text-secondary); font-size:12px; font-variant-numeric:tabular-nums; }
 .prompt-source-help { display:block; margin:2px 0 0 18px; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; font-weight:400; }
-.ryker-app .prompt-highlight { display:grid; place-items:center; width:44px; height:44px; margin:12px 0 0; padding:0; border:0; border-radius:5px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
-.prompt-highlight .ui-icon { width:18px; height:18px; }
-.prompt-highlight:hover { color:var(--ryker-text); background:var(--ryker-surface-emphasis); }
-.prompt-highlight:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; }
 .ryker-app .context-fields { display:block; margin:0; padding:0; font-size:13px; line-height:21px; }
 .ryker-app .context-fields > .context-field { display:grid; grid-template-columns:minmax(96px, 24%) minmax(0,1fr); gap:4px 16px; margin:0; padding:5px 0; border:0; }
 .context-field > dt { color:var(--ryker-text-secondary); font-weight:400; }
@@ -1328,7 +1327,6 @@
 .request-model-section .execution-target-meta { font-size:13px; }
 .request-model-choice { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
 .request-model-choice > a { font-size:13px; line-height:20px; }
-.request-model-reason { margin:2px 0 0; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 
 /* Candidate groups in a briefing: the short description rides in the row summary */
 .prompt-source-doc { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; font-weight:400; }
@@ -1485,11 +1483,21 @@
 .context-note:last-child { padding-bottom:0; }
 .prompt-source-body .context-note-text { margin:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
 .context-note-meta { margin:2px 0 0; font-size:12px; line-height:18px; color:var(--secondary); }
+.learned-topic > header { position:static; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:6px 20px; margin:0 0 8px; padding:0; background:transparent; border:0; backdrop-filter:none; }
+.ryker-app .learned-topic > header h4 { margin:0; font-size:14px; line-height:22px; font-weight:600; }
+.learned-topic > header a { font-size:12px; }
+.learned-topic-summary { max-width:80ch; font-size:14px; line-height:23px; }
+.learned-topic-summary > :first-child { margin-top:0; }
+.learned-topic-summary > :last-child { margin-bottom:0; }
+.learned-topic-meta { display:flex; flex-wrap:wrap; gap:4px; margin:12px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
+.learned-topic-sources { display:flex; flex-wrap:wrap; gap:4px 20px; margin:8px 0 0; padding:0; list-style:none; font-size:12px; }
+.learned-topic-details { margin:12px 0 0; }
+.candidate-state:empty { display:none; }
 .context-note-topics { display:flex; flex-wrap:wrap; gap:4px; list-style:none; margin:6px 0 0; padding:0; }
 .context-note-topics li { padding:0 8px; border:1px solid var(--stroke); border-radius:10px; font-size:12px; line-height:18px; color:var(--ryker-text-secondary); }
 /* Utilities follow the exact text inside the same block, outside its scroll area. */
 .copy-block { position:relative; display:flex; flex-direction:column; align-items:stretch; gap:8px; min-width:0; }
-.ryker-app .copy-block-button { align-self:flex-start; position:relative; display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
+.ryker-app .copy-block-button { align-self:flex-end; position:relative; display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
 .copy-block-button::before { content:""; position:absolute; inset:6px; border:1px solid var(--ryker-stroke); border-radius:5px; background:var(--ryker-surface-raised); }
 .copy-block-button > * { position:relative; }
 /* Approved rule ledger owns its layout after the generic mobile fact rules. */
@@ -1581,7 +1589,6 @@
 /* The reason reads as part of the model line above it; the next section
    starts after a clearly larger gap, as groups do below. */
 .request-model-section .execution-target { line-height:20px; }
-.request-model-reason { margin:2px 0 0; line-height:18px; }
 .episode-request > .request-model-section + .prompt-assembly { margin-top:24px; }
 .episode-request > .case-card-heading + .request-model-section { margin-top:0; }
 /* Text lines carry spare space inside their boxes that a bordered box does
@@ -1596,7 +1603,7 @@
 
 /* The search card stacks: heading, facts, then its record, each full width. */
 .search-card > .search-facts, .search-card > .search-record { grid-column:1 / -1; }
-.search-card > .search-record { margin-top:8px; }
+.search-card > .search-record { margin-top:20px; }
 
 /* Chat, Workspace direction (approved 2026-09-24): a titled, status-bearing
    list beside a thread of full-width rows. No top bar: the list highlights
@@ -2352,11 +2359,13 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .search-match-heading > span { color:var(--ryker-text-secondary); font-size:12px; }
 .search-match p { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:13px; }
 .search-method-name { font-size:13px; line-height:22px; color:var(--ryker-text); }
-.search-method-used { display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; min-width:0; }
-.search-method-used code { max-width:100%; padding:1px 7px; border:1px solid var(--ryker-stroke); border-radius:999px; font-family:var(--ryker-font-mono); font-size:12px; line-height:18px; color:var(--ryker-text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.search-method-static .prompt-source-row { display:flex; flex-wrap:wrap; align-items:center; min-height:44px; box-sizing:border-box; justify-content:flex-start; gap:0; padding:8px 14px 8px 38px; color:var(--ryker-text-secondary); }
+.search-meaning { margin:0 0 16px; font-size:13px; line-height:21px; }
+.search-meaning p { margin:0 0 12px; max-width:72ch; }
+.search-briefing-link { display:flex; justify-content:flex-end; align-items:center; min-height:44px; margin-top:12px; font-size:13px; }
 .search-query { display:flex; flex-wrap:wrap; gap:4px 8px; }
 .search-query strong { font-weight:400; color:var(--ryker-text-secondary); }
-.search-query code { overflow-wrap:anywhere; }
+.search-query code { overflow-wrap:anywhere; white-space:normal; }
 .context-empty-fields { margin:10px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .search-method-note { font-size:13px; line-height:22px; color:var(--ryker-text-secondary); }
 .search-method-found { font-size:13px; line-height:22px; color:var(--ryker-text-secondary); text-align:right; font-variant-numeric:tabular-nums; }
@@ -2951,6 +2960,7 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .sent-prompts { margin-top:16px; }
 .ryker-app .sent-prompts > h5 { margin:0 0 8px; font-size:13px; line-height:20px; font-weight:600; }
 .ryker-app .sent-prompts-none { margin:0; color:var(--ryker-text-secondary); font-size:13px; }
+.sent-prompts-help { margin:0 0 12px; max-width:76ch; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .ryker-app .sent-prompt { border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); }
 .ryker-app .sent-prompt + .sent-prompt { margin-top:8px; }
 .ryker-app .sent-prompt-parts { display:grid; gap:12px; margin:0; padding:0; list-style:none; }

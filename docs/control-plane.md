@@ -271,8 +271,11 @@ work (`ControlPlane.LearningRequests`, rendered by `EpisodeRequest`): a
 **Learning briefing** with the model, the briefing sources (system prompt, the
 custom instructions saved with the attempt, the source messages, the prior
 topics it could update with links to them, and on a retry the previous attempt's
-error) and the Full submitted request (prompt text, loaded when opened, and
-response format); then a result card headed with the Learning page's own label
+error) and the Ryker submission (prompt text, loaded when opened, and
+response format). Worker sends separately show the runtime instructions co:op
+added, with the initial send, restarts and corrections checked against the
+worker's retained receipts; they are not messages from the person. Then a result
+card headed with the Learning page's own label
 for the attempt, the model's reason, what it saved (each topic linked to the
 update it wrote), proposed, deferred or why nothing changed, how many of the
 messages it read are this request's ("1 of 3 from this request"), the tokens,

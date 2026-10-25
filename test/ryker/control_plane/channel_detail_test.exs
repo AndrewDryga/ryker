@@ -1515,7 +1515,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       for path <- ["/channels/T123/C456", "/channels/T%31%32%33/C%34%35%36"] do
         {:ok, view, _html} = live(conn, path)
-        assert has_element?(view, "h1 a.page-title-link", "Slack channel C456"), path
+        assert has_element?(view, "h1 a.page-title-link", "Slack channel"), path
         assert has_element?(view, "section.instructions-editor"), path
         assert has_element?(view, "main.native-page"), path
       end

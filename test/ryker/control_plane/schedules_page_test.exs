@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       assert page.body
              |> LazyHTML.from_fragment()
              |> LazyHTML.query("dl.kit-facts a[href='/channels/T123/C456']")
-             |> LazyHTML.text() == "Slack channel C456"
+             |> LazyHTML.text() == "Slack channel"
     end
 
     test "a run reads as one plain state word, never the raw episode and turn states" do
@@ -107,7 +107,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
                "Summarize unresolved incidents."
 
       assert words(LazyHTML.query(row, ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in Slack channel C456 · next run tomorrow 09:00 Berlin time · repository acme/api"
+               "Every day at 09:00 Berlin time · in Slack channel · next run tomorrow 09:00 Berlin time · repository acme/api"
 
       next = LazyHTML.query(row, ".entity-meta time")
       assert LazyHTML.attribute(next, "datetime") == ["2026-09-25T07:00:00Z"]
@@ -192,7 +192,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       }
 
       assert words(LazyHTML.query(list_row(overdue), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in Slack channel C456 · was due 28 Aug, 09:00 Berlin time"
+               "Every day at 09:00 Berlin time · in Slack channel · was due 28 Aug, 09:00 Berlin time"
     end
 
     test "a direct conversation, a thread and a stop date read as words" do
@@ -211,7 +211,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       thread = %{@item | destination_thread_ref: "1787832000.001000", repository: nil}
 
       assert words(LazyHTML.query(list_row(thread), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in a thread in Slack channel C456 · next run tomorrow 09:00 Berlin time"
+               "Every day at 09:00 Berlin time · in a thread in Slack channel · next run tomorrow 09:00 Berlin time"
     end
 
     test "the list offers Current and Past, keeps the search across both, and says how to add one" do
@@ -312,7 +312,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
       assert facts(document) == [
                {"How often", "Every day at 09:00 Berlin time"},
-               {"Where results go", "Slack channel C456 · in a thread"},
+               {"Where results go", "Slack channel · in a thread"},
                {"Repository", "acme/api"},
                {"What it may do", "Read only"},
                {"Next run", "tomorrow 09:00 Berlin time"},

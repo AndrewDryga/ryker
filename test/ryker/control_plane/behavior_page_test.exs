@@ -66,12 +66,12 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert LazyHTML.query(row, "p.entity-text") |> LazyHTML.text() == "Review the plan"
 
     meta = LazyHTML.query(row, "p.entity-meta")
-    assert LazyHTML.text(meta) =~ "When a matching GitHub event arrives in Slack channel C456"
+    assert LazyHTML.text(meta) =~ "When a matching GitHub event arrives in Slack channel"
     assert LazyHTML.text(meta) =~ "uses acme/emisar"
     assert LazyHTML.text(meta) =~ "used 3 times"
 
     assert LazyHTML.query(meta, "strong") |> Enum.map(&LazyHTML.text/1) == [
-             "Slack channel C456",
+             "Slack channel",
              "acme/emisar"
            ]
 
@@ -512,7 +512,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     # A repository reads by the name GitHub gives it, never its ref (2026-10-04 review).
     for {scope_kind, scope_ref, scope_name, where} <- [
           {:workspace, "slack:T123", nil, "everywhere"},
-          {:conversation, "slack:T123:C456", nil, "in Slack channel C456"},
+          {:conversation, "slack:T123:C456", nil, "in Slack channel"},
           {:repository, "acme-checkout-api", "acme/checkout-api", "for acme/checkout-api"},
           {:operator, "slack:user:U123", nil, "for Slack user"}
         ] do
@@ -630,9 +630,18 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     rows = LazyHTML.query(section, "article.entity-row")
 
     assert rows |> LazyHTML.query("h3") |> Enum.map(&LazyHTML.text/1) |> Enum.map(&String.trim/1) ==
-             ["Slack channel C456", "Slack channel C999"]
+             ["Slack channel", "Slack channel"]
 
-    [long, short] = rows |> LazyHTML.query(".entity-text") |> Enum.map(&LazyHTML.text/1)
+    long =
+      rows
+      |> LazyHTML.query("article[id='channel-instructions-T123-C456'] .entity-text")
+      |> LazyHTML.text()
+
+    short =
+      rows
+      |> LazyHTML.query("article[id='channel-instructions-T123-C999'] .entity-text")
+      |> LazyHTML.text()
+
     assert short == ~s("Always link the Grafana dashboard you looked at.")
     assert long =~ ~r/\A"Include the affected service and time window\. More detail\./
     assert String.ends_with?(long, ~s(…"))
@@ -640,7 +649,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     # Andrew, 2026-09-28: a row that opens something opens it from anywhere
     # on the row, with no Edit button beside it.
-    assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") == [
+    assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") |> Enum.sort() == [
              "/channels/T123/C456#instructions-slack:T123:C456",
              "/channels/T123/C999#instructions-slack:T123:C999"
            ]

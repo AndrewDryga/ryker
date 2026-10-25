@@ -273,7 +273,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
              Enum.find_index(ids, &(&1 == "admission-#{entry.id}-1"))
 
     html = rendered(episode)
-    assert html =~ ~s(class="ui-disclosure ui-disclosure-source search-method")
+    assert Enum.count(LazyHTML.query(LazyHTML.from_document(html), ".search-method")) == 4
     card = html |> LazyHTML.from_document() |> LazyHTML.query("##{search}") |> LazyHTML.text()
     assert card =~ "Context search"
     assert card =~ "5 found, 2 offered"
@@ -289,14 +289,14 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     methods =
       html
       |> LazyHTML.from_document()
-      |> LazyHTML.query("##{search} .search-methods li summary .ui-disclosure-label")
-      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+      |> LazyHTML.query("##{search} .search-methods li .search-method-name")
+      |> Enum.map(&LazyHTML.text/1)
 
     assert methods == [
-             "Same thread · 2 found",
-             "Same links or IDs · 0 found",
-             "Similar wording · 5 found",
-             "Work still in progress · 0 found"
+             "Same thread",
+             "Same links or IDs",
+             "Similar wording",
+             "Work still in progress"
            ]
 
     # The briefing keeps to what was sent: no search facts, no work left out.
@@ -347,10 +347,10 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     assert document |> LazyHTML.query(".search-query code") |> Enum.map(&LazyHTML.text/1) ==
              ["kubernetes", "liveness", "readiness", "probe"]
 
-    assert document |> LazyHTML.query(".search-method-used code") |> Enum.map(&LazyHTML.text/1) ==
-             ["kubernetes", "liveness"]
-
-    assert document |> LazyHTML.query(".search-method-used") |> LazyHTML.text() =~ "+2 more"
+    assert Enum.empty?(LazyHTML.query(document, "summary code, .search-method-used"))
+    assert Enum.count(LazyHTML.query(document, ".search-method-static")) == 1
+    refute LazyHTML.text(document) =~ "No requests found."
+    refute LazyHTML.text(document) =~ "Individual matches were not retained"
 
     notes = document |> LazyHTML.query(".search-method-note") |> Enum.map(&LazyHTML.text/1)
     assert notes == ["the message was not in a thread", "no links or IDs in the message"]
@@ -400,12 +400,14 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
     assert Enum.any?(methods, &String.starts_with?(&1, "Similar meaning"))
 
-    assert document |> LazyHTML.query(".search-method-used code") |> Enum.map(&LazyHTML.text/1) ==
+    assert document |> LazyHTML.query(".search-query code") |> Enum.map(&LazyHTML.text/1) ==
              ["oneline", "commit"]
 
     notes = document |> LazyHTML.query(".search-method-note") |> Enum.map(&LazyHTML.text/1)
     assert "left out as too common: run, change" in notes
-    assert "compared by bge-m3 in any language" in notes
+    assert LazyHTML.text(document) =~ "bge-m3"
+    assert LazyHTML.text(document) =~ "Compares the meaning of the current message"
+    refute document |> LazyHTML.query("summary") |> LazyHTML.text() =~ "bge-m3"
 
     stopped =
       put_in(receipt, ["meaning"], %{"unavailable" => "the embedding server could not be reached"})

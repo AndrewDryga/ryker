@@ -153,17 +153,21 @@ defmodule Ryker.ControlPlane.SentPrompts do
   end
 
   defp part(%{"kind" => "text", "text" => text} = part, _digests, secrets),
-    do: %{label: "Added by Coop", text: Redactor.redact(text, secrets), bytes: part["bytes"]}
+    do: %{
+      label: "Runtime instructions",
+      text: Redactor.redact(text, secrets),
+      bytes: part["bytes"]
+    }
 
   defp part(%{"kind" => "withheld"} = part, _digests, _secrets),
     do: %{
-      label: "Added by Coop",
+      label: "Runtime instructions",
       note: "Withheld by the worker" <> reason(part["reason"]),
       bytes: part["bytes"]
     }
 
   defp part(part, _digests, _secrets),
-    do: %{label: "Added by Coop", note: "Too large to record", bytes: part["bytes"]}
+    do: %{label: "Runtime instructions", note: "Too large to record", bytes: part["bytes"]}
 
   defp reason(reason) when is_binary(reason), do: ": " <> reason
   defp reason(_reason), do: ""
@@ -187,8 +191,8 @@ defmodule Ryker.ControlPlane.SentPrompts do
         {title, seen} =
           cond do
             is_nil(send.state) -> {"Unreadable record", {started?, corrections}}
-            send.first? and not started? -> {"First message", {true, corrections}}
-            send.first? -> {"Sent again from the start", {true, corrections}}
+            send.first? and not started? -> {"Initial send", {true, corrections}}
+            send.first? -> {"Restarted send", {true, corrections}}
             true -> {"Correction #{corrections + 1}", {started?, corrections + 1}}
           end
 
@@ -205,7 +209,10 @@ defmodule Ryker.ControlPlane.SentPrompts do
   def list(assigns) do
     ~H"""
     <section :if={is_list(@sends)} class="sent-prompts" aria-labelledby={"#{@id}-heading"}>
-      <h5 id={"#{@id}-heading"}>Sent to the model</h5>
+      <h5 id={"#{@id}-heading"}>Worker sends</h5>
+      <p :if={@sends != []} class="sent-prompts-help">
+        co:op adds runtime instructions to the Ryker submission. These are its recorded sends to the model.
+      </p>
       <p :if={@sends == []} class="sent-prompts-none">Not recorded for this call.</p>
       <Components.disclosure
         :for={{send, index} <- Enum.with_index(@sends, 1)}
@@ -222,7 +229,7 @@ defmodule Ryker.ControlPlane.SentPrompts do
               <span :if={part[:bytes]}>{Units.bytes(part.bytes)}</span>
               <span :if={part[:note]}>{part.note}</span>
             </p>
-            <Components.copy_block :if={part[:text]} label="Copy Coop's text">
+            <Components.copy_block :if={part[:text]} label="Copy runtime instructions">
               <pre class="model-document-text" tabindex="0">{part.text}</pre>
             </Components.copy_block>
           </li>

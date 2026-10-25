@@ -48,11 +48,11 @@ defmodule Ryker.ControlPlane.PagesTest do
   test "renders every bounded read-only operator view without external assets" do
     # The kind still leads, so a heading never reads as a bare reference — but
     # the reference stays visible, because a page of rows all titled
-    # "Slack channel" tells an operator nothing about which channel they are on.
+    # Unknown names use a kind label; the channel link keeps its exact identity.
     channel = page("/channels/T123/C456")
-    assert channel.title == "Slack channel C456"
+    assert channel.title == "Slack channel"
     document = HTML.page(channel.title, channel.description, channel.body)
-    assert document =~ "<h1>Slack channel C456</h1>"
+    assert document =~ "<h1>Slack channel</h1>"
     refute document =~ "<h1>C456</h1>"
 
     for {path, marker} <- [

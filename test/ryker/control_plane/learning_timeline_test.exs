@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
 
     # The prompt exactly as it was sent, and the response format beside it.
     prompt = text(briefing, ".final-prompt")
-    assert prompt =~ "Full submitted request"
+    assert prompt =~ "Ryker submission"
     assert prompt =~ "Response format"
     assert prompt =~ "Learn from these chronologically ordered conversation messages"
     assert prompt =~ first.id

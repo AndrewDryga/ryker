@@ -44,6 +44,9 @@ export async function promptPartFromEvent(event, root = document) {
 
   const source = target.closest("[data-prompt-highlight]")
   if (source) {
+    event.preventDefault?.()
+    event.stopPropagation?.()
+    if (source.getAttribute?.("aria-disabled") === "true") return
     const disclosure = root.getElementById(source.dataset.promptDisclosure)
     if (!disclosure || disclosure.dataset?.revoked) return unavailableSource(source)
     disclosure.open = true
@@ -106,6 +109,8 @@ function unavailableSource(source, message = "The retained prompt is not availab
   const status = source.querySelector("[data-highlight-status]")
   if (status) status.textContent = message
   source.disabled = true
+  source.setAttribute?.("aria-disabled", "true")
+  source.removeAttribute?.("href")
 }
 
 export function setupPromptParts(root = document) {

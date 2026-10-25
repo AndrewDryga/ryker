@@ -2,6 +2,38 @@ defmodule Ryker.ControlPlane.ContextSearchDesignTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.ContextSearch
 
+  test "full search details keep inspection secrets and signed URL parameters out of the browser" do
+    # Expanding the formerly clipped query must not bypass the redaction used
+    # by the adjacent original prompt. The raw search record shares that boundary.
+    query = "https://example.com/alerts/" <> String.duplicate("a", 80)
+
+    receipt = %{
+      "identifiers" => [query <> "?token=private-query#private-fragment"],
+      "lanes" => %{"identity" => %{"returned" => 0}},
+      "password" => "private-password"
+    }
+
+    search = ContextSearch.present(%{"routing_receipt" => receipt})
+    assert Enum.find(search.methods, &(&1.key == "identity")).used == [query]
+    refute search.record =~ "private-query"
+    refute search.record =~ "private-fragment"
+    refute search.record =~ "private-password"
+  end
+
+  test "search queries retain full identifiers instead of display truncation" do
+    query = "https://example.com/monitoring/alerting/alerts/" <> String.duplicate("a", 80)
+
+    search =
+      ContextSearch.present(%{
+        "routing_receipt" => %{
+          "identifiers" => [query],
+          "lanes" => %{"identity" => %{"returned" => 0}}
+        }
+      })
+
+    assert Enum.find(search.methods, &(&1.key == "identity")).used == [query]
+  end
+
   test "each method carries actual offered counts and recorded exclusion reasons" do
     first = "018f0000-0000-7000-8000-000000000001"
     second = "018f0000-0000-7000-8000-000000000002"

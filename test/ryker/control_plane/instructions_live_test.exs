@@ -144,14 +144,14 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     {:ok, view, _html} = open("/instructions")
     row = "section.instructions-channels article[id='channel-instructions-TINSTRUCTIONS-CTEST']"
-    assert has_element?(view, row <> " h3", "Slack channel CTEST")
+    assert has_element?(view, row <> " h3", "Slack channel")
     assert has_element?(view, row <> " .entity-text", ~s("Include the affected service."))
 
     assert has_element?(
              view,
              row <>
                ".entity-row-link h3 a[href='/channels/TINSTRUCTIONS/CTEST#instructions-slack:TINSTRUCTIONS:CTEST']",
-             "Slack channel CTEST"
+             "Slack channel"
            )
 
     refute has_element?(view, "section.instructions-channels", "CCLEARED")

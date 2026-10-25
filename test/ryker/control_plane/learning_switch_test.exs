@@ -95,7 +95,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
              "All learning"
            )
 
-    assert has_element?(page, ".page-heading h1", "Learning from Slack channel C456")
+    assert has_element?(page, ".page-heading h1", "Learning from Slack channel")
 
     {:ok, list, _html} = live(conn, "/memory/learning")
     assert has_element?(list, ".page-action .learning-switch button", "Turn off learning")

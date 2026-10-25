@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
     refute text =~ "Prompt bug"
     assert text =~ "Routing read the staging question as production."
     assert text =~ "What Ryker should have done"
-    assert text =~ "Full submitted request"
+    assert text =~ "Ryker submission"
 
     # Attempt and worker IDs, fingerprints and receipts stay in the records.
     for internal <- ["Worker session", "Prompt fingerprint", "Validation and stop receipts"] do
@@ -144,7 +144,7 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
              Activity.ingest_fleet(session.id, "coop-analysis-sent", 0, [event])
 
     assert [briefing, _result] = ImprovementRequests.entries(episode_id: reply.episode.id)
-    assert [%{title: "First message", matches?: true}] = briefing.sent
+    assert [%{title: "Initial send", matches?: true}] = briefing.sent
   end
 
   test "an attempt Ryker could not use says so in words, never as a code" do

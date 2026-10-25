@@ -61,7 +61,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       row = LazyHTML.query(document, "article.entity-row")
 
       name = LazyHTML.query(row, "h3.entity-name a[href='/channels/T123/C456']")
-      assert LazyHTML.text(name) =~ "C456"
+      assert LazyHTML.text(name) == "Slack channel"
 
       state = LazyHTML.query(row, ".entity-side .state-word")
       assert LazyHTML.text(state) == "Connected"
@@ -413,7 +413,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       assert ChannelsPage.channel_name("T123", "CUNNAMEDROOM", item.incident_room) ==
                "#inc-checkout"
 
-      assert ChannelsPage.channel_name("T123", "CUNNAMEDROOM", nil) =~ "CUNNAMEDROOM"
+      assert ChannelsPage.channel_name("T123", "CUNNAMEDROOM", nil) == "Slack channel"
     end
   end
 

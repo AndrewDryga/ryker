@@ -143,7 +143,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   def line(%{stage: "Status"} = step) do
     %{
       service: :slack,
-      title: if(step.summary, do: "Status", else: step.title),
+      title: status_title(step),
       detail: step.summary,
       duration: nil,
       failed: step.state == "failed"
@@ -161,6 +161,10 @@ defmodule Ryker.ControlPlane.ToolCard do
       failed: step.state in ["failed", "cancelled"]
     }
   end
+
+  defp status_title(%{state: "failed"}), do: "Update working status"
+  defp status_title(%{summary: nil}), do: "Clear working status"
+  defp status_title(_step), do: "Set working status"
 
   defp service(%{tool: tool}) when tool in @emisar_tools, do: :emisar
   defp service(%{tool: tool}) when tool in @slack_tools, do: :slack

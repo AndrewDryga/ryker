@@ -54,7 +54,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         )
       )
       |> assign(:record_links, request[:record_links] || %{})
-      |> assign(:model_reason, model_reason(request))
       |> assign(:contract_section, Enum.find(request.sections, &(&1.id == "contract")))
       |> assign(:applied, applied_context(request))
       |> assign(
@@ -90,7 +89,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           <Components.execution_target target={@request.target} />
           <.link navigate="/settings/models" title="Choose models for future work">Model settings →</.link>
         </div>
-        <p class="request-model-reason">{@model_reason}</p>
       </section>
       <Components.outcome
         :if={@choice}
@@ -151,7 +149,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       >
         <header>
           <h4>
-            Full submitted request<span :if={@prompt_section.artifact.truncated}>Partial display</span>
+            Ryker submission<span :if={@prompt_section.artifact.truncated}>Partial display</span>
           </h4>
         </header>
         {Phoenix.HTML.raw(submitted(@request, @prompt_section))}
@@ -559,17 +557,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp preference_entries(_), do: []
 
-  # A job freezes its model from Ryker's settings when the work starts. A call
-  # whose job is exactly one of today's settings says which; one whose job no
-  # longer matches them (they changed since, or the job was shaped for its
-  # task) says only where models are chosen, since today's settings do not
-  # describe it. Either way the card links there (Andrew, 2026-09-29, of a
-  # task's briefing with no line at all: "missing link to settings").
-  defp model_reason(%{model_choice: %{settings: true} = choice}),
-    do: "#{purpose(choice) || "This call"} uses its configured model."
-
-  defp model_reason(_request), do: "Chosen when this work started."
-
   # Ryker's wait for the worker ran out while the call kept running; it picked
   # the same call back up. Part of this call, not a separate retry.
   defp wait_text(%{paused_at: %DateTime{} = paused, resumed_at: %DateTime{} = resumed}) do
@@ -617,24 +604,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     do: "Use an AI model to run a scheduled task."
 
   defp work_purpose(_purpose), do: nil
-
-  defp purpose(%{purpose: nil}), do: nil
-
-  defp purpose(%{purpose: purpose, scope_kind: :repository, scope_name: repository}),
-    do: "#{purpose_name(purpose)} in #{repository}"
-
-  defp purpose(%{purpose: purpose}), do: purpose_name(purpose)
-
-  defp purpose_name(:admission), do: "Routing"
-  defp purpose_name(:conversational), do: "Conversational work"
-  defp purpose_name(:standard), do: "Standard work"
-  defp purpose_name(:deep), do: "Deep work"
-  defp purpose_name(:contributor), do: "Contributor work"
-  defp purpose_name(:schedule), do: "Scheduled work"
-  defp purpose_name(:schedule_read_only), do: "Read-only scheduled work"
-  defp purpose_name(:schedule_governed), do: "Governed scheduled work"
-  defp purpose_name(:incident), do: "Incident work"
-  defp purpose_name(:learning), do: "Learning"
 
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
   defp headline(%{phase: :submission, source_kind: :learning}), do: "Learning briefing"

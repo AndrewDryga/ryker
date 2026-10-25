@@ -325,8 +325,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     artifact = InspectionRedactor.artifact(name, redaction_options)
 
     case artifact do
-      %{state: :retained, text: text} when is_binary(text) and text != "" -> text
-      _unavailable -> actor_label(input)
+      %{state: :retained, text: text} when is_binary(text) and text != "" ->
+        # Never wait for directory I/O while rendering. The cache checks this
+        # atomically, so historical metadata cannot replace a current name.
+        Slack.Names.remember_unresolved([{input.source_ref, input.actor_ref, text}])
+
+        text
+
+      _unavailable ->
+        actor_label(input)
     end
   end
 

@@ -5,7 +5,7 @@ defmodule Ryker.Slack.Names do
   rendering.
 
   A page asks while it is drawn and gets what is known now, or a kind word
-  when nothing is ("Slack user", "Slack channel C123"). Slack is then asked in
+  when nothing is ("Slack user", "Slack channel"). Slack is then asked in
   the background, one name a tick, and a page that shows Slack names is told
   when one arrives or changes (`subscribe_names/0`), so it draws again without
   a reload. Names Ryker already has in hand, such as the members Choose people
@@ -100,6 +100,12 @@ defmodule Ryker.Slack.Names do
       else: :ok
   catch
     :exit, _not_running -> :ok
+  end
+
+  @doc "Fills missing display names without waiting for Slack or replacing a current name."
+  @spec remember_unresolved([{String.t(), String.t(), String.t()}]) :: :ok
+  def remember_unresolved(entries) when is_list(entries) do
+    GenServer.cast(__MODULE__, {:remember_unresolved, entries})
   end
 
   def destination("slack:" <> _rest = destination) do
@@ -219,6 +225,11 @@ defmodule Ryker.Slack.Names do
 
   def handle_cast({:resolve, _, _}, state), do: {:noreply, state}
 
+  def handle_cast({:remember_unresolved, entries}, %{workspace: workspace} = state) do
+    remember_entries(entries, workspace, true)
+    {:noreply, state}
+  end
+
   @impl true
   def handle_info(:tick, state) do
     state = refresh_one(state)
@@ -230,19 +241,24 @@ defmodule Ryker.Slack.Names do
   def handle_call(:refresh, _from, state), do: {:reply, :ok, refresh_one(state)}
 
   def handle_call({:remember, entries}, _from, %{workspace: workspace} = state) do
+    remember_entries(entries, workspace, false)
+    {:reply, :ok, state}
+  end
+
+  defp remember_entries(entries, workspace, unresolved_only?) do
     changed =
       Enum.reduce(entries, false, fn
         {^workspace, ref, label}, changed when is_binary(ref) ->
-          if valid_ref?(ref) and valid_label?(label),
-            do: store_changed?(workspace, ref, clean(label), @ttl) or changed,
-            else: changed
+          if valid_ref?(ref) and valid_label?(label) and
+               (not unresolved_only? or not resolved?(workspace, ref)),
+             do: store_changed?(workspace, ref, clean(label), @ttl) or changed,
+             else: changed
 
         _another_workspace, changed ->
           changed
       end)
 
     if changed, do: broadcast_names_updated()
-    {:reply, :ok, state}
   end
 
   defp refresh_one(state) do
@@ -401,27 +417,27 @@ defmodule Ryker.Slack.Names do
 
   defp nobody, do: %{name: "Slack user", href: nil}
 
-  defp valid_ref?(ref), do: byte_size(ref) <= 64 and Regex.match?(~r/\A[TCGDUWA][A-Z0-9]+\z/, ref)
+  defp valid_ref?(ref),
+    do: byte_size(ref) <= 64 and Regex.match?(~r/\A[TCGDUWAB][A-Z0-9]+\z/, ref)
+
   defp display(ref, nil), do: unresolved(ref)
   defp display(<<prefix, _::binary>>, label) when prefix in [?C, ?G], do: "#" <> label
   defp display(<<prefix, _::binary>>, label) when prefix in [?U, ?W], do: "@" <> label
   defp display(_, label), do: label
 
-  # The channels page listed five identical "Slack channel" rows with the
-  # reference only in a tooltip, so nothing on screen told #test from #test2:
-  # a channel keeps its reference. A person never shows as a raw ID (Andrew,
-  # 2026-09-26); their profile link tells two people apart. A reference Slack
-  # itself would reject is never echoed back into the page.
+  # Readable cards never substitute an opaque ID for a name (Andrew,
+  # 2026-10-25). Links/raw records retain identity while a name is unavailable.
   defp unresolved(<<prefix, _::binary>>) when prefix in [?U, ?W], do: "Slack user"
 
   defp unresolved(ref) do
-    if valid_ref?(ref), do: fallback(ref) <> " " <> ref, else: fallback(ref)
+    fallback(ref)
   end
 
   defp fallback(<<prefix, _::binary>>) when prefix in [?C, ?G], do: "Slack channel"
   defp fallback("D" <> _), do: "Direct message"
   defp fallback("T" <> _), do: "Slack workspace"
   defp fallback("A" <> _), do: "Slack app"
+  defp fallback("B" <> _), do: "Slack bot"
   defp fallback(_), do: "Slack reference"
   defp now, do: System.monotonic_time(:millisecond)
 

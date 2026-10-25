@@ -64,9 +64,13 @@ test("a readable source opens the submitted prompt and highlights its real fragm
     querySelector: () => null
   }
   const root = {getElementById: id => id === "prompt" ? container : disclosure}
+  let prevented = false
+  let stopped = false
+  await promptPartFromEvent({target: button,
+    preventDefault() { prevented = true }, stopPropagation() { stopped = true }}, root)
 
-  await promptPartFromEvent({target: button}, root)
-
+  assert.equal(prevented, true)
+  assert.equal(stopped, true)
   assert.equal(disclosure.open, true)
   assert.deepEqual(highlighted(fragments), [true, false, true])
   assert.equal(focused, true)

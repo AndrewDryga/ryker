@@ -398,14 +398,14 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         schema: opened("run-2", "schema", ~s({\n  "type": "object"\n})),
         sent: [
           %{
-            title: "First message",
+            title: "Initial send",
             state: "sent",
             bytes: 2_048,
             first?: true,
             matches?: true,
             parts: [
               %{label: "Prompt text", note: "As above, unchanged", bytes: 2_000},
-              %{label: "Added by Coop", text: "<coop-output-contract>", bytes: 48}
+              %{label: "Runtime instructions", text: "<coop-output-contract>", bytes: 48}
             ],
             blocks: []
           }
@@ -506,7 +506,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     sent = LazyHTML.query(card, "#knowledge-run-run-2 .sent-prompts")
 
     assert sent |> LazyHTML.query("summary") |> LazyHTML.text() |> squeeze() =~
-             "First message 2 KiB · matches what was sent"
+             "Initial send 2 KiB · matches what was sent"
 
     assert sent |> LazyHTML.query("pre") |> LazyHTML.text() == "<coop-output-contract>"
     assert card |> LazyHTML.query("#knowledge-run-run-1 .sent-prompts") |> Enum.count() == 0

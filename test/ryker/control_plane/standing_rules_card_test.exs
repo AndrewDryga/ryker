@@ -129,7 +129,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     [matched] = details.("matched")
 
     assert matched["Looks for"] ==
-             "Slack events in Slack channel C456"
+             "Slack events in Slack channel"
 
     assert matched["bot_id"] == ~s("B-TERRAFORM")
 
@@ -140,7 +140,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     [missed] = details.("not_matched")
 
     assert missed["Looks for"] ==
-             "GitHub events in Slack channel C456"
+             "GitHub events in Slack channel"
 
     assert missed["action"] == ~s("submitted")
 
@@ -151,7 +151,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     [paused] = details.("disabled")
 
     assert paused["Looks for"] ==
-             "Slack events in Slack channel C456"
+             "Slack events in Slack channel"
 
     assert paused["bot_id"] == ~s("B-TERRAFORM")
 

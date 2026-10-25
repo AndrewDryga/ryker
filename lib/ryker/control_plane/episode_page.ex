@@ -212,9 +212,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
         aria-label="Related requests"
       >
         <h2>Related requests</h2>
-        <p>
-          These requests are linked to this one, not merged into it. Each keeps its own messages and replies.
-        </p>
         <ul>
           <li :for={item <- @related.items}>
             <a href={item.href}>{item.relation} · {item.title} · {timestamp(item.at)} →</a>
@@ -1018,6 +1015,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
     entries
     |> Enum.reduce([], &add_to_run(&1, &2, tool_step?(&1)))
     |> Enum.reverse()
+    |> Enum.map(fn
+      %{kind: :event, step: %{stage: "Status"}} = entry ->
+        %{kind: :tool_run, id: "steps-" <> entry.id, at: entry.at, entries: [entry]}
+
+      entry ->
+        entry
+    end)
   end
 
   defp add_to_run(entry, [%{kind: :tool_run} = run | rest], true),
@@ -1055,8 +1059,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <div class="tool-run">
       <.card_heading title="Tool activity">
-        <:detail>{length(@lines)} steps</:detail>
-        <:description>{Enum.map_join(@services, ", ", &service_name/1)}</:description>
+        <:detail :if={length(@lines) > 1}>{length(@lines)} steps</:detail>
+        <:description :if={length(@services) > 1}>
+          {Enum.map_join(@services, ", ", &service_name/1)}
+        </:description>
         <:meta :if={@span}><span class="action-duration">{@span}</span></:meta>
       </.card_heading>
       <ol class="tool-run-steps">
@@ -1066,22 +1072,27 @@ defmodule Ryker.ControlPlane.EpisodePage do
           class="tool-run-step"
           data-service={line.service}
         >
-          <details :if={entry.step.stage == "Tool call"} class="tool-run-detail">
+          <details
+            :if={entry.step.stage == "Tool call" || line.failed}
+            class="tool-run-detail"
+            open={line.failed}
+          >
             <summary class="tool-run-line">
               <.service_badge service={line.service} />
               <span class="tool-run-title">{line.title}</span>
               <span class="tool-run-text" title={line.detail}>{line.detail}</span>
-              <span class="tool-run-duration">{line.duration}</span>
+              <span class="tool-run-duration"><span :if={line.failed}>Failed </span>{line.duration}</span>
             </summary>
             <div class="tool-run-body">
-              <ToolCard.render step={entry.step} grouped />
+              <ToolCard.render :if={entry.step.stage == "Tool call"} step={entry.step} grouped />
+              <p :if={entry.step.stage == "Status"} class="tool-status-error">{entry.step.summary}</p>
             </div>
           </details>
-          <div :if={entry.step.stage != "Tool call"} class="tool-run-line">
+          <div :if={entry.step.stage != "Tool call" && !line.failed} class="tool-run-line">
             <.service_badge service={line.service} />
             <span class="tool-run-title">{line.title}</span>
             <span class="tool-run-text" title={line.detail}>{line.detail}</span>
-            <span class="tool-run-duration"></span>
+            <span class="tool-run-duration">{if line.failed, do: "Failed"}</span>
           </div>
         </li>
       </ol>
@@ -1096,8 +1107,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
     case times do
       [] -> nil
-      [only] -> clock_time(only)
-      [first | _rest] -> clock_time(first) <> "–" <> clock_time(List.last(times))
+      [only] -> clock_time(only) <> " UTC"
+      [first | _rest] -> clock_time(first) <> "–" <> clock_time(List.last(times)) <> " UTC"
     end
   end
 
@@ -1560,42 +1571,43 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <p class="search-method-help">A request can appear under more than one method.</p>
         <ul class="search-methods">
           <li :for={method <- @step.search.methods} data-found={to_string(method.found > 0)}>
+            <div
+              :if={!method.expandable}
+              class="ui-disclosure ui-disclosure-source search-method search-method-static"
+              aria-disabled="true"
+            >
+              <div class="prompt-source-row"><.search_method_label method={method} /></div>
+            </div>
             <.disclosure
+              :if={method.expandable}
               id={"#{@step.id}-method-#{method.key}"}
               label={method.name}
               kind={:source}
               class="search-method"
             >
               <:label_content>
-                <span class="search-method-name">{method.name}</span>
-                <span class="search-method-found"> · {method.found} found<span :if={
-                  is_integer(method.offered)
-                }> / {method.offered} offered</span>{if method.limit, do: " · limit reached"}</span>
+                <.search_method_label method={method} />
               </:label_content>
-              <:meta>
-                <span class="search-method-used"><code
-                  :for={term <- Enum.take(method.used, 2)}
-                  title={term}
-                >{term}</code><span :if={length(method.used) > 2}>+{length(method.used) - 2} more</span><span
-                  :if={method.note}
-                  class="search-method-note"
-                >{method.note}</span></span>
-              </:meta>
               <p :if={method.used != []} class="search-query">
                 <strong>Searched for</strong> <code :for={term <- method.used}>{term}</code>
               </p>
-              <p :if={method.note}>{method.note}</p>
+              <p :if={method.note} class="search-method-note">{method.note}</p>
+              <div :if={method.meaning && method.meaning["model"]} class="search-meaning">
+                <p>
+                  Compares the meaning of the current message with earlier requests. Related requests can match even when their wording or language differs.
+                </p>
+                <dl class="context-rows">
+                  <div>
+                    <dt>Embedding model</dt><dd>{method.meaning["model"]}</dd>
+                  </div>
+                </dl>
+              </div>
               <p :if={method[:ineligible] not in [nil, 0]} class="search-empty">
                 {Wording.count(method.ineligible, "result")} {Wording.word(
                   method.ineligible,
                   "was",
                   "were"
                 )} excluded because their sources were outside this request's scope.
-              </p>
-              <p :if={method.results == [] && method[:ineligible] in [nil, 0]} class="search-empty">
-                {if method.found == 0,
-                  do: "No requests found.",
-                  else: "Individual matches were not retained in this search record."}
               </p>
               <article :for={result <- method.results} class="search-match">
                 <header class="search-match-heading">
@@ -1623,6 +1635,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
         href={@step.search.briefing_href}
       >View the model briefing →</a>
     </div>
+    """
+  end
+
+  defp search_method_label(assigns) do
+    ~H"""
+    <span class="search-method-name">{@method.name}</span>
+    <span class="search-method-found"> · {@method.found} found<span :if={is_integer(@method.offered)}> / {@method.offered} offered</span>{if @method.limit,
+      do: " · limit reached"}</span>
     """
   end
 

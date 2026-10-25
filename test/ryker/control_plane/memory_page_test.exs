@@ -191,7 +191,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
 
       assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() == "the payments gateway"
       meta = LazyHTML.query(row, ".entity-meta") |> LazyHTML.text()
-      assert meta =~ "In Slack channel C456"
+      assert meta =~ "In Slack channel"
       assert meta =~ "Used 9 times"
       assert meta =~ "Saved"
       refute meta =~ "slack:T123:C456"

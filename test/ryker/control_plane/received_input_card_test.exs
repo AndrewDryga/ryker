@@ -4,7 +4,8 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
   disclosures. Their technical identity stays in HTML, not a redundant
   metadata row; raw and normalized remain distinct and lazy.
   """
-  use Ryker.DataCase, async: true
+  # The retained sender-name regression starts the globally named directory.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
@@ -23,6 +24,132 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     "text" => "Terraform plan: 2 to add",
     "client_msg_id" => "raw-only-field"
   }
+
+  test "retained app names also name compact candidate messages without rewriting the prompt" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "TC9F5B40D364C", fetch: fn _ -> {:error, :not_found} end, interval: 60_000}
+    )
+
+    {_entry, episode} =
+      admitted!([source_envelope: %{"username" => "Example Monitoring"}],
+        actor: %{kind: :app, ref: "A123"}
+      )
+
+    rendered(episode, [])
+
+    assert GenServer.call(Ryker.Slack.Names, :refresh) == :ok
+
+    context = %{
+      "candidates" => [
+        %{
+          "state" => "complete",
+          "title" => "Earlier alert",
+          "first_message" => %{
+            "actor" => "A123",
+            "text" => "Alert closed",
+            "at" => "2026-10-07T20:01:23Z"
+          }
+        }
+      ]
+    }
+
+    document =
+      context
+      |> Ryker.InspectionRedactor.artifact()
+      |> Ryker.ControlPlane.RequestContextHTML.assembly("$.context", "candidate-names")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, ".ui-message-header strong") |> LazyHTML.text() ==
+             "Example Monitoring"
+
+    refute LazyHTML.text(document) =~ "A123"
+    assert get_in(context, ["candidates", Access.at(0), "first_message", "actor"]) == "A123"
+    Ryker.Slack.Names.remember([{"TC9F5B40D364C", "A123", "Current Monitoring"}])
+    rendered(episode, [])
+    assert GenServer.call(Ryker.Slack.Names, :refresh) == :ok
+    assert Ryker.Slack.Names.name("TC9F5B40D364C", "A123") == "Current Monitoring"
+  end
+
+  test "learned topics request unknown channel names and compact actors accept all-letter Slack IDs" do
+    # Review found the topic renderer only read the cache, so a channel it alone
+    # displayed never got a name. IDs also do not require a digit in Slack's grammar.
+    parent = self()
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       interval: 60_000,
+       known: [{"ALETTERS", "Example Monitoring"}],
+       fetch: fn ref ->
+         send(parent, {:name_lookup, ref})
+         {:ok, "infra"}
+       end}
+    )
+
+    context = %{
+      "conversation_knowledge" => [
+        %{
+          "title" => "Earlier alert",
+          "summary" => "Alert closed",
+          "conversation_ref" => "slack:T123:C456"
+        }
+      ],
+      "candidates" => [
+        %{
+          "state" => "complete",
+          "first_message" => %{"actor" => "ALETTERS", "text" => "Alert closed"}
+        }
+      ]
+    }
+
+    render = fn ->
+      context
+      |> Ryker.InspectionRedactor.artifact()
+      |> Ryker.ControlPlane.RequestContextHTML.assembly("$.context", "topic-names")
+      |> IO.iodata_to_binary()
+    end
+
+    before_lookup = render.()
+    assert GenServer.call(Ryker.Slack.Names, :refresh) == :ok
+    assert_received {:name_lookup, "C456"}
+    assert render.() =~ "#infra"
+    assert before_lookup =~ "Example Monitoring"
+    refute before_lookup =~ "ALETTERS"
+  end
+
+  test "retained app metadata never waits for Slack or overwrites a name resolved during rendering" do
+    # Seeding a retained name used a synchronous cache call in the render path:
+    # one unrelated slow Slack lookup could stall a timeline for five seconds.
+    parent = self()
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "TC9F5B40D364C",
+       interval: 60_000,
+       fetch: fn _ ->
+         send(parent, {:lookup_waiting, self()})
+         receive do: (:release_lookup -> {:ok, "Current Monitoring"})
+       end}
+    )
+
+    {_entry, episode} =
+      admitted!([source_envelope: %{"username" => "Historical Monitoring"}],
+        actor: %{kind: :app, ref: "A123"}
+      )
+
+    Ryker.Slack.Names.name("TC9F5B40D364C", "A123")
+    send(Ryker.Slack.Names, :tick)
+    assert_receive {:lookup_waiting, directory}
+    task = Task.async(fn -> rendered(episode, []) end)
+    result = Task.yield(task, 1000)
+    send(directory, :release_lookup)
+    if is_nil(result), do: Task.await(task)
+    assert {:ok, _html} = result
+    assert GenServer.call(Ryker.Slack.Names, :refresh) == :ok
+    assert Ryker.Slack.Names.name("TC9F5B40D364C", "A123") == "Current Monitoring"
+  end
 
   test "input records are three peer disclosures and the input identity stays in HTML" do
     {entry, episode} = admitted!(source_envelope: @envelope)

@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.ContextSearch do
   alias Ryker.ControlPlane.Paths
   alias Ryker.InspectionRedactor
   alias Ryker.Slack
-  alias Ryker.Text
   alias Ryker.Wording
 
   @lanes [
@@ -24,7 +23,10 @@ defmodule Ryker.ControlPlane.ContextSearch do
 
   @doc "The card's content for a frozen routing snapshot, or nil when it kept no search record."
   @spec present(map() | nil) :: map() | nil
-  def present(%{"routing_receipt" => %{} = receipt} = snapshot) do
+  def present(%{"routing_receipt" => %{}} = snapshot) do
+    retained = Map.take(snapshot, ["routing_receipt", "knowledge_omissions"])
+    inspection = InspectionRedactor.redact(retained, InspectionRedactor.configured_secrets())
+    receipt = inspection["routing_receipt"]
     omitted = length(List.wrap(snapshot["knowledge_omissions"]))
     titles = frozen_titles(snapshot)
 
@@ -44,7 +46,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
         ),
       record:
         Jason.encode!(
-          Map.take(snapshot, ["routing_receipt", "knowledge_omissions"]),
+          inspection,
           pretty: true
         ),
       record_label: "Search record"
@@ -154,22 +156,35 @@ defmodule Ryker.ControlPlane.ContextSearch do
             lane in List.wrap(item["lanes"]),
             do: search_result(item, titles)
 
-      %{
+      used = used(lane, receipt)
+      note = note(lane, receipt)
+      meaning = if lane == "meaning" && is_map(receipt["meaning"]), do: receipt["meaning"]
+      ineligible = scope_exclusions(receipt)[lane]
+
+      method = %{
         key: lane,
         name: name,
-        used: used(lane, receipt),
-        note: note(lane, receipt),
+        used: used,
+        note: note,
+        meaning: meaning,
         found: facts["returned"] || length(results),
-        ineligible: scope_exclusions(receipt)[lane],
+        ineligible: ineligible,
         offered: if(is_list(selection), do: Enum.count(results, & &1.offered)),
         results: results,
         recorded: is_list(selection),
         limit: facts["saturated"] == true
       }
+
+      Map.put(method, :expandable, expandable?(method))
     end
   end
 
   defp methods(_receipt, _titles), do: []
+
+  defp expandable?(method) do
+    method.used != [] or not is_nil(method.note) or not is_nil(method.meaning) or
+      method.results != [] or method.ineligible not in [nil, 0]
+  end
 
   defp scope_exclusions(%{
          "selection" => %{"version" => 1, "items" => items, "ineligible" => %{} = counts}
@@ -237,7 +252,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
   defp used("text", %{"words" => words}) when is_list(words), do: words
 
   defp used("identity", %{"identifiers" => identifiers}) when is_list(identifiers),
-    do: Enum.map(identifiers, &Text.shorten(&1, 60))
+    do: identifiers
 
   defp used(_lane, _receipt), do: []
 
@@ -258,9 +273,6 @@ defmodule Ryker.ControlPlane.ContextSearch do
 
   defp note("meaning", %{"meaning" => %{"unavailable" => reason}}),
     do: reason <> ", so this search did not run"
-
-  defp note("meaning", %{"meaning" => %{"model" => model}}),
-    do: "compared by #{model} in any language"
 
   defp note(_lane, _receipt), do: nil
 

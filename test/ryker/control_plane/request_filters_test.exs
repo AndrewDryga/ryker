@@ -308,16 +308,16 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
     channel = %{"transport" => "slack", "conversation" => "slack:T123:C456"}
 
     assert chips(channel) == [
-             {"conversation", "Channel", "Slack channel C456",
-              "Channel Slack channel C456. Change", "Remove the Channel filter"},
+             {"conversation", "Channel", "Slack channel", "Channel Slack channel. Change",
+              "Remove the Channel filter"},
              {"transport", "Source", "Slack", "Source: Slack. Change", "Remove the Source filter"}
            ]
 
     thread = Map.put(channel, "thread", "1788562304.000100")
 
     assert [
-             {"conversation", "Thread in", "Slack channel C456",
-              "Thread in Slack channel C456. Change", "Remove the Thread filter"},
+             {"conversation", "Thread in", "Slack channel", "Thread in Slack channel. Change",
+              "Remove the Thread filter"},
              {"transport", "Source", "Slack", _edit, _remove}
            ] = chips(thread)
   end

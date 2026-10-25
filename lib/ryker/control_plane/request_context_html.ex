@@ -437,7 +437,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   @doc "The retained prompt and separately supplied output format, without rebuilding either."
   def submitted(sections, prefix, artifact_id \\ nil) do
     [
-      "<p class=\"prompt-legend\">The model provider's own instructions are not part of this record.</p>",
+      "<p class=\"prompt-legend\">Prompt and response format prepared by Ryker.</p>",
       Enum.map(
         [
           {"request", "Prompt text", "$.prompt"},
@@ -1485,41 +1485,40 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
      root <> ".conversation_context"}
   end
 
+  defp earlier_messages_count(messages, %{"requested" => requested} = manifest)
+       when is_list(messages) and is_integer(requested) do
+    cutoff = readable_candidate_time(manifest["cutoff"])
+
+    label =
+      "#{length(messages)}/#{requested} #{Wording.word(requested, "message", "messages")}" <>
+        if(cutoff, do: " before " <> cutoff, else: "")
+
+    %{label: label, known?: true}
+  end
+
   defp earlier_messages_count(messages, _manifest) when is_list(messages),
     do: %{label: count(length(messages), "message"), known?: true}
+
+  defp earlier_messages_count(nil, %{"included" => included, "requested" => requested} = manifest)
+       when is_integer(included) and is_integer(requested) do
+    cutoff = readable_candidate_time(manifest["cutoff"])
+
+    label =
+      "#{included}/#{requested} #{Wording.word(requested, "message", "messages")} reported" <>
+        if(cutoff, do: " before " <> cutoff, else: "")
+
+    %{label: label, known?: true}
+  end
 
   defp earlier_messages_count(nil, %{"included" => included}) when is_integer(included),
     do: %{label: "#{included} reported", known?: true}
 
   defp earlier_messages_count(nil, _manifest), do: nil
 
-  defp earlier_messages_body(nil, manifest),
-    do: [
-      context_limit(manifest),
-      "<p class=\"context-absent\">Message bodies were not retained in this context.</p>"
-    ]
+  defp earlier_messages_body(nil, _manifest),
+    do: "<p class=\"context-absent\">Message bodies were not retained in this context.</p>"
 
-  defp earlier_messages_body(messages, manifest) do
-    [context_limit(manifest), messages(%{"inputs" => messages}, :history)]
-  end
-
-  defp context_limit(manifest) do
-    case manifest["requested"] do
-      requested when is_integer(requested) and requested > 0 ->
-        cutoff = readable_candidate_time(manifest["cutoff"])
-
-        [
-          "<p class=\"context-note\">Up to ",
-          escape(requested),
-          " earlier messages",
-          if(cutoff, do: [" before ", escape(cutoff)], else: []),
-          ".</p>"
-        ]
-
-      _ ->
-        []
-    end
-  end
+  defp earlier_messages_body(messages, _manifest), do: messages(%{"inputs" => messages}, :history)
 
   # A saved summary opens; one that was missing or does not apply is a flat row
   # saying so. Routing leaves a missing summary out of the prompt entirely.
@@ -2068,7 +2067,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: recall(%{"observations" => items})
 
   defp body("conversation_knowledge", items, _path, _prefix) when is_list(items),
-    do: recall(%{"knowledge" => items})
+    do: topics(items)
 
   defp body("candidates", value, _path, prefix) when is_list(value) and value != [],
     do: candidates(value, %{}, prefix)
@@ -2460,6 +2459,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "observations" ->
         value["observations"] |> List.wrap() |> Enum.filter(&is_map/1) |> notes()
 
+      "knowledge" ->
+        value["knowledge"] |> List.wrap() |> Enum.filter(&is_map/1) |> topics()
+
       group ->
         value[group]
         |> List.wrap()
@@ -2480,45 +2482,107 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end)
   end
 
-  # The topics a learning pass was offered: what each said then, its version,
-  # and where it is kept now.
-  defp topics([]), do: []
-
+  # A topic's understanding is the useful content. Retrieval mechanics stay
+  # inspectable underneath, not before its title and summary.
   defp topics(items) do
     [
-      "<ol class=\"context-notes\">",
-      items
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn item ->
-        path = ConversationMemory.knowledge_path(item["source_ref"])
-
-        [
-          "<li class=\"context-note\" data-memory-kind=\"knowledge\" title=\"",
-          escape(item["source_ref"]),
-          "\"><p class=\"context-note-text\"><strong>",
-          escape(present(item["title"]) || present(item["topic_key"]) || "Topic"),
-          "</strong></p><p class=\"context-note-text\">",
-          escape(present(item["summary"]) || "No summary was recorded."),
-          "</p><p class=\"context-note-meta\">",
-          if(is_integer(item["version"]),
-            do: ["Version ", escape(item["version"])],
-            else: []
-          ),
-          if(path,
-            do: [
-              if(is_integer(item["version"]), do: " · ", else: []),
-              "<a href=\"",
-              escape(path),
-              "\">Open the topic →</a>"
-            ],
-            else: []
-          ),
-          "</p></li>"
-        ]
-      end),
+      "<ol class=\"context-notes learned-topics\">",
+      items |> Enum.filter(&is_map/1) |> Enum.map(&learned_topic/1),
       "</ol>"
     ]
   end
+
+  defp learned_topic(item) do
+    state = if is_map(item["state"]), do: Map.merge(item, item["state"]), else: item
+    path = ConversationMemory.knowledge_path(state["source_ref"])
+    metadata = topic_metadata(state)
+
+    [
+      "<li class=\"context-note learned-topic\" data-memory-kind=\"knowledge\"><header><h4>",
+      escape(present(state["title"]) || present(state["topic_key"]) || "Topic"),
+      "</h4>",
+      if(path, do: ["<a href=\"", escape(path), "\">Open topic →</a>"], else: []),
+      "</header><div class=\"learned-topic-summary markdown-preview\">",
+      SlackMarkdown.preview(present(state["summary"]) || ""),
+      "</div><p class=\"learned-topic-meta\">",
+      topic_meta(state),
+      "</p>",
+      topic_sources(state["source_reads"]),
+      if map_size(metadata) > 0 do
+        Components.disclosure_html("Retrieval details", fields(metadata, 0),
+          class: "learned-topic-details"
+        )
+      else
+        []
+      end,
+      "</li>"
+    ]
+  end
+
+  defp topic_metadata(state) do
+    state
+    |> Map.drop(
+      ~w(state title summary source_ref source_reads conversation_ref source_count latest_source_at version kind)
+    )
+    |> Map.new(fn
+      {"can_update", value} ->
+        {"updates_in_this_request", if(value, do: "Allowed", else: "Not allowed")}
+
+      {key, value} when is_boolean(value) ->
+        {key, if(value, do: "Yes", else: "No")}
+
+      {"expires_at", value} ->
+        {"expires", readable_candidate_time(value)}
+
+      {key, value} ->
+        {key, value}
+    end)
+  end
+
+  defp topic_meta(state) do
+    [
+      if(is_integer(state["source_count"]),
+        do: escape(Wording.count(state["source_count"], "source message"))
+      ),
+      if(is_binary(state["conversation_ref"]),
+        do: escape(conversation_name(state["conversation_ref"]))
+      ),
+      if(is_binary(state["latest_source_at"]),
+        do: ["Latest source ", escape(readable_candidate_time(state["latest_source_at"]))]
+      ),
+      if(is_integer(state["version"]), do: ["Version ", escape(state["version"])])
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.intersperse(" · ")
+  end
+
+  defp conversation_name(ref), do: Slack.Names.destination(ref)
+
+  defp topic_sources(reads) do
+    links = reads |> List.wrap() |> Enum.map(&topic_source/1) |> Enum.reject(&is_nil/1)
+    if links == [], do: [], else: ["<ul class=\"learned-topic-sources\">", links, "</ul>"]
+  end
+
+  defp topic_source(%{"tool" => "read_slack_source", "arguments" => args}) when is_map(args) do
+    ref = args["anchor_ref"] || args["source_ref"]
+
+    with "slack-source:v1:" <> rest <- ref,
+         [workspace | _] <- String.split(rest, ":"),
+         {:ok, %{message_ref: message, channel_ref: channel}} when is_binary(message) <-
+           Slack.SourceRef.parse(ref, workspace) do
+      [
+        "<li><a href=\"",
+        escape(Slack.archive_url(channel, message)),
+        "\">Source message in ",
+        escape(conversation_name("slack:" <> workspace <> ":" <> channel)),
+        " →</a></li>"
+      ]
+    else
+      _ -> nil
+    end
+  end
+
+  defp topic_source(_read), do: nil
 
   # One entry per note: what was noted, then who and when. The row already says
   # these are source notes; a heading and a "Summary" label on each repeated it
@@ -2527,17 +2591,20 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp notes(items), do: ["<ol class=\"context-notes\">", Enum.map(items, &note/1), "</ol>"]
 
   defp note(item) do
-    meta = byline(who(item), readable_candidate_time(item["occurred_at"] || item["at"]))
+    at = readable_candidate_time(item["occurred_at"] || item["at"])
 
     topics = item["topics"] |> List.wrap() |> Enum.filter(&is_binary/1)
 
     [
       "<li class=\"context-note\" data-memory-kind=\"observation\" title=\"",
       escape(item["source_ref"]),
-      "\"><div class=\"context-note-text markdown-preview\">",
-      note_text(item),
-      "</div>",
-      if(meta != [], do: ["<p class=\"context-note-meta\">", meta, "</p>"], else: []),
+      "\">",
+      Components.message_block_html(
+        actor_label(item),
+        ["<div class=\"context-note-text markdown-preview\">", note_text(item), "</div>"],
+        person: slack_person(item),
+        meta: escape(at || "")
+      ),
       if(topics != [],
         do: [
           "<ul class=\"context-note-topics\" aria-label=\"Topics\">",
@@ -2554,8 +2621,26 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # "always render usernames and channel names, not Slack ids").
   defp note_text(item) do
     case present(item["summary"]) do
-      nil -> "No summary was recorded."
-      summary -> SlackMarkdown.preview(summary, slack_workspace(item) || Slack.Names.workspace())
+      nil ->
+        "No summary was recorded."
+
+      summary ->
+        workspace = slack_workspace(item) || Slack.Names.workspace()
+        readable_note(summary, workspace)
+    end
+  end
+
+  defp readable_note(summary, workspace) do
+    case Jason.decode(summary) do
+      {:ok, %{} = content} -> note_content(content, workspace)
+      _text -> SlackMarkdown.preview(summary, workspace)
+    end
+  end
+
+  defp note_content(content, workspace) do
+    case SourceText.from_content(content) do
+      nil -> fields(content, 0)
+      text -> SlackMarkdown.preview(text, workspace)
     end
   end
 
@@ -2623,7 +2708,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     settings = source_settings(value, options)
     count = Keyword.get(options, :count)
 
-    Components.disclosure_html(title, [body, source_highlight(key, title, prefix, options)],
+    Components.disclosure_html(title, body,
       id: prefix <> "-source-" <> Base.url_encode64(path, padding: false),
       kind: :source,
       class: ["prompt-source", settings.state_override && "prompt-source-partial"],
@@ -2651,7 +2736,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           do: [],
           else: source_status(value, settings.state, settings.state_override)
         ),
-        source_estimate(settings.state_override, settings.estimate)
+        source_estimate(settings.state_override, settings.estimate, {key, title, prefix})
       ]
     )
   end
@@ -2682,23 +2767,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # Only the original submitted documents offer Copy. A readable source leads
   # to its corresponding section in the retained prompt, never a rebuilt one.
-  defp source_highlight(key, _title, _prefix, _options) when key in ~w(request contract), do: []
+  defp token_link(title, prefix, estimate) do
+    disclosure = prefix <> "-submitted-source-" <> Base.url_encode64("$.prompt", padding: false)
 
-  defp source_highlight(key, title, prefix, options) do
-    if Keyword.has_key?(options, :estimate) and is_nil(options[:estimate]),
-      do: [],
-      else: highlight_button(key, title, prefix)
-  end
-
-  defp highlight_button(_key, title, prefix) do
     [
-      "<button type=\"button\" class=\"prompt-highlight\" aria-label=\"Highlight in prompt\" title=\"Highlight in prompt\" data-prompt-highlight=\"",
+      "<a class=\"prompt-source-estimate\" title=\"View this section in the submitted JSON; estimated tokens\" href=\"#",
+      escape(disclosure),
+      "\" data-prompt-highlight=\"",
       escape(title),
       "\" data-prompt-document=\"",
       escape(prefix <> "-submitted-document"),
       "\" data-prompt-disclosure=\"",
-      escape(prefix <> "-submitted-source-" <> Base.url_encode64("$.prompt", padding: false)),
-      "\"><svg class=\"ui-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z M13.5 6.5l3 3\"/></svg><span class=\"sr-only\" data-highlight-status aria-live=\"polite\"></span></button>"
+      escape(disclosure),
+      "\">",
+      estimated_tokens(estimate),
+      "<span class=\"sr-only\" data-highlight-status aria-live=\"polite\"></span></a>"
     ]
   end
 
@@ -2731,16 +2814,20 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if label, do: ["<span class=\"prompt-source-status\">", escape(label), "</span>"], else: []
   end
 
-  defp source_estimate(unavailable, _estimate)
+  defp source_estimate(unavailable, _estimate, _source)
        when unavailable in [
               "Expired",
               "Not recorded"
             ],
        do: []
 
-  defp source_estimate(_override, estimate) when estimate in [nil, ""], do: []
+  defp source_estimate(_override, estimate, _source) when estimate in [nil, ""], do: []
 
-  defp source_estimate(_override, estimate),
+  defp source_estimate(_override, estimate, {key, title, prefix})
+       when key not in ~w(request contract),
+       do: token_link(title, prefix, estimate)
+
+  defp source_estimate(_override, estimate, _source),
     do: [
       "<span class=\"prompt-source-estimate\" title=\"Estimated from the length of the text\">",
       estimated_tokens(estimate),
@@ -3028,7 +3115,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp actor_name("local-operator", _actor), do: "You"
 
   defp actor_name(name, _actor) when is_binary(name) do
-    if Actor.chat_ref?(name), do: ConsolePeople.person(name).name, else: name
+    cond do
+      Actor.chat_ref?(name) ->
+        ConsolePeople.person(name).name
+
+      Regex.match?(~r/\A[ABCGDTUW](?:[A-Z0-9]*[0-9][A-Z0-9]*|[A-Z]{7,})\z/, name) ->
+        Slack.Names.name(Slack.Names.workspace(), name)
+
+      true ->
+        name
+    end
   end
 
   defp actor_name(_name, actor), do: human(actor["kind"] || "Source")
@@ -3123,12 +3219,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     heading = title || "Earlier request"
 
     [
-      "<article class=\"context-candidate context-record\"",
+      "<article class=\"context-candidate context-record\" data-state=\"",
+      escape(state),
+      "\"",
       if(anchor, do: [" id=\"", escape(anchor), "\" tabindex=\"-1\""], else: []),
       "><header class=\"candidate-heading\"><h4>",
       escape(heading),
       "</h4><span class=\"candidate-meta\"><span class=\"candidate-state\">",
-      escape(candidate_state(state)),
+      if(state != "complete", do: escape(candidate_state(state)), else: []),
       "</span>",
       candidate_time(latest || first, item["idle_minutes"]),
       "</span></header><div class=\"candidate-readable\">",
@@ -3183,18 +3281,28 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         []
 
       at ->
-        ["<time>", escape(at), idle_label(idle), "</time>"]
+        [
+          "<time datetime=\"",
+          escape(message.at),
+          "\" title=\"",
+          escape(at),
+          "\">Request ",
+          request_age(idle, at),
+          "</time>"
+        ]
     end
   end
 
-  defp idle_label(minutes) when is_integer(minutes) and minutes >= 60 * 24,
-    do: " · idle #{div(minutes, 60 * 24)} d"
+  defp request_age(minutes, _at) when is_integer(minutes) and minutes >= 60 * 24,
+    do: Wording.count(div(minutes, 60 * 24), "day") <> " ago"
 
-  defp idle_label(minutes) when is_integer(minutes) and minutes >= 60,
-    do: " · idle #{div(minutes, 60)} h"
+  defp request_age(minutes, _at) when is_integer(minutes) and minutes >= 60,
+    do: Wording.count(div(minutes, 60), "hour") <> " ago"
 
-  defp idle_label(minutes) when is_integer(minutes), do: " · idle #{minutes} min"
-  defp idle_label(_minutes), do: []
+  defp request_age(minutes, _at) when is_integer(minutes) and minutes >= 0,
+    do: Wording.count(minutes, "minute") <> " ago"
+
+  defp request_age(_minutes, at), do: escape(at)
 
   defp candidate_state_warning("cancelled"),
     do: "<p class=\"candidate-warning\">This work was cancelled.</p>"
@@ -3251,7 +3359,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     Components.message_block_html(
       if(is_binary(message.actor), do: actor_label(input)),
-      SlackMarkdown.preview(message.text),
+      readable_note(message.text, Slack.Names.workspace()),
       person: slack_person(input),
       context: label,
       meta: [

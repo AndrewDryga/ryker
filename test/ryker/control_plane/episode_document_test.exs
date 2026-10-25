@@ -111,6 +111,60 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert Enum.empty?(LazyHTML.query(document, ".request-rationale"))
   end
 
+  test "a standalone Slack status receipt uses a branded tool activity row" do
+    # A lone retained status used a large generic card while adjacent statuses
+    # used the proper Slack tool row. Group size must not change its meaning.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+    [base | _] = snapshot.trace.steps
+
+    step =
+      Map.merge(base, %{
+        id: "single-slack-status",
+        stage: "Status",
+        band: :routing,
+        actor: "Slack",
+        title: "Slack working status set",
+        summary: "is queued…",
+        state: "",
+        tone: nil,
+        details: []
+      })
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], [step])
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
+
+    assert Enum.count(
+             LazyHTML.query(document, ".tool-run-step[data-service=slack] .tool-run-badge")
+           ) == 1
+
+    assert LazyHTML.query(document, ".tool-run-title") |> LazyHTML.text() == "Set working status"
+    assert LazyHTML.text(document) =~ "is queued…"
+
+    failed = %{
+      step
+      | state: "failed",
+        tone: :warn,
+        summary: "The working status could not be delivered."
+    }
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], [failed])
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert Enum.count(LazyHTML.query(document, ".tool-run-detail[open]")) == 1
+
+    assert LazyHTML.query(document, ".tool-run-body") |> LazyHTML.text() =~
+             "could not be delivered"
+  end
+
   test "opaque routing candidate references never become nonexistent timeline links" do
     # The live follow-up routed correctly but its 'Joins' link opened a 404:
     # candidate references belong to one prompt, not the timeline route namespace.
@@ -1039,8 +1093,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     # The model is an operator choice in Settings; the card says where to change it
     # instead of naming an environment variable nobody could see or edit.
-    assert LazyHTML.query(model, ".request-model-reason") |> LazyHTML.text() |> words() ==
-             "Routing uses its configured model."
+    assert Enum.empty?(LazyHTML.query(model, ".request-model-reason"))
 
     assert Enum.count(LazyHTML.query(model, ~s(.request-model-choice a[href="/settings/models"]))) ==
              1
@@ -1067,9 +1120,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert render_component(&EpisodeRequest.render/1, request: work)
            |> LazyHTML.from_fragment()
            |> LazyHTML.query(".request-model-reason")
-           |> LazyHTML.text()
-           |> words() ==
-             "Deep work in acme/emisar uses its configured model."
+           |> Enum.empty?()
 
     result = render_component(&EpisodeRequest.render/1, request: %{submission | phase: :result})
     assert Enum.empty?(LazyHTML.query(LazyHTML.from_fragment(result), ".request-model-section"))
@@ -1098,8 +1149,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> LazyHTML.from_fragment()
       |> LazyHTML.query(".request-model-section")
 
-    assert LazyHTML.query(model, ".request-model-reason") |> LazyHTML.text() |> words() ==
-             "Chosen when this work started."
+    assert Enum.empty?(LazyHTML.query(model, ".request-model-reason"))
 
     assert Enum.count(LazyHTML.query(model, ~s(.request-model-choice a[href="/settings/models"]))) ==
              1

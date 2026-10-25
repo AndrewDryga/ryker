@@ -49,7 +49,7 @@ defmodule Ryker.Slack.NamesTest do
              })
 
     assert Names.name("T123", "C456") == "#infra"
-    assert Names.name("T123", "G789") == "Slack channel G789"
+    assert Names.name("T123", "G789") == "Slack channel"
     assert GenServer.call(Names, :refresh) == :ok
     refute_received {:lookup, "C456"}
   end
@@ -87,12 +87,12 @@ defmodule Ryker.Slack.NamesTest do
        end}
     )
 
-    assert Names.name("T123", "C456") == "Slack channel C456"
-    assert Names.name("T999", "C456") == "Slack channel C456"
+    assert Names.name("T123", "C456") == "Slack channel"
+    assert Names.name("T999", "C456") == "Slack channel"
     assert GenServer.call(Names, :refresh) == :ok
     assert_receive {:lookup, "C456"}
     assert Names.name("T123", "C456") == "#test"
-    assert Names.name("T999", "C456") == "Slack channel C456"
+    assert Names.name("T999", "C456") == "Slack channel"
     assert Names.destination("slack:T123:C456") == "#test"
     refute_receive {:lookup, "C456"}
   end
@@ -133,10 +133,9 @@ defmodule Ryker.Slack.NamesTest do
        end}
     )
 
-    # An unresolved channel still has to tell one row from another. The
-    # channels page listed five "Slack channel" rows with the id only in a
-    # tooltip, so an operator could not tell #test from #test2 at all.
-    assert Names.name("T123", "C789") == "Slack channel C789"
+    # Timeline inspection used opaque app/channel IDs as names. Until Slack
+    # supplies a name, keep a kind label and the actual identity in its link.
+    assert Names.name("T123", "C789") == "Slack channel"
 
     # A person is never their raw ID (Andrew, 2026-09-26: "Slack user
     # U0BHTNFCW6S" is not readable); their profile link tells two apart.
@@ -237,7 +236,7 @@ defmodule Ryker.Slack.NamesTest do
     start_supervised!({Names, workspace: "T123", fetch: fn _ -> exit(:timeout) end})
     Names.name("T123", "C456")
     assert GenServer.call(Names, :refresh) == :ok
-    assert Names.name("T123", "C456") == "Slack channel C456"
+    assert Names.name("T123", "C456") == "Slack channel"
   end
 
   test "resolved names cannot reintroduce credentials into sanitized request inspection" do
