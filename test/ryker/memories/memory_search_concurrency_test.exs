@@ -420,7 +420,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
     if locked, do: :free, else: :busy
   end
 
-  defp revoke(:fact, entry, :deleted), do: Memories.forget(entry.ref)
+  defp revoke(:fact, entry, :deleted), do: Memories.forget(entry.ref, entry.payload_fingerprint)
 
   defp revoke(:guidance, entry, status), do: Behaviors.set_status(entry.ref, status)
 

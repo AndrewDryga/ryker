@@ -84,12 +84,19 @@ defmodule Ryker.Slack.AppHomeControls do
          %HomeInteraction{
            action: :forget_memory,
            actor_ref: actor_ref,
-           resource_ref: "memory:" <> _ = ref,
+           resource_ref: value,
            workspace_ref: workspace_ref
          },
          options
-       ),
-       do: forget_memory(options, ref, actor_ref, workspace_ref)
+       ) do
+    case ControlValue.decode(value, "memory") do
+      {:ok, ref, fingerprint} ->
+        forget_memory(options, ref, fingerprint, actor_ref, workspace_ref)
+
+      :error ->
+        {:ok, :invalid}
+    end
+  end
 
   defp dispatch(
          %HomeInteraction{
@@ -408,15 +415,16 @@ defmodule Ryker.Slack.AppHomeControls do
     end
   end
 
-  defp forget_memory(options, ref, actor_ref, workspace_ref) do
+  defp forget_memory(options, ref, fingerprint, actor_ref, workspace_ref) do
     case Map.get(options, :forget_memory) do
-      callback when is_function(callback, 3) ->
-        case callback.(ref, actor_ref, workspace_ref) do
+      callback when is_function(callback, 4) ->
+        case callback.(ref, fingerprint, actor_ref, workspace_ref) do
           {:ok, _resource} ->
             {:ok, :forgotten}
 
           {:error, reason}
           when reason in [
+                 :confirmation_stale,
                  :memory_not_found,
                  :memory_workspace_mismatch,
                  :memory_terminal,

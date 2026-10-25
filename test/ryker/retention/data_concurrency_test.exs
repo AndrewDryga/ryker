@@ -223,7 +223,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
         forget =
           unboxed_task(fn ->
             send(parent, {:forget_started, backend_pid()})
-            Memories.forget(fact.ref)
+            Memories.forget(fact.ref, fact.payload_fingerprint)
           end)
 
         assert_receive {:forget_started, forget_backend}, 5_000

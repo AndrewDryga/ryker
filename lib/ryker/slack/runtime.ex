@@ -272,9 +272,10 @@ defmodule Ryker.Slack.Runtime do
       client: bot_client,
       directory: Client,
       discard_workspace: &AppHomeActions.discard_workspace/5,
-      forget_memory: fn ref, actor_ref, workspace_ref ->
+      forget_memory: fn ref, fingerprint, actor_ref, workspace_ref ->
         Memories.forget_home(
           ref,
+          fingerprint,
           "slack:user:#{actor_ref}",
           ConversationRef.slack_workspace(workspace_ref)
         )
@@ -455,9 +456,10 @@ defmodule Ryker.Slack.Runtime do
           )
         end,
         directory: Client,
-        forget_memory: fn ref, actor_ref, conversation_ref ->
+        forget_memory: fn ref, fingerprint, actor_ref, conversation_ref ->
           Memories.forget_in_conversation(
             ref,
+            fingerprint,
             "slack:user:#{actor_ref}",
             Episodes.Scope.workspace_ref("slack", conversation_ref),
             conversation_ref

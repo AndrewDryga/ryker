@@ -396,7 +396,7 @@ defmodule Ryker.Slack.InteractionTest do
     for {action_id, value} <- [
           {"ryker_delete_schedule", "schedule-control:schedule:#{id}:3"},
           {"ryker_delete_behavior", "behavior-control:behavior:#{id}:1"},
-          {"ryker_forget_memory", "memory:#{id}"}
+          {"ryker_forget_memory", "memory-control:memory:#{id}:#{String.duplicate("a", 64)}"}
         ] do
       control =
         envelope()
@@ -412,7 +412,7 @@ defmodule Ryker.Slack.InteractionTest do
           {"ryker_delete_schedule", "schedule-control:schedule:#{id}"},
           {"ryker_delete_schedule", "behavior-control:behavior:#{id}:1"},
           {"ryker_delete_behavior", "behavior-control:behavior:#{id}:0"},
-          {"ryker_forget_memory", "schedule:#{id}"}
+          {"ryker_forget_memory", ""}
         ] do
       assert envelope()
              |> put_in(["payload", "actions", Access.at(0), "action_id"], action_id)

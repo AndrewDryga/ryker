@@ -79,7 +79,7 @@ defmodule Ryker.Slack.RuntimeTest do
     assert options.handler_settings.home_interaction_handler == Ryker.Slack.AppHomeControls
     assert is_function(options.handler_settings.home_interaction_options.authorize_resource, 1)
     assert is_function(options.handler_settings.home_interaction_options.discard_workspace, 5)
-    assert is_function(options.handler_settings.home_interaction_options.forget_memory, 3)
+    assert is_function(options.handler_settings.home_interaction_options.forget_memory, 4)
 
     assert is_function(
              options.handler_settings.home_interaction_options.open_memory_review_editor,

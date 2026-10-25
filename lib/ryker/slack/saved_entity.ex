@@ -83,7 +83,7 @@ defmodule Ryker.Slack.SavedEntity do
       "ref" => entry.ref,
       "removable" => status == "active",
       "resumable" => false,
-      "revision" => nil,
+      "revision" => entry.payload_fingerprint,
       "saved_at" => DateTime.to_iso8601(entry.confirmed_at),
       "saved_by" => entry.confirmed_by_actor_ref,
       "status" => status,

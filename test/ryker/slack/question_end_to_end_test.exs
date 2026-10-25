@@ -378,7 +378,8 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert Memories.confirm_answer(continuation_claim, request.ref, "percent", authorize) ==
              {:error, :answer_memory_conflict}
 
-    assert {:ok, _} = Memories.forget(remembered.memory.ref)
+    assert {:ok, _} =
+             Memories.forget(remembered.memory.ref, remembered.memory.payload_fingerprint)
 
     assert Memories.confirm_answer(continuation_claim, request.ref, "one percent", authorize) ==
              {:error, :answer_memory_conflict}

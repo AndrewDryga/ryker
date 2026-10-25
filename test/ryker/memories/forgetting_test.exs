@@ -201,7 +201,9 @@ defmodule Ryker.Memories.ForgettingTest do
     assert %{forgotten: [id], relearn: []} = Forgetting.preview_fact(fact)
     assert id == topic.id
 
-    assert {:ok, %MemoryEntry{status: :deleted}} = Memories.forget(fact.ref)
+    assert {:ok, %MemoryEntry{status: :deleted}} =
+             Memories.forget(fact.ref, fact.payload_fingerprint)
+
     assert Repo.get!(ConversationKnowledge, topic.id).forgotten_at
     assert observation!(first).forgotten_at
   end

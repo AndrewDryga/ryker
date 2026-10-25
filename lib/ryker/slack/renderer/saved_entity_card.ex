@@ -6,7 +6,9 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.Crypto
   alias Ryker.Reference
+  alias Ryker.Slack.ControlValue
 
   @ended ~w(completed deleted expired superseded)
 
@@ -65,13 +67,15 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
 
   defp controls(%{"removable" => false}), do: []
 
-  defp controls(%{"kind" => "memory", "ref" => ref, "title" => title}) do
+  defp controls(%{"kind" => "memory", "ref" => ref, "revision" => fingerprint, "title" => title}) do
+    value = ControlValue.encode("memory", ref, fingerprint)
+
     [
       actions("#{ref}:controls", [
         button(
           "ryker_forget_memory",
           "Forget memory",
-          ref,
+          value,
           "danger",
           "Forget this memory?",
           "I'll stop recalling \"#{title}\" and forget what I learned from the same message. Messages I already sent and the original conversation stay as they are.",
@@ -174,7 +178,8 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
       Reference.text?(notice) and Reference.text?(saved_by)
   end
 
-  defp ref?("memory", "memory:" <> _rest = ref, nil), do: entity_ref?(ref)
+  defp ref?("memory", "memory:" <> _rest = ref, fingerprint),
+    do: entity_ref?(ref) and Crypto.sha256_hex?(fingerprint)
 
   defp ref?("schedule", "schedule:" <> _rest = ref, revision),
     do: entity_ref?(ref) and positive_integer(revision) == :ok

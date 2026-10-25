@@ -308,7 +308,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     {:ok, view, _html} = open("/memory")
     assert render(view) =~ "The payments team owns checkout."
 
-    assert {:ok, _forgotten} = Memories.forget(fact.ref)
+    assert {:ok, _forgotten} = Memories.forget(fact.ref, fact.payload_fingerprint)
 
     assert shows?(fn -> not (render(view) =~ "The payments team owns checkout.") end)
   end

@@ -22,10 +22,13 @@ defmodule Ryker.Slack.AppHomeControlsTest do
     options = options(parent)
 
     assert {:ok, result} =
-             AppHomeControls.handle(interaction(:forget_memory, "memory:one"), options)
+             AppHomeControls.handle(
+               interaction(:forget_memory, memory_control("memory:one")),
+               options
+             )
 
     assert result.outcome == :forgotten
-    assert result.resource_ref == "memory:one"
+    assert result.resource_ref == memory_control("memory:one")
     assert_received {:forgot_memory, "memory:one", "U123", "T123"}
     assert_received {:refreshed_home, "U123", "T123"}
 
@@ -99,12 +102,15 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
     options =
       options(parent)
-      |> Map.put(:forget_memory, fn _ref, _actor_ref, _workspace_ref ->
+      |> Map.put(:forget_memory, fn _ref, _fingerprint, _actor_ref, _workspace_ref ->
         {:error, :memory_workspace_mismatch}
       end)
 
-    assert AppHomeControls.handle(interaction(:forget_memory, "memory:stale"), options) ==
-             {:ok, %{outcome: :invalid, resource_ref: "memory:stale"}}
+    assert AppHomeControls.handle(
+             interaction(:forget_memory, memory_control("memory:stale")),
+             options
+           ) ==
+             {:ok, %{outcome: :invalid, resource_ref: memory_control("memory:stale")}}
 
     assert_received {:refreshed_home, "U123", "T123"}
     refute_received {:forgot_memory, _, _}
@@ -386,14 +392,14 @@ defmodule Ryker.Slack.AppHomeControlsTest do
            ) == {:error, {:invalid_app_home_control, :resolve_memory_review}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
-             Map.put(base, :forget_memory, fn _ref, _actor, _workspace ->
+             interaction(:forget_memory, memory_control("memory:one")),
+             Map.put(base, :forget_memory, fn _ref, _fingerprint, _actor, _workspace ->
                {:error, :database_unavailable}
              end)
            ) == {:error, :database_unavailable}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.delete(base, :forget_memory)
            ) == {:error, {:invalid_app_home_control, :forget_memory}}
 
@@ -516,41 +522,43 @@ defmodule Ryker.Slack.AppHomeControlsTest do
              {:error, {:invalid_app_home_control, :request}}
 
     assert AppHomeControls.handle(interaction(:forget_memory, "behavior:one"), base) ==
-             {:error, :app_home_control_mismatch}
+             {:ok, %{outcome: :invalid, resource_ref: "behavior:one"}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              %{base | directory: ErrorDirectory}
            ) == {:error, :directory_unavailable}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              %{base | directory: InvalidDirectory}
            ) == {:error, {:invalid_app_home_control, :directory}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.delete(base, :directory)
            ) == {:error, {:invalid_app_home_control, :directory}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.put(base, :operators, :invalid)
            ) == {:error, {:invalid_app_home_control, :operators}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.put(base, :authorize_resource, fn _interaction -> :invalid end)
            ) == {:error, {:invalid_app_home_control, :authorize_resource}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.delete(base, :authorize_resource)
            ) == {:error, {:invalid_app_home_control, :authorize_resource}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
-             Map.put(base, :forget_memory, fn _ref, _actor, _workspace -> :invalid end)
+             interaction(:forget_memory, memory_control("memory:one")),
+             Map.put(base, :forget_memory, fn _ref, _fingerprint, _actor, _workspace ->
+               :invalid
+             end)
            ) == {:error, {:invalid_app_home_control, :forget_memory}}
 
     assert AppHomeControls.handle(
@@ -575,15 +583,18 @@ defmodule Ryker.Slack.AppHomeControlsTest do
            ) == {:error, :app_home_control_mismatch}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.delete(base, :refresh_home)
            ) == {:error, {:invalid_app_home_control, :refresh_home}}
 
     assert AppHomeControls.handle(
-             interaction(:forget_memory, "memory:one"),
+             interaction(:forget_memory, memory_control("memory:one")),
              Map.put(base, :refresh_home, fn _event -> :invalid end)
            ) == {:error, {:invalid_app_home_control, :refresh_home}}
   end
+
+  defp memory_control(ref),
+    do: Ryker.Slack.ControlValue.encode("memory", ref, String.duplicate("a", 64))
 
   defp interaction(action, resource_ref) do
     %HomeInteraction{
@@ -621,7 +632,7 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
         {:ok, %{status: :discard_requested}}
       end,
-      forget_memory: fn ref, actor_ref, workspace_ref ->
+      forget_memory: fn ref, _fingerprint, actor_ref, workspace_ref ->
         send(parent, {:forgot_memory, ref, actor_ref, workspace_ref})
         {:ok, %{ref: ref}}
       end,

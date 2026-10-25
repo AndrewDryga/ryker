@@ -435,6 +435,15 @@ batch links to its frozen input/result and permits bounded explicit retry. Prese
 and conversation context as the two primary views. Original messages are provenance reached from
 the record they support, not a third peer memory type. Show change/source/expiry dates separately.
 
+Operational-memory Forget confirmations bind the ref and content fingerprint on the console,
+saved Slack messages and App Home. A review edit invalidates an earlier confirmation; the host
+checks again under the mutation lock before erasing anything. Verification and recall metadata
+do not invalidate unchanged content. A retry of the same completed Forget recognizes the original
+fingerprint in its content-free tombstone. Earlier unversioned controls cannot authorize deletion;
+open the current memory to get a new confirmation. Recognized presses with invalid versions
+receive a refusal; a Home press also refreshes the view. Message feedback points to current
+details without claiming every message can be repainted. Original messages and history remain intact.
+
 ### Repairing unavailable knowledge
 
 Provide one explicit **Relearn this topic** section on the existing topic page. The

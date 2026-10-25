@@ -544,8 +544,11 @@ defmodule Ryker.Slack.Gateway do
 
   defp feedback_text(:denied), do: "You don't have permission to use that Ryker control."
 
-  defp feedback_text(:invalid),
-    do: "That control is no longer current. Use the refreshed message instead."
+  # A collection message may have no repaint receipt. Do not promise an
+  # updated message when only the refusal itself is known to reach Slack.
+  defp feedback_text(:invalid) do
+    "That control is no longer current. Open the current item in Ryker or ask Ryker to show it again."
+  end
 
   defp feedback_text(:room_capacity) do
     "Ryker already has as many incident rooms open as it keeps. Close one whose " <>

@@ -1390,8 +1390,8 @@ defmodule Ryker.ControlPlane.RouterTest do
   # action no page offers was refused with a way back to Facts.
   test "an action on a fact or a fact review returns to where it was taken from" do
     for {path, action, refusal, back} <- [
-          {"/actions/memory/one/forget", :forget_memory, fn _ref -> {:error, :stale} end,
-           "/memory"},
+          {"/actions/memory/one/forget", :forget_memory,
+           fn _ref, _fingerprint -> {:error, :stale} end, "/memory"},
           {"/actions/memory-review/memory-review:one/keep", :resolve_memory_review,
            fn _ref, _action, _replacement, _viewer -> {:error, :stale} end, "/memory#review"},
           {"/actions/memory-review/memory-review:one/merge", :resolve_memory_review,
@@ -2191,7 +2191,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     unavailable =
       options()
-      |> put_in([:actions, :forget_memory], fn _ref -> {:error, :stale} end)
+      |> put_in([:actions, :forget_memory], fn _ref, _fingerprint -> {:error, :stale} end)
       |> then(fn opts ->
         request_with_options(
           :post,

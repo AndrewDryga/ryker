@@ -30,4 +30,25 @@ defmodule Ryker.Slack.ControlValueTest do
       assert ControlValue.decode(value, "behavior") == :error, inspect(value)
     end
   end
+
+  test "a memory control preserves its content fingerprint instead of parsing an integer revision" do
+    ref = "memory:one"
+    fingerprint = String.duplicate("a", 64)
+    value = ControlValue.encode("memory", ref, fingerprint)
+
+    assert ControlValue.decode(value, "memory") == {:ok, ref, fingerprint}
+
+    for invalid <- [
+          ref,
+          ref <> ":" <> fingerprint,
+          "memory-control:#{ref}:7",
+          "memory-control:#{ref}:#{String.upcase(fingerprint)}",
+          "memory-control:#{ref}:#{String.duplicate("g", 64)}",
+          "memory-control:#{ref}:#{String.duplicate("a", 63)}",
+          "memory-control:behavior:one:#{fingerprint}",
+          value <> ":extra"
+        ] do
+      assert ControlValue.decode(invalid, "memory") == :error, inspect(invalid)
+    end
+  end
 end

@@ -718,7 +718,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert submission["prompt"] =~ "run-t2W6yCNeLUU9xFso"
 
     # Forgetting is not advice the next turn may ignore.
-    assert {:ok, _} = Memories.forget(memory.ref)
+    assert {:ok, _} = Memories.forget(memory.ref, memory.payload_fingerprint)
     assert {:ok, revoked} = Inspectors.submission(next)
     assert get_in(revoked, ["context", "operator_context", "memory"]) == []
     refute revoked["prompt"] =~ "emisar-project-qa"

@@ -610,7 +610,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
             do: {:ok, %{outcome: %{"status" => "deleted"}}},
             else: {:error, :schedule_revision_stale}
         end,
-        forget_memory: fn ref, actor_ref, conversation_ref ->
+        forget_memory: fn ref, _fingerprint, actor_ref, conversation_ref ->
           send(observer, {:memory_forgotten, ref, actor_ref, conversation_ref})
           {:ok, %{ref: ref}}
         end,
@@ -661,14 +661,14 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     forget = %{
       delete
       | action_id: "ryker_forget_memory",
-        action_value: "memory:#{schedule_id}"
+        action_value: "memory-control:memory:#{schedule_id}:#{String.duplicate("a", 64)}"
     }
 
     assert {:ok, %{outcome: :forgotten}} = InteractionHandler.handle(forget, options)
     assert_received {:memory_forgotten, "memory:" <> ^schedule_id, "U123", "slack:T123:C456"}
 
     offline =
-      Map.put(options, :forget_memory, fn _ref, _actor_ref, _workspace_ref ->
+      Map.put(options, :forget_memory, fn _ref, _fingerprint, _actor_ref, _workspace_ref ->
         {:error, :store_offline}
       end)
 

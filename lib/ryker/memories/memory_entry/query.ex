@@ -301,6 +301,7 @@ defmodule Ryker.Memories.MemoryEntry.Query do
       status: m.status,
       subject: m.subject,
       recall_count: m.recall_count,
+      fingerprint: m.payload_fingerprint,
       confirmed_at: m.confirmed_at
     })
   end

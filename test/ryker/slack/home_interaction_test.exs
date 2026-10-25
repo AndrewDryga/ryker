@@ -7,7 +7,10 @@ defmodule Ryker.Slack.HomeInteractionTest do
   test "accepts only host-issued App Home lifecycle actions" do
     assert {:ok, interaction} =
              HomeInteraction.from_socket(
-               envelope("ryker_home_forget_memory", "memory:abc-123"),
+               envelope(
+                 "ryker_home_forget_memory",
+                 "memory-control:memory:abc-123:#{String.duplicate("a", 64)}"
+               ),
                "T123",
                @now
              )
@@ -15,7 +18,10 @@ defmodule Ryker.Slack.HomeInteractionTest do
     assert interaction.action == :forget_memory
     assert interaction.actor_ref == "U123"
     assert interaction.event_ref == "interaction:env-home-control"
-    assert interaction.resource_ref == "memory:abc-123"
+
+    assert interaction.resource_ref ==
+             "memory-control:memory:abc-123:#{String.duplicate("a", 64)}"
+
     assert interaction.trigger_ref == "trigger.123"
 
     assert {:ok, review} =
@@ -59,7 +65,7 @@ defmodule Ryker.Slack.HomeInteractionTest do
     end
 
     assert HomeInteraction.from_socket(
-             envelope("ryker_home_forget_memory", "schedule:abc-123"),
+             envelope("ryker_home_forget_memory", ""),
              "T123",
              @now
            ) == :ignore

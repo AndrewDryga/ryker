@@ -22,6 +22,7 @@ defmodule Ryker.Memories do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Memories.Forgetting
@@ -325,56 +326,85 @@ defmodule Ryker.Memories do
     if newer, do: {:error, :answer_memory_conflict}, else: :ok
   end
 
-  @doc "Forgets a fact from the console, which may forget any."
-  @spec forget(String.t()) :: {:ok, MemoryEntry.t()} | {:error, term()}
-  def forget(ref) do
-    with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation) do
+  @doc """
+  Forgets the fact the console confirmed at `expected_fingerprint`.
+  Returns `{:ok, entry}`, including a retry of the same completed Forget, or
+  `{:error, :memory_not_found | :memory_terminal | :confirmation_stale}`.
+  Invalid refs return `{:error, {:invalid_memory_confirmation, :memory_ref}}`.
+  A stale or invalid fingerprint changes nothing.
+  """
+  @spec forget(String.t(), String.t()) :: {:ok, MemoryEntry.t()} | {:error, term()}
+  def forget(ref, expected_fingerprint) do
+    with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation),
+         :ok <- check_confirmation_fingerprint(expected_fingerprint) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
-        ref |> fetch_and_lock_memory() |> forget_found()
+        ref |> fetch_and_lock_memory() |> forget_found(expected_fingerprint)
       end)
     end
   end
 
-  defp forget_found({:error, :not_found}), do: Repo.rollback(:memory_not_found)
-  defp forget_found({:ok, entry}), do: forget_locked(entry)
+  defp forget_found({:error, :not_found}, _fingerprint), do: Repo.rollback(:memory_not_found)
 
-  @doc "Forgets shared App Home memory without granting access to channel-only entries."
-  @spec forget_home(String.t(), String.t(), String.t()) ::
+  defp forget_found({:ok, %MemoryEntry{} = entry}, fingerprint),
+    do: forget_locked(entry, fingerprint)
+
+  @doc """
+  Forgets shared App Home memory at the confirmed fingerprint, without access
+  to channel-only entries. Returns `{:ok, entry}` or the same errors as `forget/2`,
+  plus `:memory_workspace_mismatch` or `:memory_unauthorized` for a refused scope.
+  Invalid actor/workspace refs return the `:invalid_memory_confirmation` field error.
+  """
+  @spec forget_home(String.t(), String.t(), String.t(), String.t()) ::
           {:ok, MemoryEntry.t()} | {:error, term()}
-  def forget_home(ref, actor_ref, workspace_ref) do
+  def forget_home(ref, expected_fingerprint, actor_ref, workspace_ref) do
     with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation),
+         :ok <- check_confirmation_fingerprint(expected_fingerprint),
          :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
          :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
-        forget_home_locked(ref, actor_ref, workspace_ref)
+        forget_home_locked(ref, expected_fingerprint, actor_ref, workspace_ref, nil)
       end)
     end
   end
 
   @doc """
-  Forgets a fact from a control in the conversation `conversation_ref`: one
-  App Home could forget, or one kept to that conversation. Channel controls
-  ran through the App Home gate alone, which refuses a channel's own facts
-  (2026-10-04 review).
+  Forgets the confirmed fact from a control in `conversation_ref`: one App
+  Home could forget, or one kept to that conversation. Returns `{:ok, entry}`
+  or the errors of `forget_home/4`; an invalid conversation also returns the
+  `:invalid_memory_confirmation` field error. Channel controls once ran only
+  through the App Home gate, which refused the channel's own facts.
   """
-  def forget_in_conversation(ref, actor_ref, workspace_ref, conversation_ref) do
+  @spec forget_in_conversation(String.t(), String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, MemoryEntry.t()} | {:error, term()}
+  def forget_in_conversation(
+        ref,
+        expected_fingerprint,
+        actor_ref,
+        workspace_ref,
+        conversation_ref
+      ) do
     with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation),
+         :ok <- check_confirmation_fingerprint(expected_fingerprint),
          :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
          :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation),
          :ok <- Reference.check(conversation_ref, :conversation_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
-        forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref)
+        forget_home_locked(ref, expected_fingerprint, actor_ref, workspace_ref, conversation_ref)
       end)
     end
+  end
+
+  defp check_confirmation_fingerprint(fingerprint) do
+    if Crypto.sha256_hex?(fingerprint), do: :ok, else: {:error, :confirmation_stale}
   end
 
   defp fetch_and_lock_memory(ref),
     do: ref |> MemoryEntry.Query.by_ref() |> MemoryEntry.Query.lock_for_update() |> Repo.fetch()
 
-  defp forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref \\ nil) do
+  defp forget_home_locked(ref, fingerprint, actor_ref, workspace_ref, conversation_ref) do
     case fetch_and_lock_memory(ref) do
       {:error, :not_found} ->
         Repo.rollback(:memory_not_found)
@@ -383,16 +413,19 @@ defmodule Ryker.Memories do
         Repo.rollback(:memory_workspace_mismatch)
 
       {:ok, %MemoryEntry{} = entry} ->
-        forget_home_visible(entry, actor_ref, conversation_ref)
+        forget_home_visible(entry, fingerprint, actor_ref, conversation_ref)
     end
   end
 
-  defp forget_home_visible(entry, actor_ref, conversation_ref) do
+  defp forget_home_visible(%MemoryEntry{} = entry, fingerprint, actor_ref, conversation_ref) do
     if Reviews.home_source_visible?(Reviews.review_source_record(:memory, entry), actor_ref) or
          (entry.scope_kind == :conversation and entry.scope_ref == conversation_ref),
-       do: forget_locked(entry),
+       do: forget_locked(entry, fingerprint),
        else: Repo.rollback(:memory_unauthorized)
   end
+
+  defp forget_home_visible(_entry, _fingerprint, _actor_ref, _conversation_ref),
+    do: Repo.rollback(:memory_unauthorized)
 
   # The memories context API for callers outside the state layer. Each
   # function is owned by the module it delegates to; see the moduledoc.
@@ -609,20 +642,33 @@ defmodule Ryker.Memories do
     end
   end
 
-  defp forget_locked(%MemoryEntry{status: :deleted} = entry), do: entry
+  # A response-lost retry proves the original content through the existing
+  # content-free tombstone, without accepting a different edited version.
+  defp forget_locked(
+         %MemoryEntry{status: :deleted, payload: %{"forgotten_payload_sha256" => fingerprint}} =
+           entry,
+         fingerprint
+       ),
+       do: entry
 
-  defp forget_locked(%MemoryEntry{status: status}) when status in [:expired, :superseded],
-    do: Repo.rollback(:memory_terminal)
+  defp forget_locked(%MemoryEntry{status: status}, _fingerprint)
+       when status in [:expired, :superseded],
+       do: Repo.rollback(:memory_terminal)
 
   # What learning took from the message the fact came from goes with it:
   # Learned kept the same knowledge after the fact was forgotten (QA re-test,
   # 2026-09-26).
-  defp forget_locked(%MemoryEntry{} = entry) do
+  defp forget_locked(
+         %MemoryEntry{status: :active, payload_fingerprint: fingerprint} = entry,
+         fingerprint
+       ) do
     forgotten = redact!(entry, :deleted, "forgotten_payload_sha256")
     _learning = Forgetting.forget_fact_in_transaction(entry)
     Reviews.dismiss_orphan_reviews("system:memory-forget", entry.workspace_ref)
     forgotten
   end
+
+  defp forget_locked(_entry, _fingerprint), do: Repo.rollback(:confirmation_stale)
 
   defp fetch_and_lock_offer(record_ref) do
     case Records.fetch_and_lock_offer(record_ref, ["memory_offer"]) do

@@ -1,21 +1,24 @@
 defmodule Ryker.Slack.ControlValue do
   @moduledoc """
-  The value a behavior or schedule control button carries: the resource it acts
-  on and the revision the person saw, `behavior-control:behavior:<id>:<revision>`.
+  The resource and version a control button carries. Behaviors and schedules
+  use an integer revision; memories use their content fingerprint.
   App Home writes it; App Home and the chat interaction handler read it back,
   and each kept its own copy of the reader.
   """
+  alias Ryker.Crypto
 
-  @doc "The value for `kind`'s resource `ref` at `revision`."
-  @spec encode(String.t(), String.t(), pos_integer()) :: String.t()
-  def encode(kind, ref, revision), do: "#{kind}-control:#{ref}:#{revision}"
+  @type version :: pos_integer() | String.t()
+
+  @doc "The value for `kind`'s resource `ref` at `version`."
+  @spec encode(String.t(), String.t(), version()) :: String.t()
+  def encode(kind, ref, version), do: "#{kind}-control:#{ref}:#{version}"
 
   @doc """
-  The resource ref and revision a `kind` control's `value` carries: the ref is
-  itself `kind:…` and the revision a positive integer. `:error` for anything
-  else.
+  The resource ref and version a `kind` control's `value` carries: the ref is
+  itself `kind:…`. Memory versions are SHA-256 fingerprints; other versions
+  are positive integers. Returns `:error` for any other shape.
   """
-  @spec decode(term(), String.t()) :: {:ok, String.t(), pos_integer()} | :error
+  @spec decode(term(), String.t()) :: {:ok, String.t(), version()} | :error
   def decode(value, kind) when is_binary(value) do
     prefix = kind <> "-control:"
 
@@ -25,12 +28,23 @@ defmodule Ryker.Slack.ControlValue do
     ref = Enum.join(ref_parts, ":")
 
     with true <- String.starts_with?(value, prefix) and String.starts_with?(ref, kind <> ":"),
-         {revision, ""} when revision > 0 <- Integer.parse(revision_text) do
-      {:ok, ref, revision}
+         {:ok, version} <- version(kind, revision_text) do
+      {:ok, ref, version}
     else
       _invalid -> :error
     end
   end
 
   def decode(_value, _kind), do: :error
+
+  defp version("memory", text) do
+    if Crypto.sha256_hex?(text), do: {:ok, text}, else: :error
+  end
+
+  defp version(_kind, text) do
+    case Integer.parse(text) do
+      {revision, ""} when revision > 0 -> {:ok, revision}
+      _invalid -> :error
+    end
+  end
 end

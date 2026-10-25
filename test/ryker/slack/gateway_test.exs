@@ -673,9 +673,30 @@ defmodule Ryker.Slack.GatewayTest do
              {:ack, {:interaction, :invalid}}
 
     assert_received {:told_presser, _actor,
-                     "That control is no longer current. Use the refreshed message instead."}
+                     "That control is no longer current. Open the current item in Ryker or ask Ryker to show it again."}
 
     assert_received {:audited_interaction, "interaction:env-stale", :invalid}
+  end
+
+  # A recognized Forget used to disappear in normalization before the host
+  # could refuse it. Confirming an old message then showed no explanation.
+  test "a recognized Forget without a content version receives a private refusal" do
+    settings =
+      settings()
+      |> Map.put(:interaction_handler, InteractionHandler)
+      |> Map.put(:interaction_options, %{observer: self(), result: {:ok, %{outcome: :invalid}}})
+      |> Map.put(:interaction_audit, fn _interaction, _outcome -> {:ok, %{status: :recorded}} end)
+
+    envelope =
+      interaction_envelope("env-unbound-forget")
+      |> put_in(["payload", "actions", Access.at(0), "action_id"], "ryker_forget_memory")
+      |> put_in(["payload", "actions", Access.at(0), "value"], "memory:one")
+
+    assert Gateway.handle_envelope(envelope, settings) == {:ack, {:interaction, :invalid}}
+    assert_received {:handled_interaction, %{action_id: "ryker_forget_memory"}}
+
+    assert_received {:told_presser, "U123",
+                     "That control is no longer current. Open the current item in Ryker or ask Ryker to show it again."}
   end
 
   # With every incident room slot in use, Create incident room answered "That

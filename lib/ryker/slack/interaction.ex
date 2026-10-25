@@ -17,7 +17,6 @@ defmodule Ryker.Slack.Interaction do
   @welcome_value ~r/\A[0-9a-f-]{36}\|[1-9][0-9]{0,9}\z/
   @schedule_control_value ~r/\Aschedule-control:schedule:[0-9a-f-]{36}:[1-9][0-9]{0,9}\z/
   @behavior_control_value ~r/\Abehavior-control:behavior:[0-9a-f-]{36}:[1-9][0-9]{0,9}\z/
-  @memory_value ~r/\Amemory:[A-Za-z0-9_.:-]{1,240}\z/
   @choice_value ~r/\Arecord:input_request:[A-Za-z0-9_.:-]{1,220}\|[0-9]{1,2}\z/
   @work_record_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|(?:timeline|evidence|handoff|recovery|postmortem)\z/
   @resume_work_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|[0-9a-f]{64}\z/
@@ -161,8 +160,9 @@ defmodule Ryker.Slack.Interaction do
   defp action_value?("ryker_delete_behavior", value),
     do: is_binary(value) and Regex.match?(@behavior_control_value, value)
 
-  defp action_value?("ryker_forget_memory", value),
-    do: is_binary(value) and Regex.match?(@memory_value, value)
+  # Preserve a bounded value for the authorized handler to validate. Dropping
+  # a recognized press here prevents its private refusal from reaching Slack.
+  defp action_value?("ryker_forget_memory", value), do: Reference.valid?(value)
 
   defp action_value?("ryker_setup_" <> _rest, value) do
     case Ecto.UUID.cast(value) do

@@ -92,6 +92,7 @@ defmodule Ryker.Slack.InteractionHandler do
     :behavior_terminal,
     :behavior_unauthorized,
     :behavior_workspace_mismatch,
+    :confirmation_stale,
     :memory_not_found,
     :memory_terminal,
     :memory_unauthorized,
@@ -228,9 +229,11 @@ defmodule Ryker.Slack.InteractionHandler do
   end
 
   defp remove_entity(%Interaction{action_id: "ryker_forget_memory"} = interaction, options) do
-    with {:ok, _result} <-
+    with {:ok, ref, fingerprint} <- versioned_resource(interaction.action_value, "memory"),
+         {:ok, _result} <-
            options.forget_memory.(
-             interaction.action_value,
+             ref,
+             fingerprint,
              interaction.actor_ref,
              ConversationRef.slack(interaction)
            ) do

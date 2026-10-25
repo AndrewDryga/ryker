@@ -108,12 +108,12 @@ defmodule Ryker.Memories.MemoriesTest do
     fixture = delivered_offers!("announced")
     :ok = Memories.subscribe_memories()
 
-    assert {:ok, %{memory: %{id: id, ref: ref}}} =
+    assert {:ok, %{memory: %{id: id, ref: ref, payload_fingerprint: fingerprint}}} =
              Memories.confirm(confirmation(fixture, fixture.first, "announced"))
 
     assert_received {:memory_updated, ^id}
 
-    assert {:ok, _forgotten} = Memories.forget(ref)
+    assert {:ok, _forgotten} = Memories.forget(ref, fingerprint)
     assert_received {:memory_updated, ^id}
   end
 
@@ -156,7 +156,9 @@ defmodule Ryker.Memories.MemoriesTest do
     assert superseded.status == :superseded
     assert superseded.payload == %{"replaced_payload_sha256" => first.memory.payload_fingerprint}
     refute inspect(superseded.payload) =~ "ryker"
-    assert Memories.forget(first.memory.ref) == {:error, :memory_terminal}
+
+    assert Memories.forget(first.memory.ref, first.memory.payload_fingerprint) ==
+             {:error, :memory_terminal}
 
     assert [latest] = Recall.recall(context)
     assert latest["memory_ref"] == replacement.memory.ref
@@ -165,6 +167,7 @@ defmodule Ryker.Memories.MemoriesTest do
     forget = fn workspace_ref ->
       Memories.forget_in_conversation(
         replacement.memory.ref,
+        replacement.memory.payload_fingerprint,
         "slack:user:U123",
         workspace_ref,
         "slack:T123:C456"
@@ -373,10 +376,16 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert Recall.recall(context) == []
     assert Repo.get!(MemoryEntry, confirmed.memory.id).status == :active
-    assert {:ok, deleted} = Memories.forget(confirmed.memory.ref)
+
+    assert {:ok, deleted} =
+             Memories.forget(confirmed.memory.ref, confirmed.memory.payload_fingerprint)
+
     assert deleted.status == :deleted
-    assert Memories.forget("missing-memory") == {:error, :memory_not_found}
-    assert {:error, _reason} = Memories.forget("")
+
+    assert Memories.forget("missing-memory", confirmed.memory.payload_fingerprint) ==
+             {:error, :memory_not_found}
+
+    assert {:error, _reason} = Memories.forget("", confirmed.memory.payload_fingerprint)
   end
 
   test "recall keeps an older shared fact when other conversations' private entries crowd the window" do
@@ -770,6 +779,7 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert Memories.forget_in_conversation(
              conversation.memory.ref,
+             conversation.memory.payload_fingerprint,
              "slack:user:U123",
              "slack:T123",
              "slack:T123:C999"
@@ -778,6 +788,7 @@ defmodule Ryker.Memories.MemoriesTest do
     assert {:ok, _forgotten} =
              Memories.forget_in_conversation(
                conversation.memory.ref,
+               conversation.memory.payload_fingerprint,
                "slack:user:U123",
                "slack:T123",
                conversation.memory.scope_ref
@@ -878,9 +889,19 @@ defmodule Ryker.Memories.MemoriesTest do
              Memories.confirm(confirmation(fixture, fixture.workspace, "forget-second"))
 
     pending_elsewhere!(1)
-    assert {{:ok, _forgotten}, few} = queries(fn -> Memories.forget(first.memory.ref) end)
+
+    assert {{:ok, _forgotten}, few} =
+             queries(fn ->
+               Memories.forget(first.memory.ref, first.memory.payload_fingerprint)
+             end)
+
     pending_elsewhere!(20)
-    assert {{:ok, _forgotten}, many} = queries(fn -> Memories.forget(second.memory.ref) end)
+
+    assert {{:ok, _forgotten}, many} =
+             queries(fn ->
+               Memories.forget(second.memory.ref, second.memory.payload_fingerprint)
+             end)
+
     assert many == few
   end
 
@@ -980,6 +1001,7 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert Memories.forget_home(
              conversation.memory.ref,
+             conversation.memory.payload_fingerprint,
              "slack:user:U123",
              "slack:T123"
            ) == {:error, :memory_unauthorized}
@@ -1004,12 +1026,14 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert Memories.forget_home(
              "memory:missing",
+             workspace.memory.payload_fingerprint,
              "slack:user:U123",
              "slack:T123"
            ) == {:error, :memory_not_found}
 
     assert Memories.forget_home(
              workspace.memory.ref,
+             edited_workspace.payload_fingerprint,
              "slack:user:U123",
              "slack:T999"
            ) == {:error, :memory_workspace_mismatch}
@@ -1017,6 +1041,7 @@ defmodule Ryker.Memories.MemoriesTest do
     assert {:ok, forgotten_workspace} =
              Memories.forget_home(
                workspace.memory.ref,
+               edited_workspace.payload_fingerprint,
                "slack:user:U123",
                "slack:T123"
              )

@@ -11,7 +11,7 @@ defmodule Ryker.Slack.HomeInteraction do
     "ryker_home_disable_behavior" => {:disable_behavior, "behavior-control:"},
     "ryker_home_edit_memory_review" => {:edit_memory_review, "memory-review:"},
     "ryker_home_enable_behavior" => {:enable_behavior, "behavior-control:"},
-    "ryker_home_forget_memory" => {:forget_memory, "memory:"},
+    "ryker_home_forget_memory" => {:forget_memory, :control},
     "ryker_home_forget_memory_review" => {:forget_memory_review, "memory-review:"},
     "ryker_home_keep_memory_review" => {:keep_memory_review, "memory-review:"},
     "ryker_home_merge_memory_review" => {:merge_memory_review, "memory-review:"},
@@ -139,6 +139,11 @@ defmodule Ryker.Slack.HomeInteraction do
   defp optional_reference?(value), do: Reference.token?(value)
 
   defp resource?(value, prefix) when is_binary(prefix), do: String.starts_with?(value, prefix)
+
+  # The current action is recognized even when its version is invalid, so
+  # AppHomeControls can refuse it and publish the current view. Only its
+  # typed decoder can authorize a mutation; this route accepts no old API.
+  defp resource?(_value, :control), do: true
 
   defp resource?(value, :resource),
     do: Enum.any?(@resource_prefixes, &String.starts_with?(value, &1))

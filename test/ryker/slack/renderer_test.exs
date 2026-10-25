@@ -125,7 +125,7 @@ defmodule Ryker.Slack.RendererTest do
       "ref" => "memory:rollback-proof",
       "removable" => true,
       "resumable" => false,
-      "revision" => nil,
+      "revision" => String.duplicate("a", 64),
       "saved_at" => "2026-08-28T12:00:00.000000Z",
       "saved_by" => "slack:user:U123",
       "status" => "active",
@@ -135,7 +135,7 @@ defmodule Ryker.Slack.RendererTest do
     assert {:ok, rendered} = Renderer.render(%{"saved_entity" => memory})
     assert [forget] = List.last(rendered["blocks"])["elements"]
     assert forget["action_id"] == "ryker_forget_memory"
-    assert forget["value"] == "memory:rollback-proof"
+    assert forget["value"] == "memory-control:memory:rollback-proof:#{String.duplicate("a", 64)}"
     assert forget["confirm"]["title"]["text"] == "Forget this memory?"
     assert forget["confirm"]["text"]["text"] =~ "GCP project"
     # What learning kept from the same message goes with it (QA re-test,

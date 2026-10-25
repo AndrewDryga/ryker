@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.Actions do
       discard_retention_changes: &discard_retention_changes/2,
       edit_lab_message: lab_message_editor(placements),
       drop_learning: &drop_learning/3,
-      forget_memory: &Memories.forget/1,
+      forget_memory: &Memories.forget/2,
       forget_knowledge: &Memories.Forgetting.forget_topic/1,
       forget_finding: &Records.Findings.forget/1,
       forget_case: &Memories.Cases.delete/1,

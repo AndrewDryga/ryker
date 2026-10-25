@@ -571,7 +571,7 @@ defmodule Ryker.ControlPlane.Router do
   # learning batch's budget, a stopped request's recovery. Once that changed,
   # the old token stopped matching and the person got a bare 403, never the
   # page saying what happened (2026-10-04 review).
-  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry: person-fact:forget:)
+  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry: person-fact:forget: memory:forget:)
 
   defp confirmed(secret, canonical_action, resource_ref, token) do
     case CSRF.signed_action(secret, resource_ref, token) do
@@ -737,7 +737,7 @@ defmodule Ryker.ControlPlane.Router do
         {:ok, "Forget #{memory.subject}?",
          "Ryker stops using this fact and erases what it saved. You can ask it to remember again later." <>
            forgetting_consequences(options.projection.forgetting.({:memory, resource_ref})),
-         "memory:forget", :danger}
+         "memory:forget:" <> memory.fingerprint, :danger}
     end
   end
 
@@ -1105,11 +1105,11 @@ defmodule Ryker.ControlPlane.Router do
        ),
        do: actions.forget_person_fact.(resource_ref, expected_digest)
 
+  defp perform("memory", resource_ref, "forget", "memory:forget:" <> fingerprint, actions, _conn),
+    do: actions.forget_memory.(resource_ref, fingerprint)
+
   defp perform(kind, resource_ref, action, _canonical_action, actions, conn),
     do: perform(kind, resource_ref, action, actions, conn.assigns.viewer)
-
-  defp perform("memory", resource_ref, "forget", actions, _viewer),
-    do: actions.forget_memory.(resource_ref)
 
   defp perform("knowledge", resource_ref, "forget", actions, _viewer),
     do: actions.forget_knowledge.(resource_ref)

@@ -67,7 +67,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     }
 
     assert length(Recall.recall(context)) == 2
-    assert {:ok, forgotten} = Memories.forget(production.ref)
+    assert {:ok, forgotten} = Memories.forget(production.ref, production.payload_fingerprint)
     assert forgotten.status == :deleted
     refute inspect(forgotten.payload) =~ "portal-prod"
     assert [%{"memory_ref" => ref}] = Recall.recall(context)
@@ -326,7 +326,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     original = AnswerMemory.answered!("portal-original", now)
     queued = AnswerMemory.answered!("portal-queued", DateTime.add(now, 1, :second))
     assert {:ok, %{memory: memory}} = remember(original, "portal-original")
-    assert {:ok, _} = Memories.forget(memory.ref)
+    assert {:ok, _} = Memories.forget(memory.ref, memory.payload_fingerprint)
 
     assert remember(queued, "portal-queued") == {:error, :answer_memory_conflict}
     assert Repo.get!(MemoryEntry, memory.id).status == :deleted
@@ -425,7 +425,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
           assert {:ok, %{"memories" => []}} = search_global!("emisar-project-old")
 
         :forget ->
-          assert {:ok, _} = Memories.forget(memory.ref)
+          assert {:ok, _} = Memories.forget(memory.ref, memory.payload_fingerprint)
           assert {:ok, %{"memories" => []}} = search_global!("emisar")
 
         :revoke_source ->

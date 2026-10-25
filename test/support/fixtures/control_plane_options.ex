@@ -47,7 +47,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:discarded_retention_changes, ref})
           {:ok, %{ref: ref}}
         end,
-        forget_memory: fn ref ->
+        forget_memory: fn ref, _fingerprint ->
           send(parent, {:forgot_memory, ref})
           {:ok, %{ref: ref}}
         end,
@@ -1497,6 +1497,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         %{
           kind: :repository_binding,
           ref: "memory:one",
+          fingerprint: String.duplicate("a", 64),
           scope: :workspace,
           value: "ryker",
           applicability: nil,

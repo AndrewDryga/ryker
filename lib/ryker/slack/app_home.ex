@@ -423,7 +423,8 @@ defmodule Ryker.Slack.AppHome do
   defp incident_status(:blocked), do: "Needs you"
   defp incident_status(_open), do: "Open"
 
-  defp memory_blocks(row) do
+  defp memory_blocks(%{ref: ref, revision: fingerprint} = row) do
+    value = ControlValue.encode("memory", ref, fingerprint)
     subject = bounded(Map.get(row, :subject, Map.get(row, :ref, "Memory")))
     kind = row |> Map.get(:kind, :memory) |> SavedEntity.memory_kind()
 
@@ -433,7 +434,7 @@ defmodule Ryker.Slack.AppHome do
         button(
           "ryker_home_forget_memory",
           "Forget",
-          Map.get(row, :ref),
+          value,
           destructive_confirm(
             "Forget this memory?",
             "I'll stop recalling it and forget what I learned from the same message."

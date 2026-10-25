@@ -337,6 +337,7 @@ defmodule Ryker.Slack.AppHomeProjection do
       %{
         kind: memory.kind,
         ref: memory.ref,
+        revision: memory.payload_fingerprint,
         subject: memory.subject,
         url: source_url(memory, slack_workspace_ref, shared_conversations)
       }

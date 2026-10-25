@@ -51,6 +51,7 @@ defmodule Ryker.Slack.AppHomeTest do
         %{
           kind: :repository_binding,
           ref: "memory:one",
+          revision: String.duplicate("a", 64),
           subject: "checkout-api",
           url: "https://slack.com/app_redirect?team=T123&channel=COPS"
         }
