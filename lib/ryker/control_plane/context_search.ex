@@ -296,7 +296,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
 
   defp cutoff(reason) when is_binary(reason) and reason != "" do
     text = if String.contains?(reason, " "), do: reason, else: String.replace(reason, "_", " ")
-    " (" <> String.downcase(text) <> ")"
+    " (" <> (text |> String.downcase() |> String.replace(~r/\b1 places\b/, "1 place")) <> ")"
   end
 
   defp cutoff(_reason), do: ""

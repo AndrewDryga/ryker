@@ -2573,7 +2573,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       [
         "<li><a href=\"",
         escape(Slack.archive_url(channel, message)),
-        "\">Source message in ",
+        "\">",
+        escape(topic_source_time(message)),
+        " · ",
         escape(conversation_name("slack:" <> workspace <> ":" <> channel)),
         " →</a></li>"
       ]
@@ -2583,6 +2585,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp topic_source(_read), do: nil
+
+  defp topic_source_time(message) do
+    case Slack.Timestamp.to_datetime(message) do
+      {:ok, at} -> readable_candidate_time(DateTime.to_iso8601(at))
+      :error -> "Source message"
+    end
+  end
 
   # One entry per note: what was noted, then who and when. The row already says
   # these are source notes; a heading and a "Summary" label on each repeated it

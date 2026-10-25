@@ -2,6 +2,21 @@ defmodule Ryker.ControlPlane.ContextSearchDesignTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.ContextSearch
 
+  test "historical cutoff prose uses singular place without rewriting the receipt" do
+    # The live search card repeated the retained producer's '1 places' typo.
+    reason = "bounded to 20 options after reserving 1 places for supported non-local matches"
+
+    search =
+      ContextSearch.present(%{
+        "routing_receipt" => %{"examined" => 2, "offered" => 1, "cutoff_reason" => reason}
+      })
+
+    assert {"Result", text} = Enum.find(search.facts, &(elem(&1, 0) == "Result"))
+    assert text =~ "reserving 1 place for"
+    refute text =~ "1 places"
+    assert search.record =~ reason
+  end
+
   test "full search details keep inspection secrets and signed URL parameters out of the browser" do
     # Expanding the formerly clipped query must not bypass the redaction used
     # by the adjacent original prompt. The raw search record shares that boundary.

@@ -686,10 +686,10 @@
 .ryker-app .prompt-document .prompt-parts dt { align-self:center; margin:0; padding:0; border:0; font-size:11px; line-height:16px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--secondary); }
 .ryker-app .prompt-document .prompt-parts dd { display:flex; flex-wrap:wrap; align-items:center; gap:0 6px; margin:0; padding:0; border:0; min-width:0; }
 .prompt-part { --part-accent:var(--ryker-source-neutral); }
-.ryker-app .prompt-document .prompt-part { position:relative; isolation:isolate; display:inline-flex; align-items:center; gap:6px; min-width:44px; min-height:44px; padding:0 8px; border:0; border-radius:5px; background:transparent; color:var(--ryker-text); font:inherit; font-size:12px; line-height:20px; cursor:pointer; }
+.ryker-app .prompt-document .prompt-part { position:relative; isolation:isolate; display:inline-flex; align-items:center; gap:6px; min-width:44px; min-height:44px; padding:8px; text-align:left; border:0; border-radius:5px; background:transparent; color:var(--ryker-text); font:inherit; font-size:12px; line-height:20px; cursor:pointer; }
 .prompt-part::before { content:''; flex:none; width:6px; height:6px; border-radius:2px; background:var(--part-accent); }
 .prompt-part::after { content:""; position:absolute; z-index:-1; inset:8px 0; border:1px solid var(--ryker-stroke); border-radius:5px; background:var(--ryker-surface); }
-.prompt-part-share { color:var(--secondary); font-variant-numeric:tabular-nums; }
+.prompt-part-share { flex:none; white-space:nowrap; color:var(--secondary); font-variant-numeric:tabular-nums; }
 .prompt-part:hover::after { border-color:color-mix(in srgb, var(--part-accent) 55%, var(--stroke)); }
 .prompt-part:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
 .prompt-part[aria-pressed="true"]::after { background:color-mix(in srgb, var(--part-accent) 18%, var(--ryker-surface)); border-color:var(--part-accent); }

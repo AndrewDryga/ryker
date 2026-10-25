@@ -8,6 +8,8 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
     assert css =~ ".prompt-source > summary { align-items:flex-start; }"
     assert css =~ ".ryker-app .copy-block-button { align-self:flex-end;"
     refute css =~ ".ryker-app .prompt-highlight {"
+    assert css =~ ".prompt-part-share { flex:none; white-space:nowrap;"
+    assert css =~ "min-height:44px; padding:8px; text-align:left;"
 
     assert css =~
              ".search-method-static .prompt-source-row { display:flex; flex-wrap:wrap; align-items:center; min-height:44px;"
@@ -97,6 +99,16 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
       "summary" => "The metric returned to zero. Application recovery remains unverified.",
       "conversation_ref" => "control-plane:lab:example",
       "source_count" => 2,
+      "source_reads" => [
+        %{
+          "tool" => "read_slack_source",
+          "arguments" => %{"source_ref" => "slack-source:v1:T123:C456:message:1791403283.668939"}
+        },
+        %{
+          "tool" => "read_slack_source",
+          "arguments" => %{"source_ref" => "slack-source:v1:T123:C456:message:1791402591.068909"}
+        }
+      ],
       "latest_source_at" => "2026-10-07T20:01:23Z",
       "version" => 2,
       "can_update" => false,
@@ -120,6 +132,10 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
              "Application recovery remains unverified."
 
     assert LazyHTML.text(document) =~ "2 source messages"
+    links = document |> LazyHTML.query(".learned-topic-sources a") |> Enum.map(&LazyHTML.text/1)
+    assert length(Enum.uniq(links)) == 2
+    assert Enum.at(links, 0) =~ "20:01:23 UTC"
+    assert Enum.at(links, 1) =~ "19:49:51 UTC"
     assert Enum.empty?(LazyHTML.query(document, ".learned-topic > .context-fields"))
     refute LazyHTML.text(document) =~ "Maintained topic"
   end
