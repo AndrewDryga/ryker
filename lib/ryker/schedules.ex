@@ -130,19 +130,29 @@ defmodule Ryker.Schedules do
   end
 
   @doc """
-  Pauses, resumes or deletes a schedule: `{:ok, schedule}`, or
-  `{:error, :schedule_not_found | :schedule_terminal}` for one that is gone or
-  already ended.
+  Pauses, resumes or deletes the schedule at `expected_revision`: `{:ok, schedule}`,
+  including a no-op at that current revision, or
+  `{:error, :schedule_not_found | :schedule_terminal | :schedule_revision_stale}`.
+  A stale revision changes nothing. Invalid refs return
+  `{:error, {:invalid_schedule_confirmation, :schedule_ref}}`; invalid statuses or
+  nonpositive/noninteger revisions return `{:error, {:invalid_schedule, field}}`.
   """
-  @spec set_status(String.t(), :paused | :active | :deleted) ::
+  @spec set_status(String.t(), :paused | :active | :deleted, pos_integer()) ::
           {:ok, Schedule.t()} | {:error, term()}
-  def set_status(schedule_ref, status) when status in [:paused, :active, :deleted] do
+  def set_status(schedule_ref, status, expected_revision)
+      when status in [:paused, :active, :deleted] and is_integer(expected_revision) and
+             expected_revision > 0 do
     with :ok <- reference(schedule_ref, :schedule_ref) do
-      Repo.transaction(fn -> set_status_locked(schedule_ref, status) end)
+      Repo.transaction(fn -> set_status_locked(schedule_ref, status, expected_revision) end)
     end
   end
 
-  def set_status(_schedule_ref, _status), do: {:error, {:invalid_schedule, :status}}
+  def set_status(_schedule_ref, status, _expected_revision)
+      when status in [:paused, :active, :deleted],
+      do: {:error, {:invalid_schedule, :revision}}
+
+  def set_status(_schedule_ref, _status, _expected_revision),
+    do: {:error, {:invalid_schedule, :status}}
 
   @doc "Changes one App Home schedule through revision-fenced operator action custody."
   @spec set_home_status(
@@ -732,10 +742,16 @@ defmodule Ryker.Schedules do
     schedule_ref |> Schedule.Query.by_ref() |> Schedule.Query.lock_for_update() |> Repo.fetch()
   end
 
-  defp set_status_locked(schedule_ref, status) do
+  defp set_status_locked(schedule_ref, status, expected_revision) do
     case fetch_and_lock_schedule(schedule_ref) do
-      {:error, :not_found} -> Repo.rollback(:schedule_not_found)
-      {:ok, %Schedule{} = schedule} -> update_schedule_status(schedule, status)
+      {:error, :not_found} ->
+        Repo.rollback(:schedule_not_found)
+
+      {:ok, %Schedule{revision: actual}} when actual != expected_revision ->
+        Repo.rollback(:schedule_revision_stale)
+
+      {:ok, %Schedule{} = schedule} ->
+        update_schedule_status(schedule, status)
     end
   end
 

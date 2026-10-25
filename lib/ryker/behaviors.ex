@@ -48,18 +48,27 @@ defmodule Ryker.Behaviors do
   end
 
   @doc """
-  Switches a behavior on or off, or deletes it: `{:ok, behavior}`, or
-  `{:error, :behavior_not_found | :behavior_terminal}`.
+  Switches or deletes the behavior at `expected_revision`: `{:ok, behavior}`,
+  including a no-op at that current revision, or
+  `{:error, :behavior_not_found | :behavior_terminal | :behavior_revision_stale}`.
+  A stale revision changes nothing. Invalid refs return
+  `{:error, {:invalid_behavior_confirmation, :behavior_ref}}`; invalid statuses or
+  nonpositive/noninteger revisions return `{:error, {:invalid_behavior, field}}`.
   """
-  @spec set_status(String.t(), :active | :disabled | :deleted) ::
+  @spec set_status(String.t(), :active | :disabled | :deleted, pos_integer()) ::
           {:ok, Behavior.t()} | {:error, term()}
-  def set_status(ref, status) when status in [:active, :disabled, :deleted] do
+  def set_status(ref, status, expected_revision)
+      when status in [:active, :disabled, :deleted] and is_integer(expected_revision) and
+             expected_revision > 0 do
     with :ok <- reference(ref, :behavior_ref) do
-      Repo.transaction(reviewed(fn -> set_status_locked(ref, status, nil) end))
+      Repo.transaction(reviewed(fn -> set_status_locked(ref, status, expected_revision) end))
     end
   end
 
-  def set_status(_ref, _status), do: {:error, {:invalid_behavior, :status}}
+  def set_status(_ref, status, _expected_revision) when status in [:active, :disabled, :deleted],
+    do: {:error, {:invalid_behavior, :revision}}
+
+  def set_status(_ref, _status, _expected_revision), do: {:error, {:invalid_behavior, :status}}
 
   @doc "Changes one App Home behavior through revision-fenced operator action custody."
   @spec set_home_status(
@@ -219,7 +228,7 @@ defmodule Ryker.Behaviors do
       {:ok, %Behavior{} = behavior} ->
         if home_behavior_visible?(behavior, actor_ref) or
              (behavior.scope_kind == :conversation and behavior.scope_ref == conversation_ref) do
-          updated = set_status_locked(ref, status, workspace_ref)
+          updated = set_status_locked(ref, status, expected_revision)
 
           {:ok,
            %{
@@ -289,8 +298,8 @@ defmodule Ryker.Behaviors do
          scope_kind: :conversation,
          workspace_ref: ^workspace_ref,
          scope_ref: ^conversation_ref
-       }} ->
-        update_assignment_status(ref, status, workspace_ref)
+       } = behavior} ->
+        update_assignment_status(ref, status, behavior.revision)
 
       {:ok, %Behavior{}} ->
         Repo.rollback(:assignment_scope_mismatch)
@@ -300,8 +309,8 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  defp update_assignment_status(ref, status, workspace_ref) do
-    case set_status_locked(ref, status, workspace_ref) do
+  defp update_assignment_status(ref, status, expected_revision) do
+    case set_status_locked(ref, status, expected_revision) do
       {:error, reason} -> Repo.rollback(reason)
       behavior -> behavior
     end
@@ -607,14 +616,15 @@ defmodule Ryker.Behaviors do
   defp fetch_and_lock_behavior(ref),
     do: ref |> Behavior.Query.by_ref() |> Behavior.Query.lock_for_update() |> Repo.fetch()
 
-  defp set_status_locked(ref, status, workspace_ref) do
+  # Scoped entry points validate their scope under this same row lock.
+  # Compare the supplied revision before changing status.
+  defp set_status_locked(ref, status, expected_revision) do
     case fetch_and_lock_behavior(ref) do
       {:error, :not_found} ->
         Repo.rollback(:behavior_not_found)
 
-      {:ok, %Behavior{workspace_ref: actual}}
-      when not is_nil(workspace_ref) and actual != workspace_ref ->
-        Repo.rollback(:behavior_workspace_mismatch)
+      {:ok, %Behavior{revision: actual}} when actual != expected_revision ->
+        Repo.rollback(:behavior_revision_stale)
 
       {:ok, %Behavior{status: ^status} = behavior} ->
         behavior

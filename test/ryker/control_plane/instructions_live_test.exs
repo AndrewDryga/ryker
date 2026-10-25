@@ -266,7 +266,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, row <> " h3", "Reply length: Concise")
     refute has_element?(view, row <> " form.action-control[action='#{resume}']")
 
-    assert {:ok, _paused} = Behaviors.set_status(preference.ref, :disabled)
+    assert {:ok, _paused} = Behaviors.set_status(preference.ref, :disabled, preference.revision)
 
     assert eventually(fn ->
              has_element?(view, row <> " form.action-control[action='#{resume}']", "Resume")

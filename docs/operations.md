@@ -144,6 +144,12 @@ instructions and private or shared source conversations stay conversation-scoped
 scope is the saved scope; widening a named rule supersedes its exact prior revision while
 preserving its source audit. Guidance never grants action authority.
 
+Console Pause, Resume and Delete confirmations apply to the displayed revision of a saved
+instruction or schedule. An edit before confirmation, including one committed while the action
+waits for its database lock, leaves the newer definition untouched and asks the operator to open
+its current details. Usage counters and lease renewals do not invalidate unchanged definitions.
+A same-status request at the current revision is a no-op.
+
 If saving a completed result is blocked, retain its workspace and retry completion after repairing
 the cause. An explicit completion retry captures a fresh snapshot under a new operation key;
 automatic transport retries retain their existing key. The saved answer and completed model turn

@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
       select: %{
         id: b.id,
         ref: b.ref,
+        revision: b.revision,
         kind: b.kind,
         payload: b.payload,
         status:

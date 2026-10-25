@@ -171,11 +171,11 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
             {:error, {:invalid_conversation_lab, :message}}
           end
         end,
-        set_behavior_status: fn ref, status ->
+        set_behavior_status: fn ref, status, _revision ->
           send(parent, {{:behavior_status, status}, ref})
           {:ok, %{ref: ref, status: status}}
         end,
-        set_schedule_status: fn ref, status ->
+        set_schedule_status: fn ref, status, _revision ->
           send(parent, {{:schedule_status, status}, ref})
           {:ok, %{ref: ref, status: status}}
         end,
@@ -848,6 +848,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
              %{
                kind: :standing_assignment,
                ref: "behavior:one",
+               revision: 1,
                status: "active",
                payload: %{"title" => "Triage deployment alerts"}
              }}

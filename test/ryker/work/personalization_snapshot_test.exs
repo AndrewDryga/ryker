@@ -42,7 +42,7 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
 
   test "stopped response preferences invalidate an unsent saved briefing" do
     {claim, preference} = Personalization.preference_context!()
-    assert {:ok, _} = Behaviors.set_status(preference.ref, :disabled)
+    assert {:ok, _} = Behaviors.set_status(preference.ref, :disabled, preference.revision)
     assert Behaviors.model_context(claim.episode, nil, nil)["preferences"] == %{}
 
     assert KnowledgeSnapshot.authorize_submission(
@@ -56,7 +56,7 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
   test "stopped response preferences invalidate the native transcript that read them" do
     {claim, preference} = Personalization.preference_context!()
     assert KnowledgeSnapshot.expose_submission(claim) == :ok
-    assert {:ok, _} = Behaviors.set_status(preference.ref, :disabled)
+    assert {:ok, _} = Behaviors.set_status(preference.ref, :disabled, preference.revision)
 
     assert KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
              {:error, :work_knowledge_context_stale}
@@ -248,7 +248,8 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
     People.forget_fact(source.id, expected_digest)
   end
 
-  defp withdraw!(:preferences, source), do: Behaviors.set_status(source.ref, :deleted)
+  defp withdraw!(:preferences, source),
+    do: Behaviors.set_status(source.ref, :deleted, source.revision)
 
   test "a changed asker cannot reuse the earlier person's personal context" do
     {claim, _source} = Personalization.personal_context!()
@@ -356,7 +357,7 @@ defmodule Ryker.Work.PersonalizationSnapshotTest do
   end
 
   defp change_preference!(preference, :deleted),
-    do: Behaviors.set_status(preference.ref, :deleted)
+    do: Behaviors.set_status(preference.ref, :deleted, preference.revision)
 
   defp change_preference!(preference, :expired) do
     confirmed = DateTime.add(Repo.now!(), -120, :second)

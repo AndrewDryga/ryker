@@ -84,7 +84,7 @@ defmodule Ryker.Work.ExecutorTest do
   end
 
   defp withdraw_personalization!(:preferences, saved),
-    do: Ryker.Behaviors.set_status(saved.ref, :deleted)
+    do: Ryker.Behaviors.set_status(saved.ref, :deleted, saved.revision)
 
   defp assert_personalization_absent(submitted, :facts),
     do: assert(get_in(submitted, ["context", "operator_context", "person_asking"]) == nil)
@@ -106,7 +106,10 @@ defmodule Ryker.Work.ExecutorTest do
     claim = correction |> Ryker.Fixtures.Corrections.later!() |> Map.delete(:state_token)
     [guidance] = claim.turn.submission["context"]["operator_context"]["guidance"]
     assert guidance["behavior_ref"] == saved["behavior_ref"]
-    assert {:ok, _} = Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted)
+
+    assert {:ok, _} =
+             Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted, saved["revision"])
+
     assert Ryker.Behaviors.model_context(claim.episode, nil, nil)["guidance"] == []
 
     {:ok, fake} = fake_for(claim, [captured_complete_reply()])
@@ -138,7 +141,10 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     claim = %{claim | session: session}
-    assert {:ok, _} = Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted)
+
+    assert {:ok, _} =
+             Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted, saved["revision"])
+
     {:ok, fake} = fake_for(claim, [captured_complete_reply()])
 
     create_session = fn fallback ->

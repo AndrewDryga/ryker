@@ -2011,6 +2011,7 @@ defmodule Ryker.ControlPlane.RouterTest do
                %{
                  kind: :standing_assignment,
                  ref: "behavior:one",
+                 revision: 1,
                  status: "active",
                  payload: %{"title" => "Triage deployment alerts"}
                }}
@@ -2087,6 +2088,7 @@ defmodule Ryker.ControlPlane.RouterTest do
                  %{
                    kind: kind,
                    ref: "behavior:saved",
+                   revision: 1,
                    status: "active",
                    payload: %{
                      "key" => "response_detail",

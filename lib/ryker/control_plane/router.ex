@@ -571,7 +571,8 @@ defmodule Ryker.ControlPlane.Router do
   # learning batch's budget, a stopped request's recovery. Once that changed,
   # the old token stopped matching and the person got a bare 403, never the
   # page saying what happened (2026-10-04 review).
-  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry: person-fact:forget: memory:forget:)
+  @revisioned_actions ~w(schedule:run-now: learning:drop: work:retry: person-fact:forget: memory:forget:
+    behavior:active: behavior:disabled: behavior:deleted: schedule:active: schedule:paused: schedule:deleted:)
 
   defp confirmed(secret, canonical_action, resource_ref, token) do
     case CSRF.signed_action(secret, resource_ref, token) do
@@ -878,7 +879,7 @@ defmodule Ryker.ControlPlane.Router do
           end
 
         subject = BehaviorPage.subject(behavior)
-        {:ok, "#{verb} #{subject}?", explanation, "behavior:#{action}", tone}
+        {:ok, "#{verb} #{subject}?", explanation, "behavior:#{action}:#{behavior.revision}", tone}
 
       _unavailable ->
         {:error, :not_found}
@@ -918,7 +919,8 @@ defmodule Ryker.ControlPlane.Router do
                :danger}
           end
 
-        {:ok, "#{verb} #{schedule.title}?", explanation, "schedule:#{action}", tone}
+        {:ok, "#{verb} #{schedule.title}?", explanation,
+         "schedule:#{action}:#{schedule.revision}", tone}
 
       _unavailable ->
         {:error, :not_found}
@@ -1108,6 +1110,20 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("memory", resource_ref, "forget", "memory:forget:" <> fingerprint, actions, _conn),
     do: actions.forget_memory.(resource_ref, fingerprint)
 
+  defp perform("behavior", resource_ref, action, canonical_action, actions, _conn)
+       when action in ["active", "disabled", "deleted"] do
+    revision = status_revision(canonical_action)
+    status = String.to_existing_atom(action)
+    actions.set_behavior_status.(resource_ref, status, revision)
+  end
+
+  defp perform("schedule", resource_ref, action, canonical_action, actions, _conn)
+       when action in ["active", "paused", "deleted"] do
+    revision = status_revision(canonical_action)
+    status = String.to_existing_atom(action)
+    actions.set_schedule_status.(resource_ref, status, revision)
+  end
+
   defp perform(kind, resource_ref, action, _canonical_action, actions, conn),
     do: perform(kind, resource_ref, action, actions, conn.assigns.viewer)
 
@@ -1181,18 +1197,15 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("episode", resource_ref, "rate-needs-work", actions, viewer),
     do: actions.rate_episode.(resource_ref, :needs_work, viewer)
 
-  defp perform("behavior", resource_ref, action, actions, _viewer)
-       when action in ["active", "disabled", "deleted"],
-       do: actions.set_behavior_status.(resource_ref, String.to_existing_atom(action))
-
-  defp perform("schedule", resource_ref, action, actions, _viewer)
-       when action in ["active", "paused", "deleted"],
-       do: actions.set_schedule_status.(resource_ref, String.to_existing_atom(action))
-
   defp perform("schedule", resource_ref, "run-now", actions, viewer),
     do: actions.run_schedule.(resource_ref, viewer)
 
   defp perform(_kind, _resource_ref, _action, _actions, _viewer), do: {:error, :invalid_action}
+
+  defp status_revision(canonical_action) do
+    [_kind, _action, revision] = String.split(canonical_action, ":", parts: 3)
+    String.to_integer(revision)
+  end
 
   # What a reviewed fact's action does, in the words its confirmation page shows.
   defp review_confirmation("keep", "duplicate", subjects) do

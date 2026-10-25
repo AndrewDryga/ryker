@@ -79,7 +79,9 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
       |> LazyHTML.query("#action-question form[method=post][action='#{path}'] input[name=_token]")
       |> LazyHTML.attribute("value")
 
-    assert CSRF.valid?(@secret, "behavior:deleted", rule.ref, token)
+    intent = "behavior:deleted:#{rule.revision}"
+    assert CSRF.valid?(@secret, intent, rule.ref, token)
+    refute CSRF.valid?(@secret, "behavior:deleted", rule.ref, token)
 
     # Cancel closes it and changes nothing.
     view |> element("#action-question button", "Cancel") |> render_click()

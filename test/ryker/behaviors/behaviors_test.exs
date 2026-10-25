@@ -44,13 +44,13 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     :ok = Behaviors.subscribe_behaviors()
     :ok = Records.subscribe_records()
 
-    assert {:ok, %{behavior: %{id: id, ref: ref}}} =
+    assert {:ok, %{behavior: %{id: id, ref: ref, revision: revision}}} =
              Behaviors.confirm(confirmation(fixture, fixture.guidance, "announced"))
 
     assert_received {:behavior_updated, ^id}
     assert_received {:record_updated, ^record_id}
 
-    assert {:ok, _disabled} = Behaviors.set_status(ref, :disabled)
+    assert {:ok, _disabled} = Behaviors.set_status(ref, :disabled, revision)
     assert_received {:behavior_updated, ^id}
   end
 
@@ -261,7 +261,9 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       Behaviors.confirm(confirmation(fixture, fixture.workspace_preference, "preference"))
 
     {:ok, guidance} = Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance"))
-    {:ok, _paused} = Behaviors.set_status(preference.behavior.ref, :disabled)
+
+    {:ok, _paused} =
+      Behaviors.set_status(preference.behavior.ref, :disabled, preference.behavior.revision)
 
     guidance.behavior
     |> Behavior.Changeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
@@ -684,22 +686,28 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     refute Behaviors.standing_match?(terraform_input(:app, "slack:T123:C999"))
     refute Behaviors.standing_match?(deployment_input())
 
-    assert {:ok, disabled} = Behaviors.set_status(confirmed.behavior.ref, :disabled)
+    assert {:ok, disabled} =
+             Behaviors.set_status(confirmed.behavior.ref, :disabled, confirmed.behavior.revision)
 
     assert disabled.status == :disabled
     assert disabled.revision == confirmed.behavior.revision + 1
 
-    assert {:ok, unchanged} = Behaviors.set_status(confirmed.behavior.ref, :disabled)
+    assert {:ok, unchanged} =
+             Behaviors.set_status(confirmed.behavior.ref, :disabled, disabled.revision)
 
     assert unchanged.revision == disabled.revision
     refute Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
 
-    assert {:ok, active} = Behaviors.set_status(confirmed.behavior.ref, :active)
+    assert {:ok, active} =
+             Behaviors.set_status(confirmed.behavior.ref, :active, disabled.revision)
+
     assert active.status == :active
     assert active.revision == disabled.revision + 1
     assert Behaviors.standing_match?(terraform_input(:app, "slack:T123:C456"))
 
-    assert {:ok, deleted} = Behaviors.set_status(confirmed.behavior.ref, :deleted)
+    assert {:ok, deleted} =
+             Behaviors.set_status(confirmed.behavior.ref, :deleted, active.revision)
+
     assert deleted.status == :deleted
     assert deleted.revision == active.revision + 1
 
@@ -707,7 +715,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     # fact keeps a digest (2026-10-04 review).
     assert Map.keys(deleted.payload) == ["deleted_payload_sha256"]
 
-    assert Behaviors.set_status(confirmed.behavior.ref, :active) ==
+    assert Behaviors.set_status(confirmed.behavior.ref, :active, deleted.revision) ==
              {:error, :behavior_terminal}
   end
 
@@ -915,7 +923,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     # A paused preference is still removable, and the control follows its
     # revision. The notice keeps the save event and the current pause visible;
     # a disabled preference must not read as if it is still being applied.
-    assert {:ok, disabled} = Behaviors.set_status(behavior.ref, :disabled)
+    assert {:ok, disabled} = Behaviors.set_status(behavior.ref, :disabled, behavior.revision)
     assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
     assert paused_document["presentation"]["entity"]["status"] == "disabled"
     assert paused_document["presentation"]["entity"]["removable"] == true
@@ -929,7 +937,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert paused_delete["confirm"]["title"]["text"] == "Delete preference?"
 
     # Once it is gone there is nothing left to confirm.
-    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted)
+    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted, disabled.revision)
     assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -980,7 +988,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert delete["confirm"]["confirm"]["text"] == "Delete guidance"
     assert delete["confirm"]["deny"]["text"] == "Cancel"
 
-    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted)
+    assert {:ok, _deleted} = Behaviors.set_status(behavior.ref, :deleted, behavior.revision)
     assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -1175,7 +1183,13 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              )
 
     assert {{:ok, %Behavior{status: :disabled}}, 0} =
-             review_queries(fn -> Behaviors.set_status(preference.behavior.ref, :disabled) end)
+             review_queries(fn ->
+               Behaviors.set_status(
+                 preference.behavior.ref,
+                 :disabled,
+                 preference.behavior.revision
+               )
+             end)
   end
 
   test "behavior retrieval and lifecycle controls stay bounded to trusted context" do
@@ -1196,14 +1210,25 @@ defmodule Ryker.Behaviors.BehaviorsTest do
            |> Enum.sort() ==
              Enum.sort([preference.behavior.ref, assignment.behavior.ref])
 
-    assert {:ok, disabled} = Behaviors.set_status(assignment.behavior.ref, :disabled)
+    assert {:ok, disabled} =
+             Behaviors.set_status(
+               assignment.behavior.ref,
+               :disabled,
+               assignment.behavior.revision
+             )
+
     assert disabled.status == :disabled
-    assert {:ok, active} = Behaviors.set_status(assignment.behavior.ref, :active)
+
+    assert {:ok, active} =
+             Behaviors.set_status(assignment.behavior.ref, :active, disabled.revision)
+
     assert active.status == :active
 
-    assert Behaviors.set_status("missing-behavior", :active) == {:error, :behavior_not_found}
-    assert {:error, _reason} = Behaviors.set_status("", :active)
-    assert {:error, _reason} = Behaviors.set_status(assignment.behavior.ref, :unknown)
+    assert Behaviors.set_status("missing-behavior", :active, 1) == {:error, :behavior_not_found}
+    assert {:error, _reason} = Behaviors.set_status("", :active, 1)
+
+    assert {:error, _reason} =
+             Behaviors.set_status(assignment.behavior.ref, :unknown, assignment.behavior.revision)
 
     assert {:error, _reason} =
              Behaviors.manage_assignment("ref", :unknown, "workspace", "channel")
@@ -1312,7 +1337,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
            }) ==
              {:error, :behavior_offer_not_found}
 
-    assert Behaviors.set_status("behavior", :unknown) ==
+    assert Behaviors.set_status("behavior", :unknown, 1) ==
              {:error, {:invalid_behavior, :status}}
 
     assert Behaviors.set_home_status("behavior", :unknown, 1, "actor", "workspace", "action") ==

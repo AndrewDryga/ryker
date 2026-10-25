@@ -55,7 +55,9 @@ defmodule Ryker.Records.DerivedContextTest do
            }) == :ok
 
     assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) == :ok
-    assert {:ok, _} = Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted)
+
+    assert {:ok, _} =
+             Ryker.Behaviors.set_status(saved["behavior_ref"], :deleted, saved["revision"])
 
     assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) ==
              {:error, :work_knowledge_context_stale}

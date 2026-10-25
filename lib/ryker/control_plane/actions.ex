@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.Actions do
       rate_episode: &Operator.EpisodeReviews.review(&1, Actor.of(&3), &2),
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(placements),
-      set_behavior_status: &Behaviors.set_status/2,
+      set_behavior_status: &Behaviors.set_status/3,
       save_instructions: &InstructionSettings.save(&1, &2, &3, Actor.of(&4)),
       # The outcome comes back to the page that asked, as a message.
       redraw_channel_welcome: &Slack.Runtime.redraw_welcome(&1, &2, self()),
@@ -130,7 +130,7 @@ defmodule Ryker.ControlPlane.Actions do
       preview_retention: &SettingsCommands.preview_retention/2,
       preview_webhook: &SettingsCommands.preview_webhook/2,
       send_weekly_report_preview: fn -> WeeklyReport.send_preview() end,
-      set_schedule_status: &Schedules.set_status/2,
+      set_schedule_status: &Schedules.set_status/3,
       view_lab_task_record: lab_task_record_view(work_view_options)
     }
   end

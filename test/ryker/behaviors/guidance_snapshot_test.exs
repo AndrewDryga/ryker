@@ -107,5 +107,6 @@ defmodule Ryker.Behaviors.GuidanceSnapshotTest do
     |> Repo.update!()
   end
 
-  defp withdraw!(saved, status), do: Behaviors.set_status(saved["behavior_ref"], status)
+  defp withdraw!(saved, status),
+    do: Behaviors.set_status(saved["behavior_ref"], status, saved["revision"])
 end

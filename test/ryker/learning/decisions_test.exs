@@ -104,8 +104,8 @@ defmodule Ryker.Learning.DecisionsTest do
     _asked = person_message!(source.episode, "Pause the weekday QA reminder for now.")
     schedule = SavedEntities.schedule!(source, "QA weekday reminder", 1)
 
-    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused)
-    assert {:ok, _resumed} = Schedules.set_status(schedule.ref, :active)
+    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused, schedule.revision)
+    assert {:ok, _resumed} = Schedules.set_status(schedule.ref, :active, paused.revision)
 
     assert %{"paused" => paused_receipt, "active" => resumed_receipt} =
              Map.new(receipts(conversation), &{&1.content["decision"], &1})

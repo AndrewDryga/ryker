@@ -32,14 +32,14 @@ defmodule Ryker.Schedules.SchedulesTest do
     :ok = Schedules.subscribe_schedules()
     :ok = Episodes.subscribe_episode(episode_id)
 
-    assert {:ok, %{schedule: %{id: id, ref: ref}}} =
+    assert {:ok, %{schedule: %{id: id, ref: ref, revision: revision}}} =
              Schedules.confirm(confirmation(fixture, "announced"))
 
     assert_received {:schedule_updated, ^id}
     assert_received {:episode_updated, ^episode_id}
 
     :ok = Schedules.subscribe_schedule(ref)
-    assert {:ok, _paused} = Schedules.set_status(ref, :paused)
+    assert {:ok, _paused} = Schedules.set_status(ref, :paused, revision)
     assert_received {:schedule_updated, ^id}
     assert_received {:schedule_updated, ^id}
   end
@@ -154,22 +154,34 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert Repo.get!(Schedule, confirmation.schedule.id).status == :active
 
-    assert {:ok, paused} = Schedules.set_status(confirmation.schedule.ref, :paused)
+    assert {:ok, paused} =
+             Schedules.set_status(
+               confirmation.schedule.ref,
+               :paused,
+               confirmation.schedule.revision
+             )
+
     assert paused.status == :paused
     assert paused.revision == confirmation.schedule.revision + 1
 
-    assert {:ok, unchanged} = Schedules.set_status(confirmation.schedule.ref, :paused)
+    assert {:ok, unchanged} =
+             Schedules.set_status(confirmation.schedule.ref, :paused, paused.revision)
+
     assert unchanged.revision == paused.revision
 
-    assert {:ok, resumed} = Schedules.set_status(confirmation.schedule.ref, :active)
+    assert {:ok, resumed} =
+             Schedules.set_status(confirmation.schedule.ref, :active, paused.revision)
+
     assert resumed.status == :active
     assert resumed.revision == paused.revision + 1
 
-    assert {:ok, deleted} = Schedules.set_status(confirmation.schedule.ref, :deleted)
+    assert {:ok, deleted} =
+             Schedules.set_status(confirmation.schedule.ref, :deleted, resumed.revision)
+
     assert deleted.status == :deleted
     assert deleted.revision == resumed.revision + 1
 
-    assert Schedules.set_status(confirmation.schedule.ref, :active) ==
+    assert Schedules.set_status(confirmation.schedule.ref, :active, deleted.revision) ==
              {:error, :schedule_terminal}
   end
 
@@ -383,7 +395,12 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert ["Access", "Read-only"] in entity["facts"]
     assert Enum.any?(entity["facts"], &match?(["Next run", _], &1))
 
-    assert {:ok, deleted} = Schedules.set_status(confirmation.schedule.ref, :deleted)
+    assert {:ok, deleted} =
+             Schedules.set_status(
+               confirmation.schedule.ref,
+               :deleted,
+               confirmation.schedule.revision
+             )
 
     assert [%{"presentation" => %{"entity" => gone}}] =
              ReplyRecords.documents("slack", fixture.episode.id, [record])
@@ -430,7 +447,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert delete["confirm"]["deny"]["text"] == "Cancel"
 
     # A paused schedule is still removable, and the control follows its revision.
-    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused)
+    assert {:ok, paused} = Schedules.set_status(schedule.ref, :paused, schedule.revision)
     assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -441,7 +458,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert paused_delete["confirm"]["title"]["text"] == "Delete schedule?"
 
     # Once it is gone there is nothing left to confirm.
-    assert {:ok, _deleted} = Schedules.set_status(schedule.ref, :deleted)
+    assert {:ok, _deleted} = Schedules.set_status(schedule.ref, :deleted, paused.revision)
     assert [deleted_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
 
     assert {:ok, rendered} =
@@ -854,11 +871,11 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:error, _reason} = Schedules.dispatch("schedule", "lease", &policy/1, -1)
     assert {:error, _reason} = Schedules.renew("schedule", "lease", 0)
     assert {:error, _reason} = Schedules.defer("schedule", "lease", 0, :failed)
-    assert {:error, _reason} = Schedules.set_status("schedule", :unknown)
+    assert {:error, _reason} = Schedules.set_status("schedule", :unknown, 1)
     assert {:error, _reason} = Schedules.set_home_status("schedule", :active, 1, "a", "b", %{})
     assert {:error, _reason} = Schedules.run_now("", "", "", %{}, :not_a_resolver)
     assert {:error, _reason} = Schedules.run_now_for_operator("", "", "", :not_a_resolver)
-    assert Schedules.set_status("missing-schedule", :active) == {:error, :schedule_not_found}
+    assert Schedules.set_status("missing-schedule", :active, 1) == {:error, :schedule_not_found}
   end
 
   defp delivered_offer!(suffix, options \\ []) do

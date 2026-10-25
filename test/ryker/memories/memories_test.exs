@@ -1202,7 +1202,8 @@ defmodule Ryker.Memories.MemoriesTest do
     assert {:ok, %{created: 1}} = Reviews.refresh_reviews("slack:T123", 86_400)
     assert [_review] = Inspectors.memory_reviews("slack:T123")
 
-    assert {:ok, %{status: :deleted}} = Behaviors.set_status(first.behavior.ref, :deleted)
+    assert {:ok, %{status: :deleted}} =
+             Behaviors.set_status(first.behavior.ref, :deleted, first.behavior.revision)
 
     assert Inspectors.memory_reviews("slack:T123") == []
   end
