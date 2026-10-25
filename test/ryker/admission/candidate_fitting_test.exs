@@ -77,6 +77,30 @@ defmodule Ryker.Admission.CandidateFittingTest do
     assert fitted.source_dependencies == context.source_dependencies
   end
 
+  test "inspection-only search decisions do not displace messages or knowledge sent to routing" do
+    # The search UI must not spend model context on diagnostics the model never reads.
+    context = %{context!(sources: receipts(), memory_size: 0) | routing_receipt: %{}}
+    baseline = Prompt.fit(context)
+
+    items =
+      for _index <- 1..200,
+          do: %{
+            "episode_id" => Ecto.UUID.generate(),
+            "lanes" => ["text"],
+            "offered" => false,
+            "reason" => "weak_match"
+          }
+
+    receipt = %{
+      "selection" => %{"version" => 1, "items" => items, "limit" => 20, "reserved" => 0}
+    }
+
+    inspected = Prompt.fit(%{context | routing_receipt: receipt})
+    assert Prompt.build(inspected) == Prompt.build(baseline)
+    assert inspected.candidates == baseline.candidates
+    assert Context.snapshot(inspected)["routing_receipt"] == receipt
+  end
+
   test "restoring a fitted context preserves preview strings after episode and entry changes" do
     fitted = context!() |> Prompt.fit()
     snapshot = Context.snapshot(fitted)

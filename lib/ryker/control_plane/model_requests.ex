@@ -365,7 +365,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
                 actor: "Ryker",
                 owner: {:input, entry.id},
                 input_id: entry.id,
-                search: search,
+                search: Map.put(search, :briefing_href, "#admission-#{entry.id}-#{generation}"),
                 details: [],
                 stage: "Search",
                 summary: nil,

@@ -165,8 +165,19 @@ defmodule Ryker.ControlPlane.PromptDocument do
     {["[", html], rest}
   end
 
-  defp content([token | rest], _path, _depth, _parts), do: {Plug.HTML.html_escape(token), rest}
+  defp content([token | rest], _path, _depth, _parts), do: {syntax(token), rest}
   defp content([], _path, _depth, _parts), do: {[], []}
+
+  defp syntax("\"" <> _ = token), do: syntax_span("string", token)
+  defp syntax(token) when token in ["true", "false", "null"], do: syntax_span("literal", token)
+
+  defp syntax(<<first, _rest::binary>> = token) when first in ~c"-0123456789",
+    do: syntax_span("number", token)
+
+  defp syntax(token), do: Plug.HTML.html_escape(token)
+
+  defp syntax_span(kind, token),
+    do: ["<span class=\"json-", kind, "\">", Plug.HTML.html_escape(token), "</span>"]
 
   # A member's key is highlighted with its value: a bare `2` or `null` says
   # nothing without the name it was sent under.
@@ -186,7 +197,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
         child = path <> segment(key)
         {html, rest} = value(rest, child, depth, parts)
         {remaining, rest} = object(rest, path, depth, parts)
-        member = [Plug.HTML.html_escape(key), Plug.HTML.html_escape(Enum.join(separator)), html]
+        member = [syntax_span("key", key), Plug.HTML.html_escape(Enum.join(separator)), html]
 
         {[Plug.HTML.html_escape(Enum.join(space)), annotate(member, child, parts), remaining],
          rest}

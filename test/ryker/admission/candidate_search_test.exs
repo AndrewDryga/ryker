@@ -56,6 +56,27 @@ defmodule Ryker.Admission.CandidateSearchTest do
     assert result.receipt["examined"] > 20
     assert result.receipt["omitted"] > 0
     assert result.receipt["cutoff_reason"] =~ "non-local"
+
+    # The card redesign could show counts but not the actual exclusions.
+    # Keep host decisions, not inferred explanations or copied source prose.
+    selection = result.receipt["selection"]
+    assert is_map(selection)
+    assert selection["version"] == 1
+    assert selection["limit"] == 20
+    assert selection["reserved"] > 0
+
+    assert Enum.sort(Enum.map(selection["items"], & &1["episode_id"])) ==
+             Enum.sort(Enum.map(result.pool, & &1.episode.id))
+
+    assert Enum.sort(for item <- selection["items"], item["offered"], do: item["episode_id"]) ==
+             Enum.sort(offered)
+
+    for item <- selection["items"] do
+      assert is_list(item["lanes"])
+      assert item["reason"] in ~w(source_owner supported_non_local ranked weak_match option_limit)
+      refute Map.has_key?(item, "text")
+      refute Map.has_key?(item, "title")
+    end
   end
 
   # The "Same links or IDs" replay over the Tenant alert history (2026-09-30, ID1): every shared
@@ -469,6 +490,8 @@ defmodule Ryker.Admission.CandidateSearchTest do
 
     result = search!(channel_ref: "CDEVOPS", text: "Shared outage evidence")
     refute contaminated.id in Enum.map(result.selected, & &1.episode.id)
+    assert result.receipt["selection"]["ineligible"]["text"] == 1
+    refute Jason.encode!(result.receipt) =~ contaminated.id
   end
 
   defp search!(options) do

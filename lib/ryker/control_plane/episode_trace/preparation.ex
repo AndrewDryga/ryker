@@ -397,7 +397,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       for key <- ["proactive", "shadow"], %{} = setting <- [settings[key]] do
         %{
           label: participation_label(key),
-          value: if(setting["value"] == true, do: "On", else: "Off")
+          value: if(setting["value"] == true, do: "On", else: "Off"),
+          description: participation_help(key)
         }
       end
 
@@ -421,6 +422,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp participation_label("proactive"), do: "Proactive replies"
   defp participation_label("shadow"), do: "Shadow evaluation"
   defp participation_label(other), do: to_string(other)
+
+  defp participation_help("proactive"),
+    do: "May respond without a mention, even when no standing rule matches."
+
+  defp participation_help("shadow"),
+    do: "Evaluates messages without sending replies or taking actions."
 
   # The receipt is authoritative evidence, but its internal result names and
   # predicate trace are not operator copy. Compile its retained path, checks,
@@ -730,7 +737,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           {"Session", session_state.detail},
           {"Processing attempts", processing_attempts(turn, outcome.kind)},
           {"Current step", outcome.current_step}
-        ]),
+        ])
+        |> repository_links(repositories, context.names, session),
       diagnostics: setup_diagnostics(outcome.kind, turn, session, placement)
     })
   end
@@ -1092,6 +1100,62 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       end
     end)
   end
+
+  defp repository_links(rows, repositories, names, session)
+       when is_list(repositories) and repositories != [] do
+    links =
+      Enum.map(repositories, &repository_link(&1, names, session))
+
+    Enum.map(rows, fn fact ->
+      if fact.label in ["Repository", "Repositories"],
+        do: Map.put(fact, :links, links),
+        else: fact
+    end)
+  end
+
+  defp repository_links(rows, _repositories, _names, _session), do: rows
+
+  defp repository_link(%{ref: ref, access: access}, names, session) do
+    source = frozen_source(session.worker_job_document, ref)
+    remote = source && source["github_repository"]
+    branch = source && source_branch(source["binding"])
+    label = remote || Map.get(names.repositories, ref, ref)
+
+    %{
+      label: label <> if(branch, do: ":" <> branch, else: ""),
+      href: repository_href(remote, branch),
+      note: repository_access(access)
+    }
+  end
+
+  # Navigation must retain the job's identity, not follow a later configuration
+  # edit to a different repository. Missing frozen provenance stays unlinked.
+  defp frozen_source(%{} = job, ref) do
+    companions = for %{"source" => source} <- List.wrap(job["companions"]), do: source
+
+    Enum.find([job["source"] | companions], fn
+      %{"repository_ref" => ^ref, "github_repository" => slug} ->
+        CoopFleet.JobSpec.github_repository?(slug)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp frozen_source(_job, _ref), do: nil
+
+  defp repository_href(nil, _branch), do: nil
+  defp repository_href(remote, nil), do: "https://github.com/" <> remote
+
+  defp repository_href(remote, branch),
+    do: "https://github.com/" <> remote <> "/tree/" <> URI.encode(branch, &URI.char_unreserved?/1)
+
+  defp repository_access(:change), do: "can change it"
+  defp repository_access(:read), do: "read only"
+  defp repository_access(nil), do: nil
+
+  defp source_branch(%{"selected_ref" => "refs/heads/" <> name}), do: name
+  defp source_branch(_source), do: nil
 
   defp emisar_words(%Work.Session{emisar_connection_ref: ref}, names) when is_binary(ref),
     do: Map.get(names.emisar, ref, ref)

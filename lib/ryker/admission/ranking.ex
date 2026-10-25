@@ -43,12 +43,17 @@ defmodule Ryker.Admission.Ranking do
 
   @type scored :: map()
 
-  @spec select([map()], map()) :: %{selected: [scored()], cutoff: String.t()}
-  def select(pool, request) do
+  @spec select([map()], map()) :: %{selected: [scored()], cutoff: String.t(), selection: map()}
+  @spec select([map()], map(), [map()]) :: %{
+          selected: [scored()],
+          cutoff: String.t(),
+          selection: map()
+        }
+  def select(pool, request, overflow \\ []) do
     weights = Map.merge(@weights, Map.get(request, :weights, %{}))
 
-    scored =
-      pool |> Enum.map(&score(&1, request, weights)) |> Enum.filter(&offerable?(&1, weights))
+    examined = Enum.map(pool, &score(&1, request, weights))
+    scored = Enum.filter(examined, &offerable?(&1, weights))
 
     limit = request.candidate_limit
 
@@ -67,8 +72,79 @@ defmodule Ryker.Admission.Ranking do
     # could put above it.
     selected = Enum.take(owners ++ ranked, limit)
 
-    %{selected: selected, cutoff: cutoff(length(pool), length(selected), limit, reserved)}
+    offered_ids = MapSet.new(selected, & &1.episode.id)
+    reserved_ids = MapSet.new(reserved, & &1.episode.id)
+
+    selection = %{
+      "version" => 1,
+      "limit" => limit,
+      "reserved" => length(reserved),
+      "items" =>
+        Enum.map(examined, &selection_item(&1, offered_ids, reserved_ids, weights)) ++
+          Enum.map(
+            overflow,
+            &%{
+              "episode_id" => &1.episode.id,
+              "lanes" => Enum.map(&1.lanes, fn lane -> Atom.to_string(lane) end),
+              "offered" => false,
+              "reason" => "pool_limit"
+            }
+          )
+    }
+
+    %{
+      selected: selected,
+      cutoff: cutoff(length(pool), length(selected), limit, reserved),
+      selection: selection
+    }
   end
+
+  # Save the decision where it is made. No source prose is copied into this
+  # diagnostic receipt, and a historical reader never has to infer a reason.
+  defp selection_item(candidate, offered_ids, reserved_ids, weights) do
+    offered = MapSet.member?(offered_ids, candidate.episode.id)
+
+    reason =
+      cond do
+        not offerable?(candidate, weights) -> "weak_match"
+        not offered -> "option_limit"
+        candidate.source_owner -> "source_owner"
+        MapSet.member?(reserved_ids, candidate.episode.id) -> "supported_non_local"
+        true -> "ranked"
+      end
+
+    %{
+      "episode_id" => candidate.episode.id,
+      "lanes" => Enum.map(candidate.lanes, &Atom.to_string/1),
+      "offered" => offered,
+      "reason" => reason
+    }
+  end
+
+  @doc "Reconcile the recorded shortlist with the candidates source custody actually allowed."
+  def finish_receipt(%{} = receipt, episode_ids) do
+    offered = MapSet.new(episode_ids)
+    removed = max((receipt["offered"] || 0) - MapSet.size(offered), 0)
+
+    receipt
+    |> Map.put("offered", MapSet.size(offered))
+    |> Map.update("omitted", removed, &(&1 + removed))
+    |> finish_selection(offered)
+  end
+
+  defp finish_selection(%{"selection" => %{"items" => items} = selection} = receipt, offered)
+       when is_list(items) do
+    items =
+      Enum.map(items, fn item ->
+        if item["offered"] == true and not MapSet.member?(offered, item["episode_id"]),
+          do: Map.merge(item, %{"offered" => false, "reason" => "source_unavailable"}),
+          else: item
+      end)
+
+    Map.put(receipt, "selection", Map.put(selection, "items", items))
+  end
+
+  defp finish_selection(receipt, _offered), do: receipt
 
   # Reserved places exist so more than twenty nearby options cannot bury the
   # one matching episode in another thread or channel. They are given only to

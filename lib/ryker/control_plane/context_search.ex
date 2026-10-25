@@ -8,6 +8,8 @@ defmodule Ryker.ControlPlane.ContextSearch do
   searches looked (the words, links and IDs it used), what each found, and
   what it found but left out.
   """
+  alias Ryker.ControlPlane.Paths
+  alias Ryker.InspectionRedactor
   alias Ryker.Slack
   alias Ryker.Text
   alias Ryker.Wording
@@ -24,15 +26,17 @@ defmodule Ryker.ControlPlane.ContextSearch do
   @spec present(map() | nil) :: map() | nil
   def present(%{"routing_receipt" => %{} = receipt} = snapshot) do
     omitted = length(List.wrap(snapshot["knowledge_omissions"]))
+    titles = frozen_titles(snapshot)
 
     %{
-      summary: found(receipt["examined"], receipt["offered"]),
+      summary:
+        if(is_nil(selection_items(receipt)), do: found(receipt["examined"], receipt["offered"])),
       where: where(receipt),
-      methods: methods(receipt),
+      methods: methods(receipt, titles),
       facts:
         Enum.reject(
           [
-            {"Result", result(receipt)},
+            selection_fact(receipt),
             {"Knowledge", knowledge(snapshot)},
             {"Memory", memory(omitted)}
           ],
@@ -48,6 +52,16 @@ defmodule Ryker.ControlPlane.ContextSearch do
   end
 
   def present(_snapshot), do: nil
+
+  # Only the same frozen briefing can supply source prose. Today's digest can
+  # contain another scope's text, including for a match never offered at all.
+  defp frozen_titles(snapshot) do
+    for %{"episode_id" => id, "digest" => %{"title" => title}} <-
+          List.wrap(snapshot["candidates"]),
+        is_binary(id) and is_binary(title),
+        into: %{},
+        do: {id, InspectionRedactor.artifact(title, max_bytes: 240).text}
+  end
 
   # V9, 2026-09-28: the briefing said "Learned topics: None" and nothing about
   # what was searched. Routing is sent up to eight learned topics that share
@@ -129,22 +143,96 @@ defmodule Ryker.ControlPlane.ContextSearch do
 
   defp window(_since), do: nil
 
-  defp methods(%{"lanes" => %{} = lanes} = receipt) do
+  defp methods(%{"lanes" => %{} = lanes} = receipt, titles) do
+    selection = selection_items(receipt)
     # Search by meaning is listed where it was set up, running or not.
-    for {lane, name} <- @lanes, lane != "meaning" or is_map(receipt["meaning"]) do
+    for {lane, name} <- method_lanes(receipt, selection) do
       facts = lanes[lane] || %{}
 
+      results =
+        for item <- selection || [],
+            lane in List.wrap(item["lanes"]),
+            do: search_result(item, titles)
+
       %{
+        key: lane,
         name: name,
         used: used(lane, receipt),
         note: note(lane, receipt),
-        found: facts["returned"] || 0,
+        found: facts["returned"] || length(results),
+        ineligible: scope_exclusions(receipt)[lane],
+        offered: if(is_list(selection), do: Enum.count(results, & &1.offered)),
+        results: results,
+        recorded: is_list(selection),
         limit: facts["saturated"] == true
       }
     end
   end
 
-  defp methods(_receipt), do: []
+  defp methods(_receipt, _titles), do: []
+
+  defp scope_exclusions(%{
+         "selection" => %{"version" => 1, "items" => items, "ineligible" => %{} = counts}
+       })
+       when is_list(items), do: counts
+
+  defp scope_exclusions(_historical), do: %{}
+
+  defp method_lanes(receipt, selection) do
+    lanes =
+      Enum.reject(@lanes, fn {lane, _name} ->
+        lane == "meaning" and not is_map(receipt["meaning"])
+      end)
+
+    if Enum.any?(selection || [], &("source_owner" in List.wrap(&1["lanes"]))),
+      do: [{"source_owner", "Existing request for this source message"} | lanes],
+      else: lanes
+  end
+
+  defp selection_items(%{"selection" => %{"version" => 1, "items" => items}}) when is_list(items),
+    do: Enum.filter(items, &is_map/1)
+
+  defp selection_items(_receipt), do: nil
+
+  defp search_result(item, titles) do
+    available = item["reason"] != "source_unavailable"
+    id = item["episode_id"]
+    title = if available, do: Map.get(titles, id)
+
+    %{
+      title: title || match_label(id),
+      href: if(is_binary(title) and Ecto.UUID.cast(id) == {:ok, id}, do: Paths.request(id)),
+      offered: item["offered"] == true,
+      reason: selection_reason(item["reason"])
+    }
+  end
+
+  defp match_label(id) when is_binary(id), do: "Request " <> String.slice(id, -8, 8)
+  defp match_label(_id), do: "Earlier request"
+
+  defp selection_reason("weak_match"), do: "Not closely enough related to this message."
+
+  defp selection_reason("option_limit"),
+    do: "Not selected within the routing-option limit and reserved places."
+
+  defp selection_reason("pool_limit"),
+    do: "Left out when the combined search pool reached its limit."
+
+  defp selection_reason("source_unavailable"), do: "Its source was not available to this request."
+  defp selection_reason("source_owner"), do: "Already owns this source message."
+  defp selection_reason("supported_non_local"), do: "A supported match outside this thread."
+  defp selection_reason("ranked"), do: "Selected by the recorded ranking."
+  defp selection_reason(_reason), do: "Selection reason was not recorded."
+
+  defp selection_fact(%{
+         "selection" => %{"version" => 1, "limit" => limit, "reserved" => reserved}
+       })
+       when is_integer(limit) and is_integer(reserved) do
+    {"Routing options",
+     "Up to #{limit} options; #{Wording.count(reserved, "place")} reserved for supported matches outside this thread."}
+  end
+
+  defp selection_fact(receipt), do: {"Result", result(receipt)}
 
   defp used("text", %{"words" => words}) when is_list(words), do: words
 

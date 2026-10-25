@@ -38,9 +38,50 @@ export function revealFragment(container, fragment, reduceMotion = false) {
   })
 }
 
-export function promptPartFromEvent(event, root = document) {
+export async function promptPartFromEvent(event, root = document) {
   const target = event.target
   if (!target || !target.closest) return
+
+  const source = target.closest("[data-prompt-highlight]")
+  if (source) {
+    const disclosure = root.getElementById(source.dataset.promptDisclosure)
+    if (!disclosure || disclosure.dataset?.revoked) return unavailableSource(source)
+    disclosure.open = true
+
+    // Opening the original disclosure uses the existing lazy-artifact path.
+    // Wait only for that retained document; never rebuild it from source rows.
+    let container = root.getElementById(source.dataset.promptDocument)
+    if (!container) {
+      container = await new Promise(resolve => {
+        const observer = new MutationObserver(() => {
+          const found = root.getElementById(source.dataset.promptDocument)
+          if (disclosure.dataset?.revoked) finish(null)
+          else if (found || !source.isConnected) finish(found)
+        })
+        const timeout = setTimeout(() => finish(null), 10000)
+        function finish(found) {
+          observer.disconnect()
+          clearTimeout(timeout)
+          resolve(found)
+        }
+        observer.observe(disclosure, {childList: true, subtree: true, attributes: true, attributeFilter: ["data-revoked"]})
+      })
+    }
+    const current = root.getElementById(source.dataset.promptDisclosure)
+    if (!container || !current || current.dataset?.revoked || source.isConnected === false) return unavailableSource(source)
+    const first = [...container.querySelectorAll(".prompt-fragment")]
+      .find(fragment => fragment.dataset.part === source.dataset.promptHighlight)
+    if (!first) return unavailableSource(source, "This section is not in the retained prompt.")
+    // A source button always selects, rather than toggling an existing choice.
+    const active = container.querySelector('.prompt-part[aria-pressed="true"]')
+    if (active?.dataset.promptPart !== source.dataset.promptHighlight) {
+      selectPart(container, source.dataset.promptHighlight)
+    }
+    container.scrollIntoView({block: "nearest"})
+    first?.focus({preventScroll: true})
+    revealFragment(container, first, true)
+    return
+  }
 
   const chip = target.closest(".prompt-part")
   const fragment = chip ? null : target.closest(".prompt-fragment")
@@ -59,6 +100,12 @@ export function promptPartFromEvent(event, root = document) {
   const selection = root.getSelection && root.getSelection()
   if (selection && !selection.isCollapsed) return
   if (!fragment.classList.contains("is-highlighted")) selectPart(container, fragment.dataset.part)
+}
+
+function unavailableSource(source, message = "The retained prompt is not available.") {
+  const status = source.querySelector("[data-highlight-status]")
+  if (status) status.textContent = message
+  source.disabled = true
 }
 
 export function setupPromptParts(root = document) {

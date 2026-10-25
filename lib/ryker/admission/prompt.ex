@@ -353,7 +353,7 @@ defmodule Ryker.Admission.Prompt do
 
   defp fits?(context) do
     byte_size(CanonicalJSON.encode!(request(context))) <= @max_encoded_bytes and
-      byte_size(CanonicalJSON.encode!(Context.snapshot(context))) <= @max_snapshot_bytes
+      byte_size(CanonicalJSON.encode!(Context.fitting_snapshot(context))) <= @max_snapshot_bytes
   end
 
   defp fit_context_memory(context, key) do

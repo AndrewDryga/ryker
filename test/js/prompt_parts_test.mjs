@@ -52,6 +52,46 @@ function prompt() {
 const highlighted = fragments => fragments.map(fragment => fragment.classList.contains("is-highlighted"))
 const pressed = chips => chips.map(chip => chip.getAttribute("aria-pressed"))
 
+test("a readable source opens the submitted prompt and highlights its real fragments", async () => {
+  const {container, fragments} = prompt()
+  const disclosure = {open: false}
+  let focused = false
+  container.scrollIntoView = () => {}
+  fragments[0].focus = () => { focused = true }
+  const button = {
+    dataset: {promptHighlight: "Earlier messages", promptDocument: "prompt", promptDisclosure: "raw"},
+    closest: selector => selector === "[data-prompt-highlight]" ? button : null,
+    querySelector: () => null
+  }
+  const root = {getElementById: id => id === "prompt" ? container : disclosure}
+
+  await promptPartFromEvent({target: button}, root)
+
+  assert.equal(disclosure.open, true)
+  assert.deepEqual(highlighted(fragments), [true, false, true])
+  assert.equal(focused, true)
+})
+
+test("revoked prompt evidence cannot be reopened or highlighted from a readable source", async () => {
+  // A retained phx-update=ignore document can still exist while a revocation
+  // patch arrives. The source shortcut must obey the current evidence state.
+  const {container, fragments} = prompt()
+  container.scrollIntoView = () => {}
+  fragments.forEach(fragment => { fragment.focus = () => {} })
+  const disclosure = {open:false, dataset:{revoked:"true"}}
+  const status = {textContent:""}
+  const button = {
+    dataset:{promptHighlight:"Earlier messages",promptDocument:"prompt",promptDisclosure:"raw"},
+    closest: selector => selector === "[data-prompt-highlight]" ? button : null,
+    querySelector: () => status
+  }
+  const root = {getElementById: id => id === "prompt" ? container : disclosure}
+  await promptPartFromEvent({target:button},root)
+  assert.equal(disclosure.open,false)
+  assert.deepEqual(highlighted(fragments),[false,false,false])
+  assert.equal(status.textContent,"The retained prompt is not available.")
+})
+
 test("choosing a part highlights only its fragments and returns the first", () => {
   const {container, chips, fragments} = prompt()
 

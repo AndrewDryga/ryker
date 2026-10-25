@@ -91,6 +91,8 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     history = LazyHTML.text(details)
     assert history =~ "Details and history"
     assert history =~ "read only"
+    assert history =~ "Mode"
+    refute history =~ "Authority"
     assert history =~ "check"
     assert history =~ "In progress"
     assert details |> LazyHTML.query("[data-copy-value='#{goal.ref}']") |> Enum.count() == 1

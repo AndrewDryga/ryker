@@ -73,10 +73,52 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     "parallel_goal_limit" => 1
   }
 
-  test "a ready setup shows no check mark and no word for its state" do
+  test "historical repository links use the frozen job even after settings change" do
+    {:ok, _snapshot} = Settings.initialize(@actor)
+    work = submitted!("linked-branch")
+
+    Repo.insert!(%Settings.Repository{
+      ref: "ryker",
+      display_name: "Gateway",
+      github_repository: "sample-platform/gateway"
+    })
+
+    job =
+      Ryker.Fixtures.WorkerJob.build("setup:linked", "ryker")
+      |> put_in(["source", "github_repository"], "sample-platform/gateway")
+
+    Repo.update_all(from(session in Session, where: session.id == ^work.session.id),
+      set: [worker_job_document: job]
+    )
+
+    Repo.update_all(from(repository in Settings.Repository, where: repository.ref == "ryker"),
+      set: [github_repository: "sample-platform/other"]
+    )
+
+    document = rendered(work.episode) |> LazyHTML.from_document()
+
+    links =
+      LazyHTML.query(
+        document,
+        ".setup-facts a[href='https://github.com/sample-platform/gateway/tree/main']"
+      )
+
+    assert LazyHTML.text(links) == "sample-platform/gateway:main"
+    assert Enum.count(links) == 1
+    assert fact(rendered(work.episode), work.turn, "Repositories") =~ "coop · read only"
+    refute rendered(work.episode) =~ "https://github.com/sample-platform/other"
+
+    Repo.update_all(from(session in Session, where: session.id == ^work.session.id),
+      set: [worker_job_document: nil]
+    )
+
+    refute rendered(work.episode) =~ "https://github.com/sample-platform/other"
+  end
+
+  test "a ready setup names its state in the header without a redundant check mark" do
     # Andrew, 2026-09-26: the green check on Work setup said nothing a reader
-    # could use. A ready card is the ordinary case and carries no state at
-    # all; a card that is not ready still names its state.
+    # could use. The October design puts the state in the header, once,
+    # rather than adding a second status mark or body heading.
     work = submitted!("ready")
     html = rendered(work.episode)
     card = card(html, work.turn)
@@ -88,8 +130,11 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
 
     assert ready?(html, work.turn)
     assert Enum.empty?(LazyHTML.query(document, "#event-setup-#{work.turn.id} .success-mark"))
-    assert Enum.empty?(LazyHTML.query(heading, ".case-card-heading-meta"))
-    refute card =~ "Ready"
+
+    assert LazyHTML.query(heading, ".case-card-heading-meta") |> LazyHTML.text() |> String.trim() ==
+             "Ready"
+
+    assert length(Regex.scan(~r/\bReady\b/, card)) == 1
     assert card =~ "Session"
     assert card =~ "New · the model starts with only this briefing"
     refute html =~ "Workspace selected"
@@ -361,13 +406,13 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   # Andrew, 2026-10-15, on a run still setting up: "I also don't like badge
   # Preparing · current, current card is the last one." Its step says what is
   # happening, and the last card is the current one.
-  test "a setup still preparing says its current step and carries no state badge" do
+  test "a setup still preparing keeps its current step beside the header state" do
     work = claimed!("preparing")
     html = rendered(work.episode)
     card = card(html, work.turn)
 
     assert card =~ "Creating worker session"
-    refute card =~ "Preparing"
+    assert card =~ "Preparing"
     refute card =~ "current"
     refute ready?(html, work.turn)
   end

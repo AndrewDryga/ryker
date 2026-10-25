@@ -39,6 +39,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     {entry, episode} = decided!()
     attempt!(entry, DateTime.add(entry.inserted_at, 290, :millisecond))
     html = rendered(episode)
+    assert html =~ "queue-event-delta"
 
     positions =
       for id <- [

@@ -4,6 +4,8 @@ defmodule Ryker.ControlPlane.Assets do
   alias Ryker.Crypto
 
   @assets %{
+    "platforms/slack.svg" => {:ryker, "priv/static/platforms/slack.svg", "image/svg+xml"},
+    "platforms/github.svg" => {:ryker, "priv/static/platforms/github.svg", "image/svg+xml"},
     "phoenix.mjs" => {:phoenix, "priv/static/phoenix.mjs", "text/javascript"},
     "phoenix_live_view.esm.js" =>
       {:phoenix_live_view, "priv/static/phoenix_live_view.esm.js", "text/javascript"},

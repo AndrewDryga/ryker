@@ -76,9 +76,12 @@ defmodule Ryker.Admission.CandidateSearch do
       meaning: Map.new(ranked_meaning, fn {episode, similarity} -> {episode.id, similarity} end)
     }
 
-    pool = pool(lanes, owner, request, anchor_weights(request, scope, anchors), ranks)
+    {pool, overflow} = pool(lanes, owner, request, anchor_weights(request, scope, anchors), ranks)
 
-    %{selected: selected, cutoff: cutoff} = Ranking.select(pool, request)
+    %{selected: selected, cutoff: cutoff, selection: selection} =
+      Ranking.select(pool, request, overflow)
+
+    selection = Map.put(selection, "ineligible", scope_exclusions(lanes, pool ++ overflow))
 
     %{
       selected: selected,
@@ -87,6 +90,7 @@ defmodule Ryker.Admission.CandidateSearch do
       receipt:
         receipt(lanes, pool, selected, scope, cutoff, anchors)
         |> Map.merge(%{
+          "selection" => selection,
           # What each lane searched with, so the search can be read back as
           # the words, links and places it used, not only as counts.
           "words" =>
@@ -121,6 +125,16 @@ defmodule Ryker.Admission.CandidateSearch do
       "pool_saturated" => length(pool) >= @pool_limit,
       "cutoff_reason" => cutoff
     }
+  end
+
+  # Inspection-only counts explain the gap without retaining an out-of-scope
+  # identity or consuming the frozen model-context budget.
+  defp scope_exclusions(lanes, eligible) do
+    ids = MapSet.new(eligible, & &1.episode.id)
+
+    Map.new(lanes, fn {lane, rows} ->
+      {Atom.to_string(lane), Enum.count(rows, &(not MapSet.member?(ids, &1.id)))}
+    end)
   end
 
   defp source_owner(
@@ -328,7 +342,7 @@ defmodule Ryker.Admission.CandidateSearch do
     end)
     |> Enum.filter(&authorized?(&1, request))
     |> Enum.sort_by(&{not &1.source_owner, &1.episode.id})
-    |> Enum.take(@pool_limit)
+    |> Enum.split(@pool_limit)
   end
 
   # Cross-conversation reading never widens an audience. An episode that has

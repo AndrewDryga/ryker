@@ -160,8 +160,8 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     )
 
     step = maintenance_step(episode, "Working copy kept")
-    # One story: the close, then why the copy stayed.
-    assert step.summary =~ "closed"
+    # The reason leads; the close remains inspectable, not a second story.
+    assert Enum.any?(step.details, &(&1.label == "Closed"))
     assert step.summary =~ "uncommitted changes"
     assert step.tone == nil
   end
@@ -227,7 +227,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     )
 
     step = maintenance_step(episode, "Cleanup blocked")
-    assert step.summary =~ "delivered answer is unaffected"
+    refute step.summary =~ "delivered answer is unaffected"
     # The error in words on the card; its code and the saved detail in Details.
     assert step.summary =~ "The worker could not finish this step"
     refute step.summary =~ ~r/coop/i
@@ -286,7 +286,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     [gone, removed] = Enum.map(steps, & &1.summary)
     assert gone =~ "the worker no longer knew this session"
     assert removed =~ "closed"
-    assert removed =~ "removed the temporary working copy"
+    assert removed =~ "the temporary working copy was removed"
     refute Enum.any?(steps, &(&1.title =~ "Nothing to remove"))
   end
 

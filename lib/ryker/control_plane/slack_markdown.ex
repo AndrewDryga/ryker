@@ -201,6 +201,21 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     ]
   end
 
+  # Formatting is a container, not literal code. Monitoring notifications put
+  # their Slack alert links inside bold text; keep those destinations usable
+  # while the ordinary token renderer still escapes HTML and refuses bad URLs.
+  defp token("**" <> text, workspace),
+    do: wrapped("strong", String.slice(text, 0..-3//1), workspace)
+
+  defp token("*" <> text, workspace),
+    do: wrapped("strong", String.slice(text, 0..-2//1), workspace)
+
+  defp token("_" <> text, workspace),
+    do: wrapped("em", String.slice(text, 0..-2//1), workspace)
+
+  defp token("~" <> text, workspace),
+    do: wrapped("del", String.slice(text, 0..-2//1), workspace)
+
   defp token(text, _workspace), do: token(text)
 
   defp token("<!date^" <> text) do
@@ -232,13 +247,6 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   defp token("`" <> text),
     do: ["<code>", Plug.HTML.html_escape(String.slice(text, 0..-2//1)), "</code>"]
-
-  defp token("**" <> text),
-    do: ["<strong>", Plug.HTML.html_escape(String.slice(text, 0..-3//1)), "</strong>"]
-
-  defp token("*" <> text), do: wrapped("strong", text)
-  defp token("_" <> text), do: wrapped("em", text)
-  defp token("~" <> text), do: wrapped("del", text)
 
   defp token("<http" <> _ = text) do
     [url | labels] = text |> String.slice(1..-2//1) |> String.split("|", parts: 2)
@@ -275,6 +283,6 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end
   end
 
-  defp wrapped(tag, text),
-    do: ["<", tag, ">", Plug.HTML.html_escape(String.slice(text, 0..-2//1)), "</", tag, ">"]
+  defp wrapped(tag, text, workspace),
+    do: ["<", tag, ">", render(text, workspace), "</", tag, ">"]
 end

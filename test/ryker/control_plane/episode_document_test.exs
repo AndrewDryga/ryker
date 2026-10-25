@@ -31,6 +31,47 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     }
   ]
 
+  test "source highlight controls target their own retained submitted prompt" do
+    # Briefing rows and submitted artifacts have distinct ID prefixes. A link
+    # to the right source name is useless if it opens no actual document.
+    context = %{"input" => %{"content" => %{"text" => "Hello"}}}
+    prompt = %{"instructions" => "Route carefully", "context" => context}
+
+    html =
+      render_request(:admission, :submission, [
+        section("instructions", "Instructions", "Route carefully"),
+        section("context", "Context", context),
+        section("request", "Submitted request", prompt)
+      ])
+
+    document = LazyHTML.from_fragment(html)
+
+    for button <- LazyHTML.query(document, "[data-prompt-highlight]") do
+      [id] = LazyHTML.attribute(button, "data-prompt-document")
+      assert Enum.count(LazyHTML.query(document, "[id='#{id}']")) == 1
+      [id] = LazyHTML.attribute(button, "data-prompt-disclosure")
+      assert Enum.count(LazyHTML.query(document, "details[id='#{id}']")) == 1
+    end
+  end
+
+  test "routing keeps its recorded choice and model reason in one compact outcome" do
+    html =
+      render_request(:admission, :result, [
+        section("candidate", "Decision", %{
+          "action" => "quick_reply",
+          "reason" => "A greeting needs a brief reply."
+        })
+      ])
+
+    document = LazyHTML.from_fragment(html)
+
+    assert LazyHTML.query(document, ".decision-outcome") |> LazyHTML.text() =~
+             "A greeting needs a brief reply."
+
+    refute Enum.empty?(LazyHTML.query(document, ".outcome-decision"))
+    assert Enum.empty?(LazyHTML.query(document, ".request-rationale"))
+  end
+
   test "opaque routing candidate references never become nonexistent timeline links" do
     # The live follow-up routed correctly but its 'Joins' link opened a 404:
     # candidate references belong to one prompt, not the timeline route namespace.
@@ -135,7 +176,20 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         "reason" => "The person said hello."
       })
 
-    decision = LazyHTML.query(document, ".episode-request > .request-decision")
+    decision =
+      LazyHTML.query(
+        document,
+        ".episode-request > .request-decision, .decision-outcome, .routing-answers"
+      )
+
+    assert Enum.count(LazyHTML.query(document, ".routing-answers .ui-message")) == 1
+
+    assert LazyHTML.query(document, ".episode-request > .case-card-heading h3")
+           |> Enum.map(&LazyHTML.text/1) == ["Routing briefing", "Quick reply selected"]
+
+    assert LazyHTML.query(document, ".routing-answers .ui-message-context") |> LazyHTML.text() ==
+             "Selected reply"
+
     assert words(LazyHTML.text(decision)) =~ "Answer right away, no work"
     assert words(LazyHTML.text(decision)) =~ "Hi!"
     refute LazyHTML.text(decision) =~ "Earlier work"
@@ -784,7 +838,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.query(heading, ".case-card-heading-description")
            |> LazyHTML.text()
            |> String.trim() ==
-             "Use an AI model to classify this message and choose how to respond."
+             "Decide how to handle this message, including whether to reply directly or hand work to another model."
 
     assert Enum.empty?(LazyHTML.query(document, ".episode-request > .request-explanation"))
   end
@@ -814,7 +868,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     facts =
       render_component(&EpisodeRequest.render/1, request: request)
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query(".request-decision")
+      |> LazyHTML.query(".request-decision, .decision-outcome")
       |> LazyHTML.text()
 
     assert facts =~ "Continue existing work"
@@ -937,12 +991,19 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.text(model) =~ "gpt-5.6-sol"
     assert LazyHTML.text(model) =~ "Medium reasoning"
 
+    assert Enum.count(
+             LazyHTML.query(
+               model,
+               ".request-model-choice > .execution-target + a[href='/settings/models']"
+             )
+           ) == 1
+
     # The model is an operator choice in Settings; the card says where to change it
     # instead of naming an environment variable nobody could see or edit.
     assert LazyHTML.query(model, ".request-model-reason") |> LazyHTML.text() |> words() ==
-             "Routing uses the model set for it in Settings"
+             "Routing uses its configured model."
 
-    assert Enum.count(LazyHTML.query(model, ~s(.request-model-reason a[href="/settings/models"]))) ==
+    assert Enum.count(LazyHTML.query(model, ~s(.request-model-choice a[href="/settings/models"]))) ==
              1
 
     assert Enum.empty?(LazyHTML.query(document, ".case-card-heading-meta .execution-target"))
@@ -969,7 +1030,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            |> LazyHTML.query(".request-model-reason")
            |> LazyHTML.text()
            |> words() ==
-             "Deep work in acme/emisar uses the model set for it in Settings"
+             "Deep work in acme/emisar uses its configured model."
 
     result = render_component(&EpisodeRequest.render/1, request: %{submission | phase: :result})
     assert Enum.empty?(LazyHTML.query(LazyHTML.from_fragment(result), ".request-model-section"))
@@ -999,9 +1060,9 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> LazyHTML.query(".request-model-section")
 
     assert LazyHTML.query(model, ".request-model-reason") |> LazyHTML.text() |> words() ==
-             "Chosen when this work started, from the models set in Settings"
+             "Chosen when this work started."
 
-    assert Enum.count(LazyHTML.query(model, ~s(.request-model-reason a[href="/settings/models"]))) ==
+    assert Enum.count(LazyHTML.query(model, ~s(.request-model-choice a[href="/settings/models"]))) ==
              1
 
     # A call recorded before model choices were kept links there too.
@@ -1929,7 +1990,12 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       ])
       |> LazyHTML.from_fragment()
 
-    text = document |> LazyHTML.query(".request-decision") |> LazyHTML.text() |> words()
+    text =
+      document
+      |> LazyHTML.query(".request-decision, .decision-outcome")
+      |> LazyHTML.text()
+      |> words()
+
     assert text =~ "an answer that can use tools"
     refute text =~ "a quick answer, no investigation"
   end

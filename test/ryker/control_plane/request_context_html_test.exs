@@ -209,7 +209,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
 
-    labels = document |> LazyHTML.query(".context-field > h4") |> Enum.map(&LazyHTML.text/1)
+    labels = document |> LazyHTML.query(".context-field > dt") |> Enum.map(&LazyHTML.text/1)
 
     assert "SHA-256" in labels
     assert "JSON preview" in labels
@@ -515,8 +515,10 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> IO.iodata_to_binary()
       |> LazyHTML.from_fragment()
 
-    assert candidates |> LazyHTML.query(".candidate-message-meta") |> LazyHTML.text() =~
-             "Slack user · "
+    assert candidates |> LazyHTML.query(".ui-message-header strong") |> LazyHTML.text() ==
+             "Slack user"
+
+    assert candidates |> LazyHTML.query(".ui-message-meta") |> LazyHTML.text() =~ "17:00"
 
     refute LazyHTML.text(candidates) =~ "U0BHTNFCW6S"
 
@@ -1150,6 +1152,13 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # A field with no named home is still retained in full, in Other fields.
     assert html =~ "Other fields"
     assert html =~ "$.work.unknown"
+
+    assert Enum.empty?(
+             html
+             |> LazyHTML.from_fragment()
+             |> LazyHTML.query("[data-source=other_fields] pre")
+           )
+
     refute html =~ "Additional entries remain"
     assert Enum.empty?(html |> LazyHTML.from_fragment() |> LazyHTML.query("details[open]"))
   end
@@ -1180,6 +1189,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert html =~ "Track recovery"
     assert html =~ "&lt;extra&gt;"
     assert html =~ "Saved component"
+    document = LazyHTML.from_fragment(html)
+    assert Enum.empty?(LazyHTML.query(document, ".conversation-recall h5"))
+    assert Enum.empty?(LazyHTML.query(document, ".context-inline-disclosure pre"))
   end
 
   test "retained source notes are readable even when no conversation summary was selected" do
@@ -1499,6 +1511,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              "Restore the production deployment"
 
     assert text =~ "idle 1 h"
+    assert LazyHTML.query(option, ".candidate-state") |> LazyHTML.text() == "Request finished"
     assert text =~ "Replied: The replacement allocation is healthy."
     assert text =~ "Matched on"
     assert text =~ "shares 1 identifier · same thread · similar wording"
@@ -1608,7 +1621,8 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
         "first_message" => %{
           "actor" => "U1",
           "at" => "2026-09-18T17:00:00Z",
-          "text" => "Same message"
+          "text" => "Same message",
+          "truncated" => true
         }
       },
       %{
@@ -1637,9 +1651,13 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     options = LazyHTML.query(document, ".context-candidate")
     assert Enum.count(options) == 4
 
-    # Without a name the opening message is the heading, and is not repeated.
+    # Without a title the opening message still keeps its author and time,
+    # with the body shown once in the shared message frame.
     sparse = Enum.at(options, 0)
     assert Enum.count(Regex.scan(~r/Same message/, LazyHTML.text(sparse))) == 1
+    assert Enum.count(LazyHTML.query(sparse, ".ui-message")) == 1
+    assert LazyHTML.text(sparse) =~ "truncated"
+    refute Enum.empty?(LazyHTML.query(sparse, ".ui-message-header strong"))
     assert Enum.empty?(LazyHTML.query(sparse, ".candidate-history"))
 
     truncated = Enum.at(options, 1) |> LazyHTML.text()

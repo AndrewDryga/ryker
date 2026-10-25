@@ -514,7 +514,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         compact_details([
           {"Done when", payload["completion_contract"]},
           {"Kind", payload["kind"] && human(payload["kind"])},
-          {"Authority", payload["authority"] && human(payload["authority"])},
+          {"Mode", payload["authority"] && human(payload["authority"])},
           {"Membership", if(payload["required"] == false, do: "Optional", else: "Required")},
           {"Stage", payload["stage"] && human(payload["stage"])},
           {"Changes", payload["writable_repository"]},

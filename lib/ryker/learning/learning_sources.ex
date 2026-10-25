@@ -322,7 +322,7 @@ defmodule Ryker.Learning.LearningSources do
             is_list(sources) and not valid?(sources, scope)
           end)
 
-        omitted = length(context.candidates) - length(candidates)
+        offered_ids = Enum.map(candidates, & &1.episode.id)
 
         %{
           context
@@ -332,9 +332,7 @@ defmodule Ryker.Learning.LearningSources do
               |> Enum.flat_map(&Admission.Candidate.previewed_messages/1)
               |> Enum.uniq(),
             routing_receipt:
-              context.routing_receipt
-              |> Map.put("offered", length(candidates))
-              |> Map.update!("omitted", &(&1 + omitted))
+              Admission.Ranking.finish_receipt(context.routing_receipt, offered_ids)
         }
 
       {:error, _reason} ->

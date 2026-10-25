@@ -4,6 +4,49 @@ defmodule Ryker.ControlPlane.EpisodeTrace.MaintenanceTest do
   alias Ryker.Settings
   alias Ryker.Work.Session
 
+  test "cleanup explains a verified removal once and keeps timestamps in its evidence" do
+    session = cleanup_session(:discarded, %{"dirty" => false, "unmerged" => false})
+    assert [step] = Maintenance.steps([session])
+
+    assert step.summary ==
+             "The worker session was closed and the temporary working copy was removed after checking it held no uncommitted changes and no unmerged commits."
+
+    assert Enum.any?(step.details, &(&1.label == "Closed"))
+    assert Enum.any?(step.details, &(&1.label == "Cleanup finished"))
+  end
+
+  test "protected changes name their recorded branch without a second story" do
+    session =
+      cleanup_session(:retained, %{
+        "dirty" => true,
+        "unmerged" => false,
+        "branch" => "fix/readiness"
+      })
+
+    session = %{session | retained_reason: "dirty"}
+    assert [step] = Maintenance.steps([session])
+
+    assert step.summary ==
+             "The working copy cannot be removed because it has uncommitted changes on branch fix/readiness."
+  end
+
+  test "a cleanup retry leads with its recorded error and scheduled time" do
+    session = %{
+      cleanup_session(:discard_pending, %{})
+      | cleanup_last_error_code: "coop_worker_command_timeout",
+        cleanup_next_attempt_at: ~U[2026-10-11 12:05:00.000000Z],
+        cleanup_attempt_count: 2
+    }
+
+    assert [step] = Maintenance.steps([session])
+
+    assert step.summary ==
+             "There was an error during cleanup: the worker did not answer in time. Retry is scheduled at 12:05 UTC."
+
+    assert %{label: "Tries", value: "2"} in step.details
+    assert Enum.any?(step.details, &(&1.label == "Step"))
+  end
+
   # A read-only copy of an already published draft PR said its commits had
   # "never published" because Git only reported unmerged (manual QA, 2026-10-11).
   # Neither an unmerged flag nor acceptance of a removal plan proves publication.

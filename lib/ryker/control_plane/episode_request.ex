@@ -30,12 +30,17 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     archived = latest_archived_response(request.sections)
     {unused_history, decision} = Enum.split_with(decision_facts(request), & &1[:unused])
 
+    {choice, decision} = split_choice(request, decision)
+    {answers, decision} = Enum.split_with(decision, &(&1[:presentation] == :message))
+
     assigns =
       assigns
       |> assign(:headline, headline(request))
       |> assign(:attempt, attempt_label(request))
       |> assign(:explanation, explanation(request))
       |> assign(:decision, decision)
+      |> assign(:answers, answers)
+      |> assign(:choice, List.first(choice))
       |> assign(:unused_history, unused_history)
       |> assign(:result?, request.phase == :result)
       |> assign(:run, if(request.phase == :result, do: request[:run]))
@@ -81,12 +86,19 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       <p :if={@retention_note} class="artifact-unavailable request-retention">{@retention_note}</p>
       <section :if={!@result?} class="request-model-section" aria-label="Model">
         <h4>Model</h4>
-        <Components.execution_target target={@request.target} />
-        <p class="request-model-reason">
-          {@model_reason} <.link navigate="/settings/models">Settings</.link>
-        </p>
+        <div class="request-model-choice">
+          <Components.execution_target target={@request.target} />
+          <.link navigate="/settings/models" title="Choose models for future work">Model settings →</.link>
+        </div>
+        <p class="request-model-reason">{@model_reason}</p>
       </section>
-      <p :if={@result? && @explanation} class="request-rationale">
+      <Components.outcome
+        :if={@choice}
+        decision={@choice.value <> if(@choice[:note], do: " · " <> @choice.note, else: "")}
+        reason={@explanation}
+        reason_label={if @reason_from_model?, do: "Model's reason", else: "Reason"}
+      />
+      <p :if={@result? && @explanation && !@choice} class="request-rationale">
         <small :if={@reason_from_model?}>Model's reason</small>{@explanation}
       </p>
       <section
@@ -105,6 +117,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </div>
       </section>
       <.decision_list :if={@decision != []} facts={@decision} />
+      <section :if={@answers != []} class="routing-answers" aria-label="Selected reply">
+        <Components.message_block :for={answer <- @answers} sender="Ryker" context="Selected reply">
+          {Ryker.ControlPlane.SlackMarkdown.html(answer.value)}
+        </Components.message_block>
+      </section>
       <CallRun.table :if={@run} run={@run} />
       <p :for={wait <- @request[:waits] || []} class="request-wait">{wait_text(wait)}</p>
       <div
@@ -217,6 +234,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     </div>
     """
   end
+
+  defp split_choice(%{phase: :result, source_kind: :admission}, facts),
+    do: Enum.split_with(facts, &(&1.label == "Decision"))
+
+  defp split_choice(_request, facts), do: {[], facts}
 
   defp decision_list(assigns) do
     ~H"""
@@ -544,9 +566,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   # describe it. Either way the card links there (Andrew, 2026-09-29, of a
   # task's briefing with no line at all: "missing link to settings").
   defp model_reason(%{model_choice: %{settings: true} = choice}),
-    do: "#{purpose(choice) || "This call"} uses the model set for it in"
+    do: "#{purpose(choice) || "This call"} uses its configured model."
 
-  defp model_reason(_request), do: "Chosen when this work started, from the models set in"
+  defp model_reason(_request), do: "Chosen when this work started."
 
   # Ryker's wait for the worker ran out while the call kept running; it picked
   # the same call back up. Part of this call, not a separate retry.
@@ -645,7 +667,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp admission_headline(%{"action" => "reply"}), do: "Reply requested"
   defp admission_headline(%{"action" => "ignore"}), do: "No reply needed"
   defp admission_headline(%{"action" => "react"}), do: "Reaction selected"
-  defp admission_headline(%{"action" => "quick_reply"}), do: "Answered right away"
+  defp admission_headline(%{"action" => "quick_reply"}), do: "Quick reply selected"
   defp admission_headline(%{"action" => "start_episode"}), do: "New work requested"
   defp admission_headline(%{"action" => "continue_episode"}), do: "Continue existing work"
   defp admission_headline(_candidate), do: "Routing result"
@@ -860,23 +882,25 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp sentiment_fact(_candidate), do: nil
 
-  # A quick answer of one message reads "Answer"; of several, each message in
-  # the order it was sent.
+  # Routing selected these messages; delivery is recorded separately.
   defp answer_facts(%{"action" => "quick_reply", "messages" => [message]})
        when is_binary(message),
-       do: [%{label: "Answer", value: message}]
+       do: [%{label: "Answer", value: message, presentation: :message}]
 
   defp answer_facts(%{"action" => "quick_reply", "messages" => [_first | _rest] = messages}) do
     messages
     |> Enum.filter(&is_binary/1)
     |> Enum.zip(~w(First Second Third))
-    |> Enum.map(fn {message, ordinal} -> %{label: "#{ordinal} message", value: message} end)
+    |> Enum.map(fn {message, ordinal} ->
+      %{label: "#{ordinal} message", value: message, presentation: :message}
+    end)
   end
 
   defp answer_facts(_candidate), do: []
 
-  defp explanation(%{phase: :submission, source_kind: :admission}),
-    do: "Use an AI model to classify this message and choose how to respond."
+  defp explanation(%{phase: :submission, source_kind: :admission}) do
+    "Decide how to handle this message, including whether to reply directly or hand work to another model."
+  end
 
   defp explanation(%{phase: :submission, source_kind: :learning}) do
     "Use an AI model to learn from these messages and keep what Ryker knows up to date. Learning sends no reply."

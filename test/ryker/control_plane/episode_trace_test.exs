@@ -872,6 +872,8 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
       |> LazyHTML.text()
 
     assert header == "Needs attention"
+    document = LazyHTML.from_fragment(html)
+    assert Enum.count(LazyHTML.query(document, ".story-stop > strong + a.ui-button")) == 1
   end
 
   test "the timeline's retry comes back to the timeline" do

@@ -165,14 +165,17 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     [run] = document |> LazyHTML.query(".case-tool_run") |> Enum.to_list()
 
     assert LazyHTML.query(run, ".tool-run > .case-card-heading h3") |> LazyHTML.text() ==
-             "4 steps"
+             "Tool activity"
+
+    assert LazyHTML.query(run, ".case-card-heading-detail") |> LazyHTML.text() == "4 steps"
 
     lines =
       run
       |> LazyHTML.query(".tool-run-step")
       |> Enum.map(fn step ->
-        {LazyHTML.query(step, ".tool-run-badge") |> LazyHTML.text() |> String.trim(),
-         LazyHTML.query(step, ".tool-run-title") |> LazyHTML.text(),
+        {LazyHTML.query(step, ".tool-run-line > .tool-run-badge > span")
+         |> LazyHTML.text()
+         |> String.trim(), LazyHTML.query(step, ".tool-run-title") |> LazyHTML.text(),
          LazyHTML.query(step, ".tool-run-text") |> LazyHTML.text()}
       end)
 
@@ -188,7 +191,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
            |> Enum.count() == 2
 
     # Ryker's own calls carry Ryker's mark, as Emisar's carry Emisar's.
-    assert LazyHTML.query(run, ".tool-run-badge[data-service=ryker] svg.ryker-mark")
+    assert LazyHTML.query(
+             run,
+             ".tool-run-badge[data-service=ryker] img[src='/assets/brand/mark-mint.svg']"
+           )
            |> Enum.count() == 1
 
     # The full card names the pack without the digest it was pinned by; the

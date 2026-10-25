@@ -213,10 +213,12 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert LazyHTML.query(card, ".provider-facts.ui-facts") |> Enum.count() == 1
     assert LazyHTML.query(card, ".event-facts") |> Enum.empty?()
 
-    # Links sit after Input details, outside the disclosure, visible when collapsed.
+    # Provider destinations belong beside the subject, visible before the
+    # technical input record rather than in a detached far-edge footer.
     details_at = :binary.match(html, ~s(id="input-details-#{entry.id}")) |> elem(0)
     links_at = :binary.match(html, "provider-links") |> elem(0)
-    assert links_at > details_at
+    assert links_at < details_at
+    assert Enum.count(LazyHTML.query(card, ".provider-subject .provider-links")) == 1
     assert html =~ "Open run ↗"
     assert html =~ "Open workspace ↗"
     refute html =~ "javascript:"

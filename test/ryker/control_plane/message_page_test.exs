@@ -107,7 +107,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     decision =
       band |> LazyHTML.query(".phase-routing article.case-entry") |> Enum.to_list() |> List.last()
 
-    assert text(decision, ".episode-request > .case-card-heading h3") == "Answered right away"
+    assert text(decision, ".episode-request > .case-card-heading h3") == "Quick reply selected"
 
     assert text(band, ".phase-answer .ui-message[data-author=ryker] .ui-message-body") ==
              "Hi! How can I help?"
@@ -187,7 +187,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
       {:stage, "Routing"},
       {:card, "Queue"},
       {:card, "Routing briefing"},
-      {:card, "Answered right away"},
+      {:card, "Quick reply selected"},
       {:stage, "Answer"},
       {:card, "Quick reply"}
     ]
@@ -298,11 +298,17 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert text(answer, ".case-event") =~ ":thumbsup:"
     assert text(answer, ".case-event .event-state") == "Sent"
 
-    # Routing's own card lists each message and the emoji it chose.
+    # Routing's own card keeps each selected message, in order, separate from
+    # proof of delivery, plus the emoji it chose.
     facts = decision_facts(page)
     assert {"Reaction", ":thumbsup:"} in facts
-    assert {"First message", "Hi again!"} in facts
-    assert {"Second message", "Want me to check the deploy too?"} in facts
+
+    assert page
+           |> LazyHTML.query(".routing-answers .ui-message-body")
+           |> Enum.map(&(&1 |> LazyHTML.text() |> squish())) == [
+             "Hi again!",
+             "Want me to check the deploy too?"
+           ]
   end
 
   # The migration of 2026-09-27 rewrote every stored decision into the new
@@ -341,7 +347,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
     assert text(page, ".phase-answer .ui-message[data-author=ryker] .ui-message-body") ==
              "Hi! How can I help?"
 
-    assert {"Answer", "Hi! How can I help?"} in decision_facts(page)
+    assert text(page, ".routing-answers .ui-message-body") == "Hi! How can I help?"
     assert text(page, ".episode-metrics .metric-response") =~ "27 s"
   end
 

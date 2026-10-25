@@ -16,6 +16,7 @@ defmodule Ryker.Ingress.Inbox do
   its commit on the topics this module owns (`subscribe_inputs/0`,
   `subscribe_input/1`).
   """
+  alias Ryker.Admission
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
@@ -634,7 +635,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp valid_context(context) do
-    case CanonicalJSON.validate(context, max_bytes: 98_304) do
+    case Admission.Context.validate_snapshot(context) do
       :ok -> :ok
       {:error, _reason} -> {:error, {:invalid_admission_context_snapshot, :document}}
     end

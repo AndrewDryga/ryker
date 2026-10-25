@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Retention
+  alias Ryker.Wording
   alias Ryker.Work
 
   @doc """
@@ -119,7 +120,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       at: session.discarded_at,
       state: String.downcase(title),
       title: title,
-      summary: closed_sentence(session) <> summary,
+      summary: summary,
       worker: receipt["worker_id"],
       details:
         plan_details(session) ++
@@ -138,8 +139,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       at: session.updated_at,
       state: "current",
       title: "Working copy kept",
-      summary:
-        closed_sentence(session) <> retained_reason(session.retained_reason) <> recheck(session),
+      summary: retained_summary(session),
       details:
         plan_details(session) ++
           compact_details([
@@ -160,8 +160,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
         closed_sentence(session) <>
           "Cleanup stopped while #{String.downcase(step_words(session.cleanup_blocked_from))} " <>
           "and needs attention." <>
-          error_words(session.cleanup_last_error_code) <>
-          " The delivered answer is unaffected.",
+          error_words(session.cleanup_last_error_code),
       details:
         compact_details([
           {"Stopped while", step_words(session.cleanup_blocked_from)},
@@ -176,10 +175,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
       at: session.updated_at,
       state: "current",
       title: "Cleanup in progress",
-      summary:
-        closed_sentence(session) <>
-          "Ryker is #{String.downcase(step_words(status))}." <>
-          retrying(session.cleanup_last_error_code, session.cleanup_next_attempt_at),
+      summary: pending_summary(session),
       details:
         compact_details([
           {"Step", step_words(status)},
@@ -310,23 +306,24 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   defp cleanup_outcome(_discarded, session) do
     {"Working copy removed",
-     "#{if session.closed_at, do: "It", else: "Ryker"} removed the temporary working copy at #{clock(session.discarded_at)}" <>
-       plan_sentence(session.discard_plan) <>
-       " What this page shows about the work is unaffected."}
+     if(session.closed_at,
+       do: "The worker session was closed and the temporary working copy was removed",
+       else: "The temporary working copy was removed"
+     ) <> plan_sentence(session.discard_plan)}
   end
 
   # What Ryker checked before it removed a working copy it removed itself.
   defp plan_sentence(%{
          "workspace" => %{"dirty" => false, "unmerged" => true, "accepted_unmerged" => true}
        }) do
-    ", after checking it held no uncommitted changes and accepting its unmerged commits for removal."
+    " after checking it held no uncommitted changes and accepting its unmerged commits for removal."
   end
 
   defp plan_sentence(%{"workspace" => %{"dirty" => false, "unmerged" => false}}),
-    do: ", after checking it held no uncommitted changes and no unmerged commits."
+    do: " after checking it held no uncommitted changes and no unmerged commits."
 
   defp plan_sentence(%{"workspace" => workspace}) when is_map(workspace),
-    do: ", using the accepted removal plan."
+    do: " using the accepted removal plan."
 
   defp plan_sentence(_plan), do: "."
 
@@ -341,9 +338,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp remote_words("unreachable"), do: "Unreachable"
   defp remote_words("unknown"), do: "Nothing to report"
   defp remote_words(_state), do: nil
-
-  defp retained_reason("dirty" <> _),
-    do: "The working copy was kept: it still holds uncommitted changes."
 
   defp retained_reason("unmerged" <> _),
     do: "The working copy was kept: it still holds unmerged commits."
@@ -360,31 +354,38 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp retained_words(nil), do: nil
   defp retained_words(reason), do: capitalize(human(reason))
 
-  # A copy with uncommitted changes is checked again later; one holding
-  # unmerged commits stays until custody verifies it is safe to remove.
-  defp recheck(%Work.Session{
-         retained_reason: "dirty" <> _,
-         cleanup_next_attempt_at: %DateTime{} = at
-       }),
-       do: " Ryker checks it again at #{clock(at)}."
-
-  defp recheck(%Work.Session{retained_reason: "unpublished_unmerged"}) do
-    " It stays until Ryker verifies it is safe to remove or someone explicitly discards it on Working copies."
+  defp retained_summary(%Work.Session{retained_reason: "dirty" <> _} = session) do
+    "The working copy cannot be removed because it has uncommitted changes" <>
+      retained_branch(session) <> "."
   end
 
-  defp recheck(_session), do: ""
+  defp retained_summary(session), do: retained_reason(session.retained_reason)
+
+  defp retained_branch(%Work.Session{discard_plan: %{"workspace" => %{"branch" => branch}}})
+       when is_binary(branch) and branch != "", do: " on branch " <> branch
+
+  defp retained_branch(_session), do: ""
 
   defp step_words(:close_pending), do: "Closing the worker session"
   defp step_words(:plan_pending), do: "Checking what is safe to remove"
   defp step_words(:discard_pending), do: "Removing the working copy"
   defp step_words(_step), do: "Cleaning up"
 
-  defp retrying(nil, _next), do: ""
+  defp pending_summary(%{cleanup_last_error_code: nil} = session),
+    do: "Ryker is #{String.downcase(step_words(session.cleanup_status))}."
 
-  defp retrying(code, next),
-    do: " The last try failed:" <> error_words(code) <> tries_again(next)
+  defp pending_summary(session) do
+    reason =
+      session.cleanup_last_error_code
+      |> error_words()
+      |> String.trim()
+      |> Wording.lowercase_first()
 
-  defp tries_again(%DateTime{} = at), do: " It tries again at #{clock(at)}."
+    "There was an error during cleanup: " <>
+      reason <> tries_again(session.cleanup_next_attempt_at)
+  end
+
+  defp tries_again(%DateTime{} = at), do: " Retry is scheduled at #{clock(at)}."
   defp tries_again(_next), do: ""
 
   # The recorded error in words; its code stays in Details.

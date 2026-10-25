@@ -31,6 +31,8 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
     end
 
     assert formatted_json(document) == Jason.decode!(prompt)
+    refute Enum.empty?(LazyHTML.query(document, ".json-key"))
+    refute Enum.empty?(LazyHTML.query(document, ".json-string"))
   end
 
   test "dotted JSON keys cannot impersonate a nested briefing source" do
@@ -377,6 +379,12 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
     assert html =~ "Two connected production runners"
     assert html =~ "Cloud project ID is needed."
     refute html =~ ">Decisions<"
-    refute html =~ "context-field"
+    # Populated facts now use compact label/value rows, not nested headings;
+    # empty-field bookkeeping remains subordinate in the saved component.
+    assert Enum.empty?(
+             html
+             |> LazyHTML.from_fragment()
+             |> LazyHTML.query(".conversation-recall h5, .context-field h4")
+           )
   end
 end

@@ -10,6 +10,7 @@ defmodule Ryker.Admission.Context do
   feedback on that request.
   """
   alias Ryker.Admission.Candidate
+  alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
@@ -18,6 +19,9 @@ defmodule Ryker.Admission.Context do
   alias Ryker.Slack
   alias Ryker.Text
   alias Ryker.UTCDateTime
+
+  @context_bytes 98_304
+  @inspection_bytes 65_536
 
   @enforce_keys [
     :active_episode_fingerprint,
@@ -55,6 +59,34 @@ defmodule Ryker.Admission.Context do
           input: Ingress.Input.t(),
           input_entry: Ingress.Inbox.Entry.t()
         }
+
+  @doc "The frozen model-context snapshot without inspection-only search decisions."
+  def fitting_snapshot(%__MODULE__{} = context) do
+    context |> snapshot() |> without_search_selection()
+  end
+
+  @doc "Validate model-context and inspection budgets independently, without displacing model input."
+  def validate_snapshot(%{} = snapshot) do
+    fitting = without_search_selection(snapshot)
+
+    selection =
+      case snapshot["routing_receipt"] do
+        %{} = receipt -> receipt["selection"]
+        _historical -> nil
+      end
+
+    with :ok <- CanonicalJSON.validate(snapshot, max_bytes: @context_bytes + @inspection_bytes),
+         :ok <- CanonicalJSON.validate(fitting, max_bytes: @context_bytes) do
+      CanonicalJSON.validate(selection, max_bytes: @inspection_bytes)
+    end
+  end
+
+  def validate_snapshot(_snapshot), do: {:error, :invalid_snapshot}
+
+  defp without_search_selection(%{"routing_receipt" => %{} = receipt} = snapshot),
+    do: Map.put(snapshot, "routing_receipt", Map.delete(receipt, "selection"))
+
+  defp without_search_selection(snapshot), do: snapshot
 
   # What the router reads. The frozen snapshot keeps each document's full
   # provenance; routing reads who said what and when, so where a message can

@@ -4,6 +4,50 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   alias Ryker.ControlPlane.ToolCard
   alias Ryker.InspectionRedactor
 
+  test "known platform calls use human action names without erasing their native tool identity" do
+    recorded =
+      step(%{
+        "title" => "mcp.controller-tools.read_slack_source",
+        "input" => %{
+          "server" => "controller-tools",
+          "tool" => "read_slack_source",
+          "arguments" => %{}
+        }
+      })
+
+    assert ToolCard.project(recorded).title == "Slack messages read"
+    assert ToolCard.project(recorded).tool == "read_slack_source"
+    assert ToolCard.line(recorded).service == :slack
+  end
+
+  test "a successful check search does not claim it found checks" do
+    recorded =
+      step(%{
+        "input" => %{
+          "server" => "controller-tools",
+          "tool" => "find_github_ci",
+          "arguments" => %{}
+        },
+        "output" => %{"checks" => []}
+      })
+
+    assert ToolCard.project(recorded).title == "GitHub checks searched"
+  end
+
+  test "a single tool shares the aggregate branding and keeps raw evidence in technical details" do
+    # Tool redesign must not turn native grouped calls into one invented call,
+    # nor make every reader scan the raw tool envelopes.
+    fixture = File.read!("testdata/control_plane/oom-evidence-link.json") |> Jason.decode!()
+
+    document =
+      render_component(&ToolCard.render/1, step: step(hd(fixture["activities"])["payload"]))
+      |> LazyHTML.from_fragment()
+
+    assert Enum.count(LazyHTML.query(document, ".action-card > header .tool-run-badge")) == 1
+    refute Enum.empty?(LazyHTML.query(document, ".action-technical .action-raw"))
+    assert Enum.count(LazyHTML.query(document, ".action-observation")) == 1
+  end
+
   test "raw tool evidence uses the same disclosure and preserves lazy loading and expiry" do
     # Native raw-tool summaries drifted from every other timeline disclosure;
     # migrating their shell must not eagerly fetch or resurrect expired bodies.

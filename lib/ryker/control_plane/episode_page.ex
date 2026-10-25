@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.Episodes
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @conversation_bands [:ready, :routing, :work, :answer]
 
@@ -241,6 +242,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <section :if={@snapshot.trace.stopped && !@startup} class="story-stop">
         <p class="ui-eyebrow">NEXT ACTION</p><h3>{@snapshot.trace.stopped.headline}</h3>
         <p>{@snapshot.trace.stopped.reason}</p><strong>{@snapshot.trace.stopped.action}</strong>
+        <a
+          :if={@snapshot.trace.stopped.href}
+          class="ui-button secondary"
+          href={@snapshot.trace.stopped.href}
+        >{@snapshot.trace.stopped[:link_label] || "Open recovery"} <.icon name={:arrow} /></a>
         <.disclosure
           :if={@snapshot.trace.stopped[:model_output]}
           class="recovery-worker-report"
@@ -254,11 +260,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
             {SlackMarkdown.html(@snapshot.trace.stopped.model_output)}
           </div>
         </.disclosure>
-        <a
-          :if={@snapshot.trace.stopped.href}
-          class="ui-button secondary"
-          href={@snapshot.trace.stopped.href}
-        >{@snapshot.trace.stopped[:link_label] || "Open recovery"} <.icon name={:arrow} /></a>
         <.disclosure
           :if={@snapshot.trace.stopped.attempted != []}
           id="recovery-attempted"
@@ -1053,7 +1054,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
     ~H"""
     <div class="tool-run">
-      <.card_heading title={"#{length(@lines)} steps"}>
+      <.card_heading title="Tool activity">
+        <:detail>{length(@lines)} steps</:detail>
         <:description>{Enum.map_join(@services, ", ", &service_name/1)}</:description>
         <:meta :if={@span}><span class="action-duration">{@span}</span></:meta>
       </.card_heading>
@@ -1072,7 +1074,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
               <span class="tool-run-duration">{line.duration}</span>
             </summary>
             <div class="tool-run-body">
-              <ToolCard.render step={entry.step} />
+              <ToolCard.render step={entry.step} grouped />
             </div>
           </details>
           <div :if={entry.step.stage != "Tool call"} class="tool-run-line">
@@ -1086,22 +1088,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     </div>
     """
   end
-
-  attr(:service, :atom, required: true)
-
-  defp service_badge(assigns) do
-    ~H"""
-    <span class="tool-run-badge" data-service={@service}><.emisar_mark :if={@service == :emisar} /><.ryker_mark :if={
-      @service == :ryker
-    } />{service_name(@service)}</span>
-    """
-  end
-
-  defp service_name(:emisar), do: "Emisar"
-  defp service_name(:ryker), do: "Ryker"
-  defp service_name(:slack), do: "Slack"
-  defp service_name(:github), do: "GitHub"
-  defp service_name(:workspace), do: "Code"
 
   # When the run started and ended, by the clock, as the rows of a timeline
   # read: 04:42:40–04:43:23.
@@ -1289,23 +1275,18 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  # How the run's message joined the request, the environment the work ran in
-  # and what it gave the work, and the session it used. Ready is the ordinary
-  # case and carries no state at all (Andrew, 2026-09-26: the green check said
-  # nothing), and neither does a setup still preparing, whose current step says
-  # what is happening (2026-10-15: "Preparing · current" said no more, and the
-  # current card is the last one). A setup that stopped names its state, and
-  # the failure reason and the current step are the only sentences on the face.
+  # State belongs in the header. The body retains the actual workspace/session
+  # facts and, when preparation stopped, its recorded failure reason.
   defp work_setup(assigns) do
     ~H"""
     <div class="case-event-content work-setup" data-state={@step.setup.kind}>
       <.card_heading title="Work setup">
-        <:meta :if={@step.setup.kind not in [:ready, :preparing]}>
+        <:meta>
           <span class={"event-state tone-#{@step.tone}"}>{@step.setup.label}</span>
         </:meta>
       </.card_heading>
-      <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
       <.fact_list facts={@step.setup.rows} class="setup-facts" />
+      <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
       <.disclosure
         :if={@step.setup.diagnostics != []}
         id={"setup-diagnostics-#{@step.id}"}
@@ -1479,11 +1460,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # rewriting the run that preceded Routing. That row says it is current, so
   # the heading carries no badge as well: the current card is the last one.
   defp input_queue(assigns) do
+    assigns = assign(assigns, :queue_events, Enum.with_index(assigns.step.queue.events))
+
     ~H"""
     <div class="case-event-content input-queue" data-state={@step.queue.kind}>
       <.card_heading title="Queue">
         <:detail :if={@step.queue.qualifier}>{@step.queue.qualifier}</:detail>
         <:meta>
+          <span class="queue-state">{queue_status(@step.queue)}</span>
           <span
             :if={
               !@step.queue.current && is_number(@step.queue.duration_ms) &&
@@ -1496,18 +1480,44 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </:meta>
       </.card_heading>
       <ol class="queue-events">
-        <li :for={event <- @step.queue.events} data-kind={event.kind}>
-          <div class="queue-event-heading">
-            <strong>{event.label}</strong>
-            <time :if={event.at} datetime={DateTime.to_iso8601(event.at)}>{precise_clock(event.at)}</time>
+        <li :for={{event, index} <- @queue_events} data-kind={event.kind}>
+          <time :if={event.at} datetime={DateTime.to_iso8601(event.at)}>{precise_clock(event.at)}</time>
+          <div class="queue-event-content">
+            <div class="queue-event-heading">
+              <strong>{event.label}</strong>
+              <span
+                :if={index > 0 && event.at}
+                class="queue-event-delta"
+                title="Time since the previous queue event"
+              >{queue_delta(event.at, Enum.at(@step.queue.events, index - 1).at)}</span>
+            </div>
+            <p>{event.reason}</p>
+            <a :if={event.href} href={event.href}>{event.link_label} →</a>
           </div>
-          <p>{event.reason}</p>
-          <a :if={event.href} href={event.href}>{event.link_label} →</a>
         </li>
       </ol>
     </div>
     """
   end
+
+  defp queue_status(%{kind: :waiting}), do: "Queued"
+  defp queue_status(%{kind: :needs_attention}), do: "Needs attention"
+  defp queue_status(%{kind: :retry}), do: "Retry scheduled"
+
+  defp queue_status(queue) do
+    queue.events
+    |> Enum.reject(&(&1.kind == :current))
+    |> List.last()
+    |> then(&if(&1, do: &1.label, else: "Waiting"))
+  end
+
+  defp queue_delta(%DateTime{} = at, %DateTime{} = previous) do
+    elapsed = max(DateTime.diff(at, previous, :millisecond), 0)
+    text = if elapsed == 0, do: "0s", else: elapsed |> Units.duration() |> String.replace(" ", "")
+    "(+#{text})"
+  end
+
+  defp queue_delta(_at, _previous), do: nil
 
   # Ryker's own preparation before a briefing: where routing looked for earlier
   # work, or what a Work turn selected, and what was found but left out. The
@@ -1515,7 +1525,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp search_card(assigns) do
     ~H"""
     <div class="case-event-content search-card">
-      <.card_heading title={@step.title}>
+      <.card_heading title="Context search">
         <:meta :if={@step.search.summary}>{@step.search.summary}</:meta>
       </.card_heading>
       <p :if={@step.search[:text]} class="case-event-summary">{@step.search.text}</p>
@@ -1529,34 +1539,78 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <dt>Where</dt>
           <dd>{@step.search.where}</dd>
         </div>
-        <div :if={@step.search[:methods] not in [nil, []]}>
-          <dt>How</dt>
-          <dd>
-            <ul class="search-methods">
-              <li :for={method <- @step.search.methods} data-found={to_string(method.found > 0)}>
-                <span class="search-method-name">{method.name}</span>
-                <span class="search-method-used">
-                  <code :for={term <- method.used} title={term}>{term}</code>
-                  <span :if={method.note} class="search-method-note">{method.note}</span>
-                </span>
-                <span class="search-method-found">
-                  {method.found} found{if method.limit, do: " · limit reached"}
-                </span>
-              </li>
-            </ul>
-          </dd>
-        </div>
         <div :for={{label, value} <- @step.search.facts}>
           <dt>{label}</dt>
           <dd>{value}</dd>
         </div>
       </dl>
+      <section :if={@step.search[:methods] not in [nil, []]} class="search-method-section">
+        <h4>How it searched</h4>
+        <p class="search-method-help">A request can appear under more than one method.</p>
+        <ul class="search-methods">
+          <li :for={method <- @step.search.methods} data-found={to_string(method.found > 0)}>
+            <.disclosure
+              id={"#{@step.id}-method-#{method.key}"}
+              label={method.name}
+              kind={:source}
+              class="search-method"
+            >
+              <:label_content>
+                <span class="search-method-name">{method.name}</span>
+                <span class="search-method-found"> · {method.found} found<span :if={
+                  is_integer(method.offered)
+                }> / {method.offered} offered</span>{if method.limit, do: " · limit reached"}</span>
+              </:label_content>
+              <:meta>
+                <span class="search-method-used"><code
+                  :for={term <- Enum.take(method.used, 2)}
+                  title={term}
+                >{term}</code><span :if={length(method.used) > 2}>+{length(method.used) - 2} more</span><span
+                  :if={method.note}
+                  class="search-method-note"
+                >{method.note}</span></span>
+              </:meta>
+              <p :if={method.used != []} class="search-query">
+                <strong>Searched for</strong> <code :for={term <- method.used}>{term}</code>
+              </p>
+              <p :if={method.note}>{method.note}</p>
+              <p :if={method[:ineligible] not in [nil, 0]} class="search-empty">
+                {Wording.count(method.ineligible, "result")} {Wording.word(
+                  method.ineligible,
+                  "was",
+                  "were"
+                )} excluded because their sources were outside this request's scope.
+              </p>
+              <p :if={method.results == [] && method[:ineligible] in [nil, 0]} class="search-empty">
+                {if method.found == 0,
+                  do: "No requests found.",
+                  else: "Individual matches were not retained in this search record."}
+              </p>
+              <article :for={result <- method.results} class="search-match">
+                <header class="search-match-heading">
+                  <a :if={result.href} href={result.href}>{result.title} →</a><strong :if={
+                    !result.href
+                  }>{result.title}</strong><span>{if result.offered,
+                    do: "Offered to routing",
+                    else: "Not offered"}</span>
+                </header>
+                <p>{result.reason}</p>
+              </article>
+            </.disclosure>
+          </li>
+        </ul>
+      </section>
       <.json_disclosure
         id={@step.id <> "-record"}
         label={@step.search.record_label}
         text={@step.search.record}
         class="search-record"
       />
+      <a
+        :if={@step.search[:briefing_href]}
+        class="search-briefing-link"
+        href={@step.search.briefing_href}
+      >View the model briefing →</a>
     </div>
     """
   end
@@ -1570,8 +1624,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "." <> String.pad_leading(Integer.to_string(div(microseconds, 1_000)), 3, "0")
   end
 
-  # One input, one explanation: decision first, then the processing-time
-  # settings and full rule inventory that supported it. Only technical rule
+  # One input, one explanation: processing-time settings and the full rule
+  # inventory, then the outcome they supported. Only technical rule
   # identity stays behind a disclosure.
   defp participation(assigns) do
     ~H"""
@@ -1581,7 +1635,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       data-rules-state={@step.rules.state}
     >
       <.card_heading title="Participation" />
-      <p class="case-event-summary participation-summary">{@step.engagement.reason}</p>
 
       <section
         :if={@step.participation.state != :not_recorded}
@@ -1636,9 +1689,24 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </li>
         </ul>
       </section>
+      <section class="participation-section participation-outcome" aria-label="Participation outcome">
+        <h4>Outcome</h4>
+        <.outcome
+          decision={participation_decision(@step.engagement.result)}
+          reason={@step.engagement.reason}
+          reason_class="case-event-summary participation-summary"
+        />
+      </section>
     </div>
     """
   end
+
+  defp participation_decision("process"), do: "Process this message"
+  defp participation_decision("evaluate_only"), do: "Evaluate without responding"
+  defp participation_decision("ignore"), do: "Do not process this message"
+  defp participation_decision(""), do: "Decision not recorded"
+  defp participation_decision(result) when is_binary(result), do: Episodes.label(result)
+  defp participation_decision(_unreadable), do: "Decision not recorded"
 
   defp verdict_label("matched"), do: "Matched"
   defp verdict_label("not_matched"), do: "Did not match"
@@ -1683,14 +1751,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </:footer>
     </.message_block>
     <.input_details :if={@message[:provider] && @message[:details]} message={@message} />
-    <p :if={@message[:provider] && @message.provider.links != []} class="provider-links">
-      <a
-        :for={link <- @message.provider.links}
-        href={link.href}
-        target="_blank"
-        rel="noopener noreferrer"
-      >{link.label} ↗</a>
-    </p>
     """
   end
 
@@ -1747,7 +1807,19 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </:meta>
       </.card_heading>
       <div class="provider-body">
-        <p :if={@provider.subject} class="provider-subject">{@provider.subject}</p>
+        <p :if={@provider.subject || @provider.links != []} class="provider-subject">
+          <span :if={@provider.subject}>{@provider.subject}</span>
+          <span :if={@provider.links != []} class="provider-links">
+            <a
+              :for={link <- @provider.links}
+              href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >{if @provider.provider == :grafana && link.label == "Open alert",
+              do: "View on Grafana",
+              else: link.label} ↗</a>
+          </span>
+        </p>
         <.fact_list :if={@provider.facts != []} facts={@provider.facts} class="provider-facts" />
         <.disclosure
           :for={group <- @provider[:groups] || []}

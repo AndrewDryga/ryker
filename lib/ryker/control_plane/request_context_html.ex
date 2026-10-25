@@ -31,10 +31,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "The first message, Ryker's last answer and what it asked to continue, as saved then."},
     "operator_context" =>
       {"Remembered context", "memory", "Scoped operator context",
-       "Guidance, memories and conversation summaries chosen for this request. They may be out of date."},
+       "Guidance, memories and conversation summaries chosen for this request."},
     "memory" =>
       {"Facts", "memory", "Scoped memory records",
-       "Facts and guidance Ryker remembered for this request. They may be out of date."},
+       "Facts and guidance Ryker remembered for this request."},
     "records" =>
       {"Records from this work", "memory", "Request records",
        "Findings, goals and other records from this request, with where each came from."},
@@ -83,8 +83,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Conversation notes", "memory", nil,
        "Notes Ryker kept about earlier messages in this conversation, as excerpts."},
     "conversation_knowledge" =>
-      {"Learned topics", "memory", nil,
-       "Topics Ryker learned from this conversation. They may be out of date."},
+      {"Learned topics", "memory", nil, "Topics Ryker learned from this conversation."},
     "conversation_feedback" =>
       {"Reactions to replies", "conversation", nil,
        "Emoji reactions people left on Ryker's earlier replies in this work."},
@@ -1108,11 +1107,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       key,
       path,
       items,
-      {title, "memory", nil, nil},
+      {title, "memory", nil, description},
       candidates(items, links, prefix),
       prefix,
       count: %{label: count(length(items), "candidate"), known?: true},
-      doc: description,
       estimate: items
     )
   end
@@ -1455,14 +1453,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Other fields", "runtime", nil,
        "Sent to the model, but this view has no section for them yet."},
       [
-        "<dl class=\"context-rows\">",
+        "<dl class=\"context-fields\">",
         Enum.map(parts, fn part ->
           [
-            "<div><dt>",
+            "<div class=\"context-field\"><dt>",
             escape(part.path),
-            "</dt><dd><pre>",
-            escape(Jason.encode!(part.value, pretty: true)),
-            "</pre></dd></div>"
+            "</dt><dd>",
+            fields(part.value, 0),
+            "</dd></div>"
           ]
         end),
         "</dl>"
@@ -1537,7 +1535,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           path,
           bundle[key],
           {title, "conversation", nil, nil},
-          fields(bundle[key], 0),
+          summary_body(bundle[key]),
           prefix,
           count: summary_coverage(bundle[key])
         )
@@ -1592,6 +1590,20 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp summary_coverage(_summary), do: nil
+
+  defp summary_body(%{"state" => %{} = state} = summary) do
+    metadata = Map.delete(summary, "state")
+
+    [
+      recall_fields(state),
+      if(map_size(metadata) > 0,
+        do: Components.disclosure_html("Coverage and source", fields(metadata, 0)),
+        else: []
+      )
+    ]
+  end
+
+  defp summary_body(summary), do: fields(summary, 0)
 
   # The same situation reads the same whether the record kept its reason or
   # routing left the summary out.
@@ -1845,7 +1857,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"System prompt", "policy", nil,
        if(artifact.truncated,
          do: "Only part of the system prompt was kept, so this shows part of it.",
-         else: nil
+         else:
+           "The fixed instructions submitted to this model, separate from saved global and channel instructions."
        )},
       ["<pre class=\"model-document-text\">", escape(text), "</pre>"],
       prefix,
@@ -2093,7 +2106,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         recall(value),
         Components.disclosure_html(
           "Saved component",
-          ["<pre>", escape(Jason.encode!(value, pretty: true)), "</pre>"],
+          fields(value, 0),
           class: "context-inline-disclosure"
         )
       ],
@@ -2551,26 +2564,35 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp recall_title(group), do: human(group)
 
   defp recall_fields(state) when is_map(state) do
-    Enum.map(
-      [
-        {"title", "Subject"},
-        {"summary", "Summary"},
-        {"goal", "Goal"},
-        {"situation", "Last known situation"},
-        {"open_loops", "Still open"},
-        {"decisions", "Decisions"},
-        {"unresolved_questions", "Questions"},
-        {"active_topics", "Topics"},
-        {"topics", "Topics"},
-        {"topology", "Systems"},
-        {"participants", "People"}
-      ],
-      fn {key, title} ->
-        if state[key] in [nil, "", [], %{}],
+    lead = Enum.find(~w(goal title summary), &present(state[&1]))
+    remaining = Map.drop(state, List.wrap(lead) ++ ["situation"])
+
+    [
+      "<div class=\"saved-understanding\">",
+      if(lead,
+        do: ["<p class=\"summary-goal\"><strong>", escape(state[lead]), "</strong></p>"],
+        else: []
+      ),
+      if(present(state["situation"]),
+        do: ["<p class=\"summary-situation\">", escape(state["situation"]), "</p>"],
+        else: []
+      ),
+      "<dl class=\"context-fields summary-context\">",
+      remaining
+      |> Enum.sort()
+      |> Enum.map(fn {key, value} ->
+        if blank?(value),
           do: [],
-          else: ["<div><h5>", title, "</h5>", recall_field(key, state[key]), "</div>"]
-      end
-    )
+          else: [
+            "<div class=\"context-field\"><dt>",
+            escape(field_label(key)),
+            "</dt><dd>",
+            recall_field(key, value),
+            "</dd></div>"
+          ]
+      end),
+      "</dl></div>"
+    ]
   end
 
   defp recall_fields(_) do
@@ -2601,7 +2623,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     settings = source_settings(value, options)
     count = Keyword.get(options, :count)
 
-    Components.disclosure_html(title, [source_description(description), body],
+    Components.disclosure_html(title, [body, source_highlight(key, title, prefix, options)],
       id: prefix <> "-source-" <> Base.url_encode64(path, padding: false),
       kind: :source,
       class: ["prompt-source", settings.state_override && "prompt-source-partial"],
@@ -2620,7 +2642,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         source_count(count),
         source_doc(Keyword.get(options, :doc)),
         Keyword.get(options, :inline, []),
-        "</span>"
+        "</span>",
+        source_description(description)
       ],
       meta: [
         # A body still loading has no value to judge as empty.
@@ -2653,7 +2676,31 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp source_description(nil), do: []
-  defp source_description(description), do: ["<p>", escape(description), "</p>"]
+
+  defp source_description(description),
+    do: ["<span class=\"prompt-source-help\">", escape(description), "</span>"]
+
+  # Only the original submitted documents offer Copy. A readable source leads
+  # to its corresponding section in the retained prompt, never a rebuilt one.
+  defp source_highlight(key, _title, _prefix, _options) when key in ~w(request contract), do: []
+
+  defp source_highlight(key, title, prefix, options) do
+    if Keyword.has_key?(options, :estimate) and is_nil(options[:estimate]),
+      do: [],
+      else: highlight_button(key, title, prefix)
+  end
+
+  defp highlight_button(_key, title, prefix) do
+    [
+      "<button type=\"button\" class=\"prompt-highlight\" aria-label=\"Highlight in prompt\" title=\"Highlight in prompt\" data-prompt-highlight=\"",
+      escape(title),
+      "\" data-prompt-document=\"",
+      escape(prefix <> "-submitted-document"),
+      "\" data-prompt-disclosure=\"",
+      escape(prefix <> "-submitted-source-" <> Base.url_encode64("$.prompt", padding: false)),
+      "\"><svg class=\"ui-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z M13.5 6.5l3 3\"/></svg><span class=\"sr-only\" data-highlight-status aria-live=\"polite\"></span></button>"
+    ]
+  end
 
   # The counted summary a reader reads before opening anything. A count nobody
   # recorded says so; it never renders as a zero.
@@ -3004,22 +3051,41 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp message_text(_value), do: nil
 
   defp fields(value, depth) when is_map(value) and depth < 5 do
-    value
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(fn {key, nested} ->
-      [
-        "<div class=\"context-field\"><h4>",
-        escape(field_label(key)),
-        "</h4>",
-        fields(nested, depth + 1),
-        "</div>"
-      ]
-    end)
+    {empty, populated} =
+      value
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.split_with(fn {_key, nested} -> nested in [nil, "", [], %{}] end)
+
+    [
+      "<dl class=\"context-fields\">",
+      populated
+      |> Enum.map(fn {key, nested} ->
+        [
+          "<div class=\"context-field\"><dt>",
+          escape(field_label(key)),
+          "</dt><dd>",
+          fields(nested, depth + 1),
+          "</dd></div>"
+        ]
+      end),
+      "</dl>",
+      if(empty != [],
+        do: [
+          "<p class=\"context-empty-fields\">",
+          Enum.map(empty, fn {key, nested} ->
+            [escape(field_label(key)), ": ", empty_field(nested)]
+          end)
+          |> Enum.intersperse(" · "),
+          "</p>"
+        ],
+        else: []
+      )
+    ]
   end
 
   defp fields(value, depth) when is_list(value) and depth < 5 do
     [
-      "<ul>",
+      "<ul class=\"context-items\">",
       Enum.map(value, &["<li>", fields(&1, depth + 1), "</li>"]),
       "</ul>"
     ]
@@ -3030,6 +3096,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp fields(nil, _depth), do: "<p class=\"context-absent\">Not supplied</p>"
   defp fields(value, _depth), do: ["<p>", escape(value), "</p>"]
+
+  defp empty_field(nil), do: "not provided"
+  defp empty_field(""), do: "empty text"
+  defp empty_field([]), do: "empty list"
+  defp empty_field(%{}), do: "empty object"
 
   defp candidates(items, links, prefix) when is_list(items) and items != [] do
     [
@@ -3050,24 +3121,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     first = candidate_message(item["first_message"])
     latest = candidate_message(item["latest_message"])
     title = present(item["title"])
-    heading = title || (first && first_line(first.text)) || "Untitled work"
+    heading = title || "Earlier request"
 
     [
       "<article class=\"context-candidate context-record\"",
       if(anchor, do: [" id=\"", escape(anchor), "\" tabindex=\"-1\""], else: []),
       "><header class=\"candidate-heading\"><h4>",
       escape(heading),
-      "</h4>",
+      "</h4><span class=\"candidate-meta\"><span class=\"candidate-state\">",
+      escape(candidate_state(state)),
+      "</span>",
       candidate_time(latest || first, item["idle_minutes"]),
-      "</header><div class=\"candidate-readable\">",
+      "</span></header><div class=\"candidate-readable\">",
       candidate_state_warning(state),
       candidate_outcome(item["outcome"]),
-      candidate_messages(
-        latest,
-        # An opening message already shown whole as the heading is not repeated.
-        if(first && first.text != heading, do: first),
-        item["message_count"]
-      ),
+      candidate_messages(latest, first, item["message_count"]),
       candidate_evidence(item["evidence"]),
       episode_link(href),
       "</div></article>"
@@ -3134,6 +3202,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp candidate_state_warning(_state), do: []
 
+  defp candidate_state("complete"), do: "Request finished"
+  defp candidate_state("working"), do: "Work in progress"
+  defp candidate_state("waiting_for_input"), do: "Waiting for input"
+  defp candidate_state("waiting_for_event"), do: "Waiting for an event"
+  defp candidate_state("cancelled"), do: "Request cancelled"
+  defp candidate_state(state), do: human(state)
+
   defp candidate_outcome(outcome) when is_binary(outcome) and outcome != "",
     do: ["<p class=\"candidate-outcome\">", escape(outcome), "</p>"]
 
@@ -3151,11 +3226,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp candidate_messages(nil, nil, _count), do: []
 
   defp candidate_messages(latest, opening, count) do
+    latest = if latest == opening, do: nil, else: latest
+
     [
-      "<dl class=\"candidate-messages\">",
+      "<div class=\"candidate-messages\">",
       candidate_message_row(latest_label(count), latest),
       candidate_message_row("Opening message", opening),
-      "</dl>"
+      "</div>"
     ]
   end
 
@@ -3167,19 +3244,18 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp candidate_message_row(_label, nil), do: []
 
   defp candidate_message_row(label, message) do
-    [
-      "<div><dt>",
-      escape(label),
-      "</dt><dd><p>",
-      escape(message.text),
-      if(message.truncated, do: " <span>(truncated)</span>", else: []),
-      "</p><span class=\"candidate-message-meta\">",
-      byline(
-        if(is_binary(message.actor), do: who(%{"actor" => message.actor})),
-        readable_candidate_time(message.at)
-      ),
-      "</span></dd></div>"
-    ]
+    input = %{"actor" => message.actor}
+
+    Components.message_block_html(
+      if(is_binary(message.actor), do: actor_label(input)),
+      SlackMarkdown.preview(message.text),
+      person: slack_person(input),
+      context: label,
+      meta: [
+        escape(readable_candidate_time(message.at) || ""),
+        if(message.truncated, do: " · truncated", else: [])
+      ]
+    )
   end
 
   defp count(value, noun) when is_integer(value) and value >= 0,

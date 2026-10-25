@@ -349,6 +349,12 @@ defmodule Ryker.Admission.HistoryAuthorizationTest do
     assert candidate
     assert context.routing_receipt["offered"] == length(context.candidates)
 
+    excluded =
+      Enum.find(context.routing_receipt["selection"]["items"], &(&1["episode_id"] == history.id))
+
+    assert excluded["reason"] == "source_unavailable"
+    assert excluded["offered"] == false
+
     refute Enum.any?(
              context.candidate_messages,
              &(&1["message_ref"] == history.source_item_ref)

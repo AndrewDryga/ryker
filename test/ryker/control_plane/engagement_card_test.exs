@@ -41,6 +41,11 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
     html = rendered(episode)
     document = LazyHTML.from_document(html)
+    outcome = LazyHTML.query(document, ".participation .participation-outcome")
+    assert LazyHTML.text(outcome) =~ "Outcome"
+
+    assert :binary.match(html, "participation-rules") <
+             :binary.match(html, "participation-outcome")
 
     assert Enum.count(LazyHTML.query(document, ".participation")) == 1
     assert LazyHTML.query(document, ".participation h3") |> LazyHTML.text() == "Participation"
@@ -113,10 +118,14 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
              "Shadow evaluation"
            ]
 
-    assert LazyHTML.query(setup, "dd") |> Enum.map(&(LazyHTML.text(&1) |> String.trim())) == [
+    assert LazyHTML.query(setup, "dd .ui-fact-value")
+           |> Enum.map(&(LazyHTML.text(&1) |> String.trim())) == [
              "Off",
              "Off"
            ]
+
+    assert LazyHTML.query(setup, ".ui-fact-help") |> LazyHTML.text() =~ "without a mention"
+    assert LazyHTML.query(setup, ".ui-fact-help") |> LazyHTML.text() =~ "without sending replies"
 
     text = LazyHTML.text(card)
     refute text =~ "Saved channel setup"

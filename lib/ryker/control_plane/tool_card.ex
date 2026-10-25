@@ -109,6 +109,23 @@ defmodule Ryker.ControlPlane.ToolCard do
   @emisar_tools ~w(find_actions get_action run_action wait_for_run list_runners list_packs list_runbooks get_runbook recent_runs get_operation cancel_run execute_runbook create_runbook_draft update_runbook_draft)
   @slack_tools ~w(list_slack_channels search_slack read_slack_source set_slack_reaction post_slack_message post_slack_update)
   @github_tools ~w(read_github_conversation search_github read_github_pull_request read_github_ci find_github_ci rerun_github_ci cancel_github_ci submit_github_review set_github_reaction)
+  @platform_titles %{
+    "list_slack_channels" => {"List Slack channels", "Slack channels listed"},
+    "search_slack" => {"Search Slack", "Slack searched"},
+    "read_slack_source" => {"Read Slack messages", "Slack messages read"},
+    "set_slack_reaction" => {"Request a Slack reaction", "Slack reaction requested"},
+    "post_slack_message" => {"Request a Slack message", "Slack message requested"},
+    "post_slack_update" => {"Request a Slack update", "Slack update requested"},
+    "read_github_conversation" => {"Read GitHub conversation", "GitHub conversation read"},
+    "search_github" => {"Search GitHub", "GitHub searched"},
+    "read_github_pull_request" => {"Read pull request", "Pull request read"},
+    "read_github_ci" => {"Read GitHub checks", "GitHub checks read"},
+    "find_github_ci" => {"Find GitHub checks", "GitHub checks searched"},
+    "rerun_github_ci" => {"Request a check rerun", "Check rerun requested"},
+    "cancel_github_ci" => {"Request check cancellation", "Check cancellation requested"},
+    "submit_github_review" => {"Request a GitHub review", "GitHub review requested"},
+    "set_github_reaction" => {"Request a GitHub reaction", "GitHub reaction requested"}
+  }
 
   @doc """
   One step of a run of tool calls or status updates as one line: whose it
@@ -186,15 +203,20 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd()
 
+  attr(:step, :map, required: true)
+  attr(:grouped, :boolean, default: false)
+
   def render(assigns) do
-    assigns = assign(assigns, :action, project(assigns.step))
+    assigns =
+      assigns |> assign_new(:grouped, fn -> false end) |> assign(:action, project(assigns.step))
 
     ~H"""
     <div class={"action-card action-#{@action.kind} action-event-#{@step.state}"}>
-      <Components.card_heading title={
-        if @step.state == "started", do: "Started: #{@action.title}", else: @action.title
-      }>
-        <:leading><span class="action-symbol" aria-hidden="true">{@action.symbol}</span></:leading>
+      <Components.card_heading
+        :if={!@grouped}
+        title={if @step.state == "started", do: "Started: #{@action.title}", else: @action.title}
+      >
+        <:leading><Components.service_badge service={service(@action)} /></:leading>
         <:meta :if={@step.state in ["failed", "cancelled", "running"] || @step.duration_ms}>
           <span
             :if={@step.state in ["failed", "cancelled", "running"]}
@@ -204,12 +226,6 @@ defmodule Ryker.ControlPlane.ToolCard do
         </:meta>
       </Components.card_heading>
       <pre :if={@action.kind == "command" && @action.description} class="action-command-line"><code>{@action.description}</code></pre>
-      <p
-        :if={@action.kind != "command" && @action.description && @step.state != "started"}
-        class="action-description"
-      >
-        {@action.description}
-      </p>
       <p
         :if={
           @action.kind == "command" && is_nil(@action.description) && is_nil(@action.withheld) &&
@@ -244,28 +260,38 @@ defmodule Ryker.ControlPlane.ToolCard do
       </section>
       <pre :if={@action.diff && @step.state != "started"} class="action-diff">{@action.diff}</pre>
       <Components.disclosure
-        :for={{artifact, index} <- Enum.with_index(@step.artifacts)}
-        id={"tool-#{@step.id}-artifact-#{index}"}
-        label={if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}
-        class="action-raw"
-        data-artifact={
-          if artifact.artifact.state in [:collapsed, :retained], do: artifact[:artifact_id]
-        }
-        data-revoked={if artifact.artifact.state in [:expired, :not_recorded], do: "true"}
+        :if={@step.artifacts != [] || (@action.kind != "command" && @action.description)}
+        id={"tool-#{@step.id}-technical"}
+        label="Technical details"
+        class="action-technical"
       >
-        <:meta :if={artifact.artifact.truncated || artifact.artifact.state == :collapsed}>
-          <span :if={artifact.artifact.truncated}>Partial display</span>
-          <span :if={artifact.artifact.state == :collapsed}>{bytes(artifact.artifact.bytes)}</span>
-        </:meta>
-        <p :if={artifact.artifact.state == :collapsed} class="artifact-loading" role="status">
-          Loading…
+        <p :if={@action.kind != "command" && @action.description} class="action-description">
+          {@action.description}
         </p>
-        <p :if={artifact.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
-          This body is no longer retained.
-        </p>
-        <Components.copy_block :if={artifact.artifact.state == :retained}>
-          <pre>{artifact.artifact.text}</pre>
-        </Components.copy_block>
+        <Components.disclosure
+          :for={{artifact, index} <- Enum.with_index(@step.artifacts)}
+          id={"tool-#{@step.id}-artifact-#{index}"}
+          label={if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}
+          class="action-raw"
+          data-artifact={
+            if artifact.artifact.state in [:collapsed, :retained], do: artifact[:artifact_id]
+          }
+          data-revoked={if artifact.artifact.state in [:expired, :not_recorded], do: "true"}
+        >
+          <:meta :if={artifact.artifact.truncated || artifact.artifact.state == :collapsed}>
+            <span :if={artifact.artifact.truncated}>Partial display</span>
+            <span :if={artifact.artifact.state == :collapsed}>{bytes(artifact.artifact.bytes)}</span>
+          </:meta>
+          <p :if={artifact.artifact.state == :collapsed} class="artifact-loading" role="status">
+            Loading…
+          </p>
+          <p :if={artifact.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
+            This body is no longer retained.
+          </p>
+          <Components.copy_block :if={artifact.artifact.state == :retained}>
+            <pre>{artifact.artifact.text}</pre>
+          </Components.copy_block>
+        </Components.disclosure>
       </Components.disclosure>
     </div>
     """
@@ -275,7 +301,9 @@ defmodule Ryker.ControlPlane.ToolCard do
     input = artifact(step, "Arguments")
     args = if is_map(input["arguments"]), do: input["arguments"], else: input
     tool = input["tool"] || input["operation"]
-    metadata = if input["server"] == "controller-tools", do: @tools[tool]
+
+    metadata =
+      if input["server"] == "controller-tools", do: @tools[tool] || platform_metadata(tool)
 
     {title, description, kind, symbol} = naming(metadata, step, args, tool)
 
@@ -299,6 +327,13 @@ defmodule Ryker.ControlPlane.ToolCard do
       groups: groups(tool, args),
       diff: string(args["diff"] || args["patch"])
     }
+  end
+
+  defp platform_metadata(tool) do
+    case @platform_titles[tool] do
+      {verb, completed} -> {verb, completed, nil}
+      nil -> nil
+    end
   end
 
   # A command that failed says how; one that succeeded needs no line for it.

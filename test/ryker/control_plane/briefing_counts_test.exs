@@ -129,6 +129,13 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     assert message_texts(document, third) == ["A", "B", "C"]
     assert message_texts(document, second) == ["A", "B"]
 
+    assert Enum.empty?(
+             LazyHTML.query(
+               document,
+               "#request-#{third.id} [data-source=earlier_in_request] [data-prompt-highlight]"
+             )
+           )
+
     earlier =
       text(document, "#request-#{third.id} .prompt-source[data-source=earlier_in_request]")
 
@@ -266,8 +273,9 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
              Enum.find_index(ids, &(&1 == "admission-#{entry.id}-1"))
 
     html = rendered(episode)
+    assert html =~ ~s(class="ui-disclosure ui-disclosure-source search-method")
     card = html |> LazyHTML.from_document() |> LazyHTML.query("##{search}") |> LazyHTML.text()
-    assert card =~ "Search for related history"
+    assert card =~ "Context search"
     assert card =~ "5 found, 2 offered"
     assert card =~ "Public channels Ryker is in: 3 conversations"
 
@@ -281,14 +289,14 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     methods =
       html
       |> LazyHTML.from_document()
-      |> LazyHTML.query("##{search} .search-methods li")
+      |> LazyHTML.query("##{search} .search-methods li summary .ui-disclosure-label")
       |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
 
     assert methods == [
-             "Same thread 2 found",
-             "Same links or IDs 0 found",
-             "Similar wording 5 found",
-             "Work still in progress 0 found"
+             "Same thread · 2 found",
+             "Same links or IDs · 0 found",
+             "Similar wording · 5 found",
+             "Work still in progress · 0 found"
            ]
 
     # The briefing keeps to what was sent: no search facts, no work left out.
@@ -336,8 +344,13 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     assert LazyHTML.text(document) =~
              "This conversation · work finished since 16 Sep, and all work still in progress"
 
-    assert document |> LazyHTML.query(".search-method-used code") |> Enum.map(&LazyHTML.text/1) ==
+    assert document |> LazyHTML.query(".search-query code") |> Enum.map(&LazyHTML.text/1) ==
              ["kubernetes", "liveness", "readiness", "probe"]
+
+    assert document |> LazyHTML.query(".search-method-used code") |> Enum.map(&LazyHTML.text/1) ==
+             ["kubernetes", "liveness"]
+
+    assert document |> LazyHTML.query(".search-method-used") |> LazyHTML.text() =~ "+2 more"
 
     notes = document |> LazyHTML.query(".search-method-note") |> Enum.map(&LazyHTML.text/1)
     assert notes == ["the message was not in a thread", "no links or IDs in the message"]

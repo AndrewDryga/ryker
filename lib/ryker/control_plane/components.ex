@@ -59,12 +59,8 @@ defmodule Ryker.ControlPlane.Components do
 
   attr(:class, :any, default: nil)
 
-  @doc """
-  Emisar's mark, in its own two colours, for what Emisar did: its chevrons
-  and circles in the text colour, the right chevron and the middle circle in
-  Emisar green (#36e6a5), as Emisar's own logo draws them.
-  """
-  def emisar_mark(assigns) do
+  # Emisar's supplied two-colour artwork, not a recoloured Ryker icon.
+  defp emisar_mark(assigns) do
     ~H"""
     <svg class={["emisar-mark", @class]} viewBox="-18 0 390 390" fill="none" aria-hidden="true">
       <g stroke-linejoin="round" stroke-width="37">
@@ -79,21 +75,59 @@ defmodule Ryker.ControlPlane.Components do
     """
   end
 
-  attr(:class, :any, default: nil)
+  attr(:service, :atom, required: true)
 
-  @doc """
-  Ryker's own mark, in Ryker mint, for what Ryker itself did: its two shapes
-  as brand/ryker draws them (`priv/static/brand/mark.svg`). Andrew,
-  2026-09-28, of the Timeline's tool chips: "make ryker calls branded too".
-  """
-  def ryker_mark(assigns) do
+  @doc "A tool's own supplied identity with a readable name; Code has no borrowed brand."
+  def service_badge(assigns) do
     ~H"""
-    <svg class={["ryker-mark", @class]} viewBox="-28 -44 780 680" aria-hidden="true">
-      <g fill="currentColor">
-        <path d="M326 0H629V27C629 83 607 116 562 149L105 485C73 507 42 501 20 478C-1 456-5 428 7 403L168 100C204 38 265 0 326 0Z" />
-        <path d="M596 246H710Q724 246 724 261V271C724 451 568 591 359 591H337Q323 591 323 577V504C323 462 345 439 380 431C493 410 552 349 578 260Q582 246 596 246Z" />
-      </g>
-    </svg>
+    <span class="tool-run-badge" data-service={@service}>
+      <.emisar_mark :if={@service == :emisar} class="service-mark" />
+      <img
+        :if={@service == :ryker}
+        class="service-mark"
+        src="/assets/brand/mark-mint.svg"
+        alt=""
+        aria-hidden="true"
+        width="24"
+        height="24"
+      />
+      <img
+        :if={@service in [:slack, :github]}
+        class="service-mark"
+        src={"/assets/platforms/#{@service}.svg"}
+        alt=""
+        aria-hidden="true"
+        width="24"
+        height="24"
+      />
+      <span>{service_name(@service)}</span>
+    </span>
+    """
+  end
+
+  @doc "The service names shared by tool rows and their aggregate heading."
+  def service_name(:emisar), do: "Emisar"
+  def service_name(:ryker), do: "Ryker"
+  def service_name(:slack), do: "Slack"
+  def service_name(:github), do: "GitHub"
+  def service_name(:workspace), do: "Code"
+  def service_name(_service), do: "Tool"
+
+  attr(:decision, :string, required: true)
+  attr(:reason, :string, default: nil)
+  attr(:reason_label, :string, default: "Reason")
+  attr(:reason_class, :string, default: nil)
+
+  @doc "One compact decision and its attributed explanation, without competing colored panels."
+  def outcome(assigns) do
+    ~H"""
+    <div class="decision-outcome" role="group" aria-label="Outcome">
+      <p class="outcome-decision"><.icon name={:arrow} /><strong>{@decision}</strong></p>
+      <div :if={@reason} class="outcome-reason">
+        <p class="outcome-reason-label">{@reason_label}</p>
+        <p class={@reason_class}>{@reason}</p>
+      </div>
+    </div>
     """
   end
 
@@ -169,12 +203,13 @@ defmodule Ryker.ControlPlane.Components do
   slot(:inner_block, required: true)
 
   @doc """
-  A block of exact text with a copy button in its top-right corner. The button
+  A block of exact text with its copy button last inside the block. The button
   copies what the block shows, so a large JSON document is one click away.
   """
   def copy_block(assigns) do
     ~H"""
     <div class="copy-block">
+      {render_slot(@inner_block)}
       <button
         type="button"
         class="copy-block-button"
@@ -186,7 +221,6 @@ defmodule Ryker.ControlPlane.Components do
         <.icon name={:check} class="copy-block-done" />
         <span class="sr-only" data-copy-status aria-live="polite"></span>
       </button>
-      {render_slot(@inner_block)}
     </div>
     """
   end
@@ -377,9 +411,24 @@ defmodule Ryker.ControlPlane.Components do
             target={fact.value}
           />
           <Kit.person :if={fact[:presentation] == :person} person={fact.value} />
-          <span :if={!fact[:identifier] && fact[:presentation] not in [:execution_target, :person]}>
+          <span :if={fact[:links]} class="fact-links"><span :for={
+            {item, index} <- Enum.with_index(fact.links)
+          }><span :if={index > 0}>, </span><a
+            :if={item.href}
+            href={item.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >{item.label}</a><span :if={!item.href}>{item.label}</span><span :if={item[:note]}> · {item.note}</span></span></span>
+          <span
+            :if={
+              !fact[:links] && !fact[:identifier] &&
+                fact[:presentation] not in [:execution_target, :person]
+            }
+            class="ui-fact-value"
+          >
             {fact.value}
           </span>
+          <small :if={fact[:description]} class="ui-fact-help">{fact.description}</small>
         </dd>
       </div>
     </dl>
