@@ -60,7 +60,15 @@ defmodule Ryker.Learning.EnvironmentContextTest do
            end) == {:ok, :ok}
 
     assert Ryker.Knowledge.context(second, second.repository_ref, "", 16, "writable") == []
-    [foreign] = Ryker.Knowledge.context(second, second.repository_ref)
+    assert Ryker.Knowledge.context(second, second.repository_ref) == []
+
+    page = Ryker.Memories.MemorySearchPage.first("haproxy", "workspace")
+
+    assert {:ok, {:ok, foreign, _}} =
+             Repo.transaction(fn ->
+               Ryker.Knowledge.search_page(second, second.repository_ref, page)
+             end)
+
     assert foreign["environment_ref"] == "product-a"
     refute foreign["can_update"]
 
@@ -211,13 +219,22 @@ defmodule Ryker.Learning.EnvironmentContextTest do
                    repositories: [entry.repository_ref]
                  })
 
+        entry =
+          entry
+          |> Ecto.Changeset.change(
+            work_profile: WorkProfile.document(profile),
+            work_policy: profile.policy,
+            work_policy_digest: profile.policy_digest
+          )
+          |> Repo.update!()
+
+        # The corpus was received before these environment overrides. Retain
+        # the excerpt with the same provenance real ingress receives up front.
+        assert Repo.transaction(fn ->
+                 Learning.Observations.record_excerpt_in_transaction(entry)
+               end) == {:ok, :ok}
+
         entry
-        |> Ecto.Changeset.change(
-          work_profile: WorkProfile.document(profile),
-          work_policy: profile.policy,
-          work_policy_digest: profile.policy_digest
-        )
-        |> Repo.update!()
       end)
 
     Fixtures.normalize_queue_timestamps!(scoped)

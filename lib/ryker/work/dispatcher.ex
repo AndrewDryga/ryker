@@ -116,14 +116,14 @@ defmodule Ryker.Work.Dispatcher do
   defp execution_failure(
          claim,
          {:work_completion_blocked, _receipt, :work_knowledge_context_stale} = reason,
-         _settings
+         settings
        ),
-       do: rerun(claim, reason)
+       do: rerun_stale_context(claim, reason, settings)
 
   # The same withdrawal found before the answer finished: on 2026-10-07 a later attempt of a
   # turn Coop already had found its briefing stale, and the turn stopped for a person.
-  defp execution_failure(claim, :work_knowledge_context_stale = reason, _settings),
-    do: rerun(claim, reason)
+  defp execution_failure(claim, :work_knowledge_context_stale = reason, settings),
+    do: rerun_stale_context(claim, reason, settings)
 
   # A worker restart cancels the agent under a running turn, and Coop fails the turn as
   # acp_cancelled. Such a turn stopped for a person at once, though a new run answered it
@@ -205,6 +205,25 @@ defmodule Ryker.Work.Dispatcher do
     if retry_class(reason) == :transient and attempt_count(claim.turn) < settings.max_attempts,
       do: defer(claim, reported_reason(reason), settings),
       else: block_completion(claim, receipt, reason)
+  end
+
+  # Rebuilding cannot repair a selector that keeps offering the same stale
+  # context. Carry the rerun count across owners instead of minting an
+  # unlimited sequence of first reruns, each with a fresh claim budget.
+  defp rerun_stale_context(claim, reason, settings) do
+    runs = Custody.reruns(claim.turn.turn_ref)
+
+    if runs >= settings.max_attempts do
+      case reason do
+        {:work_completion_blocked, receipt, _stale} ->
+          block_completion(claim, receipt, {:work_retry_exhausted, reason})
+
+        _stale ->
+          exhausted(claim, reason)
+      end
+    else
+      rerun(claim, reason, runs + 1)
+    end
   end
 
   defp rerun(claim, reason, run \\ 1) do

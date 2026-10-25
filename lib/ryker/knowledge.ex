@@ -78,6 +78,8 @@ defmodule Ryker.Knowledge do
       {:ok, scope} ->
         query =
           visible_query(scope)
+          |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
+          |> Learning.LearningSources.in_environment(scope.environment_ref)
           |> within_scope(scope, search_scope)
           |> ConversationKnowledge.Query.matching(search)
 
@@ -466,6 +468,8 @@ defmodule Ryker.Knowledge do
   """
   def current_source_ids_query(scope) do
     valid_query()
+    |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
+    |> Learning.LearningSources.in_environment(scope.environment_ref)
     |> Learning.LearningSources.eligible(scope)
     |> ConversationKnowledge.Query.select_id_generations()
     |> KnowledgeSource.Query.direct_observation_ids()

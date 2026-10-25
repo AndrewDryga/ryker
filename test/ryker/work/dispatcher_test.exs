@@ -181,6 +181,63 @@ defmodule Ryker.Work.DispatcherTest do
     assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
   end
 
+  # Five requests made over 39,000 unsent turns on 2026-10-25 because every
+  # rebuild recalled the same ineligible topic. A new turn must not reset
+  # the episode's bounded recovery budget for unchanged stale context.
+  test "repeated stale briefings stop after their bounded reruns" do
+    command = create_episode!("stale-briefing-loop")
+    options = Keyword.put(options({:error, :work_knowledge_context_stale}), :max_attempts, 2)
+
+    for run <- 1..2 do
+      assert Dispatcher.run_once(options) ==
+               {:ok, {:deferred, {:work_rerun_pending, :work_knowledge_context_stale}}}
+
+      assert {:ok, stop} = Custody.claim_next("worker:stale-briefing-loop", 60, :work)
+      assert stop.turn.status == :cancel_pending
+
+      rerun_ref =
+        if run == 1,
+          do: "turn:rerun:#{stop.turn.id}",
+          else: "turn:rerun:#{run}:#{stop.turn.id}"
+
+      assert stop.turn.cancellation_intent["new_turn_ref"] == rerun_ref
+
+      {:ok, receipt} =
+        Cancellation.absent_receipt(OperationKeys.create(stop.session), nil, nil, nil, nil)
+
+      assert {:ok, settled} =
+               Custody.settle_cancellation(
+                 command.episode_id,
+                 command.episode_key,
+                 stop.turn.turn_ref,
+                 stop.lease_ref,
+                 receipt
+               )
+
+      assert settled.episode.owner_ref == rerun_ref
+    end
+
+    assert Dispatcher.run_once(options) ==
+             {:ok,
+              {:deferred,
+               {:work_stop_pending, {:work_retry_exhausted, :work_knowledge_context_stale}}}}
+  end
+
+  test "a completed stale answer preserves its proof when its rerun budget is spent" do
+    command = create_episode!("stale-completion-loop", "turn:rerun:2:#{Ecto.UUID.generate()}")
+    proof = finished!(command)
+    reason = {:work_completion_blocked, proof, :work_knowledge_context_stale}
+
+    assert Dispatcher.run_once(
+             Keyword.put(saving_fails(proof, :work_knowledge_context_stale), :max_attempts, 2)
+           ) == {:ok, {:blocked, {:work_retry_exhausted, reason}}}
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :blocked
+    assert turn.completion_receipt == proof
+    assert turn.last_error_detail =~ "work_knowledge_context_stale"
+  end
+
   # The bundled Coop worker was paused under a running Chat turn (2026-10-10). Each try while it
   # was away spent one of the turn's eight attempts, 7 s, 8 s, 16 s and 32 s apart, so six were
   # gone after ninety seconds, and a worker away for about three minutes stopped the turn for a

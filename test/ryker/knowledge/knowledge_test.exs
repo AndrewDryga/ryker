@@ -115,6 +115,47 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              []
   end
 
+  # On 2026-10-25 five requests made over 39,000 unsent Work turns: a
+  # topic's environment matched, but its inherited roots belonged elsewhere.
+  # Every rebuilt briefing selected it again and failed the disclosure fence.
+  for provenance <- [:foreign, :unknown] do
+    test "automatic topics exclude #{provenance} roots while explicit history remains readable" do
+      source = input!(1, @firing)
+      learn!(source, @firing)
+      [before] = Knowledge.context(source, source.repository_ref)
+      local = input!(2, @resolved)
+      learn!(local, @resolved, before)
+      [topic] = Knowledge.context(local, local.repository_ref)
+      assert topic["source_count"] == 2
+      observation = Repo.get_by!(ConversationObservation, source_input_id: source.id)
+
+      attributes =
+        case unquote(provenance) do
+          :foreign -> [environment_ref: "another-environment"]
+          :unknown -> [environment_ref: nil, environment_known: false]
+        end
+
+      observation |> Ecto.Changeset.change(attributes) |> Repo.update!()
+
+      assert Knowledge.context(source, source.repository_ref) == []
+
+      assert Knowledge.context(source, source.repository_ref, {:related, @firing["summary"]}) ==
+               []
+
+      notes = Observations.context(local, local.repository_ref)
+      assert Enum.any?(notes, &(&1["source_input_id"] == local.id))
+
+      page = MemorySearchPage.first("haproxy", "current_channel")
+
+      assert {:ok, {:ok, explicit, _}} =
+               Repo.transaction(fn ->
+                 Knowledge.search_page(source, source.repository_ref, page)
+               end)
+
+      assert explicit["source_ref"] == topic["source_ref"]
+    end
+  end
+
   # V10, 2026-09-28: #test's "Emisar MCP access" topic was learned while the
   # channel's work used one repository. Its environment then moved to another,
   # and no later pass was offered the topic again: each saw no topic at all,
