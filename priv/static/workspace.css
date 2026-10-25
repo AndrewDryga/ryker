@@ -530,24 +530,24 @@
 .case-entry-body::before { content:""; position:absolute; left:-22px; top:21px; background:var(--phase-color); border:3px solid var(--ryker-stroke); width:6px; height:6px; box-sizing:content-box; border-radius:50%; }
 /* Message content is not a card description. The same three-part composition
    serves intake, retained context, history excerpts and validated answers. */
-.ui-message { --bubble:var(--ryker-surface-emphasis); min-width:0; margin:0; padding:0; border:0; background:transparent; overflow-wrap:anywhere; }
+.ui-message { --message-inset:16px; --bubble:var(--ryker-surface-emphasis); min-width:0; margin:0; padding:0; border:0; background:transparent; overflow-wrap:anywhere; }
 .ui-message[data-author="ryker"] { --bubble:var(--ryker-accent-soft); }
 .ui-message-frame { min-width:0; border:1px solid var(--ryker-stroke); border-radius:9px; overflow:clip; background:var(--bubble); }
 .ui-message + .ui-message { margin-top:16px; }
-.ui-message-header { position:static; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin:0; padding:14px 16px 0; border:0; background:transparent; backdrop-filter:none; }
+.ui-message-header { position:static; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin:0; padding:14px var(--message-inset) 0; border:0; background:transparent; backdrop-filter:none; }
 .ui-message-title { min-width:0; margin:0 0 12px; color:var(--ink); font-size:18px; line-height:26px; font-weight:600; letter-spacing:0; overflow-wrap:anywhere; }
 .ui-message-header strong { color:var(--ink); font-size:13px; line-height:20px; font-weight:600; }
 .ui-message[data-author="ryker"] .ui-message-header strong { color:var(--ryker-accent-strong); }
 .ui-message-context { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .ui-message-meta { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; min-width:0; padding:0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; font-variant-numeric:tabular-nums; }
-.ui-message-body { min-width:0; margin:0; padding:6px 16px 14px; background:transparent; color:var(--ink); font-size:16px; line-height:24px; overflow-wrap:anywhere; }
+.ui-message-body { min-width:0; margin:0; padding:6px var(--message-inset) 14px; background:transparent; color:var(--ink); font-size:16px; line-height:24px; overflow-wrap:anywhere; }
 .ui-message-frame:not(:has(> .ui-message-header)) > .ui-message-body { padding-top:14px; }
 .ui-message-body > :first-child { margin-top:0; }
 .ui-message-body > :last-child { margin-bottom:0; }
 .ui-message-footer { min-width:0; margin:0; padding:0; border-top:1px solid var(--ryker-stroke); color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 .ui-message-footer > .ui-disclosure { margin:0; padding:0; border:0; }
-.ui-message-footer > .ui-disclosure > summary { min-height:44px; padding:8px 16px; font-size:12px; font-weight:400; }
-.ui-message-footer > .ui-disclosure > .ui-disclosure-body { padding:0 16px 14px; }
+.ui-message-footer > .ui-disclosure > summary { min-height:44px; padding:8px var(--message-inset); font-size:12px; font-weight:400; }
+.ui-message-footer > .ui-disclosure > .ui-disclosure-body { padding:0 var(--message-inset) 14px; }
 .ryker-app .ui-message-footer .ui-facts > div { grid-template-columns:minmax(0,1fr); gap:2px; }
 .case-event-content { display:grid; grid-template-columns:minmax(0,1fr); align-items:start; }
 .case-event-summary { grid-column:1 / -1; }
@@ -642,12 +642,17 @@
 .context-messages { display:grid; gap:16px; }
 .context-messages > .ui-message { margin:0; }
 .context-messages-history { gap:8px; }
-.context-messages-history .ui-message-header { padding:12px 14px 0; }
-.context-messages-history .ui-message-body, .candidate-messages .ui-message-body { padding:4px 14px 12px; font-size:14px; line-height:22px; }
+.context-messages-history .ui-message, .candidate-messages .ui-message { --message-inset:14px; }
+.context-messages-history .ui-message-header { padding:12px var(--message-inset) 0; }
+.context-messages-history .ui-message-body, .candidate-messages .ui-message-body { padding:4px var(--message-inset) 12px; font-size:14px; line-height:22px; }
 .context-message .ui-message-body { white-space:pre-wrap; }
 .context-record { margin:12px 0; padding:14px 16px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); color:var(--ryker-text); font-size:14px; overflow-wrap:anywhere; }
 .context-record:first-child { margin-top:0; }
 .context-record:last-child { margin-bottom:0; }
+.ui-message-footer > .context-message-details { padding:0 var(--message-inset); }
+.context-message-details > .ui-disclosure { margin:0; padding:0; border:0; }
+.context-message-details > .ui-disclosure > summary { min-height:44px; padding:8px 0; font-size:12px; font-weight:400; }
+.context-message-details > .ui-disclosure > .ui-disclosure-body { padding:0 0 14px; }
 .context-message-details .context-rows { margin:0 0 8px; }
 .conversation-recall { max-width:80ch; margin:0; overflow-wrap:anywhere; }
 .conversation-recall + .conversation-recall { margin-top:20px; padding-top:16px; border-top:1px solid var(--stroke); }
@@ -841,8 +846,9 @@
   .prompt-source-count::before { content:none; }
   .ui-disclosure-source > summary, .ui-disclosure-source > .ui-disclosure-body { padding:12px; }
   .candidate-heading { flex-wrap:wrap; gap:4px 12px; }
-  .ui-message-header { padding:12px 14px 0; gap:2px 10px; }
-  .ui-message-body { padding:4px 14px 12px; }
+  .ui-message { --message-inset:14px; }
+  .ui-message-header { padding:12px var(--message-inset) 0; gap:2px 10px; }
+  .ui-message-body { padding:4px var(--message-inset) 12px; }
   .context-record { padding:12px; }
 }
 

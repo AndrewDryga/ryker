@@ -8,6 +8,25 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     %{css: Assets.call(conn, []).resp_body}
   end
 
+  test "nested message attachments and raw events share the message footer inset", %{css: css} do
+    # Real context messages wrap their attachments/raw event in an inner
+    # container. Direct-child footer rules left those rows against the edge.
+    assert [_, wrapper] =
+             Regex.run(~r/\.ui-message-footer > \.context-message-details \{([^}]+)\}/, css)
+
+    assert wrapper =~ "padding:0 var(--message-inset)"
+    assert css =~ ~r/\.ui-message \{[^}]*--message-inset:16px/
+
+    assert css =~
+             ~r/\.context-messages-history \.ui-message, \.candidate-messages \.ui-message \{[^}]*--message-inset:14px/
+
+    assert [_, summary] =
+             Regex.run(~r/\.context-message-details > \.ui-disclosure > summary \{([^}]+)\}/, css)
+
+    assert summary =~ "padding:8px 0"
+    assert summary =~ "min-height:44px"
+  end
+
   test "message content has its own surface and sections outrank disclosure labels", %{css: css} do
     # Font-only fixes left sender/title plus message looking like title/subtitle.
     # The shared content surface must be present at every message nesting level.
@@ -17,7 +36,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute css =~ "min-width:300px"
 
     assert [_, message] = Regex.run(~r/^\.ui-message-body \{([^}]+)\}/m, css)
-    assert message =~ "padding:6px 16px 14px"
+    assert message =~ "padding:6px var(--message-inset) 14px"
     assert message =~ "background:transparent"
     refute message =~ "border:"
     assert message =~ "font-size:16px"
@@ -36,7 +55,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     assert [_, header] = Regex.run(~r/^\.ui-message-header \{([^}]+)\}/m, css)
     assert header =~ "align-items:baseline"
-    assert header =~ "padding:14px 16px 0"
+    assert header =~ "padding:14px var(--message-inset) 0"
 
     assert message =~ "margin:0"
     assert length(Regex.scan(~r/^\.ui-message-body \{/m, css)) == 1
