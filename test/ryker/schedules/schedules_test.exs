@@ -647,6 +647,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, first} =
              Schedules.run_now(
                confirmed.schedule.ref,
+               confirmed.schedule.revision,
                "slack:user:U123",
                "interaction:run-now",
                scope,
@@ -669,6 +670,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, duplicate} =
              Schedules.run_now(
                confirmed.schedule.ref,
+               confirmed.schedule.revision,
                "slack:user:U123",
                "interaction:run-now",
                scope,
@@ -681,6 +683,7 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert Schedules.run_now(
              confirmed.schedule.ref,
+             cadence.revision,
              "slack:user:U123",
              "interaction:run-now-overlap",
              scope,
@@ -689,6 +692,7 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert Schedules.run_now(
              confirmed.schedule.ref,
+             cadence.revision,
              "slack:user:U123",
              "interaction:run-now-crossed",
              %{conversation_prefix: "slack:T999:", transport: "slack"},
@@ -707,6 +711,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, run_receipt} =
              Schedules.run_now(
                confirmed.schedule.ref,
+               confirmed.schedule.revision,
                "slack:user:U123",
                "interaction:expired-home-run",
                scope,
@@ -728,6 +733,7 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert Schedules.run_now(
              deleted.schedule.ref,
+             deleted.schedule.revision,
              "slack:user:U123",
              "interaction:expired-home-deleted",
              scope,
@@ -771,6 +777,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:ok, receipt} =
              Schedules.run_now_for_operator(
                confirmed.schedule.ref,
+               confirmed.schedule.revision,
                "control-plane:local",
                "control-plane:run-schedule:operator-run-now:1",
                &policy/1
@@ -873,8 +880,8 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert {:error, _reason} = Schedules.defer("schedule", "lease", 0, :failed)
     assert {:error, _reason} = Schedules.set_status("schedule", :unknown, 1)
     assert {:error, _reason} = Schedules.set_home_status("schedule", :active, 1, "a", "b", %{})
-    assert {:error, _reason} = Schedules.run_now("", "", "", %{}, :not_a_resolver)
-    assert {:error, _reason} = Schedules.run_now_for_operator("", "", "", :not_a_resolver)
+    assert {:error, _reason} = Schedules.run_now("", 1, "", "", %{}, :not_a_resolver)
+    assert {:error, _reason} = Schedules.run_now_for_operator("", 1, "", "", :not_a_resolver)
     assert Schedules.set_status("missing-schedule", :active, 1) == {:error, :schedule_not_found}
   end
 

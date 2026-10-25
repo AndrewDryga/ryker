@@ -218,6 +218,15 @@ defmodule Ryker.Slack.AppHomeTest do
     assert text =~ "ryker_home_disable_behavior"
     assert text =~ "ryker_home_pause_schedule"
     assert text =~ "ryker_home_run_schedule"
+
+    # Run now used a bare ref, allowing an old Home view to start an edited task.
+    [run_now] =
+      for %{"type" => "actions", "elements" => elements} <- blocks,
+          element <- elements,
+          element["action_id"] == "ryker_home_run_schedule",
+          do: element
+
+    assert run_now["value"] == "schedule-control:schedule:one:4"
     assert text =~ "Change in chat"
     assert text =~ "ryker_home_retry_publication"
     assert text =~ "publication-recovery:one:3"

@@ -45,7 +45,7 @@ defmodule Ryker.Slack.HomeInteractionTest do
     for {action_id, value, action} <- [
           {"ryker_home_edit_memory_review", "memory-review:abc-123", :edit_memory_review},
           {"ryker_home_pause_schedule", "schedule-control:schedule:abc-123:4", :pause_schedule},
-          {"ryker_home_run_schedule", "schedule:abc-123", :run_schedule},
+          {"ryker_home_run_schedule", "schedule-control:schedule:abc-123:4", :run_schedule},
           {"ryker_home_retry_publication", "publication-recovery:abc-123:4", :retry_publication},
           {"ryker_home_update_publication", "publication-recovery:abc-123:4",
            :update_publication},

@@ -205,12 +205,24 @@ defmodule Ryker.Schedules do
       ),
       do: {:error, {:invalid_schedule, :status}}
 
-  @doc "Starts one immediate occurrence without moving the saved recurrence cadence."
-  @spec run_now(String.t(), String.t(), String.t(), map(), (Schedule.t() ->
-                                                              {:ok, map()} | {:error, term()})) ::
+  @doc """
+  Starts one occurrence at `expected_revision` without moving the saved cadence:
+  `{:ok, receipt}` (recorded or duplicate), or `{:error, reason}`. A changed
+  definition returns `:schedule_revision_stale` before dispatch; scope, missing,
+  terminal and overlapping schedules return `:schedule_scope_mismatch`,
+  `:schedule_not_found`, `:schedule_terminal` or `:schedule_occurrence_active`.
+  An elapsed current definition is marked expired without dispatching. Invalid
+  revisions return `{:invalid_schedule, :revision}`; invalid references return
+  `{:invalid_schedule_confirmation, field}`. Invalid scope or resolver values
+  return `{:invalid_schedule, :scope | :run_now}`. Policy and audit refusals propagate.
+  """
+  @spec run_now(String.t(), pos_integer(), String.t(), String.t(), map(), (Schedule.t() ->
+                                                                             {:ok, map()}
+                                                                             | {:error, term()})) ::
           {:ok, map()} | {:error, term()}
-  def run_now(schedule_ref, actor_ref, action_ref, scope, policy_resolver)
-      when is_function(policy_resolver, 1) do
+  def run_now(schedule_ref, expected_revision, actor_ref, action_ref, scope, policy_resolver)
+      when is_integer(expected_revision) and expected_revision > 0 and
+             is_function(policy_resolver, 1) do
     with :ok <- reference(schedule_ref, :schedule_ref),
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(action_ref, :action_ref),
@@ -221,27 +233,50 @@ defmodule Ryker.Schedules do
           action_ref: action_ref,
           actor_ref: actor_ref,
           kind: "schedule",
-          request: %{"operation" => "run_now", "scope" => scope_document(scope)},
+          request: %{
+            "expected_revision" => expected_revision,
+            "operation" => "run_now",
+            "scope" => scope_document(scope)
+          },
           resource_ref: schedule_ref
         },
-        fn -> run_now_locked(schedule_ref, scope, policy_resolver) end
+        fn -> run_now_locked(schedule_ref, expected_revision, scope, policy_resolver) end
       )
     end
   end
 
-  def run_now(_schedule_ref, _actor_ref, _action_ref, _scope, _policy_resolver),
-    do: {:error, {:invalid_schedule, :run_now}}
+  def run_now(_schedule_ref, _expected_revision, _actor_ref, _action_ref, _scope, policy_resolver)
+      when is_function(policy_resolver, 1),
+      do: {:error, {:invalid_schedule, :revision}}
+
+  def run_now(
+        _schedule_ref,
+        _expected_revision,
+        _actor_ref,
+        _action_ref,
+        _scope,
+        _policy_resolver
+      ),
+      do: {:error, {:invalid_schedule, :run_now}}
 
   @doc """
-  Internal — `run_now/5` for the local console's operator, who acts on any
-  schedule. `Ryker.ControlPlane.Actions` calls it.
+  Internal — `run_now/6` and its result/error contract for the local console's
+  operator, who acts on any schedule. `Ryker.ControlPlane.Actions` calls it.
   """
-  @spec run_now_for_operator(String.t(), String.t(), String.t(), (Schedule.t() ->
-                                                                    {:ok, map()}
-                                                                    | {:error, term()})) ::
+  @spec run_now_for_operator(String.t(), pos_integer(), String.t(), String.t(), (Schedule.t() ->
+                                                                                   {:ok, map()}
+                                                                                   | {:error,
+                                                                                      term()})) ::
           {:ok, map()} | {:error, term()}
-  def run_now_for_operator(schedule_ref, actor_ref, action_ref, policy_resolver)
-      when is_function(policy_resolver, 1) do
+  def run_now_for_operator(
+        schedule_ref,
+        expected_revision,
+        actor_ref,
+        action_ref,
+        policy_resolver
+      )
+      when is_integer(expected_revision) and expected_revision > 0 and
+             is_function(policy_resolver, 1) do
     with :ok <- reference(schedule_ref, :schedule_ref),
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(action_ref, :action_ref) do
@@ -251,16 +286,36 @@ defmodule Ryker.Schedules do
           action_ref: action_ref,
           actor_ref: actor_ref,
           kind: "schedule",
-          request: %{"operation" => "run_now", "scope" => %{"kind" => "local_operator"}},
+          request: %{
+            "expected_revision" => expected_revision,
+            "operation" => "run_now",
+            "scope" => %{"kind" => "local_operator"}
+          },
           resource_ref: schedule_ref
         },
-        fn -> run_now_locked(schedule_ref, nil, policy_resolver) end
+        fn -> run_now_locked(schedule_ref, expected_revision, nil, policy_resolver) end
       )
     end
   end
 
-  def run_now_for_operator(_schedule_ref, _actor_ref, _action_ref, _policy_resolver),
-    do: {:error, {:invalid_schedule, :run_now}}
+  def run_now_for_operator(
+        _schedule_ref,
+        _expected_revision,
+        _actor_ref,
+        _action_ref,
+        policy_resolver
+      )
+      when is_function(policy_resolver, 1),
+      do: {:error, {:invalid_schedule, :revision}}
+
+  def run_now_for_operator(
+        _schedule_ref,
+        _expected_revision,
+        _actor_ref,
+        _action_ref,
+        _policy_resolver
+      ),
+      do: {:error, {:invalid_schedule, :run_now}}
 
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- fetch_and_lock_offer(attributes.record_ref),
@@ -755,13 +810,13 @@ defmodule Ryker.Schedules do
     end
   end
 
-  defp run_now_locked(schedule_ref, scope, policy_resolver) do
+  defp run_now_locked(schedule_ref, expected_revision, scope, policy_resolver) do
     case fetch_and_lock_schedule(schedule_ref) do
       {:error, :not_found} ->
         {:error, :schedule_not_found}
 
       {:ok, %Schedule{} = schedule} ->
-        run_now_schedule(schedule, Repo.now!(), scope, policy_resolver)
+        run_now_schedule(schedule, expected_revision, Repo.now!(), scope, policy_resolver)
     end
   end
 
@@ -804,10 +859,19 @@ defmodule Ryker.Schedules do
     end
   end
 
-  defp run_now_schedule(schedule, now, scope, policy_resolver) do
+  defp run_now_schedule(
+         %Schedule{} = schedule,
+         expected_revision,
+         %DateTime{} = now,
+         scope,
+         policy_resolver
+       ) do
     cond do
       not schedule_in_scope?(schedule, scope) ->
         {:error, :schedule_scope_mismatch}
+
+      schedule.revision != expected_revision ->
+        {:error, :schedule_revision_stale}
 
       schedule.status in [:expired, :deleted] ->
         {:error, :schedule_terminal}
@@ -825,6 +889,9 @@ defmodule Ryker.Schedules do
         create_manual_occurrence(schedule, now, policy_resolver)
     end
   end
+
+  defp run_now_schedule(_schedule, _expected_revision, _now, _scope, _policy_resolver),
+    do: {:error, {:invalid_schedule, :run_now}}
 
   defp create_manual_occurrence(schedule, now, policy_resolver) do
     with {:ok, policy} <- policy_resolver.(schedule),

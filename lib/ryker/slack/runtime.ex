@@ -302,9 +302,10 @@ defmodule Ryker.Slack.Runtime do
           replacement
         )
       end,
-      run_schedule: fn ref, actor_ref, workspace_ref, action_ref ->
+      run_schedule: fn ref, revision, actor_ref, workspace_ref, action_ref ->
         Schedules.run_now(
           ref,
+          revision,
           "slack:user:#{actor_ref}",
           action_ref,
           %{conversation_prefix: ConversationRef.slack_prefix(workspace_ref), transport: "slack"},

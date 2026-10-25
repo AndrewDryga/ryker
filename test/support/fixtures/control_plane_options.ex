@@ -179,7 +179,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {{:schedule_status, status}, ref})
           {:ok, %{ref: ref, status: status}}
         end,
-        run_schedule: fn ref, _viewer ->
+        run_schedule: fn ref, _revision, _viewer ->
           send(parent, {:schedule_run_now, ref})
           {:ok, %{ref: ref, status: :dispatched}}
         end

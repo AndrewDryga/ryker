@@ -19,7 +19,7 @@ defmodule Ryker.Slack.HomeInteraction do
     "ryker_home_pause_schedule" => {:pause_schedule, "schedule-control:"},
     "ryker_home_resume_schedule" => {:resume_schedule, "schedule-control:"},
     "ryker_home_retry_publication" => {:retry_publication, "publication-recovery:"},
-    "ryker_home_run_schedule" => {:run_schedule, "schedule:"},
+    "ryker_home_run_schedule" => {:run_schedule, :control},
     "ryker_home_show_collection" => {:show_collection, "home-collection:"},
     "ryker_home_show_dashboard" => {:show_dashboard, "home-collection:"},
     "ryker_home_update_publication" => {:update_publication, "publication-recovery:"}

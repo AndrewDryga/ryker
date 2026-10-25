@@ -593,7 +593,7 @@ defmodule Ryker.Slack.AppHome do
 
     buttons =
       [
-        button("ryker_home_run_schedule", "Run now", Map.get(row, :ref)),
+        button("ryker_home_run_schedule", "Run now", versioned_control(:schedule, row)),
         status_button,
         open_button(row, "Change in chat"),
         delete_button

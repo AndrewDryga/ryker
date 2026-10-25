@@ -116,14 +116,11 @@ defmodule Ryker.Slack.AppHomeActions do
     |> Repo.fetch()
   end
 
-  defp destination_ref(%HomeInteraction{action: :run_schedule, resource_ref: ref}),
-    do: schedule_destination(ref)
-
   defp destination_ref(%HomeInteraction{
          action: action,
          resource_ref: "schedule-control:" <> value
        })
-       when action in [:pause_schedule, :resume_schedule, :delete_schedule] do
+       when action in [:pause_schedule, :resume_schedule, :delete_schedule, :run_schedule] do
     case String.split(value, ":") do
       parts when length(parts) >= 3 ->
         parts |> Enum.drop(-1) |> Enum.join(":") |> schedule_destination()

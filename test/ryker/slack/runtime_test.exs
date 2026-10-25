@@ -89,7 +89,7 @@ defmodule Ryker.Slack.RuntimeTest do
     assert is_function(options.handler_settings.home_interaction_options.recover_publication, 6)
     assert is_function(options.handler_settings.home_interaction_options.refresh_home, 1)
     assert is_function(options.handler_settings.home_interaction_options.resolve_memory_review, 5)
-    assert is_function(options.handler_settings.home_interaction_options.run_schedule, 4)
+    assert is_function(options.handler_settings.home_interaction_options.run_schedule, 5)
     assert is_function(options.handler_settings.home_interaction_options.set_behavior_status, 6)
     assert is_function(options.handler_settings.home_interaction_options.set_schedule_status, 6)
     assert is_function(options.handler_settings.home_interaction_options.show_collection, 3)

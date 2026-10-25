@@ -83,7 +83,7 @@ defmodule Ryker.Slack.AppHomeActionsTest do
     schedule = schedule!(publication)
 
     for schedule_control <- [
-          home_interaction(:run_schedule, schedule.ref),
+          home_interaction(:run_schedule, "schedule-control:#{schedule.ref}:1"),
           home_interaction(:pause_schedule, "schedule-control:#{schedule.ref}:1")
         ] do
       assert AppHomeActions.authorize_resource(
@@ -111,7 +111,7 @@ defmodule Ryker.Slack.AppHomeActionsTest do
     )
 
     assert AppHomeActions.authorize_resource(
-             home_interaction(:run_schedule, schedule.ref),
+             home_interaction(:run_schedule, "schedule-control:#{schedule.ref}:1"),
              SharedAPI,
              %{shared: MapSet.new(["C456"])}
            ) == {:error, :app_home_resource_not_visible}

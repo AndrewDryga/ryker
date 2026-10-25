@@ -20,11 +20,11 @@ defmodule Ryker.ControlPlane.ActionsTest do
     assert callbacks.discard_retention_changes.("missing-session", nil) ==
              {:error, :retention_session_not_found}
 
-    assert callbacks.run_schedule.("missing-schedule", nil) ==
+    assert callbacks.run_schedule.("missing-schedule", 1, nil) ==
              {:error, :schedule_policy_unavailable}
 
     configured = Actions.callbacks(nil, %{}, %{}, fn _schedule -> {:ok, %{name: "policy"}} end)
-    assert configured.run_schedule.("missing-schedule", nil) == {:error, :schedule_not_found}
+    assert configured.run_schedule.("missing-schedule", 1, nil) == {:error, :schedule_not_found}
   end
 
   test "no retired Card Lab action can queue a Slack specimen or record catalog feedback" do

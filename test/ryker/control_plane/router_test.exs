@@ -1937,7 +1937,9 @@ defmodule Ryker.ControlPlane.RouterTest do
           {:unexpected, "The page may be out of date"}
         ] do
       options =
-        put_in(options(), [:actions, :run_schedule], fn _ref, _viewer -> {:error, reason} end)
+        put_in(options(), [:actions, :run_schedule], fn _ref, _revision, _viewer ->
+          {:error, reason}
+        end)
 
       refused =
         request_with_options(:post, path, URI.encode_query(%{"_token" => token}), options)

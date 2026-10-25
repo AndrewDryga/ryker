@@ -150,6 +150,11 @@ waits for its database lock, leaves the newer definition untouched and asks the 
 its current details. Usage counters and lease renewals do not invalidate unchanged definitions.
 A same-status request at the current revision is a no-op.
 
+Run now in the console and Slack Home also applies to the displayed schedule revision. If its
+definition changes before dispatch obtains the schedule lock, no work starts. Refresh the
+schedule and confirm its current definition. Retrying the same successful action returns its
+existing receipt and never starts another occurrence.
+
 If saving a completed result is blocked, retain its workspace and retry completion after repairing
 the cause. An explicit completion retry captures a fresh snapshot under a new operation key;
 automatic transport retries retain their existing key. The saved answer and completed model turn

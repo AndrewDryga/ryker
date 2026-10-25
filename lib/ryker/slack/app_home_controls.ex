@@ -28,8 +28,7 @@ defmodule Ryker.Slack.AppHomeControls do
   defp handle_control(interaction, options) do
     with {:ok, true} <- allowed?(interaction, options),
          :ok <- operator?(interaction, options),
-         :ok <- resource_authorized?(interaction, options),
-         {:ok, outcome} <- dispatch(interaction, options),
+         {:ok, outcome} <- authorized_dispatch(interaction, options),
          :ok <- refresh_if_needed(interaction, outcome, options) do
       {:ok, %{outcome: outcome, resource_ref: interaction.resource_ref}}
     else
@@ -39,6 +38,25 @@ defmodule Ryker.Slack.AppHomeControls do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # Known obsolete Run now values can refresh an operator's retained Home
+  # view, but must not resolve a target or reach a legacy dispatch path.
+  defp authorized_dispatch(%struct{} = interaction, options)
+       when struct in [HomeInteraction, HomeSubmission] do
+    if invalid_run_control?(interaction) do
+      {:ok, :invalid}
+    else
+      with :ok <- resource_authorized?(interaction, options), do: dispatch(interaction, options)
+    end
+  end
+
+  defp authorized_dispatch(_interaction, _options),
+    do: {:error, {:invalid_app_home_control, :request}}
+
+  defp invalid_run_control?(%HomeInteraction{action: :run_schedule, resource_ref: value}),
+    do: ControlValue.decode(value, "schedule") == :error
+
+  defp invalid_run_control?(_interaction), do: false
 
   defp resource_authorized?(interaction, options) do
     case Map.get(options, :authorize_resource) do
@@ -233,12 +251,15 @@ defmodule Ryker.Slack.AppHomeControls do
            action: :run_schedule,
            actor_ref: actor_ref,
            event_ref: action_ref,
-           resource_ref: "schedule:" <> _ = ref,
+           resource_ref: "schedule-control:" <> _ = value,
            workspace_ref: workspace_ref
          },
          options
-       ),
-       do: run_schedule(options, ref, actor_ref, workspace_ref, action_ref)
+       ) do
+    with {:ok, ref, revision} <- versioned_resource(value, "schedule") do
+      run_schedule(options, ref, revision, actor_ref, workspace_ref, action_ref)
+    end
+  end
 
   defp dispatch(
          %HomeInteraction{
@@ -479,13 +500,14 @@ defmodule Ryker.Slack.AppHomeControls do
     end
   end
 
-  defp run_schedule(options, ref, actor_ref, workspace_ref, action_ref) do
+  defp run_schedule(options, ref, revision, actor_ref, workspace_ref, action_ref) do
     case Map.get(options, :run_schedule) do
-      callback when is_function(callback, 4) ->
-        callback.(ref, actor_ref, workspace_ref, action_ref)
+      callback when is_function(callback, 5) ->
+        callback.(ref, revision, actor_ref, workspace_ref, action_ref)
         |> action_result(:started, :run_schedule, [
           :schedule_not_found,
           :schedule_scope_mismatch,
+          :schedule_revision_stale,
           :schedule_terminal,
           :schedule_occurrence_active
         ])

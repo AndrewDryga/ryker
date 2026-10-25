@@ -136,26 +136,21 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp run_schedule(policy_resolver) when is_function(policy_resolver, 1) do
-    fn schedule_ref, viewer ->
-      case Repo.fetch(Schedules.Schedule.Query.by_ref(schedule_ref)) do
-        {:ok, %{revision: revision}} ->
-          action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
+    fn schedule_ref, revision, viewer ->
+      action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
 
-          Schedules.run_now_for_operator(
-            schedule_ref,
-            Actor.of(viewer),
-            action_ref,
-            policy_resolver
-          )
-
-        {:error, :not_found} ->
-          {:error, :schedule_not_found}
-      end
+      Schedules.run_now_for_operator(
+        schedule_ref,
+        revision,
+        Actor.of(viewer),
+        action_ref,
+        policy_resolver
+      )
     end
   end
 
   defp run_schedule(_policy_resolver) do
-    fn _schedule_ref, _viewer -> {:error, :schedule_policy_unavailable} end
+    fn _schedule_ref, _revision, _viewer -> {:error, :schedule_policy_unavailable} end
   end
 
   defp resolve_memory_review(review_ref, action, replacement, viewer) do

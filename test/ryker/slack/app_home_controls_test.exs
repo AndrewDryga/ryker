@@ -192,13 +192,13 @@ defmodule Ryker.Slack.AppHomeControlsTest do
                                           _action_ref ->
         expired_receipt
       end)
-      |> Map.put(:run_schedule, fn _ref, _actor, _workspace, _action_ref ->
+      |> Map.put(:run_schedule, fn _ref, _revision, _actor, _workspace, _action_ref ->
         expired_receipt
       end)
 
     for interaction <- [
           interaction(:pause_schedule, "schedule-control:schedule:one:4"),
-          interaction(:run_schedule, "schedule:one")
+          interaction(:run_schedule, "schedule-control:schedule:one:4")
         ] do
       assert AppHomeControls.handle(interaction, options) ==
                {:ok, %{outcome: :invalid, resource_ref: interaction.resource_ref}}
@@ -248,9 +248,12 @@ defmodule Ryker.Slack.AppHomeControlsTest do
     assert_received {:refreshed_home, "U123", "T123"}
 
     assert {:ok, %{outcome: :started}} =
-             AppHomeControls.handle(interaction(:run_schedule, "schedule:one"), base)
+             AppHomeControls.handle(
+               interaction(:run_schedule, "schedule-control:schedule:one:4"),
+               base
+             )
 
-    assert_received {:ran_schedule, "schedule:one", "U123", "T123", "interaction:home:1"}
+    assert_received {:ran_schedule, "schedule:one", 4, "U123", "T123", "interaction:home:1"}
     assert_received {:refreshed_home, "U123", "T123"}
 
     for {interaction_action, recovery_action} <- [
@@ -462,19 +465,21 @@ defmodule Ryker.Slack.AppHomeControlsTest do
            ) == {:error, {:invalid_app_home_control, :set_schedule_status}}
 
     assert AppHomeControls.handle(
-             interaction(:run_schedule, "schedule:one"),
-             Map.put(base, :run_schedule, fn _ref, _actor, _workspace, _action_ref ->
+             interaction(:run_schedule, "schedule-control:schedule:one:4"),
+             Map.put(base, :run_schedule, fn _ref, _revision, _actor, _workspace, _action_ref ->
                {:error, :database_unavailable}
              end)
            ) == {:error, :database_unavailable}
 
     assert AppHomeControls.handle(
-             interaction(:run_schedule, "schedule:one"),
-             Map.put(base, :run_schedule, fn _ref, _actor, _workspace, _action_ref -> :invalid end)
+             interaction(:run_schedule, "schedule-control:schedule:one:4"),
+             Map.put(base, :run_schedule, fn _ref, _revision, _actor, _workspace, _action_ref ->
+               :invalid
+             end)
            ) == {:error, {:invalid_app_home_control, :run_schedule}}
 
     assert AppHomeControls.handle(
-             interaction(:run_schedule, "schedule:one"),
+             interaction(:run_schedule, "schedule-control:schedule:one:4"),
              Map.delete(base, :run_schedule)
            ) == {:error, {:invalid_app_home_control, :run_schedule}}
 
@@ -657,8 +662,8 @@ defmodule Ryker.Slack.AppHomeControlsTest do
         send(parent, {:memory_review, ref, action, actor_ref, workspace_ref, replacement})
         {:ok, %{status: :resolved}}
       end,
-      run_schedule: fn ref, actor_ref, workspace_ref, action_ref ->
-        send(parent, {:ran_schedule, ref, actor_ref, workspace_ref, action_ref})
+      run_schedule: fn ref, revision, actor_ref, workspace_ref, action_ref ->
+        send(parent, {:ran_schedule, ref, revision, actor_ref, workspace_ref, action_ref})
         {:ok, %{status: :started}}
       end,
       set_behavior_status: fn ref, status, revision, actor_ref, workspace_ref, action_ref ->

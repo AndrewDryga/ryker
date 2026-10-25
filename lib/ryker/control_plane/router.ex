@@ -1110,6 +1110,11 @@ defmodule Ryker.ControlPlane.Router do
   defp perform("memory", resource_ref, "forget", "memory:forget:" <> fingerprint, actions, _conn),
     do: actions.forget_memory.(resource_ref, fingerprint)
 
+  defp perform("schedule", resource_ref, "run-now", "schedule:run-now:" <> version, actions, conn) do
+    revision = String.to_integer(version)
+    actions.run_schedule.(resource_ref, revision, conn.assigns.viewer)
+  end
+
   defp perform("behavior", resource_ref, action, canonical_action, actions, _conn)
        when action in ["active", "disabled", "deleted"] do
     revision = status_revision(canonical_action)
@@ -1196,9 +1201,6 @@ defmodule Ryker.ControlPlane.Router do
 
   defp perform("episode", resource_ref, "rate-needs-work", actions, viewer),
     do: actions.rate_episode.(resource_ref, :needs_work, viewer)
-
-  defp perform("schedule", resource_ref, "run-now", actions, viewer),
-    do: actions.run_schedule.(resource_ref, viewer)
 
   defp perform(_kind, _resource_ref, _action, _actions, _viewer), do: {:error, :invalid_action}
 
