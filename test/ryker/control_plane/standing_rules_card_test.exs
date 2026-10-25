@@ -2,8 +2,8 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
   @moduledoc """
   The Standing rules section inside Participation in Getting ready.
 
-  It is always there below the participation decision, and it says one of three
-  different things: here is every rule and its verdict; no rules existed; or
+  It is above the participation outcome, and it says one of three
+  different things: here are this channel's rules and verdicts; no rules existed here; or
   nobody recorded the evaluation. The last two used to be the same blank, and
   an operator who reads "nobody recorded it" as "no rules existed" stops
   looking for the rule that should have fired.
@@ -246,7 +246,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert html =~ ~s(data-rules-state="not_recorded")
   end
 
-  test "all verdicts and reasons stay visible, with every match first and emphasized in text" do
+  test "only this channel's rules stay visible, with every match first and accurate counts" do
     {entry, episode} = admitted!()
 
     inventory!(entry, [
@@ -266,8 +266,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
         "not_matched",
         "This message came from an app; this rule only applies to messages from people."
       ),
-      # Another channel's rule keeps no copy of its words here (2026-10-04
-      # review): it reads as a rule and opens the rule itself.
+      # Another channel's receipt keeps no copy of its words; the card omits it.
       "Other channel"
       |> rule("out_of_scope", "This rule applies to another channel.")
       |> Map.take(~w(ref status revision verdict reason)),
@@ -286,7 +285,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert LazyHTML.query(card, "h4") |> LazyHTML.text() |> String.trim() ==
              "Standing rules at the time"
 
-    assert LazyHTML.text(card) =~ "8 rules · 2 matched"
+    assert LazyHTML.text(card) =~ "7 rules · 2 matched"
 
     assert LazyHTML.attribute(rules, "data-verdict") == [
              "matched",
@@ -294,7 +293,6 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
              "expired",
              "not_considered",
              "disabled",
-             "out_of_scope",
              "not_matched",
              "not_matched"
            ]
@@ -306,7 +304,6 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
              "Expired rule",
              "Late rule",
              "Paused rule",
-             "Standing rule",
              "Wrong event",
              "Wrong sender"
            ]
@@ -317,37 +314,28 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
              "Expired",
              "Not evaluated",
              "Paused",
-             "Other channel",
              "Did not match",
              "Did not match"
            ]
 
-    elsewhere = LazyHTML.query(card, ".standing-rule[data-verdict='out_of_scope']")
-
-    assert LazyHTML.query(elsewhere, "a.standing-rule-link") |> LazyHTML.attribute("href") ==
-             ["/rules#behavior-behavior:other-channel"]
-
-    assert LazyHTML.query(elsewhere, ".event-facts, dl") |> Enum.empty?()
+    assert Enum.empty?(LazyHTML.query(card, ".standing-rule[data-verdict='out_of_scope']"))
+    refute LazyHTML.text(card) =~ "Other channel"
 
     reasons = LazyHTML.query(rules, ".standing-rule-reason") |> Enum.map(&LazyHTML.text/1)
     assert Enum.any?(reasons, &(&1 =~ "only applies to messages from people"))
-    assert Enum.any?(reasons, &(&1 =~ "applies to another channel"))
+    refute Enum.any?(reasons, &(&1 =~ "applies to another channel"))
     assert Enum.any?(reasons, &(&1 =~ "paused when the message was processed"))
     assert Enum.any?(reasons, &(&1 =~ "expired before the message arrived"))
     assert Enum.any?(reasons, &(&1 =~ "first 100 applicable rules"))
     refute Enum.any?(reasons, &(&1 =~ "slack:"))
 
-    assert Enum.all?(LazyHTML.query(rules, ".standing-rule-definition"), fn detail ->
-             Enum.any?(
-               LazyHTML.attribute(detail, "class"),
-               &String.contains?(&1, "ui-disclosure")
-             )
-           end)
+    assert Enum.empty?(LazyHTML.query(rules, "details"))
+    assert Enum.count(LazyHTML.query(rules, ".standing-rule-definition dl")) == 7
 
     assert LazyHTML.query(rules, ".standing-rule-definition .event-facts") |> Enum.empty?()
   end
 
-  test "a complete inventory with no matches keeps every rule and reports zero matched" do
+  test "a complete inventory with no matches keeps local rules and reports zero matched" do
     {entry, episode} = admitted!()
 
     inventory!(entry, [
@@ -357,8 +345,39 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
 
     card = rendered(episode) |> LazyHTML.from_document() |> LazyHTML.query(".participation-rules")
 
-    assert LazyHTML.text(card) =~ "2 rules · 0 matched"
-    assert Enum.count(LazyHTML.query(card, ".standing-rule")) == 2
+    assert LazyHTML.text(card) =~ "1 rule · 0 matched"
+    assert Enum.count(LazyHTML.query(card, ".standing-rule")) == 1
+  end
+
+  test "other-channel rules are hidden even when paused or expired without changing the receipt" do
+    # Production showed foreign rules, including empty Rule details folds.
+    # Paused/expired receipts carry scope but never reach the out_of_scope verdict.
+    {entry, episode} = admitted!()
+
+    entries =
+      for verdict <- ["disabled", "expired"] do
+        "Other #{verdict} rule"
+        |> rule(verdict, "This rule was not evaluated.")
+        |> Map.put("scope_ref", "slack:TC9F5B40D364C:C789")
+      end
+
+    inventory = inventory!(entry, entries)
+    card = rendered(episode) |> LazyHTML.from_document() |> LazyHTML.query(".participation-rules")
+    assert Enum.empty?(LazyHTML.query(card, ".standing-rule"))
+    assert LazyHTML.text(card) =~ "No standing rules for this channel."
+    assert Repo.reload!(inventory).entries == entries
+  end
+
+  test "a rule with only a destination exposes the link directly instead of a disclosure" do
+    {entry, episode} = admitted!()
+    entry_rule = rule("Recorded local rule", "not_matched", "The event did not match.")
+    inventory!(entry, [Map.drop(entry_rule, ["criteria", "evidence"])])
+
+    card = rendered(episode) |> LazyHTML.from_document() |> LazyHTML.query(".standing-rule")
+    assert Enum.empty?(LazyHTML.query(card, "details"))
+
+    assert LazyHTML.query(card, ".standing-rule-link") |> LazyHTML.attribute("href") ==
+             ["/rules#behavior-behavior:recorded-local-rule"]
   end
 
   test "a later rule change does not rewrite the recorded explanation" do

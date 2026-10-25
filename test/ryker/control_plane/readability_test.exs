@@ -371,28 +371,39 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   end
 
   test "participation rules stay a wrapping list and matched state is not color-only", %{css: css} do
-    # The complete inventory can be longer than 200 rows. It remains one dense
-    # list at phone width and text zoom, while a written verdict accompanies
-    # the Ryker mint-on-graphite treatment for every match.
+    # Local rules remain one wrapping ledger at phone width/text zoom. The
+    # approved design uses written verdicts, not the superseded green stripe.
     assert [_, list] = Regex.run(~r/\.standing-rule-list \{([^}]+)\}/, css)
     assert list =~ "display:grid"
     assert list =~ "gap:0"
 
-    assert [_, rule] = Regex.run(~r/\.standing-rule \{([^}]+)\}/, css)
+    assert [_, rule] =
+             Regex.run(~r/\.standing-rule, \.standing-rule\.verdict-matched \{([^}]+)\}/, css)
+
     assert rule =~ "min-width:0"
     assert rule =~ "overflow-wrap:anywhere"
     refute rule =~ "border-radius"
 
-    assert [_, matched] = Regex.run(~r/\.standing-rule\.verdict-matched \{([^}]+)\}/, css)
-    assert matched =~ "border-left:4px solid var(--ryker-accent)"
-    assert matched =~ "background:var(--ryker-surface-inverse)"
+    assert [_, matched] =
+             Regex.run(
+               ~r/^\.standing-rule\.verdict-matched \.standing-rule-verdict \{([^}]+)\}/m,
+               css
+             )
 
-    assert [_, verdict] = Regex.run(~r/\.standing-rule-verdict \{([^}]+)\}/, css)
-    assert verdict =~ "font-weight:600"
-    assert verdict =~ "text-transform:uppercase"
+    assert matched =~ "color:var(--ryker-accent-strong)"
+    refute css =~ "border-left:4px solid var(--ryker-accent)"
 
-    assert [_, settings] = Regex.run(~r/\.participation-facts \{([^}]+)\}/, css)
-    assert settings =~ "max-width:34rem"
+    assert [_, verdict] =
+             Regex.run(
+               ~r/\.standing-rule-verdict, \.standing-rule\.verdict-matched \.standing-rule-verdict \{([^}]+)\}/,
+               css
+             )
+
+    assert verdict =~ "font-weight:400"
+    assert verdict =~ "text-transform:none"
+
+    assert [_, settings] = Regex.run(~r/\.ryker-app \.participation-facts \{([^}]+)\}/, css)
+    assert settings =~ "max-width:none"
     refute css =~ ".standing-rule-list { overflow"
   end
 

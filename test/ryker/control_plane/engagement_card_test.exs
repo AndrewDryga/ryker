@@ -41,7 +41,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
     {_entry, episode} = admitted!(engagement_receipt: @rule_receipt)
     html = rendered(episode)
     document = LazyHTML.from_document(html)
-    outcome = LazyHTML.query(document, ".participation .participation-outcome")
+    outcome = LazyHTML.query(document, ".participation .participation-result")
     assert LazyHTML.text(outcome) =~ "Outcome"
 
     assert :binary.match(html, "participation-rules") <

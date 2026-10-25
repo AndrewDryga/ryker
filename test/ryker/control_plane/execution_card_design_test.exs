@@ -134,7 +134,91 @@ defmodule Ryker.ControlPlane.ExecutionCardDesignTest do
     assert html =~ "A short greeting."
     assert html =~ "Model&#39;s reason"
     assert html =~ "decision-outcome"
+    document = LazyHTML.from_fragment(html)
+    assert Enum.count(LazyHTML.query(document, ".routing-outcome .outcome-glyph svg path")) == 1
+
+    assert LazyHTML.query(document, ".outcome-copy > h4") |> LazyHTML.text() |> String.trim() ==
+             "Answer now"
+
     refute html =~ "data-copy"
     refute html =~ "<h3"
+  end
+
+  test "participation preserves the approved icon and adjacent decision-reason composition" do
+    # The production rollout replaced the approved panel with an arrow, divider
+    # and redundant Reason label. Preserve the preview's actual anatomy.
+    for quiet <- [false, true] do
+      document =
+        render_component(&Components.outcome/1,
+          kind: :participation,
+          quiet: quiet,
+          decision: "Recorded decision",
+          reason: "Recorded explanation"
+        )
+        |> LazyHTML.from_fragment()
+
+      assert LazyHTML.attribute(
+               LazyHTML.query(document, ".participation-outcome"),
+               "data-response"
+             ) ==
+               [if(quiet, do: "quiet", else: "respond")]
+
+      assert Enum.count(LazyHTML.query(document, ".outcome-glyph[aria-hidden=true] svg")) == 1
+
+      assert LazyHTML.query(document, ".outcome-glyph svg path")
+             |> LazyHTML.attribute("d")
+             |> hd() ==
+               "M15 4H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h1v3l4-3h5a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z"
+
+      assert LazyHTML.query(document, ".outcome-copy > h5.outcome-decision")
+             |> LazyHTML.text()
+             |> String.trim() ==
+               "Recorded decision"
+
+      assert LazyHTML.query(document, ".outcome-copy .outcome-reason") |> LazyHTML.text() ==
+               "Recorded explanation"
+
+      assert Enum.empty?(LazyHTML.query(document, ".outcome-reason-label"))
+    end
+  end
+
+  test "outcome styling retains the approved participation geometry and quiet state" do
+    css = File.read!("priv/static/workspace.css")
+    assert css =~ ~r/\.participation-outcome \{[^}]*grid-template-columns:32px minmax\(0,1fr\)/
+
+    assert css =~
+             ~r/\.participation-outcome \{[^}]*background:var\(--ryker-participation-surface\)/
+
+    assert css =~ ~r/\.participation-outcome \.outcome-glyph \{[^}]*border-radius:50%/
+
+    assert css =~
+             ~r/\.participation-outcome\[data-response=quiet\] \{[^}]*background:var\(--ryker-outcome-quiet-surface\)/
+
+    assert css =~ "@container(max-width:420px)"
+    refute css =~ ~r/\.outcome-reason[^\{]*\{[^}]*border-top:/
+  end
+
+  test "standing rules retain the approved readable ledger instead of nested detail controls" do
+    css = File.read!("priv/static/workspace.css")
+    assert css =~ ~r/\.standing-rule-list \{[^}]*padding:0 16px/
+    assert css =~ ~s(grid-template-areas:"name details verdict" ". reason ." ". link .")
+    assert css =~ ~r/\.standing-rule-definition \{[^}]*grid-area:details/
+    refute css =~ ".standing-rule-definition > summary"
+    refute css =~ ".standing-rule, .standing-rule.verdict-matched { padding:10px 12px; }"
+
+    refute css =~
+             ".ryker-app .standing-rule .ui-facts > div { grid-template-columns:minmax(0,1fr); gap:0; }"
+
+    # Phone page-wide facts must not override the ledger before its own 420px
+    # container breakpoint; that old cascade shifted rows at intermediate widths.
+    assert :binary.match(css, ".standing-rule-list {") >
+             :binary.match(css, "@media (max-width:580px)")
+  end
+
+  test "narrow routing reasons use the full approved panel width" do
+    css = File.read!("priv/static/workspace.css")
+    assert css =~ ".routing-outcome .outcome-copy { display:contents; }"
+    assert css =~ ".routing-outcome .outcome-rationale { grid-column:1 / -1; margin:0; }"
+    assert css =~ ".routing-outcome .outcome-glyph { width:20px; }"
   end
 end

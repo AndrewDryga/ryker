@@ -86,6 +86,41 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     end
   end
 
+  test "approved outcome surfaces retain their palette and readable text through semantic roles" do
+    # The rollout must match the approved preview without bypassing the shared
+    # palette or losing contrast when its participation and quiet states differ.
+    tokens = tokens()
+
+    for {role, value} <- [
+          {"ryker-outcome-surface", "#171c1a"},
+          {"ryker-outcome-stroke", "#35423c"},
+          {"ryker-outcome-text", "#c4cec9"},
+          {"ryker-outcome-icon", "#8de1bf"},
+          {"ryker-participation-surface", "#171f1c"},
+          {"ryker-participation-stroke", "#35483d"},
+          {"ryker-participation-text", "#b7c4bf"},
+          {"ryker-participation-icon-surface", "#23392e"},
+          {"ryker-participation-icon-stroke", "#3b5948"},
+          {"ryker-outcome-quiet-surface", "#15191a"},
+          {"ryker-outcome-quiet-icon-surface", "#232a2b"},
+          {"ryker-outcome-quiet-icon-stroke", "#465050"}
+        ] do
+      assert tokens[role] == value, role
+    end
+
+    for {text, surface} <- [
+          {"ryker-text", "ryker-outcome-surface"},
+          {"ryker-text-secondary", "ryker-outcome-surface"},
+          {"ryker-outcome-text", "ryker-outcome-surface"},
+          {"ryker-text", "ryker-participation-surface"},
+          {"ryker-participation-text", "ryker-participation-surface"},
+          {"ryker-text", "ryker-outcome-quiet-surface"},
+          {"ryker-text-secondary", "ryker-outcome-quiet-surface"}
+        ] do
+      assert contrast(tokens, text, surface) >= 4.5, text <> " on " <> surface
+    end
+  end
+
   test "mint is only ever paired with graphite" do
     # Every role that resolves to mint is used on a graphite surface or as a
     # mint control fill carrying graphite text.

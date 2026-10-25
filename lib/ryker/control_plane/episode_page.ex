@@ -1635,9 +1635,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "." <> String.pad_leading(Integer.to_string(div(microseconds, 1_000)), 3, "0")
   end
 
-  # One input, one explanation: processing-time settings and the full rule
-  # inventory, then the outcome they supported. Only technical rule
-  # identity stays behind a disclosure.
+  # One input, one explanation: processing-time settings, this channel's frozen
+  # rules and readable evidence, then the approved decision/reason composition.
   defp participation(assigns) do
     ~H"""
     <div
@@ -1686,23 +1685,20 @@ defmodule Ryker.ControlPlane.EpisodePage do
               <p class="standing-rule-verdict">{verdict_label(rule.verdict)}</p>
             </div>
             <p class="standing-rule-reason">{rule.reason}</p>
-            <.disclosure
-              :if={rule.ref}
-              id={"rule-#{@step.id}-#{rule.ref}"}
-              label="Rule details"
-              class="standing-rule-definition"
-            >
-              <.fact_list :if={rule.criteria} facts={rule_facts(rule)} />
-              <a class="standing-rule-link" href={"/rules#behavior-" <> rule.ref}>
-                Open in Standing rules →
-              </a>
-            </.disclosure>
+            <div :if={rule.criteria} class="standing-rule-definition">
+              <.fact_list facts={rule_facts(rule)} />
+            </div>
+            <a :if={rule.ref} class="standing-rule-link" href={"/rules#behavior-" <> rule.ref}>
+              Open in Standing rules →
+            </a>
           </li>
         </ul>
       </section>
-      <section class="participation-section participation-outcome" aria-label="Participation outcome">
+      <section class="participation-section participation-result" aria-label="Participation outcome">
         <h4>Outcome</h4>
         <.outcome
+          kind={:participation}
+          quiet={@step.engagement.result != "process"}
           decision={participation_decision(@step.engagement.result)}
           reason={@step.engagement.reason}
           reason_class="case-event-summary participation-summary"
@@ -1721,7 +1717,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp verdict_label("matched"), do: "Matched"
   defp verdict_label("not_matched"), do: "Did not match"
-  defp verdict_label("out_of_scope"), do: "Other channel"
   defp verdict_label("not_considered"), do: "Not evaluated"
   defp verdict_label("disabled"), do: "Paused"
   defp verdict_label("expired"), do: "Expired"

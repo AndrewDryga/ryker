@@ -117,15 +117,53 @@ defmodule Ryker.ControlPlane.Components do
   attr(:reason, :string, default: nil)
   attr(:reason_label, :string, default: "Reason")
   attr(:reason_class, :string, default: nil)
+  attr(:kind, :atom, values: [:routing, :participation], default: :routing)
+  attr(:quiet, :boolean, default: false)
 
-  @doc "One compact decision and its attributed explanation, without competing colored panels."
+  @doc "The approved participation or routing decision with its adjacent recorded explanation."
   def outcome(assigns) do
     ~H"""
-    <div class="decision-outcome" role="group" aria-label="Outcome">
-      <p class="outcome-decision"><.icon name={:arrow} /><strong>{@decision}</strong></p>
-      <div :if={@reason} class="outcome-reason">
-        <p class="outcome-reason-label">{@reason_label}</p>
-        <p class={@reason_class}>{@reason}</p>
+    <div
+      class={["decision-outcome", "#{@kind}-outcome"]}
+      data-response={if @kind == :participation, do: if(@quiet, do: "quiet", else: "respond")}
+      role="group"
+      aria-label={if @kind == :participation, do: "Participation outcome", else: "Routing outcome"}
+    >
+      <span class="outcome-glyph" aria-hidden="true">
+        <svg
+          class="ui-icon"
+          viewBox="0 0 20 20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            :if={@kind == :participation}
+            d="M15 4H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h1v3l4-3h5a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z"
+          />
+          <path
+            :if={@kind == :participation}
+            d={if @quiet, do: "M7 9.5h6", else: "M7 8h6m-6 3h4"}
+          />
+          <path
+            :if={@kind == :routing}
+            d="M10 17v-4c0-5-5-4-5-8V3m-3 3 3-3 3 3m2 7c0-5 5-4 5-8V3m-3 3 3-3 3 3"
+          />
+        </svg>
+      </span>
+      <div class="outcome-copy">
+        <.dynamic_tag
+          tag_name={if @kind == :participation, do: "h5", else: "h4"}
+          class="outcome-decision"
+        >
+          {@decision}
+        </.dynamic_tag>
+        <div :if={@reason} class="outcome-rationale">
+          <p :if={@kind == :routing} class="outcome-reason-label">{@reason_label}</p>
+          <p class={["outcome-reason", @reason_class]}>{@reason}</p>
+        </div>
       </div>
     </div>
     """

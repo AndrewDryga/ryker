@@ -24,7 +24,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   saved; a later retry stays at its retained later time instead of reopening it.
   Retained sequence is the tie-break for equal event timestamps.
 
-  Participation carries the complete standing-rule inventory recorded when
+  Participation shows the conversation's rules from the inventory recorded when
   that input processed, or says plainly that none was recorded.
   It never reads today's rules: a rule edited since would quietly rewrite the
   old explanation.
@@ -581,10 +581,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp rule_inventory(inventory) do
     entries =
       inventory.entries
+      |> Enum.reject(fn entry ->
+        entry["verdict"] == "out_of_scope" or
+          (is_binary(entry["scope_ref"]) and entry["scope_ref"] != inventory.conversation_ref)
+      end)
       |> Enum.map(fn entry ->
         %{
           ref: entry["ref"],
-          # Another channel's rule keeps no title here (`Ryker.Behaviors`).
           title: entry["title"] || "Standing rule",
           status: entry["status"],
           revision: entry["revision"],
@@ -600,8 +603,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     %{
       state: :recorded,
       recorded_at: inventory.recorded_at,
-      rule_count: inventory.rule_count,
-      matched_count: inventory.matched_count,
+      rule_count: length(entries),
+      matched_count: Enum.count(entries, &(&1.verdict == "matched")),
       entries: entries
     }
   end
@@ -610,7 +613,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     do: "Standing-rule history was not recorded for this message."
 
   defp rule_summary(%{rule_count: 0}),
-    do: "No standing rules."
+    do: "No standing rules for this channel."
 
   defp rule_summary(%{rule_count: total, matched_count: matched}),
     do: "#{Wording.count(total, "rule")} · #{matched} matched"

@@ -62,6 +62,20 @@
   --ryker-info:#8fc7ee;
   --ryker-info-soft:#172b38;
 
+  /* Approved decision panels: routing, participation and quiet outcomes. */
+  --ryker-outcome-surface:#171c1a;
+  --ryker-outcome-stroke:#35423c;
+  --ryker-outcome-text:#c4cec9;
+  --ryker-outcome-icon:#8de1bf;
+  --ryker-participation-surface:#171f1c;
+  --ryker-participation-stroke:#35483d;
+  --ryker-participation-text:#b7c4bf;
+  --ryker-participation-icon-surface:#23392e;
+  --ryker-participation-icon-stroke:#3b5948;
+  --ryker-outcome-quiet-surface:#15191a;
+  --ryker-outcome-quiet-icon-surface:#232a2b;
+  --ryker-outcome-quiet-icon-stroke:#465050;
+
   --ryker-data-execution:#75c58e;
   --ryker-data-queue:#e6bc72;
   --ryker-data-host:#8fc7ee;
