@@ -629,3 +629,29 @@ own, which change only with the other party, and identities stored data already 
 - the `responder.publication_lifecycle.v1` event type.
 
 These compatibility contracts are not product branding and must not be renamed independently.
+
+
+## Improvement flywheel
+
+Invoke the repository's `/flywheel suggest` to review a period and offer improvements, or
+`/flywheel auto` to select and deliver Ryker improvements within the invocation's authorized
+scope and limits. It covers code, prompts, settings, tools and actions for the operator.
+The [skill](../.agent/skills/flywheel/SKILL.md) documents the workflow; its
+[operator protocol](../.agent/skills/flywheel/references/commands.md) documents each command.
+
+`scripts/flywheel.sh REQUEST.json` sends one JSON request through stdin to the installed
+release. `catalog` and `report` are read-only. Processing records live in PostgreSQL and are
+included in the normal backup: source coverage, reviewed record versions, proposals, decisions,
+Coop task links and outcome checks. It neither writes human feedback nor installs a scheduler.
+The local Mix equivalent is `scripts/elixir-mix.sh ryker.flywheel REQUEST.json`.
+
+Each source retains its own gaps. Resuming rotates the lease so a stale writer cannot advance
+the run. Source bodies remain in their owning stores; the ledger keeps identifiers and
+pseudonymized technical proposals. It deliberately preserves coverage and decisions across
+source retention so declined work does not return every week. Keep raw exports under ignored
+`.ryker/flywheel/`, restrict permissions and remove them when the pass ends.
+
+A selected task may belong to Ryker, the operator, or both. Operator prerequisites remain in
+**For you** rather than entering the agent queue; completion releases dependent Ryker work.
+Shipped work stays pending until later evidence supports improvement, regression or insufficient
+traffic. A completed pass is an analysis receipt, not a claim that all its proposals shipped.

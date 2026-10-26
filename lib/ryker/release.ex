@@ -223,6 +223,29 @@ defmodule Ryker.Release do
     :ok
   end
 
+  @doc "Runs one flywheel JSON request from stdin against this installation; prints JSON or exits unsuccessfully."
+  @spec flywheel(keyword()) :: :ok
+  def flywheel(options \\ []) do
+    settings = settings!(options)
+
+    result =
+      with_repo!(settings, fn _repo ->
+        with bytes when is_binary(bytes) <- IO.read(:stdio, 8_000_001),
+             {:ok, request} <- Jason.decode(bytes) do
+          Ryker.Flywheel.execute(request)
+        else
+          _invalid -> {:error, :invalid_flywheel_json}
+        end
+      end)
+
+    case result do
+      {:ok, document} -> report(settings, document)
+      {:error, reason} -> raise "flywheel failed: #{inspect(reason)}"
+    end
+
+    :ok
+  end
+
   defp preflight(configuration) do
     Operator.Preflight.run(
       configuration: configuration,

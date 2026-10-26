@@ -22,6 +22,24 @@ defmodule Ryker.RetentionPolicies do
 
   @policies [
     %{
+      table: "flywheel_runs",
+      class: :kept,
+      why:
+        "operator processing coverage and interruption custody; no source bodies, preserved so a later pass cannot forget a gap"
+    },
+    %{
+      table: "flywheel_receipts",
+      class: :kept,
+      why:
+        "source record identities and versions only; preserve analyzed coverage independently of source retention and human ratings"
+    },
+    %{
+      table: "flywheel_findings",
+      class: :kept,
+      why:
+        "operator engineering proposals, decisions, task links and outcome history; pseudonymized technical descriptions rather than copies of private source content"
+    },
+    %{
       table: "installation_settings",
       class: :kept,
       why:

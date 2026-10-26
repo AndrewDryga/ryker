@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions slow-tests serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: flywheel-check quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions slow-tests serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -222,7 +222,10 @@ eval-trend-check:
 	scripts/test-eval-trend.sh
 
 # Every script self-test; the full gate and CI's static job run them.
-script-checks: watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check
+flywheel-check:
+	scripts/flywheel_test.sh
+
+script-checks: flywheel-check watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check
 
 # Known advisories for the locked Hex packages, and packages their maintainers
 # retired. Both read the network, so the full gate runs them and dev-check
