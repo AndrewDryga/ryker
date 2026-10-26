@@ -2419,30 +2419,65 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         ]
       end)
 
-    body = if raw_details, do: body, else: [body, record_fields(remaining)]
+    body = if raw_details, do: body, else: [body, record_fields(remaining, title)]
+
+    display_payload = knowledge_display_payload(payload, item, raw_details)
 
     Components.knowledge_item_html(title, body,
       class: "knowledge-entry",
       title_class: "knowledge-entry-title",
       body_class: "knowledge-entry-body",
-      meta: knowledge_meta(payload),
-      footer: if(raw_details, do: provenance(metadata), else: [])
+      meta: knowledge_meta(display_payload),
+      footer: if(raw_details, do: provenance(metadata), else: record_source(payload))
     )
   end
 
   defp knowledge_entry(item, _key, _raw_details), do: fields(item, 0)
 
+  defp knowledge_display_payload(payload, _item, true), do: payload
+
+  defp knowledge_display_payload(payload, item, false),
+    do: Map.put_new(payload, "state", payload["status"] || item["status"])
+
   # Narrative fields stay prominent. Preserve other meaningful frozen payload
   # fields rather than mistaking the wait's question/matcher for provenance.
-  defp record_fields(remaining) do
+  defp record_fields(remaining, title) do
     remaining
     |> Map.drop(
-      ~w(kind state authority_ceiling scope observed_at evidence_refs record_refs source_refs)
+      ~w(kind state status authority_ceiling scope observed_at evidence_refs record_refs source_refs claim_id source_id source_name source_type supersedes cause_evidence goal_id)
     )
-    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Enum.reject(fn {key, value} -> blank?(value) or (key == "target" and value == title) end)
+    |> Enum.map(fn {key, value} -> {key, record_field_value(key, value)} end)
     |> Map.new()
     |> fields(0)
   end
+
+  defp record_field_value(key, value) when key in ~w(deadline_at poll_after at) do
+    case Ryker.UTCDateTime.parse(value) do
+      {:ok, at} -> Ryker.UTCDateTime.readable(at)
+      _unknown -> value
+    end
+  end
+
+  defp record_field_value(_key, value), do: value
+
+  defp record_source(%{"source_id" => source} = payload) when is_binary(source) do
+    case URI.new(source) do
+      {:ok, %URI{scheme: scheme, host: host, userinfo: nil}}
+      when scheme in ["https", "http"] and is_binary(host) and host != "" ->
+        SlackMarkdown.preview("<#{source}|Open source evidence →>")
+
+      _not_a_link ->
+        record_source_label(payload)
+    end
+  end
+
+  defp record_source(payload), do: record_source_label(payload)
+
+  defp record_source_label(%{"source_name" => name}) when is_binary(name),
+    do: fields(%{"Source" => name}, 0)
+
+  defp record_source_label(_payload), do: []
 
   defp knowledge_meta(payload) do
     values =

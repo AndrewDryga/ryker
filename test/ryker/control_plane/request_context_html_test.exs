@@ -4,6 +4,50 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   alias Ryker.InspectionRedactor
   alias Ryker.StateTools.FixedTools
 
+  test "review evidence leads with its observation and one source link, not custody identifiers" do
+    # Live expanded records repeated each source URL twice and exposed claim,
+    # supersession and cause IDs instead of helping a person read the evidence.
+    payload = %{
+      "subject" => "Backup progress",
+      "observation" => "The journal advanced.",
+      "claim_id" => "citation:internal-custody",
+      "source_id" => "https://example.test/runs/check",
+      "source_name" => "https://example.test/runs/check",
+      "source_type" => "other",
+      "target" => "Backup progress",
+      "relation" => "contradicts",
+      "supersedes" => "record:evidence:earlier",
+      "cause_evidence" => ["record:evidence:cause"],
+      "future_detail" => "A retained <detail>"
+    }
+
+    context = %{"records" => [%{"kind" => "evidence", "payload" => payload}]}
+
+    html =
+      [%{id: "context", artifact: InspectionRedactor.artifact(context)}]
+      |> RequestContextHTML.briefing(:completion_review, "review-source")
+      |> IO.iodata_to_binary()
+
+    document = LazyHTML.from_fragment(html)
+    assert html =~ "The journal advanced."
+    assert html =~ "contradicts"
+    assert html =~ "A retained &lt;detail&gt;"
+
+    assert LazyHTML.query(document, ".knowledge-entry a") |> LazyHTML.attribute("href") == [
+             "https://example.test/runs/check"
+           ]
+
+    assert LazyHTML.query(document, ".knowledge-entry a") |> LazyHTML.attribute("target") == [
+             "_blank"
+           ]
+
+    refute html =~ "citation:internal-custody"
+    refute html =~ "record:evidence:earlier"
+    refute html =~ "record:evidence:cause"
+    refute html =~ "Claim ID"
+    refute html =~ "Source name"
+  end
+
   test "review records preserve the human question and the exact awaited verification" do
     timer = File.read!("testdata/control_plane/timer-due.json") |> Jason.decode!()
     wait = get_in(timer, ["input", "content", "content"])
