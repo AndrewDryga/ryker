@@ -446,6 +446,39 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     refute html =~ "≈ $"
   end
 
+  # A 33-minute total crossed the donut's inner ring. Keep totals in a bounded,
+  # wrapping HTML label, not SVG text that cannot reflow as durations grow.
+  test "timing totals can wrap inside the ring without shortening their duration" do
+    snapshot = UsageProjection.page(%{})
+
+    for {ms, duration} <- [
+          {850, "850 ms"},
+          {59_500, "59.5 s"},
+          {1_990_000, "33 min 10 s"},
+          {35_999_940_000, "9999 h 59 min"}
+        ] do
+      totals = Map.merge(snapshot.totals, %{provider_ms: ms, queued_ms: 0, host_ms: 0, timed: 1})
+
+      document =
+        %{snapshot | totals: totals}
+        |> UsagePage.render()
+        |> IO.iodata_to_binary()
+        |> LazyHTML.from_document()
+
+      assert document |> LazyHTML.query(".usage-donut-chart .donut-total") |> LazyHTML.text() ==
+               duration
+
+      assert document |> LazyHTML.query(".usage-donut-chart .donut-caption") |> LazyHTML.text() ==
+               "total time"
+
+      assert document |> LazyHTML.query(".usage-donut svg text") |> Enum.empty?()
+    end
+
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    assert css =~ ".donut-label"
+    assert css =~ "overflow-wrap:anywhere"
+  end
+
   test "unmeasured groups are not presented as zero tokens and tiny timing shares remain visible" do
     snapshot = UsageProjection.page(%{})
 

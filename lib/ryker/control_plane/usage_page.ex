@@ -494,11 +494,11 @@ defmodule Ryker.ControlPlane.UsagePage do
         end)
 
       [
-        "<div class=\"usage-donut\"><svg viewBox=\"0 0 160 160\" role=\"img\" aria-label=\"Time spent waiting for a worker, in the model and checking the answer\"><title>Where the time went</title>",
+        "<div class=\"usage-donut\"><div class=\"usage-donut-chart\"><svg viewBox=\"0 0 160 160\" role=\"img\" aria-label=\"Time spent waiting for a worker, in the model and checking the answer\"><title>Where the time went</title>",
         arcs,
-        "<text x=\"80\" y=\"77\" text-anchor=\"middle\">",
+        "</svg><div class=\"donut-label\"><strong class=\"donut-total\">",
         Units.duration(total),
-        "</text><text class=\"donut-caption\" x=\"80\" y=\"96\" text-anchor=\"middle\">total time</text></svg><dl>",
+        "</strong><span class=\"donut-caption\">total time</span></div></div><dl>",
         Enum.map(segments, fn {label, ms, class} ->
           [
             "<div><dt><span class=\"timing-key timing-",
