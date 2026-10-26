@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
   # saying in a sentence which messages the model was given, then the Work
   # briefing with only the new ones. The briefing now shows its messages as
   # routing's does, and what the selection left out sits beside the row it
-  # cut; the ledger itself is under the briefing's Details.
+  # cut; the briefing explains its limits without exposing ledger internals.
   test "what a new session left out sits beside its earlier messages, with no card of its own" do
     work = frozen!("ledger", @ledger)
     {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
@@ -67,13 +67,11 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
     details = LazyHTML.query(card, "details.request-selection")
     assert LazyHTML.attribute(details, "open") == []
-    assert words(text(details, ".ui-facts")) == "Limits Up to 40 messages · 160 KiB of context"
-
-    record = Jason.encode!(@ledger, pretty: true)
-    selection = LazyHTML.query(details, "details.json-disclosure")
-    assert text(selection, ".ui-disclosure-label") == "Selection record"
-    assert text(selection, ".ui-disclosure-meta") == "JSON · #{byte_size(record)} bytes"
-    assert text(selection, "pre") == record
+    assert text(details, ".ui-disclosure-label") == "Context limits"
+    assert LazyHTML.text(details) =~ "Up to 40 messages · 160 KiB of context"
+    assert LazyHTML.text(details) =~ "Anything left out is noted beside its section."
+    assert Enum.empty?(LazyHTML.query(details, ".ui-disclosure-body details, pre, button"))
+    refute LazyHTML.text(card) =~ "Selection record"
   end
 
   test "a turn without a selection ledger has no Details and no selection card" do

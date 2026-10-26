@@ -50,6 +50,17 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute text =~ "text-overflow:ellipsis"
   end
 
+  test "the Slack mark has breathing room without shrinking the Ryker mark", %{css: css} do
+    # The Slack artwork touched the badge's border in the native timeline.
+    assert [_, slack] =
+             Regex.run(~r/\.tool-run-badge\[data-service=slack\] \.service-mark \{([^}]+)\}/, css)
+
+    assert slack =~ "width:20px"
+    assert slack =~ "height:20px"
+    assert slack =~ "margin:2px"
+    assert css =~ ".tool-run-badge .service-mark { display:block; width:24px; height:24px;"
+  end
+
   test "peer input records keep full-width separators without a second details shell", %{css: css} do
     # Flattening the production input card must not remove separators or retain
     # the old nested disclosure's extra vertical padding (Andrew, 2026-10-25).

@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.Components do
         <:meta :if={@meta != []}>{render_slot(@meta)}</:meta>
         {render_slot(@details)}
       </.disclosure>
-      <header :if={!@compact} class="ui-activity-note-heading">
+      <header :if={!@compact && (@title || @label || @meta != [])} class="ui-activity-note-heading">
         <div>
           <p :if={@label} class="ui-activity-note-label">{@label}</p>
           <h3 :if={@title}>{@title}</h3>
@@ -179,8 +179,8 @@ defmodule Ryker.ControlPlane.Components do
   slot(:footer)
   slot(:inner_block, required: true)
 
-  # One bounded inner item for a recalled summary, fact, rule or learned topic.
-  defp knowledge_item(assigns) do
+  @doc "One bounded inner item for recalled knowledge or a goal's readable history."
+  def knowledge_item(assigns) do
     ~H"""
     <article class={["ui-knowledge-item", @class]} {@rest}>
       <h4 class={["ui-knowledge-item-title", @title_class]}>{@title}</h4>
@@ -584,7 +584,7 @@ defmodule Ryker.ControlPlane.Components do
               >{item.label}</a><span :if={!item.href}>{item.label}</span><small
                 :if={item[:note]}
                 class="fact-link-note"
-              > · {item.note}</small>
+              > ({item.note})</small>
             </li>
           </ul>
           <span

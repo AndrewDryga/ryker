@@ -417,7 +417,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
            |> String.trim() == "Planning"
 
     assert text =~ "Dryga/emisar"
-    assert text =~ "run-k9CpPp3nWjQrkCMG"
+    refute text =~ "run-k9CpPp3nWjQrkCMG"
     assert LazyHTML.query(card, ".provider-facts.ui-facts") |> Enum.count() == 1
     assert LazyHTML.query(card, ".event-facts") |> Enum.empty?()
 

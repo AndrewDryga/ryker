@@ -1056,7 +1056,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
       )
 
     ~H"""
-    <div class="tool-run">
+    <.activity_note :if={length(@lines) == 1}>
+      <:body><.tool_run_lines lines={@lines} /></:body>
+    </.activity_note>
+    <div :if={length(@lines) > 1} class="tool-run">
       <.card_heading title="Tool activity">
         <:detail :if={length(@lines) > 1}>{length(@lines)} steps</:detail>
         <:description :if={length(@services) > 1}>
@@ -1064,31 +1067,37 @@ defmodule Ryker.ControlPlane.EpisodePage do
         </:description>
         <:meta :if={@span}><span class="action-duration">{@span}</span></:meta>
       </.card_heading>
-      <ol class="tool-run-steps">
-        <li
-          :for={{entry, line} <- @lines}
-          id={entry.id}
-          class="tool-run-step"
-          data-service={line.service}
-        >
-          <details
-            :if={entry.step.stage == "Tool call"}
-            id={"tool-#{entry.step.id}-call"}
-            class="tool-run-detail"
-          >
-            <summary class="tool-run-line">
-              <ToolCard.row line={line} state={entry.step.state} />
-            </summary>
-            <div class="tool-run-body">
-              <ToolCard.render step={entry.step} grouped />
-            </div>
-          </details>
-          <div :if={entry.step.stage != "Tool call"} class="tool-run-line">
-            <ToolCard.row line={line} state={entry.step.state} />
-          </div>
-        </li>
-      </ol>
+      <.tool_run_lines lines={@lines} />
     </div>
+    """
+  end
+
+  defp tool_run_lines(assigns) do
+    ~H"""
+    <ol class="tool-run-steps">
+      <li
+        :for={{entry, line} <- @lines}
+        id={entry.id}
+        class="tool-run-step"
+        data-service={line.service}
+      >
+        <details
+          :if={entry.step.stage == "Tool call"}
+          id={"tool-#{entry.step.id}-call"}
+          class="tool-run-detail"
+        >
+          <summary class="tool-run-line">
+            <ToolCard.row line={line} state={entry.step.state} />
+          </summary>
+          <div class="tool-run-body">
+            <ToolCard.render step={entry.step} grouped />
+          </div>
+        </details>
+        <div :if={entry.step.stage != "Tool call"} class="tool-run-line">
+          <ToolCard.row line={line} state={entry.step.state} />
+        </div>
+      </li>
+    </ol>
     """
   end
 
@@ -1327,9 +1336,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   # The request's goals as one card (`EpisodeTrace.Work`): each step's outcome,
   # its status in words, what finishes it or what it found, and its evidence.
-  # What a reader needs to audit it (completion criteria, authority, kind,
-  # record IDs, earlier attempts and every change) is under Details and
-  # history, never on the face (Andrew, 2026-10-15).
+  # Plan history holds completion criteria, earlier attempts and every change,
+  # not a table of internal record fields (Andrew, 2026-10-25).
   defp work_plan(assigns) do
     ~H"""
     <div class="case-event-content work-plan">
@@ -1356,53 +1364,77 @@ defmodule Ryker.ControlPlane.EpisodePage do
             </span>
             {elem(plan_line(goal), 1)}
           </p>
-          <p :if={goal.evidence != [] && length(goal.evidence) <= 3} class="plan-step-evidence">
-            <span class="plan-step-label">Evidence</span>
-            <.record_links items={goal.evidence} />
-          </p>
-          <.disclosure
-            :if={length(goal.evidence) > 3}
-            id={"plan-evidence-#{goal.id}"}
-            label={Wording.count(length(goal.evidence), "evidence record")}
-            class="plan-evidence"
-          >
-            <.record_links items={goal.evidence} />
-          </.disclosure>
+          <.plan_evidence id={"plan-evidence-#{goal.id}"} items={goal.evidence} />
         </li>
       </ol>
       <.disclosure
         id={"plan-history-#{@step.id}"}
-        label="Details and history"
+        label="Plan history"
         class="case-event-details"
       >
-        <section
+        <.knowledge_item
           :for={goal <- @step.plan.history}
+          title={goal.title}
           id={"event-" <> goal.id <> "-history"}
           class="plan-history-goal"
+          data-record-ref={goal.record_ref}
         >
-          <h4>
-            {goal.title}<span :if={goal.replaced} class="plan-history-note"> · Earlier attempt</span>
-          </h4>
-          <.fact_list facts={goal.facts} />
+          <p :if={goal.replaced || goal.optional || goal[:activity]} class="plan-step-flags">
+            <span :if={goal.replaced}>Earlier attempt</span>
+            <span :if={goal.optional}>Optional</span>
+            <span :if={goal[:activity]}>{goal.activity}</span>
+          </p>
+          <.fact_list :if={goal.facts != []} facts={goal.facts} />
+          <p :if={goal[:planned_at]} class="plan-history-time">
+            Planned
+            <time datetime={DateTime.to_iso8601(goal.planned_at)}>
+              {ShortTime.stamp(goal.planned_at, DateTime.utc_now())}
+            </time>
+          </p>
           <ol :if={goal.changes != []} class="plan-history-changes">
             <li :for={change <- goal.changes} id={"event-" <> change.id}>
               <div class="plan-step-head">
                 <time datetime={DateTime.to_iso8601(change.at)} title={timestamp(change.at)}>
-                  {clock_time(change.at)}
+                  {ShortTime.stamp(change.at, DateTime.utc_now())}
                 </time>
                 <Kit.state tone={change.tone} word={change.status} />
               </div>
               <p :if={change.detail}>{change.detail}</p>
-              <p :if={change.evidence != []} class="plan-step-evidence">
-                <span class="plan-step-label">Evidence</span>
-                <.record_links items={change.evidence} />
-              </p>
-              <.fact_list facts={change.facts} />
+              <.plan_evidence id={"plan-history-evidence-#{change.id}"} items={change.evidence} />
             </li>
           </ol>
-        </section>
+        </.knowledge_item>
       </.disclosure>
     </div>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:items, :list, required: true)
+
+  # The same evidence treatment on the current step and each history entry.
+  # A bounded page may omit still-retained records; unavailable destinations
+  # are one counted note, never an empty disclosure or a wall of identifiers.
+  defp plan_evidence(assigns) do
+    {links, missing} = Enum.split_with(assigns.items, & &1.href)
+    assigns = assign(assigns, links: links, missing: length(missing))
+
+    ~H"""
+    <p :if={@links != [] && length(@links) <= 3} class="plan-step-evidence">
+      <span class="plan-step-label">Evidence</span>
+      <.record_links items={@links} />
+    </p>
+    <.disclosure
+      :if={length(@links) > 3}
+      id={@id}
+      label={Wording.count(length(@links), "evidence record")}
+      class="plan-evidence"
+    >
+      <.record_links items={@links} />
+    </.disclosure>
+    <p :if={@missing > 0} class="plan-step-evidence plan-evidence-unavailable">
+      {Wording.count(@missing, "evidence record")} not on this page.
+    </p>
     """
   end
 

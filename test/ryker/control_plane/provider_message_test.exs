@@ -26,8 +26,10 @@ defmodule Ryker.ControlPlane.ProviderMessageTest do
     assert facts["Branch"] == "main"
     assert facts["Commit"] == "3376639b89c540d3742f2b17900dbdd6403bfb4d"
     assert facts["Author"] == "AndrewDryga"
-    assert facts["GitHub run"] == "34306095502"
-    assert facts["Run"] == "run-k9CpPp3nWjQrkCMG"
+    # The destination already identifies the run. Raw build IDs made the
+    # notification longer without giving a human another useful action.
+    refute Map.has_key?(facts, "GitHub run")
+    refute Map.has_key?(facts, "Run")
     refute Map.has_key?(facts, "Description")
 
     assert Enum.map(card.links, & &1.label) == ["Open run", "Open workspace"]

@@ -91,7 +91,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(LazyHTML.query(document, ".action-card")) == 1
     assert Enum.empty?(LazyHTML.query(document, ".case-minor .action-card"))
-    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".tool-run"))
+    assert Enum.count(LazyHTML.query(document, ".ui-activity-note .tool-run-detail")) == 1
 
     # A failure used to escape aggregation entirely, obscuring that it was the
     # same tool call. Both rows stay closed; failure stays visible on its row.
@@ -153,13 +154,17 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> render_episode([])
       |> LazyHTML.from_fragment()
 
-    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".tool-run"))
 
     assert Enum.count(
              LazyHTML.query(document, ".tool-run-step[data-service=slack] .tool-run-badge")
            ) == 1
 
     assert LazyHTML.query(document, ".tool-run-title") |> LazyHTML.text() == "Set working status"
+    # One status is one activity event, not a titled container around one row.
+    assert Enum.count(LazyHTML.query(document, ".ui-activity-note .tool-run-line")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note header"))
+    refute LazyHTML.text(document) =~ "Tool activity"
     assert LazyHTML.text(document) =~ "is queued…"
 
     failed = %{

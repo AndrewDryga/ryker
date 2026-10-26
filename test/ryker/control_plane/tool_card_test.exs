@@ -299,11 +299,11 @@ defmodule Ryker.ControlPlane.ToolCardTest do
 
     html = render_component(&ToolCard.render/1, step: step)
     assert html =~ "lib/config.ex"
-    assert html =~ "Outside project"
+    assert html =~ "Worker reported outside checkout (unverified)"
     refute html =~ "/private/checkout"
 
     line = step |> Map.put(:withheld, %{"output" => "too large"}) |> ToolCard.line()
-    assert line.warning =~ "Outside project"
+    assert line.warning =~ "Worker reported outside checkout (unverified)"
     assert line.warning =~ "withheld"
   end
 

@@ -7,12 +7,12 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
   explained record fields, and a goal's completion criteria read like a
   result already achieved. Andrew approved one Work plan card (2026-10-15):
   each step's outcome and status in words, what finishes it, its result and
-  evidence once done, and everything technical under Details and history,
-  where Read only stays.
+  evidence once done. Plan history keeps criteria, progress and earlier attempts
+  in bounded inner items, not the old database-field dump.
   """
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ModelRequests}
+  alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeTrace, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
@@ -96,8 +96,9 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     end
   end
 
-  # Andrew rejected promoting Read only into the card (2026-10-15).
-  test "authority, kind and record IDs stay under Details and history, with every change" do
+  # The history was a database field dump: IDs and enums overwhelmed the
+  # criteria and actual progress, even after opening its human-facing label.
+  test "goal history separates criteria and progress without displaying bookkeeping IDs" do
     work = claimed!()
     goal = goal!(work, "check-health", "Check infrastructure health")
     state!(work, "check-health", "working")
@@ -111,13 +112,22 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
 
     details = LazyHTML.query(document, ".work-plan details")
     history = LazyHTML.text(details)
-    assert history =~ "Details and history"
-    assert history =~ "read only"
-    assert history =~ "Mode"
-    refute history =~ "Authority"
-    assert history =~ "check"
+    assert history =~ "Plan history"
+    assert history =~ "Read-only check"
+    assert history =~ "Done when"
+    assert history =~ "Current evidence supports a bounded conclusion."
     assert history =~ "In progress"
-    assert details |> LazyHTML.query("[data-copy-value='#{goal.ref}']") |> Enum.count() == 1
+    refute history =~ goal.ref
+    refute history =~ goal.operation_id
+    refute history =~ "Membership"
+    refute history =~ "Goal ID"
+    refute history =~ "Operation"
+    assert Enum.count(LazyHTML.query(details, ".ui-knowledge-item")) == 1
+
+    assert LazyHTML.attribute(LazyHTML.query(details, ".ui-knowledge-item"), "data-record-ref") ==
+             [goal.ref]
+
+    assert Enum.empty?(LazyHTML.query(details, "button, .identifier"))
   end
 
   # A repeated check after changed work is a new attempt; the one it replaces
@@ -147,6 +157,75 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
 
     assert history =~ "Earlier attempt"
     assert history =~ "Every node was ready before the change."
+  end
+
+  test "a bounded page does not claim an older goal or its evidence was deleted" do
+    # The page keeps only a bounded record window. Its missing plan may still
+    # be retained, so absence here must never read as expired or deleted.
+    work = claimed!()
+    original = goal!(work, "earlier-goal", "Inspect the earlier deployment")
+    evidence = evidence!(work, "earlier-source", %{"target" => "Deployment health"})
+
+    dependent =
+      goal!(work, "later-goal", "Verify the later deployment", %{
+        "prerequisite_goal_ids" => ["earlier-goal"]
+      })
+
+    update =
+      state!(work, "earlier-goal", "completed", %{
+        "detail" => "The earlier deployment is healthy.",
+        "evidence_refs" => [evidence.ref]
+      })
+
+    assert {:ok, [retained]} = Records.fetch_for_episode(work.episode.id, [original.ref])
+    assert retained.ref == original.ref
+
+    # Supply exactly the bounded projection boundary: the newer dependent
+    # plan and the old goal's latest update, not its older plan/evidence.
+    trace = EpisodeTrace.project(work.episode, [], [dependent, update])
+    [plan] = Enum.filter(trace.steps, &(&1.stage == "Work plan"))
+    missing = Enum.find(plan.plan.steps, &(&1.goal_id == "earlier-goal"))
+    assert missing.title == "Goal details not on this page"
+    assert missing.detail == "The earlier deployment is healthy."
+    assert missing.evidence == [%{href: nil, title: "Evidence not on this page"}]
+
+    later = Enum.find(plan.plan.steps, &(&1.goal_id == "later-goal"))
+    assert Enum.find(later.facts, &(&1.label == "After")).value == "Goal details not on this page"
+  end
+
+  test "missing evidence is one counted note, not a disclosure of repeated placeholders" do
+    work = claimed!()
+    goal = goal!(work, "check-health", "Check infrastructure health")
+
+    evidence =
+      for number <- 1..4,
+          do: evidence!(work, "source-#{number}", %{"target" => "Source #{number}"})
+
+    update =
+      state!(work, "check-health", "completed", %{"evidence_refs" => Enum.map(evidence, & &1.ref)})
+
+    for {visible, missing} <- [{[], 4}, {[hd(evidence)], 3}] do
+      {:ok, snapshot} = EpisodeProjection.fetch(work.episode.key)
+      trace = EpisodeTrace.project(work.episode, [], [goal] ++ visible ++ [update])
+
+      document =
+        render_component(&EpisodePage.render/1,
+          snapshot: %{snapshot | trace: trace},
+          requests: nil,
+          params: %{}
+        )
+        |> LazyHTML.from_document()
+
+      face = LazyHTML.query(document, ".work-plan .plan-steps")
+      assert Enum.empty?(LazyHTML.query(face, ".plan-evidence, code"))
+
+      assert LazyHTML.query(face, ".plan-evidence-unavailable")
+             |> LazyHTML.text()
+             |> String.trim() ==
+               "#{missing} evidence records not on this page."
+
+      assert Enum.count(LazyHTML.query(face, ".record-links a")) == length(visible)
+    end
   end
 
   test "skipped and cancelled steps never read as done, and a waiting step says so" do

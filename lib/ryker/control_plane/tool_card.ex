@@ -678,7 +678,11 @@ defmodule Ryker.ControlPlane.ToolCard do
   defp path_warnings(%{"paths" => paths} = context) do
     warnings =
       [
-        if(Enum.any?(paths, &(&1["scope"] == "outside")), do: "Outside project"),
+        # This is a lexical worker report, not verified containment. Older
+        # workers compared the in-box /workspace alias to a host-side root.
+        if(Enum.any?(paths, &(&1["scope"] == "outside")),
+          do: "Worker reported outside checkout (unverified)"
+        ),
         if(Enum.any?(paths, &(&1["scope"] == "unknown")), do: "Project boundary not recorded"),
         if(context["partial"], do: "Some paths were not retained")
       ]

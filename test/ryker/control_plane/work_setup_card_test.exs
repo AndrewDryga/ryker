@@ -105,7 +105,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
 
     assert LazyHTML.text(links) == "sample-platform/gateway:main"
     assert Enum.count(links) == 1
-    assert fact(rendered(work.episode), work.turn, "Repositories") =~ "coop · read only"
+    # Access belongs to its repository's name, not a detached metadata line.
+    assert fact(rendered(work.episode), work.turn, "Repositories") =~ "coop (read only)"
     refute rendered(work.episode) =~ "https://github.com/sample-platform/other"
 
     Repo.update_all(from(session in Session, where: session.id == ^work.session.id),
@@ -224,7 +225,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     location = html |> LazyHTML.from_document() |> LazyHTML.query(".episode-location")
     refute LazyHTML.text(location) =~ "ryker"
 
-    assert repository_rows(html, work.turn) == ["ryker · can change it", "coop · read only"]
+    assert repository_rows(html, work.turn) == ["ryker (can change it)", "coop (read only)"]
     assert fact(html, work.turn, "Environment") == "None · the work ran outside any environment"
 
     for noise <- [
@@ -273,7 +274,7 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     assert fact(html, work.turn, "Environment") == "Payments · this channel's environment"
 
     assert repository_rows(html, work.turn) ==
-             ["acme/payments · can change it", "acme/infra · read only"]
+             ["acme/payments (can change it)", "acme/infra (read only)"]
 
     assert fact(html, work.turn, "Emisar") == "Production approvals"
     assert fact(html, work.turn, "Session") == "New · the model starts with only this briefing"

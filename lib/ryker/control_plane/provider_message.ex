@@ -58,8 +58,6 @@ defmodule Ryker.ControlPlane.ProviderMessage do
         {"Branch", parsed[:branch]},
         {"Commit", parsed[:commit]},
         {"Author", string(run["author_name"])},
-        {"GitHub run", parsed[:github_run]},
-        {"Run", terraform_run_id(run)},
         {"Description", if(parsed == %{}, do: description)}
       ]
       |> facts()
@@ -85,17 +83,14 @@ defmodule Ryker.ControlPlane.ProviderMessage do
   defp terraform_state?("Run " <> _rest), do: true
   defp terraform_state?(_title), do: false
 
-  defp terraform_run_id(%{"title" => "Run " <> id}) when byte_size(id) > 0, do: id
-  defp terraform_run_id(_run), do: nil
-
   # "main 3376639b... (@AndrewDryga, gh run 34306095502)" is the one description
   # format the harvested fixture shows. Anything else is kept whole.
   defp parse_terraform_description(nil), do: %{}
 
   defp parse_terraform_description(text) do
     case Regex.run(~r/\A(\S+) ([0-9a-f]{7,40}) \(@([^,\s)]+)(?:, gh run (\d+))?\)\z/, text) do
-      [_, branch, commit, _author, run] ->
-        %{branch: branch, commit: commit, github_run: present(run)}
+      [_, branch, commit, _author, _run] ->
+        %{branch: branch, commit: commit}
 
       [_, branch, commit, _author] ->
         %{branch: branch, commit: commit}
@@ -226,7 +221,4 @@ defmodule Ryker.ControlPlane.ProviderMessage do
   defp string(_value), do: nil
   defp map(value) when is_map(value), do: value
   defp map(_value), do: %{}
-  defp present(nil), do: nil
-  defp present(""), do: nil
-  defp present(value), do: value
 end

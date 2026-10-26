@@ -1097,8 +1097,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       name = Map.get(names.repositories, ref, ref)
 
       case access do
-        :change -> "#{name} · can change it"
-        :read -> "#{name} · read only"
+        :change -> "#{name} (can change it)"
+        :read -> "#{name} (read only)"
         nil -> name
       end
     end)

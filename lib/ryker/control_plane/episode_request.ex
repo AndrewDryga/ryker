@@ -139,20 +139,15 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <SentPrompts.list id={"#{@request.id}-sent"} sends={@request[:sent]} />
       </section>
       <Components.disclosure
-        :if={!@result? && @request[:selection]}
+        :if={!@result? && @request[:selection] && @request.selection.limits}
         id={"#{@request.id}-details"}
-        label="Details"
+        label="Context limits"
         class="request-selection"
       >
-        <Components.fact_list
-          :if={@request.selection.limits}
-          facts={[%{label: "Limits", value: @request.selection.limits}]}
-        />
-        <Components.json_disclosure
-          id={"#{@request.id}-selection-record"}
-          label="Selection record"
-          text={@request.selection.record}
-        />
+        <p>{@request.selection.limits}</p>
+        <p>
+          Context is bounded to fit the model call. Anything left out is noted beside its section.
+        </p>
       </Components.disclosure>
       <section :if={is_map(@response)} class="response-review">
         <Components.message_block :if={is_binary(@response["message"])} sender="Ryker">

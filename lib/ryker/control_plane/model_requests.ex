@@ -973,7 +973,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     %{
       id: turn.id,
       counts: work_counts(context, selection, saved),
-      selection: selection && Map.take(selection, [:limits, :record]),
+      selection: selection && Map.take(selection, [:limits]),
       sent: sent(reading, turn.coop_turn_id, submission),
       title: "Work request",
       at: turn.inserted_at,

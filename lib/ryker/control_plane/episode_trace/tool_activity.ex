@@ -518,9 +518,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       event.occurred_at,
       %{
         actor: "Coop",
-        details: safe_payload_details(event.payload),
+        details: [],
         stage: "Provider",
-        summary: nil,
+        summary: provider_counters(event.payload),
         title: "Provider activity received",
         tone: nil
       }
@@ -542,6 +542,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         tone: nil
       }
     )
+  end
+
+  defp provider_counters(payload) do
+    counters =
+      for {key, label} <- [{"bytes", "byte"}, {"frames", "frame"}],
+          count = payload[key],
+          is_integer(count) and count >= 0,
+          do: Wording.number(count) <> " " <> Wording.word(count, label)
+
+    case counters do
+      [] -> nil
+      counters -> Enum.join(counters, " · ")
+    end
   end
 
   # A stored count is read as stored: one a worker wrote as anything but a

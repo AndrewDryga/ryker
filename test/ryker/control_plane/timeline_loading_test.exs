@@ -80,7 +80,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     row = LazyHTML.query(document, "#event-activity-#{event_id(work, 2)}")
     summary = LazyHTML.query(row, ".tool-run-detail > summary")
     assert LazyHTML.text(summary) =~ "/workspace/.agent/kb/runbooks/deployment.md"
-    assert LazyHTML.query(summary, ".tool-run-warning") |> LazyHTML.text() =~ "Outside project"
+
+    assert LazyHTML.query(summary, ".tool-run-warning") |> LazyHTML.text() =~
+             "Worker reported outside checkout (unverified)"
+
     assert Enum.empty?(LazyHTML.query(row, ".tool-run-detail[open]"))
     assert Enum.empty?(LazyHTML.query(row, ".action-technical"))
     assert Enum.count(LazyHTML.query(row, ".action-card > .action-raw[data-artifact]")) == 1
@@ -474,7 +477,9 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
        %{"step_count" => 1, "entries" => [%{"text" => "Read the migration first."}]}},
       {"permission.decided", %{"outcome" => "cancelled", "tool_call_id" => "permission-1"}},
       {"activity.elided", %{"dropped" => 12}},
-      {"custom.notice", %{}}
+      {"custom.notice", %{}},
+      {"provider.alive", %{"bytes" => "12575", "frames" => -1}},
+      {"provider.alive", %{"bytes" => 0, "frames" => 0}}
     ]
 
     for {{kind, payload}, sequence} <- Enum.with_index(events, 2) do
@@ -491,22 +496,28 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     end
 
     heartbeat = LazyHTML.query(document, "#event-activity-#{event_id(work, 6)}")
-    assert Enum.empty?(LazyHTML.query(heartbeat, "h3"))
-    assert Enum.empty?(LazyHTML.query(heartbeat, ".ui-activity-note-text"))
-    diagnostics = LazyHTML.query(heartbeat, "details")
-    assert LazyHTML.attribute(diagnostics, "open") == []
+    # A heartbeat has two small counters, not a diagnostic document. Hiding
+    # them under a fold made a healthy provider look like an empty event.
+    assert Enum.empty?(LazyHTML.query(heartbeat, "details"))
 
-    assert LazyHTML.query(diagnostics, ".ui-disclosure-label") |> LazyHTML.text() ==
+    assert LazyHTML.query(heartbeat, "h3") |> LazyHTML.text() ==
              "Provider activity received"
 
-    assert LazyHTML.text(diagnostics) =~ "12575"
-    assert LazyHTML.text(diagnostics) =~ "Frames"
-    assert LazyHTML.query(diagnostics, "dd") |> LazyHTML.text() =~ "1"
+    assert LazyHTML.query(heartbeat, ".ui-activity-note-text") |> LazyHTML.text() =~
+             "12,575 bytes · 1 frame"
 
     empty = LazyHTML.query(document, "#event-activity-#{event_id(work, 7)}")
     assert Enum.empty?(LazyHTML.query(empty, ".ui-activity-note-text"))
-    # The evidence protocol version is still retained, even without counters.
-    assert LazyHTML.text(LazyHTML.query(empty, "details")) =~ "Evidence version"
+    assert Enum.empty?(LazyHTML.query(empty, "details"))
+    refute LazyHTML.text(empty) =~ "Evidence version"
+
+    malformed = LazyHTML.query(document, "#event-activity-#{event_id(work, 13)}")
+    assert Enum.empty?(LazyHTML.query(malformed, "details, .ui-activity-note-text"))
+
+    zero = LazyHTML.query(document, "#event-activity-#{event_id(work, 14)}")
+
+    assert LazyHTML.query(zero, ".ui-activity-note-text") |> LazyHTML.text() =~
+             "0 bytes · 0 frames"
 
     backoff = LazyHTML.query(document, "#event-activity-#{event_id(work, 8)}")
     assert Enum.count(LazyHTML.query(backoff, ".ui-activity-note[data-tone=warn]")) == 1

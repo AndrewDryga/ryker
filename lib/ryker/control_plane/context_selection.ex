@@ -7,8 +7,8 @@ defmodule Ryker.ControlPlane.ContextSelection do
   briefing rows they qualify: how many of the request's earlier messages a new
   session was not sent, and which limit left them out, and how many of each
   kind of saved context there were when some of it was not sent. The record
-  itself stays under the briefing's Details. A card of its own before the
-  briefing said the same in a sentence, apart from the messages it was about,
+  itself stays stored beside the submission, not in the human briefing. A card
+  of its own before the briefing said the same in a sentence, apart from its messages,
   and was dropped (Andrew, 2026-10-16).
   """
   alias Ryker.ControlPlane.Units
@@ -19,15 +19,14 @@ defmodule Ryker.ControlPlane.ContextSelection do
   The ledger's facts for the briefing, or nil when the turn recorded none:
   `left_out`, the earlier messages a new session was not sent; `listed`, each
   kind of saved context some of which was not sent, as `{included, eligible}`;
-  `limits` in words; and the whole `record`.
+  `limits` in words. The original ledger remains on the turn.
   """
   @spec present(map() | nil) :: map() | nil
   def present(%{"inputs" => %{} = inputs} = ledger) do
     %{
       left_out: left_out(ledger["mode"], inputs, ledger["limits"]),
       listed: listed(ledger),
-      limits: limits(ledger["limits"]),
-      record: Jason.encode!(ledger, pretty: true)
+      limits: limits(ledger["limits"])
     }
   end
 

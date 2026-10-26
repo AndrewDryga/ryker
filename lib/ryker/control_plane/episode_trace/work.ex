@@ -14,7 +14,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   alias Ryker.Slack
   alias Ryker.Text
   alias Ryker.UTCDateTime
-  alias Ryker.Wording
   alias Ryker.Work
 
   @doc "Each Work turn from queueing through its result and delivery."
@@ -551,9 +550,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   # The request's goals as one Work plan card where the first was planned:
   # each goal's latest attempt is a step with its status, what finishes it
-  # and, once done, its recorded result and evidence. Authority, kind,
-  # record IDs, earlier attempts and every state change stay under Details
-  # and history (Andrew approved the card, 2026-10-15: Read only stays out of
+  # and, once done, its recorded result and evidence. Earlier attempts and
+  # changes stay in Plan history; internal IDs stay out of the reading flow
+  # (Andrew approved the card, 2026-10-15: Read only stays out of
   # the face). Successful plan and update calls fold into it (`SavedRecords`).
   defp plan_steps([], _anchors), do: []
 
@@ -624,23 +623,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       parent: payload["parent_goal_id"],
       attempt: attempt(goal.subject_ref, by_id),
       replaced: Map.has_key?(successors, goal.subject_ref),
+      planned_at: goal.inserted_at,
+      activity: goal_activity(payload),
       facts:
         compact_details([
           {"Done when", payload["completion_contract"]},
-          {"Kind", payload["kind"] && human(payload["kind"])},
-          {"Mode", payload["authority"] && human(payload["authority"])},
-          {"Membership", if(payload["required"] == false, do: "Optional", else: "Required")},
-          {"Stage", payload["stage"] && human(payload["stage"])},
-          {"Changes", payload["writable_repository"]},
-          {"Reads", read_only(payload["read_only_repositories"])},
           {"Part of", goal_name(payload["parent_goal_id"], by_id)},
           {"After", goal_names(payload["prerequisite_goal_ids"], by_id)},
           {"Repeats", goal_name(payload["successor_of"], by_id)},
-          {"Repeated by", goal_name(successors[goal.subject_ref], by_id)},
-          {"Planned", goal.inserted_at},
-          {"Goal ID", goal.subject_ref, identifier: true},
-          {"Record", goal.ref, identifier: true},
-          {"Operation", goal.operation_id, identifier: true}
+          {"Repeated by", goal_name(successors[goal.subject_ref], by_id)}
         ]),
       changes: Enum.map(updates, &goal_change(&1, anchors))
     }
@@ -654,7 +645,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       id: "record-#{latest.id}",
       record_ref: nil,
       goal_id: goal_id,
-      title: goal_id,
+      title: "Goal details not on this page",
       state: latest.payload["state"],
       status: status,
       tone: tone,
@@ -667,8 +658,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       replaced: false,
       facts:
         compact_details([
-          {"Plan", "Its plan record is not on this page."},
-          {"Goal ID", goal_id, identifier: true}
+          {"Plan", "Its plan record is not on this page."}
         ]),
       changes: Enum.map(updates, &goal_change(&1, anchors))
     }
@@ -735,21 +725,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       status: status,
       tone: tone,
       detail: payload["detail"],
-      evidence: goal_evidence(update, anchors),
-      facts:
-        compact_details([
-          {"Record", update.ref, identifier: true},
-          {"Operation", update.operation_id, identifier: true}
-        ])
+      evidence: goal_evidence(update, anchors)
     }
   end
 
   defp goal_evidence(nil, _anchors), do: []
 
   defp goal_evidence(%Records.Record{payload: payload}, anchors) do
-    Enum.map(payload["evidence_refs"] || [], fn ref ->
-      Map.get(anchors, ref, %{href: nil, title: ref})
-    end)
+    Enum.map(
+      payload["evidence_refs"] || [],
+      &Map.get(anchors, &1, %{href: nil, title: "Evidence not on this page"})
+    )
   end
 
   # The words a status is read in, as text with its tone: a skipped or
@@ -768,7 +754,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp goal_name(goal_id, by_id) do
     case by_id[goal_id] do
       %Records.Record{payload: %{"requested_outcome" => outcome}} -> outcome
-      _missing -> goal_id
+      _missing -> "Goal details not on this page"
     end
   end
 
@@ -777,8 +763,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp goal_names(_ids, _by_id), do: nil
 
-  defp read_only(names) when is_list(names) and names != [], do: Wording.list(names)
-  defp read_only(_names), do: nil
+  defp goal_activity(%{"authority" => "read_only", "kind" => "check"}), do: "Read-only check"
+  defp goal_activity(%{"authority" => "read_only"}), do: "Read-only work"
+  defp goal_activity(_payload), do: nil
 
   @doc "The worker fleet's own events for the episode's sessions."
   def coop_steps([]), do: []
