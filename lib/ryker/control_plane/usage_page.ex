@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp performance(rows, snapshot) do
     [
       "<section id=\"model-performance\" class=\"usage-section\"><h2>Model performance by work type</h2>",
-      "<div class=\"table-wrap\"><table class=\"usage-performance-table\"><thead><tr><th>Work type / model</th><th>Executions</th><th>Failed runs</th><th>Response corrections</th><th>Average model time</th></tr></thead><tbody>",
+      "<div class=\"table-wrap\"><table class=\"usage-performance-table\"><thead><tr><th scope=\"col\">Work type / model</th><th scope=\"col\">Executions</th><th scope=\"col\">Tokens</th><th scope=\"col\">Failed runs</th><th scope=\"col\">Response corrections</th><th scope=\"col\">Average model time</th><th scope=\"col\">Cost</th></tr></thead><tbody>",
       Enum.map(Enum.take(rows, 500), fn row ->
         [
           "<tr><td>",
@@ -98,11 +98,15 @@ defmodule Ryker.ControlPlane.UsagePage do
           "</small></td><td>",
           e(Wording.number(row.attempts)),
           "</td><td>",
+          e(tokens(row, :tokens)),
+          "</td><td>",
           e(Wording.number(row.unsuccessful)),
           "</td><td>",
           e(Wording.number(row.corrections)),
           "</td><td>",
           e(Units.duration(row.average_provider_ms)),
+          "</td><td class=\"usage-money\">",
+          e(money(row)),
           "</td></tr>"
         ]
       end),

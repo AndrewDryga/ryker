@@ -107,6 +107,94 @@ defmodule Ryker.ControlPlane.UsagePageTest do
              "Avg. model time: 1 min 18 s"
   end
 
+  # The performance table compared runs and latency but omitted the resources
+  # those exact groups used, forcing an operator to cross-reference other tables.
+  test "model performance includes token and cost totals for the same work type and model" do
+    for {input, cached, output, reasoning, cost} <- [
+          {1_200, 300, 500, 200, "0.10"},
+          {800, 200, 100, 50, "0.15"}
+        ] do
+      execution!("admission",
+        usage_input_tokens: input,
+        usage_cached_input_tokens: cached,
+        usage_output_tokens: output,
+        usage_reasoning_tokens: reasoning,
+        usage_cost_recorded: true,
+        usage_cost_usd: Decimal.new(cost)
+      )
+    end
+
+    execution!("admission",
+      execution_mode: "shadow",
+      usage_input_tokens: 1_000_000,
+      usage_cost_recorded: true,
+      usage_cost_usd: Decimal.new("99")
+    )
+
+    table =
+      UsageProjection.page(%{})
+      |> UsagePage.render()
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#model-performance table")
+
+    assert rows(table, "thead tr") == [
+             [
+               "Work type / model",
+               "Executions",
+               "Tokens",
+               "Failed runs",
+               "Response corrections",
+               "Average model time",
+               "Cost"
+             ]
+           ]
+
+    # Reasoning is already included in output; it must not be counted twice.
+    assert [[identity, "2", "3.1k", "0", "0", "—", "$0.25"]] = rows(table, "tbody tr")
+    assert identity =~ "Routing"
+    assert identity =~ "gpt-5.6-sol"
+  end
+
+  test "model performance distinguishes unknown usage from measured zero and combines cost sources" do
+    snapshot = UsageProjection.page(%{})
+
+    for {usage, expected_tokens, expected_cost} <- [
+          {%{attempts: 1}, "—", "Not measured"},
+          {%{attempts: 1, usage_measured: 1, costed: 1}, "0", "$0"},
+          {%{
+             attempts: 2,
+             usage_measured: 2,
+             tokens: 2_000,
+             costed: 1,
+             cost_usd: Decimal.new("0.25"),
+             estimated: 1,
+             estimated_cost_usd: Decimal.new("0.10")
+           }, "2k", "$0.35"}
+        ] do
+      performance =
+        snapshot.totals
+        |> Map.merge(usage)
+        |> Map.merge(%{
+          work_kind: "admission",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          effort: "medium",
+          corrections: 0
+        })
+
+      table =
+        %{snapshot | performance: [performance]}
+        |> UsagePage.render()
+        |> IO.iodata_to_binary()
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("#model-performance table")
+
+      assert [[_identity, _runs, ^expected_tokens, _failed, _corrections, _time, ^expected_cost]] =
+               rows(table, "tbody tr")
+    end
+  end
+
   test "estimate rates do not repeat spend totals already shown in the usage breakdowns" do
     for effort <- ~w(medium high) do
       execution!("work",
