@@ -552,6 +552,8 @@ defmodule Ryker.Publication.FixLoopTest do
                1
              )
 
+    Ryker.Fixtures.CompletionReview.approve!(work, final)
+
     assert {:ok, result} = Result.new(:reply, final)
 
     assert {:ok, _intent} =
@@ -753,6 +755,7 @@ defmodule Ryker.Publication.FixLoopTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     bind_remote!(claim)
   end
 

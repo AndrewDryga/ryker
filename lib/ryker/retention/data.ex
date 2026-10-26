@@ -292,7 +292,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT session.id
     FROM episode_work_sessions AS session
-    WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge')
+    WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge', 'completion_review')
       AND #{@session_discarded}
       AND NOT session.activity_sync_pending
       AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
@@ -602,9 +602,21 @@ defmodule Ryker.Retention.Data do
       AND turn.status = ANY($1)
       AND turn.updated_at < clock_timestamp() - ($2 * interval '1 second')
       AND #{@session_discarded}
+      AND NOT EXISTS (
+        SELECT 1 FROM work_completion_reviews review
+        LEFT JOIN episode_work_sessions child ON child.completion_review_id = review.id
+        WHERE review.turn_id = turn.id AND
+          (review.remote_stopped_at IS NULL OR (child.id IS NOT NULL AND #{String.replace(@session_not_discarded, "session.", "child.")}))
+      )
     ORDER BY turn.updated_at, turn.id
     LIMIT 100
     FOR UPDATE OF turn SKIP LOCKED
+  ), review_bodies AS (
+    UPDATE work_completion_reviews AS review
+    SET prompt = NULL, result = NULL, output_schema = NULL, producer = NULL,
+        pruned_at = candidates.pruned_at
+    FROM candidates WHERE review.turn_id = candidates.id AND review.pruned_at IS NULL
+    RETURNING review.turn_id
   ), response_bodies AS (
     UPDATE work_candidate_responses AS response
     SET body = NULL, operational_pruned_at = candidates.pruned_at
@@ -1164,6 +1176,13 @@ defmodule Ryker.Retention.Data do
     AND NOT EXISTS (
       SELECT 1 FROM episode_work_sessions session
       WHERE session.episode_id = episode.id AND #{@session_not_discarded}
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM work_completion_reviews review
+      JOIN episode_work_turns turn ON turn.id = review.turn_id
+      LEFT JOIN episode_work_sessions child ON child.completion_review_id = review.id
+      WHERE turn.episode_id = episode.id AND
+        (review.remote_stopped_at IS NULL OR child.id IS NOT NULL)
     )
     AND NOT EXISTS (
       SELECT 1 FROM platform_actions action

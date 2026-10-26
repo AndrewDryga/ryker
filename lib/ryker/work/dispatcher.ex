@@ -188,7 +188,7 @@ defmodule Ryker.Work.Dispatcher do
     do: stop_or_defer(claim, reason, settings)
 
   defp execution_failure(claim, {:work_poll_window_elapsed, phase} = reason, settings)
-       when phase in [:operation, :turn],
+       when phase in [:operation, :turn, :completion_review],
        do: yield_progress(claim, reason, settings)
 
   defp execution_failure(claim, :work_derived_context_busy = reason, settings),

@@ -47,6 +47,30 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) == :ok
   end
 
+  # The first reviewer applied historical-reuse rules to the active request,
+  # breaking both Slack answer continuations after remembering then forgetting.
+  # This is a host-contract candidate, not a claimed model recording.
+  test "completion review can finish the authenticated request after its learning is forgotten" do
+    {entry, work, submission} = raw_work!()
+    assert KnowledgeFixtures.forget!(entry) == :ok
+    claim = %{work.claim | turn: %{work.claim.turn | coop_turn_id: "completion-input-fixture"}}
+
+    assert {:ok, final} =
+             Ryker.Work.Final.parse(%{
+               "delivery" => "none",
+               "decision_reason" => "Host completion boundary test.",
+               "message" => nil,
+               "outcome" => %{"state" => "complete", "record_refs" => [], "artifact_refs" => []}
+             })
+
+    assert {:ok, {:ok, snapshot}} =
+             Repo.transaction(fn ->
+               Ryker.Work.CompletionReview.Evidence.snapshot(claim, final)
+             end)
+
+    assert snapshot["work"]["inputs"] == submission["context"]["inputs"]
+  end
+
   test "a memory disclosure permanently removes the original-input exception" do
     {entry, work, submission} = raw_work!()
 

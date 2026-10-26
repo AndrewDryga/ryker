@@ -14,8 +14,9 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Delivery
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, FinalPreflight, OperationKeys, StateBinding, Validator}
+  alias Ryker.Work.{CompletionReview, Custody, FinalPreflight, OperationKeys}
   alias Ryker.Work.Executor.Remote
+  alias Ryker.Work.{StateBinding, Validator}
 
   @terminal_turn_states Remote.terminal_turn_states()
   @turn_waiting_states Remote.turn_waiting_states()
@@ -46,7 +47,8 @@ defmodule Ryker.Work.Executor.Validation do
             attempt,
             artifacts,
             final,
-            result
+            result,
+            settings
           )
 
         {:reject, violations} ->
@@ -58,10 +60,28 @@ defmodule Ryker.Work.Executor.Validation do
     end
   end
 
-  defp prepare_accepted_validation(claim, message, sha256, attempt, artifacts, final, result) do
+  defp prepare_accepted_validation(
+         claim,
+         message,
+         sha256,
+         attempt,
+         artifacts,
+         final,
+         result,
+         settings
+       ) do
     case Delivery.Presentation.validate(claim.episode, claim.turn, final) do
       :ok ->
-        ensure_final_preflight(claim, message, sha256, attempt, artifacts, result)
+        ensure_final_preflight(
+          claim,
+          message,
+          sha256,
+          attempt,
+          artifacts,
+          final,
+          result,
+          settings
+        )
 
       {:error, {:invalid_delivery_presentation, reason}} ->
         prepare_validation(
@@ -86,7 +106,9 @@ defmodule Ryker.Work.Executor.Validation do
          sha256,
          attempt,
          artifacts,
-         result
+         final,
+         result,
+         settings
        )
        when is_binary(endpoint) do
     with {:ok, candidate} <- decode_candidate(message),
@@ -99,7 +121,7 @@ defmodule Ryker.Work.Executor.Validation do
              candidate_sha256,
              Artifacts.Outputs.refs(artifacts)
            ) do
-      prepare_validation(claim, sha256, attempt, :accept, result)
+      review_completion(claim, sha256, attempt, final, result, settings)
     else
       {:error, :work_final_preflight_required} ->
         prepare_validation(
@@ -118,8 +140,36 @@ defmodule Ryker.Work.Executor.Validation do
     end
   end
 
-  defp ensure_final_preflight(claim, _message, sha256, attempt, _artifacts, result),
-    do: prepare_validation(claim, sha256, attempt, :accept, result)
+  defp ensure_final_preflight(
+         claim,
+         _message,
+         sha256,
+         attempt,
+         _artifacts,
+         final,
+         result,
+         settings
+       ),
+       do: review_completion(claim, sha256, attempt, final, result, settings)
+
+  defp review_completion(claim, sha256, attempt, final, result, settings) do
+    case CompletionReview.review(claim, final, settings) do
+      :ok ->
+        case prepare_validation(claim, sha256, attempt, :accept, result) do
+          {:error, :completion_review_required} ->
+            {:error, {:work_poll_window_elapsed, :completion_review}}
+
+          result ->
+            result
+        end
+
+      {:reject, violations} ->
+        prepare_validation(claim, sha256, attempt, {:reject, violations}, nil)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp decode_candidate(message) do
     case Jason.decode(message) do

@@ -125,6 +125,12 @@ defmodule Ryker.Records.DerivedContextTest do
     assert KnowledgeSnapshot.authorize_session(producer.episode, producer.session) ==
              {:error, :work_knowledge_context_stale}
 
+    assert {:ok, final} = Final.parse(captured()["candidate"])
+
+    assert Repo.transaction(fn ->
+             Ryker.Work.CompletionReview.Evidence.snapshot(producer, final)
+           end) == {:error, :work_knowledge_context_stale}
+
     assert Records.model_records(producer.episode, producer.session) == []
     document = record |> Records.Record.document() |> DerivedContext.record()
 
@@ -179,6 +185,50 @@ defmodule Ryker.Records.DerivedContextTest do
 
     assert Repo.get!(Ryker.Records.Record, record.id).payload["observation"] ==
              captured()["arguments"]["observation"]
+  end
+
+  # An operator's goal projection bypassed the record disclosure boundary in
+  # the first completion-review implementation, redisclosing withdrawn prose.
+  test "completion review excludes goals derived from a withdrawn older source" do
+    {producer, source, _record} = cited_source!()
+    secret = captured()["arguments"]["observation"]
+
+    assert {:ok, _goal} =
+             Records.create(Records.token(producer.turn), "private-goal", "goal", %{
+               "authority" => "read_only",
+               "completion_contract" => secret,
+               "id" => "verify-source",
+               "kind" => "check",
+               "prerequisite_goal_ids" => [],
+               "read_only_repositories" => [],
+               "requested_outcome" => secret,
+               "required" => true,
+               "stage" => "implementation",
+               "writable_repository" => nil
+             })
+
+    recipient = replacement!(producer)
+    KnowledgeFixtures.revoke!(source)
+    assert {:ok, submission} = Inspectors.submission(recipient)
+
+    assert KnowledgeSnapshot.expose_submission(%{
+             recipient
+             | turn: %{recipient.turn | submission: submission}
+           }) == :ok
+
+    recipient = %{
+      recipient
+      | turn: %{recipient.turn | submission: submission, coop_turn_id: "review-fixture"}
+    }
+
+    assert {:ok, final} = Final.parse(captured()["candidate"])
+
+    assert {:ok, {:ok, snapshot}} =
+             Repo.transaction(fn ->
+               Ryker.Work.CompletionReview.Evidence.snapshot(recipient, final)
+             end)
+
+    refute Ryker.Work.CompletionReview.Prompt.build(snapshot) =~ secret
   end
 
   test "an accepted historical answer cannot reintroduce its withdrawn source through outcomes" do

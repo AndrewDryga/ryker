@@ -7,6 +7,22 @@ defmodule Ryker.Work.Turn.Query do
 
   def all, do: from(turns in Turn, as: :episode_work_turns)
 
+  @doc "The authorized same-session input briefings a completion reviewer needs for refinements."
+  def review_inputs(queryable \\ all(), episode_id, session_id) do
+    from(t in queryable,
+      where:
+        t.episode_id == ^episode_id and t.session_id == ^session_id and not is_nil(t.submission),
+      order_by: [desc: t.inserted_at, desc: t.id],
+      limit: 100,
+      select:
+        fragment(
+          "jsonb_build_object('inputs', (?::jsonb)->'context'->'inputs', 'current_inputs', (?::jsonb)->'context'->'current_inputs')",
+          t.submission,
+          t.submission
+        )
+    )
+  end
+
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_work_turns: t], t.id == ^id)
 
   def by_episode_id(queryable \\ all(), episode_id),

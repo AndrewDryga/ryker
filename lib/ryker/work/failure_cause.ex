@@ -44,6 +44,20 @@ defmodule Ryker.Work.FailureCause do
   # each says the same thing wherever it nests. `depends` says what a retry
   # depends on, where the generic "the condition named above" would mislead.
   @explained [
+    {"completion_review_no_addressee",
+     %{
+       cause:
+         "Ryker needs access, a fact, or a decision that only a person can provide, but nobody has joined this conversation. The work remains unfinished.",
+       next_step:
+         "Open the request's completion review for the exact blocker, then join the conversation or resolve it and retry."
+     }},
+    {"completion_review_budget_exhausted",
+     %{
+       cause:
+         "Ryker could not establish completion within the review limit. It has kept the work unfinished.",
+       next_step:
+         "Open the request's completion reviews to see the unresolved requirement and attempted next actions."
+     }},
     {"Failed to refresh token",
      %{
        cause:

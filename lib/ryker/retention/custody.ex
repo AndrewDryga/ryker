@@ -38,6 +38,7 @@ defmodule Ryker.Retention.Custody do
             | Learning.LearningRun.t()
             | Improvement.AnalysisRun.t()
             | RepositoryKnowledge.Run.t()
+            | Work.CompletionReview.Run.t()
             | Ingress.Inbox.Entry.t()
             | :ready_pool,
           lease_ref: String.t(),
@@ -493,7 +494,7 @@ defmodule Ryker.Retention.Custody do
   defp peek_and_lock_owner(kind, nil, _lock) when kind in [:admission, :work], do: :ready_pool
 
   defp peek_and_lock_owner(kind, id, lock)
-       when kind in [:work, :learning, :improvement, :knowledge],
+       when kind in [:work, :learning, :improvement, :knowledge, :completion_review],
        do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.peek()
 
   defp peek_and_lock_owner(:admission, input_id, lock) do
@@ -537,6 +538,9 @@ defmodule Ryker.Retention.Custody do
     do: true
 
   defp owner_finished?(%RepositoryKnowledge.Run{remote_stopped_at: %DateTime{}}, _session),
+    do: true
+
+  defp owner_finished?(%Work.CompletionReview.Run{remote_stopped_at: %DateTime{}}, _session),
     do: true
 
   defp owner_finished?(%Ingress.Inbox.Entry{status: status}, _session)

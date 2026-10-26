@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   alias Ryker.Work
 
   # Every work type the projection can name; anything else is a missing identity.
-  @work_kinds ~w(admission learning self_analysis repository_knowledge conversational standard deep continuation resumed task event_wait schedule publication approval)
+  @work_kinds ~w(admission learning self_analysis repository_knowledge completion_review conversational standard deep continuation resumed task event_wait schedule publication approval)
 
   def work_kinds, do: @work_kinds
 
@@ -415,6 +415,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   def kind_name("admission"), do: "Routing"
   def kind_name("learning"), do: "Learning"
   def kind_name("self_analysis"), do: "Self-analysis"
+  def kind_name("completion_review"), do: "Completion review"
   def kind_name("repository_knowledge"), do: "Repository knowledge"
   def kind_name("conversational"), do: "Conversation"
   def kind_name("standard"), do: "Investigation"

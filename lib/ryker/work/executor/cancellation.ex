@@ -12,7 +12,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   """
   alias Ryker.Coop
   alias Ryker.Work.Cancellation, as: WorkCancellation
-  alias Ryker.Work.{Custody, OperationKeys, StateBinding}
+  alias Ryker.Work.{CompletionReview, Custody, OperationKeys, StateBinding}
   alias Ryker.Work.Custody.Cancellation, as: CancellationCustody
   alias Ryker.Work.Executor.{Remote, Turns}
 
@@ -20,6 +20,11 @@ defmodule Ryker.Work.Executor.Cancellation do
 
   @doc false
   def execute_cancellation(claim, settings) do
+    with :ok <- CompletionReview.cancel(claim, settings),
+         do: execute_parent_cancellation(claim, settings)
+  end
+
+  defp execute_parent_cancellation(claim, settings) do
     key = OperationKeys.cancel(claim.turn.id, claim.turn.cancel_generation)
 
     result =

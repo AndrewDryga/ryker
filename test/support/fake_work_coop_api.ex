@@ -9,6 +9,8 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     Agent.start_link(fn ->
       %{
         candidates: candidates,
+        review_only: Keyword.get(options, :review_only, false),
+        review_candidates: Keyword.get(options, :review_candidates, []),
         activity_error: Keyword.get(options, :activity_error),
         activity_events: Keyword.get(options, :activity_events, []),
         activity_requests: [],
@@ -179,8 +181,63 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     end)
   end
 
+  # Completion reviews are separate remote sessions. Preserve the parent's
+  # candidate stream and route the review protocol to its own boundary double.
+  defp review_client(agent, identity) do
+    Agent.get(agent, &Map.get(&1, :review_clients, %{}))
+    |> Enum.find_value(agent, fn {run_id, child} ->
+      session_id = Agent.get(child, & &1.session["id"])
+      if String.contains?(identity, run_id) or identity == session_id, do: child
+    end)
+  end
+
+  defp create_review_client(agent, key, task) do
+    run_id = String.replace_prefix(task, "ryker-completion-review:", "")
+
+    case review_client(agent, key) do
+      ^agent ->
+        # Pick the decision from the reviewed final state, while leaving semantic
+        # rejection tests free to supply their own candidates directly.
+        [run] = Ryker.Repo.all(Ryker.Work.CompletionReview.Run.Query.by_id(run_id))
+
+        final_state =
+          run.prompt |> Jason.decode!() |> get_in(["snapshot", "candidate", "outcome", "state"])
+
+        response = next_review_candidate(agent, final_state)
+
+        {:ok, child} =
+          start_link([response], review_only: true, session_id: "completion-review:#{run_id}")
+
+        Agent.update(
+          agent,
+          &Map.update(&1, :review_clients, %{run_id => child}, fn clients ->
+            Map.put(clients, run_id, child)
+          end)
+        )
+
+        child
+
+      child ->
+        child
+    end
+  end
+
+  defp next_review_candidate(agent, final_state) do
+    Agent.get_and_update(agent, fn state ->
+      case state.review_candidates do
+        [candidate | remaining] -> {candidate, %{state | review_candidates: remaining}}
+        [] -> {Ryker.Fixtures.CompletionReview.judgment(final_state), state}
+      end
+    end)
+  end
+
   @impl true
   def operation_by_key(agent, key) do
+    client = review_client(agent, key)
+    operation_by_key_one(client, key)
+  end
+
+  defp operation_by_key_one(agent, key) do
     Agent.get_and_update(agent, fn state ->
       calls = Map.update(state.operation_calls, key, 1, &(&1 + 1))
       result = Map.fetch(state.known_operations, key)
@@ -196,7 +253,18 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def create_session(agent, key, _policy, task, source) do
+  def create_session(agent, key, policy, task, source) do
+    review_only = Agent.get(agent, & &1.review_only)
+
+    client =
+      if String.starts_with?(task, "ryker-completion-review:") and not review_only,
+        do: create_review_client(agent, key, task),
+        else: agent
+
+    create_session_one(client, key, policy, task, source)
+  end
+
+  defp create_session_one(agent, key, _policy, task, source) do
     receipt = task |> WorkerJob.for_task!(key) |> WorkerJob.receipt()
     {result, on_create_session} = create_session_state(agent, key, receipt, task, source)
     if is_function(on_create_session, 1), do: on_create_session.(task)
@@ -276,7 +344,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def get_session(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
+  def get_session(agent, session_id) do
+    client = review_client(agent, session_id)
+    get_session_one(client, session_id)
+  end
+
+  defp get_session_one(agent, _session_id), do: {:ok, Agent.get(agent, & &1.session)}
 
   @impl true
   def get_session_evidence(agent, _session_id) do
@@ -341,7 +414,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def close_session(agent, _session_id, key, _expected_revision) do
+  def close_session(agent, session_id, key, _expected_revision) do
+    client = review_client(agent, session_id)
+    close_session_one(client, key)
+  end
+
+  defp close_session_one(agent, key) do
     Agent.get_and_update(agent, fn state ->
       session =
         state.session
@@ -366,15 +444,20 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def submit_frozen_turn(
-        agent,
-        session_id,
-        key,
-        expected_revision,
-        submission,
-        binding,
-        artifacts
-      ) do
+  def submit_frozen_turn(agent, session_id, key, revision, submission, binding, artifacts) do
+    client = review_client(agent, session_id)
+    submit_frozen_turn_one(client, session_id, key, revision, submission, binding, artifacts)
+  end
+
+  defp submit_frozen_turn_one(
+         agent,
+         session_id,
+         key,
+         expected_revision,
+         submission,
+         binding,
+         artifacts
+       ) do
     Agent.update(agent, fn state ->
       submissions = Map.put(state.frozen_submissions, key, submission)
       %{state | frozen_submissions: submissions}
@@ -527,7 +610,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def get_turn(agent, _session_id, _turn_id), do: {:ok, Agent.get(agent, & &1.turn)}
+  def get_turn(agent, session_id, turn_id) do
+    client = review_client(agent, session_id)
+    get_turn_one(client, session_id, turn_id)
+  end
+
+  defp get_turn_one(agent, _session_id, _turn_id), do: {:ok, Agent.get(agent, & &1.turn)}
 
   @impl true
   def list_events(agent, session_id, after_sequence, limit) do
@@ -560,7 +648,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def validate_frozen_candidate(agent, session_id, turn_id, key, _attempt, sha256, verdict),
+  def validate_frozen_candidate(agent, session_id, turn_id, key, attempt, sha256, verdict) do
+    client = review_client(agent, session_id)
+    validate_frozen_candidate_one(client, session_id, turn_id, key, attempt, sha256, verdict)
+  end
+
+  defp validate_frozen_candidate_one(agent, session_id, turn_id, key, _attempt, sha256, verdict),
     do: validate_candidate(agent, session_id, turn_id, key, sha256, verdict)
 
   @impl true
@@ -646,7 +739,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   end
 
   @impl true
-  def cancel_turn(agent, _session_id, _turn_id, key, _expected_revision) do
+  def cancel_turn(agent, session_id, turn_id, key, revision) do
+    client = review_client(agent, session_id)
+    cancel_turn_one(client, session_id, turn_id, key, revision)
+  end
+
+  defp cancel_turn_one(agent, _session_id, _turn_id, key, _expected_revision) do
     Agent.get_and_update(agent, fn state ->
       cancelled =
         state.turn

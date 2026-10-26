@@ -605,15 +605,30 @@ defmodule Ryker.Work.ExecutorTest do
       end
     end
 
+    def operation_by_key(client, "ryker:completion-review:" <> _rest = key),
+      do: FakeAPI.operation_by_key(client.fake, key)
+
     def operation_by_key(client, key) do
       dispatch(client, :operation_by_key, fn -> FakeAPI.operation_by_key(client.fake, key) end)
     end
+
+    def prepare_create_session(
+          client,
+          "ryker:completion-review:" <> _rest = key,
+          policy,
+          task,
+          source
+        ),
+        do: FakeAPI.prepare_create_session(client.fake, key, policy, task, source)
 
     def prepare_create_session(client, key, policy, task, source) do
       dispatch(client, :prepare_create_session, fn ->
         FakeAPI.prepare_create_session(client.fake, key, policy, task, source)
       end)
     end
+
+    def create_session(client, "ryker:completion-review:" <> _rest = key, policy, task, source),
+      do: FakeAPI.create_session(client.fake, key, policy, task, source)
 
     def create_session(client, key, policy, task, source) do
       dispatch(client, :create_session, fn ->
@@ -716,6 +731,26 @@ defmodule Ryker.Work.ExecutorTest do
           verdict
         )
       end)
+    end
+
+    def validate_frozen_candidate(
+          client,
+          session_id,
+          turn_id,
+          "ryker:completion-review:" <> _rest = key,
+          attempt,
+          sha256,
+          verdict
+        ) do
+      FakeAPI.validate_frozen_candidate(
+        client.fake,
+        session_id,
+        turn_id,
+        key,
+        attempt,
+        sha256,
+        verdict
+      )
     end
 
     def validate_frozen_candidate(client, session_id, turn_id, key, _attempt, sha256, verdict),
@@ -2170,6 +2205,64 @@ defmodule Ryker.Work.ExecutorTest do
     refute submission.prompt =~ ~s("execution_mode":"shadow")
   end
 
+  test "a completion gap resumes the same Work turn before its corrected answer is accepted" do
+    # A candid partial answer used to end the task. The independent judgment
+    # must reach the working model as a correction, preserving its session.
+    claim = claim_episode!("completion-gap")
+    {:ok, submission} = Inspectors.submission(claim)
+    submission = put_in(submission, ["context", "completion_review_required"], true)
+
+    {:ok, turn} =
+      Custody.freeze_submission(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        submission
+      )
+
+    claim = %{claim | turn: turn}
+    first = captured_complete_reply()
+
+    corrected =
+      first
+      |> Jason.decode!()
+      |> Map.update!("message", &(&1 <> " The requested status check is now recorded."))
+      |> Jason.encode!()
+
+    review = %{
+      "decision" => "continue",
+      "reason" => "The required status check is unresolved.",
+      "dismiss_wait_refs" => [],
+      "requirements" => [
+        %{
+          "requirement" => "Verify deployment status",
+          "status" => "unresolved",
+          "evidence" => "The candidate has no current status observation."
+        }
+      ],
+      "actions" => [
+        %{
+          "requirement" => "Verify deployment status",
+          "action" => "Read the available deployment status endpoint.",
+          "basis" => "The status endpoint is advertised in the work context."
+        }
+      ]
+    }
+
+    {:ok, fake} = fake_for(claim, [first, corrected], review_candidates: [Jason.encode!(review)])
+    assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+    state = FakeAPI.state(fake)
+    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
+
+    assert hd(state.validations).violations |> Enum.join(" ") =~
+             "Read the available deployment status endpoint"
+
+    assert state.submit_count == 1
+    assert accepted.id == claim.turn.id
+    assert accepted.candidate == corrected
+    assert Repo.aggregate(Ryker.Work.CompletionReview.Run, :count) == 2
+  end
+
   test "an open required goal is corrected in the same turn instead of failing finalization" do
     # run_dab83e5b spent 43 finalization attempts because a required goal was
     # still open. The validator must give the model an actionable correction
@@ -2219,6 +2312,81 @@ defmodule Ryker.Work.ExecutorTest do
     violations = state.validations |> hd() |> Map.fetch!(:violations)
     assert Enum.any?(violations, &String.contains?(&1, "check-workers"))
     assert Enum.any?(violations, &String.contains?(&1, "update_goal"))
+  end
+
+  # A rejected question used to remain mandatory in every candidate. Prove the
+  # real validator can accept completed work after the same turn finds the fact.
+  test "unnecessary questions and watches can become verified completion in the same turn" do
+    for {kind, payload, state} <- [
+          {"input_request", %{"question" => "Which version is running?", "choices" => []},
+           "waiting_for_input"},
+          {"event_wait",
+           %{
+             "deadline_at" => nil,
+             "kind" => "deployment_health",
+             "verification" => "Read the running version.",
+             "event_matcher" => %{
+               "type" => "source_event",
+               "source_kind" => "deployment",
+               "match" => %{"revision" => "fixture"},
+               "poll_after" => nil,
+               "on_timeout" => nil
+             }
+           }, "waiting_for_event"}
+        ] do
+      claim = claim_episode!("unnecessary-#{kind}")
+      {:ok, submission} = Inspectors.submission(claim)
+      submission = put_in(submission, ["context", "completion_review_required"], true)
+
+      {:ok, turn} =
+        Custody.freeze_submission(
+          claim.episode.id,
+          claim.turn.turn_ref,
+          claim.lease_ref,
+          submission
+        )
+
+      claim = %{claim | turn: turn}
+      assert {:ok, wait} = Records.create(Records.token(turn), "unnecessary", kind, payload)
+      completed = captured_complete_reply()
+
+      waiting =
+        completed
+        |> Jason.decode!()
+        |> Map.put("message", "Which version is running?")
+        |> put_in(["outcome", "state"], state)
+        |> put_in(["outcome", "record_refs"], [wait.ref])
+        |> Jason.encode!()
+
+      review =
+        Ryker.Fixtures.CompletionReview.judgment("waiting_for_input")
+        |> Jason.decode!()
+        |> Map.merge(%{"decision" => "continue", "dismiss_wait_refs" => [wait.ref]})
+
+      record_lookup = fn ->
+        assert {:ok, _evidence} =
+                 Records.create(Records.token(turn), "lookup", "evidence", %{
+                   "claim_id" => "running-version",
+                   "observation" =>
+                     "The status endpoint returned the requested running revision.",
+                   "source_name" => "status endpoint",
+                   "source_type" => "monitoring"
+                 })
+      end
+
+      {:ok, fake} =
+        fake_for(claim, [waiting, completed],
+          review_candidates: [Jason.encode!(review)],
+          on_validation_reject: record_lookup
+        )
+
+      assert {:ok, %{status: :accepted, turn: accepted}} = Executor.run(claim, options(fake))
+      assert accepted.delivery_document["outcome"]["state"] == "complete"
+      assert accepted.id == turn.id
+      assert Repo.get!(Ryker.Records.Record, wait.id).status == :dismissed
+      assert FakeAPI.state(fake).submit_count == 1
+      assert Enum.map(FakeAPI.state(fake).validations, & &1.verdict) == [:reject, :accept]
+    end
   end
 
   test "an omitted durable wait is repaired in the same Coop turn" do
@@ -4994,6 +5162,7 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     claim
   end
 
@@ -5226,6 +5395,8 @@ defmodule Ryker.Work.ExecutorTest do
                "wait_ref" => hd(harvested["candidate"]["outcome"]["record_refs"])
              })
 
+    Ryker.Fixtures.CompletionReview.approve!(%{claim | session: session}, harvested["candidate"])
+
     assert {:ok, turn} =
              Custody.prepare_validation(
                claim.episode.id,
@@ -5271,6 +5442,7 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:cancel:#{suffix}", 60, :work)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     claim
   end
 
@@ -5369,6 +5541,7 @@ defmodule Ryker.Work.ExecutorTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     claim
   end
 

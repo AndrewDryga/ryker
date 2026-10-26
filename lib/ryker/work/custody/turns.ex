@@ -20,7 +20,7 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Waits
-  alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement}
+  alias Ryker.Work.{CandidateResponse, CompletionReview, Final, FinalPreflight, Measurement}
   alias Ryker.Work.Custody.{Claims, Delivery}
   alias Ryker.Work.{OperationKeys, Result, Submission, Turn, ValidationIntent}
 
@@ -962,7 +962,7 @@ defmodule Ryker.Work.Custody.Turns do
          intent,
          fingerprint
        ) do
-    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+    {session, turn} = leased!(episode_id, turn_ref, lease_ref)
 
     cond do
       turn.result_ref != nil ->
@@ -982,7 +982,31 @@ defmodule Ryker.Work.Custody.Turns do
         Repo.rollback({:work_validation_intent_conflict, turn.validation_intent_fingerprint})
 
       true ->
+        authorize_completion!(episode_id, session, turn, intent)
         persist_validation_intent(turn, intent, fingerprint)
+    end
+  end
+
+  defp authorize_completion!(episode_id, session, turn, %{"verdict" => "accept"} = intent) do
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(episode_id))
+
+    claim = %{episode: episode, session: session, turn: turn}
+    {:ok, result} = ValidationIntent.result(intent)
+    if CompletionReview.required?(claim, result.delivery), do: authorize_final_review!(claim)
+    :ok
+  end
+
+  defp authorize_completion!(_episode_id, _session, _turn, _intent), do: :ok
+
+  defp authorize_final_review!(%{turn: turn} = claim) do
+    with {:ok, candidate} <- Jason.decode(turn.candidate || ""),
+         {:ok, final} <- Final.parse(candidate),
+         :ok <-
+           CompletionReview.authorize_in_transaction(claim, final) do
+      :ok
+    else
+      {:error, reason} -> Repo.rollback(reason)
+      {:reject, _violations} -> Repo.rollback(:completion_review_required)
     end
   end
 

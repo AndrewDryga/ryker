@@ -11,6 +11,7 @@ defmodule Ryker.Evals.WorldDriver do
   alias Ryker.Episodes.Episode
   alias Ryker.Evals.{WorldCase, WorldInputs}
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Knowledge
   alias Ryker.Learning
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -88,6 +89,9 @@ defmodule Ryker.Evals.WorldDriver do
 
   defp completed_wait_checkpoint?(_input, _executions), do: false
 
+  # A replay hook may write recorded model tool results before Executor runs.
+  # Initialize empty disclosure custody first, as native submit normally does;
+  # the real submission still authorizes and records every source it discloses.
   defp execute_input(
          %{"actor_ref" => actor_ref, "occurred_at" => _occurred_at, "payload" => %{} = payload} =
            input,
@@ -108,6 +112,7 @@ defmodule Ryker.Evals.WorldDriver do
          {:ok, claim} <- Custody.claim_next("#{settings.worker_ref}:work:#{index}", 300, :work),
          true <- not is_nil(claim) or {:error, :work_not_claimable},
          true <- claim.episode.id == admission.episode.id or {:error, :crossed_world_claim},
+         :ok <- initialize_disclosure(claim),
          :ok <- settings.before_execute.(claim, scenario),
          {:ok, execution} <- execute_work(claim, scenario, settings, index, 4),
          :ok <- accepted(execution),
@@ -144,6 +149,7 @@ defmodule Ryker.Evals.WorldDriver do
          {:ok, claim} <- Custody.claim_next("#{settings.worker_ref}:work:#{index}", 300, :work),
          true <- not is_nil(claim) or {:error, :work_not_claimable},
          true <- claim.episode.id == episode.id or {:error, :crossed_world_claim},
+         :ok <- initialize_disclosure(claim),
          :ok <- settings.before_execute.(claim, scenario),
          {:ok, execution} <- execute_work(claim, scenario, settings, index, 4),
          :ok <- accepted(execution),
@@ -175,6 +181,21 @@ defmodule Ryker.Evals.WorldDriver do
          _world_started_at
        ),
        do: {:error, {:invalid_world_runner, :input_event}}
+
+  defp initialize_disclosure(
+         %{
+           session: %{
+             coop_session_id: nil,
+             source_exposure_count: nil,
+             knowledge_exposure_count: nil
+           }
+         } = claim
+       ),
+       do: Knowledge.KnowledgeSnapshot.expose(claim, [])
+
+  # An existing transcript may have become stale since its last turn. Let
+  # Executor replace it from current context through the normal recovery path.
+  defp initialize_disclosure(_claim), do: :ok
 
   defp admit_world_input(input, index, scenario, settings, expected_episode_id) do
     with {:ok, %{entry: entry}} <- Inbox.record(input),

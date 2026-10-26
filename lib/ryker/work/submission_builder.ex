@@ -160,6 +160,12 @@ defmodule Ryker.Work.SubmissionBuilder do
          {:ok, workspace} <- workspace(options) do
       # Capture required fields once so history fitting reserves their exact bytes.
       metadata = %{
+        "completion_review_required" =>
+          mode == :live and
+            (is_map(session.workspace_task) or
+               Enum.any?(routing_notes(episode), fn {_key, note} ->
+                 note["work_class"] in ~w(standard deep)
+               end)),
         "custom_instructions" =>
           Ryker.Instructions.snapshot(%{
             transport: episode.destination_transport,

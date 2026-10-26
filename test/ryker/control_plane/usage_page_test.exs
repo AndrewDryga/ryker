@@ -591,6 +591,13 @@ defmodule Ryker.ControlPlane.UsagePageTest do
   # Self-analysis asks the learning models once per request people were
   # unhappy with; its spend reads as a work type of its own, never as
   # unclassified work, and opens the page that lists what it analyzed.
+  test "completion review spend has its own work type" do
+    execution!("completion_review", [])
+    snapshot = UsageProjection.page(%{})
+    assert [%{work_kind: "completion_review", attempts: 1}] = snapshot.kinds
+    assert snapshot |> UsagePage.render() |> IO.iodata_to_binary() =~ "Completion review"
+  end
+
   test "self-analysis spend reads as its own work type and opens What to fix" do
     execution!("improvement", [])
 

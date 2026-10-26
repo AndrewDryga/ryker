@@ -111,6 +111,28 @@ defmodule Ryker.Evals.LearningRunnerTest do
       )
     end
 
+    def submit_frozen_turn(
+          client,
+          sid,
+          key,
+          revision,
+          %{"contract_version" => "work-completion-review-v1"} = submission,
+          nil,
+          []
+        ) do
+      body = Ryker.Fixtures.CompletionReview.judgment("complete")
+      Agent.update(client, &%{&1 | candidates: [body], turn: nil})
+
+      Fake.submit_turn(
+        client,
+        sid,
+        key,
+        revision,
+        submission["prompt"],
+        submission["output_schema"]
+      )
+    end
+
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do
       prompt = Jason.decode!(submission["prompt"])
       [input] = prompt["inputs"]
@@ -179,8 +201,11 @@ defmodule Ryker.Evals.LearningRunnerTest do
     def fence_frozen_turn(client, sid, key, revision, submission, nil, []),
       do: Fake.fence_frozen_turn(client, sid, key, revision, submission, nil, [])
 
-    def validate_frozen_candidate(client, sid, tid, key, _attempt, sha, :accept),
-      do: Fake.validate_candidate(client, sid, tid, key, sha, :accept)
+    def validate_frozen_candidate(client, sid, tid, key, _attempt, sha, :accept) do
+      in_session(client, sid, fn ->
+        Fake.validate_candidate(client, sid, tid, key, sha, :accept)
+      end)
+    end
 
     def close_session(client, sid, key, revision) do
       {:ok, response} =

@@ -286,6 +286,11 @@ defmodule Ryker.Retention.DispatcherTest do
   test "published unmerged work is explicitly accepted and then reclaimed" do
     %{episode: episode} = PublicationFixture.published!("retention-published")
 
+    # Another cleanup worker owns the isolated reviewer; this API models the
+    # published repository session whose unmerged work this test exercises.
+    assert {:ok, %{session: %{execution_kind: :completion_review}}} =
+             Ryker.Retention.Custody.claim_next("published-review-cleanup", 300)
+
     {_count, nil} =
       Repo.update_all(
         from(record in Ryker.Records.Record,

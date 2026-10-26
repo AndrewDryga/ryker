@@ -2,7 +2,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   alias Ryker.Accounting
   alias Ryker.Admission
-  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, EpisodeProjection}
+  alias Ryker.ControlPlane.{Activity, CallRun, CompletionReviews, ContextSearch, ContextSelection}
+  alias Ryker.ControlPlane.EpisodeProjection
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames, SentPrompts}
@@ -206,9 +207,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
         scope: :request
       )
 
+    completion_reviews =
+      CompletionReviews.entries(turns, secrets: reading.secrets, disclosed: disclosed)
+
     {:ok,
      %{
-       items: with_model_choice(work ++ admission ++ learning),
+       items: with_model_choice(work ++ admission ++ learning ++ completion_reviews),
        truncated: truncated,
        call_history: %{
          page: page,

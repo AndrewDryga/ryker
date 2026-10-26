@@ -76,11 +76,10 @@ defmodule Ryker.Fixtures.Personalization do
     claim = correction.claim
     assert KnowledgeSnapshot.expose(claim, []) == :ok
 
-    source = %{
-      episode: claim.episode,
-      turn: claim.turn,
-      conversation_ref: claim.episode.destination_conversation_ref
-    }
+    # The confirmed preference predates this request. Putting its offer on the
+    # unsent receiving turn invented pre-provider records that then moved with
+    # session rotation and could never attest a fresh native transcript.
+    source = SavedEntities.source!(claim.episode.destination_conversation_ref)
 
     preference =
       SavedEntities.behavior!(

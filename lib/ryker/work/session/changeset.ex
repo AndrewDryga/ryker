@@ -47,6 +47,24 @@ defmodule Ryker.Work.Session.Changeset do
     :external_ref
   ]
 
+  @completion_review_fields ~w(completion_review_id policy policy_digest external_ref worker_job_document worker_job_digest)a
+
+  @doc "An isolated completion reviewer, with a narrowed frozen worker job."
+  def completion_review(attributes) do
+    %Session{}
+    |> cast(attributes, @completion_review_fields)
+    |> put_change(:execution_kind, :completion_review)
+    |> validate_required(@completion_review_fields)
+    |> validate_worker_job()
+    |> foreign_key_constraint(:completion_review_id)
+    |> unique_constraint(:completion_review_id)
+    |> check_constraint(:completion_review_id, name: :episode_work_session_owner_valid)
+  end
+
+  @doc "The remote identity of one completion reviewer, after the create is reconciled."
+  def bind_completion_review(%Session{} = session, remote_id),
+    do: change(session, coop_session_id: remote_id)
+
   @spec advance_activity_cursor(Session.t(), non_neg_integer()) :: Ecto.Changeset.t()
   def advance_activity_cursor(%Session{} = session, cursor),
     do: change(session, activity_cursor: cursor)

@@ -44,6 +44,62 @@ defmodule Ryker.Retention.DataTest do
 
   @old ~U[2020-01-01 00:00:00.000000Z]
 
+  test "completion review bodies wait for child cleanup and expire with the parent turn" do
+    # A review copies the exact request and evidence: leaving it behind after
+    # the parent expires would retain the same source content indefinitely.
+    work = settled_work!("completion-review") |> discard_session!()
+
+    run =
+      Repo.insert!(%Ryker.Work.CompletionReview.Run{
+        turn_id: work.turn.id,
+        generation: 1,
+        status: :rejected,
+        candidate_sha256: digest("candidate"),
+        ledger_sha256: digest("ledger"),
+        progress_sha256: digest("evidence"),
+        policy: work.session.policy,
+        policy_digest: work.session.policy_digest,
+        prompt: "copied evidence",
+        prompt_sha256: digest("copied evidence"),
+        output_schema: %{},
+        result: "copied result",
+        started_at: @old,
+        remote_stopped_at: @old,
+        stop_receipt: %{"kind" => "never_created"}
+      })
+
+    session =
+      Repo.insert!(%Session{
+        execution_kind: :completion_review,
+        completion_review_id: run.id,
+        policy: work.session.policy,
+        policy_digest: work.session.policy_digest,
+        external_ref: "ryker-completion-review:#{run.id}"
+      })
+
+    backdate_operational!(work)
+    assert {:ok, %{operational_turns: 0}} = Data.prune(settings())
+    assert Repo.get!(Ryker.Work.CompletionReview.Run, run.id).prompt == "copied evidence"
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [
+        cleanup_status: :discarded,
+        cleanup_receipt: %{"kind" => "never_bound", "remote_state" => "unknown"}
+      ]
+    )
+
+    assert {:ok, %{operational_turns: 0}} = Data.prune(settings())
+    assert Repo.get!(Ryker.Work.CompletionReview.Run, run.id).prompt == "copied evidence"
+    discard_session!(%{work | session: session})
+    assert {:ok, %{operational_turns: 1}} = Data.prune(settings())
+    pruned = Repo.get!(Ryker.Work.CompletionReview.Run, run.id)
+    assert pruned.prompt == nil
+    assert pruned.result == nil
+    assert pruned.output_schema == nil
+    assert pruned.stop_receipt == run.stop_receipt
+    assert pruned.pruned_at
+  end
+
   test "operational expiry removes tool bodies and replay cannot restore them" do
     # Tool results duplicate source content; retaining them after the prompt expires leaks history.
     work = settled_work!("tool-body") |> discard_session!()

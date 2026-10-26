@@ -16,8 +16,12 @@ defmodule Ryker.ControlPlane.Usage.Query do
   # execution (2026-10-04 review).
   def dimensions(queryable) do
     from(e in queryable,
+      left_join: review in Work.CompletionReview.Run,
+      on: e.kind == "completion_review" and review.id == e.source_id,
       left_join: turn in Work.Turn,
-      on: e.kind == "work" and turn.id == e.source_id,
+      on:
+        turn.id ==
+          fragment("CASE WHEN ? = 'work' THEN ? ELSE ? END", e.kind, e.source_id, review.turn_id),
       left_join: entry in Ingress.Inbox.Entry,
       on:
         entry.id ==
@@ -74,7 +78,8 @@ defmodule Ryker.ControlPlane.Usage.Query do
         # most of the spend on the live page behind one unopenable row.
         work_kind:
           fragment(
-            "CASE WHEN ? = 'admission' THEN 'admission' WHEN ? = 'learning' THEN 'learning' WHEN ? = 'improvement' THEN 'self_analysis' WHEN ? = 'knowledge' THEN 'repository_knowledge' WHEN ? LIKE 'turn:after:%' THEN 'continuation' WHEN ? LIKE 'turn:resume-%' THEN 'resumed' WHEN ? LIKE 'turn:task:%' THEN 'task' WHEN ? LIKE 'turn:event-wait:%' THEN 'event_wait' WHEN ? LIKE 'turn:schedule:%' THEN 'schedule' WHEN ? LIKE 'turn:publication-%' THEN 'publication' WHEN ? LIKE 'turn:emisar-approval:%' THEN 'approval' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
+            "CASE WHEN ? = 'admission' THEN 'admission' WHEN ? = 'learning' THEN 'learning' WHEN ? = 'improvement' THEN 'self_analysis' WHEN ? = 'knowledge' THEN 'repository_knowledge' WHEN ? = 'completion_review' THEN 'completion_review' WHEN ? LIKE 'turn:after:%' THEN 'continuation' WHEN ? LIKE 'turn:resume-%' THEN 'resumed' WHEN ? LIKE 'turn:task:%' THEN 'task' WHEN ? LIKE 'turn:event-wait:%' THEN 'event_wait' WHEN ? LIKE 'turn:schedule:%' THEN 'schedule' WHEN ? LIKE 'turn:publication-%' THEN 'publication' WHEN ? LIKE 'turn:emisar-approval:%' THEN 'approval' ELSE COALESCE(?::jsonb ->> 'work_class', 'unclassified') END",
+            e.kind,
             e.kind,
             e.kind,
             e.kind,

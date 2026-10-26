@@ -1,5 +1,6 @@
 defmodule Ryker.GitHub.EndToEndTest do
   use Ryker.DataCase, async: true
+  import Ecto.Query
   import Plug.Conn
   import Plug.Test
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
@@ -263,7 +264,7 @@ defmodule Ryker.GitHub.EndToEndTest do
 
     assert execution.turn.status == :delivery_pending
     assert execution.turn.session_id == session.id
-    assert Repo.aggregate(Session, :count, :id) == 1
+    assert Repo.aggregate(from(s in Session, where: s.execution_kind == :work), :count, :id) == 1
 
     work_state = FakeWorkCoopAPI.state(work_fake)
     assert work_state.create_count == 0

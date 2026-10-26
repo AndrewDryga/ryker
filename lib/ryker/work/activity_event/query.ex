@@ -24,6 +24,33 @@ defmodule Ryker.Work.ActivityEvent.Query do
     })
   end
 
+  @doc "The current Work turn's retained completion evidence, excluding model narration."
+  def completion_evidence(queryable \\ all(), episode_id, session_id, turn_id) do
+    from(a in queryable,
+      where:
+        a.episode_id == ^episode_id and a.session_id == ^session_id and a.coop_turn_id == ^turn_id,
+      where:
+        a.kind in ["tool.completed", "permission.decided"] and is_nil(a.operational_pruned_at)
+    )
+  end
+
+  @doc "Every observed evidence identity, for invalidating a review when delayed activity arrives."
+  def select_evidence_identities(queryable) do
+    from([episode_work_activity: a] in queryable,
+      order_by: [asc: a.sequence, asc: a.id],
+      select: %{"id" => a.id, "digest" => a.payload_fingerprint}
+    )
+  end
+
+  @doc "The newest bounded evidence bodies; selection limits are disclosed in the review snapshot."
+  def recent_evidence(queryable, limit) do
+    from([episode_work_activity: a] in queryable,
+      order_by: [desc: a.sequence, desc: a.id],
+      limit: ^limit,
+      select: %{"kind" => a.kind, "payload" => a.payload}
+    )
+  end
+
   @doc "Episode `episode_id`'s events, and those of the messages it was routed from."
   def by_episode_id(episode_id) do
     inputs =

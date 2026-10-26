@@ -7,6 +7,10 @@ defmodule Ryker.Work.Session.Query do
 
   def all, do: from(sessions in Session, as: :episode_work_sessions)
 
+  @doc "The isolated session of completion review `id`."
+  def by_completion_review_id(queryable \\ all(), id),
+    do: where(queryable, [episode_work_sessions: s], s.completion_review_id == ^id)
+
   @doc "The session of repository-knowledge run `run_id`."
   def by_knowledge_run_id(queryable \\ all(), run_id) do
     where(

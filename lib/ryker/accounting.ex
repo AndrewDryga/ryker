@@ -191,6 +191,43 @@ defmodule Ryker.Accounting do
      )}
   end
 
+  @doc "Meters a completion review against the Work request that incurred it, under its lease."
+  def observe_completion_review_in_transaction(
+        turn,
+        run,
+        session_id,
+        remote_turn,
+        remote_session,
+        now
+      ) do
+    episode = Repo.fetch!(Ryker.Episodes.Episode.Query.by_id(turn.episode_id))
+    parent = Repo.fetch!(Work.Session.Query.by_id(turn.session_id))
+    measurement = Work.Measurement.prepare(remote_turn, remote_session)
+
+    measurement =
+      if remote_turn["state"] == "completed",
+        do: Work.Measurement.acceptance_attributes(measurement, now),
+        else: measurement
+
+    {:ok,
+     record(
+       %{
+         kind: "completion_review",
+         source_id: run.id,
+         generation: to_string(run.generation),
+         episode_id: episode.id,
+         session_id: session_id,
+         transport: episode.destination_transport,
+         conversation_ref: episode.destination_conversation_ref,
+         repository_ref: parent.repository_ref,
+         execution_mode: to_string(episode.execution_mode)
+       },
+       remote_turn,
+       measurement,
+       now
+     )}
+  end
+
   @doc "Records host acceptance timing in the same transaction as result acceptance."
   def accepted_in_transaction(episode, session, turn) do
     record(

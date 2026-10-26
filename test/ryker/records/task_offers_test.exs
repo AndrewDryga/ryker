@@ -1352,6 +1352,7 @@ defmodule Ryker.Records.TaskOffersTest do
     harvested = "testdata/work/hosted-runner-waiting.json" |> File.read!() |> Jason.decode!()
 
     assert {:ok, claim} = Custody.claim_next("task-card:#{suffix}", 60, :work)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     assert claim.episode.id == fixture.episode.id
     assert KnowledgeSnapshot.expose(claim, []) == :ok
 
@@ -1405,6 +1406,8 @@ defmodule Ryker.Records.TaskOffersTest do
                sha256,
                1
              )
+
+    Ryker.Fixtures.CompletionReview.approve!(claim, harvested["candidate"])
 
     assert {:ok, result} =
              Result.new(:reply, harvested["candidate"], nil, %{

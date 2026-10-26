@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   # Background calls about a request that send no reply: learning from its
   # messages, and the self-analysis of a request a person was unhappy with.
   # Their cards carry what they decided under `background`.
-  @background_kinds [:learning, :improvement]
+  @background_kinds [:learning, :improvement, :completion_review]
 
   # A self-analysis's result is a review of the request, drawn as What to fix
   # draws its finding.
@@ -513,6 +513,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp headline(%{phase: :submission, source_kind: :admission}), do: "Routing briefing"
   defp headline(%{phase: :submission, source_kind: :learning}), do: "Learning briefing"
   defp headline(%{phase: :submission, source_kind: :improvement}), do: "Self-analysis briefing"
+
+  defp headline(%{phase: :submission, source_kind: :completion_review}),
+    do: "Completion review briefing"
+
   defp headline(%{phase: :submission}), do: "Work briefing"
 
   defp headline(%{source_kind: :admission} = request) do
@@ -783,6 +787,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp explanation(%{phase: :submission, source_kind: :improvement}) do
     "Use an AI model to find what went wrong in this request after a person was unhappy with it. It sends no reply and changes nothing."
   end
+
+  defp explanation(%{phase: :submission, source_kind: :completion_review}),
+    do: "An independent review of the requested outcome, evidence, and any work still needed."
 
   defp explanation(%{source_kind: kind, background: background}) when kind in @background_kinds,
     do: background[:reason]

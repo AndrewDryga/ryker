@@ -366,6 +366,37 @@ defmodule Ryker.Records do
 
   def resolve_wait_in_transaction(_wait_ref, _event_kind), do: {:error, :state_record_not_found}
 
+  @doc "Dismiss only the current turn's exact unnecessary questions or event waits after a completion review."
+  def dismiss_reviewed_waits_in_transaction(episode_id, turn_id, refs) do
+    if Repo.in_transaction?() do
+      records =
+        episode_id
+        |> Record.Query.by_episode_id()
+        |> Record.Query.by_turn_id(turn_id)
+        |> Record.Query.by_refs(refs)
+        |> Record.Query.by_kinds(["input_request", "event_wait"])
+        |> Record.Query.open()
+        |> Record.Query.lock_for_update()
+        |> Repo.all()
+
+      if length(records) != length(refs), do: Repo.rollback(:completion_review_invalid_wait)
+
+      {_count, dismissed} =
+        records
+        |> Enum.map(& &1.id)
+        |> Record.Query.by_ids()
+        |> Record.Query.transition(:dismissed)
+        |> Repo.update_all([])
+
+      Enum.each(dismissed, fn record ->
+        :ok = Waits.EventSubscriptions.resolve_wait_in_transaction(record.ref, :cancelled)
+        broadcast_record_updated(record)
+      end)
+    else
+      {:error, :state_record_transaction_required}
+    end
+  end
+
   @doc """
   Whether this episode waits on an open timer, or on a watch that times out,
   whose deadline has not passed. A question holds its task's wait until it is

@@ -10450,6 +10450,10 @@
   ],
   "quality_rubric": [
    {
+     "criterion": "Before its first final handoff, completes every material check available in this captured world. A caveat, completed goal, or repeated question does not substitute for that check; a genuine access denial may remain only after independent useful work is finished.",
+     "weight": 3
+   },
+   {
     "criterion": "After the alert-rule listing comes back cut off, it settles the rule inventory and evaluation health from another read-only source, rule metrics or per-folder listings, instead of reporting the cut-off listing as a remaining gap.",
     "weight": 3
    },

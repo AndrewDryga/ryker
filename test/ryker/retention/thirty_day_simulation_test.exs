@@ -153,6 +153,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
     install_clock!()
     Enum.each(@workers, &create_worker!/1)
     [session] = publication_delayed!(api)
+    assert [review] = review_sessions(session.episode_id)
     state = %{api: api, worker_ref: "cleanup:publication"}
 
     {:ok, _pass} = run_pass(state)
@@ -169,6 +170,11 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
 
     assert stored.cleanup_status == :discarded,
            inspect({stored.cleanup_last_error_code, stored.cleanup_last_error_detail})
+
+    review = Repo.get!(Session, review.id)
+
+    assert review.cleanup_status == :discarded,
+           inspect({review.cleanup_last_error_code, review.cleanup_last_error_detail})
   end
 
   # One burst window: cleanup passes while there is work, then the clock jumps
@@ -478,8 +484,18 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
              "the backlog from the multi-day outage did not drain after reconnect"
     end
 
+    blocked =
+      Repo.all(
+        from(session in Session,
+          where: session.cleanup_status == :blocked,
+          select:
+            {session.execution_kind, session.cleanup_last_error_code,
+             session.cleanup_last_error_detail}
+        )
+      )
+
     assert List.last(state.day_rows).blocked == 0,
-           "an outage or a lost response left cleanup permanently blocked"
+           "an outage or a lost response left cleanup permanently blocked: #{inspect(blocked)}"
   end
 
   # The one-hour target is a promise about healthy workers. Forks that became
@@ -780,21 +796,37 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
           ]
         )
 
-      FakeAPI.add_session(
-        api,
-        %{
-          "external_ref" => Session.coop_task_ref(session),
-          "id" => remote_id,
-          "job_ref" => session.worker_job_document["job_ref"],
-          "job_digest" => session.worker_job_digest,
-          "revision" => 7,
-          "state" => "open"
-        },
-        workspace(%{})
-      )
+      # Publication acceptance also ran an isolated reviewer. The month must
+      # model that remote resource too; omitting it fabricated a permanent 404.
+      for owned <- [session | review_sessions(episode.id)] do
+        FakeAPI.add_session(
+          api,
+          %{
+            "external_ref" => Session.coop_task_ref(owned),
+            "id" => owned.coop_session_id,
+            "job_ref" => owned.worker_job_document["job_ref"],
+            "job_digest" => owned.worker_job_digest,
+            "revision" => 7,
+            "state" => "open"
+          },
+          workspace(%{})
+        )
+      end
 
       session
     end)
+  end
+
+  defp review_sessions(episode_id) do
+    Repo.all(
+      from(session in Session,
+        join: review in Ryker.Work.CompletionReview.Run,
+        on: review.id == session.completion_review_id,
+        join: turn in Ryker.Work.Turn,
+        on: turn.id == review.turn_id,
+        where: turn.episode_id == ^episode_id
+      )
+    )
   end
 
   defp create_worker!(worker_id) do

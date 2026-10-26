@@ -513,7 +513,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
 
     assert correction_execution.turn.status == :delivery_pending
     assert correction_execution.turn.session_id == task_session.id
-    assert Repo.aggregate(Session, :count, :id) == 2
+    assert Repo.aggregate(from(s in Session, where: s.execution_kind == :work), :count, :id) == 2
 
     assert [current_review] =
              correction_execution.turn.submission["context"]["current_inputs"]["items"]

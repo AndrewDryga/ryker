@@ -272,6 +272,12 @@ defmodule Ryker.RetentionPolicies do
         "one row per repository: when its RYKER.md is next checked, and the last document Ryker wrote from it, which Work is briefed with; it is the refresh schedule and the repository's knowledge"
     },
     %{
+      table: "work_completion_reviews",
+      class: :cascade,
+      why:
+        "completion review words expire with their parent Work turn once the reviewer has stopped and its session is discarded; compact receipts leave with the turn at the audit horizon"
+    },
+    %{
       table: "repository_knowledge_runs",
       class: :operational,
       why:

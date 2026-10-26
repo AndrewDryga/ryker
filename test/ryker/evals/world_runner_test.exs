@@ -1058,6 +1058,73 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert Repo.aggregate(Turn, :count) == 0
   end
 
+  # Replay custody initialization must not reject a warm transcript before
+  # Executor can rotate it after source withdrawal between timer checkpoints.
+  test "a stale world continuation reaches durable executor recovery" do
+    harvested =
+      "test/ryker/evals/fixtures/airflow_completes_after_timer.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
+    {:ok, source} = Agent.start_link(fn -> nil end)
+    replay = harvested_completion_replay(harvested, fake, cassette)
+
+    before_execute = fn claim, scenario ->
+      if Agent.get(source, & &1) do
+        assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
+                 {:error, :work_knowledge_context_stale}
+
+        replay.(claim, scenario)
+      else
+        :ok = replay.(claim, scenario)
+
+        {entry, document} =
+          Ryker.Fixtures.Knowledge.learn!(claim.episode, claim.session.repository_ref)
+
+        assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [document]) == :ok
+        Agent.update(source, fn _ -> entry end)
+      end
+    end
+
+    result =
+      WorldRunner.run(scenario,
+        api: FakeWorkCoopAPI,
+        before_execute: before_execute,
+        before_wait_wakeup: fn _episode, _record ->
+          assert Ryker.Fixtures.Knowledge.revoke!(Agent.get(source, & &1)) == {:ok, :ok}
+
+          :ok
+        end,
+        cassette: cassette,
+        client: fake,
+        policy: "world-eval-read-only",
+        policy_digest: @policy_digest,
+        state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+        state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+      )
+
+    assert {:error, {:world_eval_assertions, report}} = result
+
+    assert {:world_eval_failed,
+            {:work_not_accepted,
+             %{status: :transferred, turn_status: :superseded, turn_id: turn_id}}} =
+             report.execution_error
+
+    stale = Repo.get!(Turn, turn_id)
+    rerun_ref = "turn:rerun:#{stale.id}"
+    assert stale.cancellation_intent["new_turn_ref"] == rerun_ref
+    assert report.deliveries == []
+    assert {:ok, resumed} = Custody.claim_next("world-source-recovery", 300, :work)
+    assert resumed.episode.id == report.episode_id
+    assert resumed.episode.owner_kind == :turn
+    assert resumed.episode.owner_ref == rerun_ref
+    assert resumed.turn.status == :pending
+    assert resumed.turn.turn_ref == rerun_ref
+  end
+
   test "a settled harvested completion skips remaining wake checkpoints without another model turn" do
     # A paid September 7 Airflow run completed after its real ten-minute timer;
     # demanding the older replay's second wait falsely turned that result into an execution error.

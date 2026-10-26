@@ -1119,6 +1119,8 @@ defmodule Ryker.Publication.DispatcherTest do
                1
              )
 
+    Ryker.Fixtures.CompletionReview.approve!(claim, final)
+
     assert {:ok, result} = Result.new(:reply, final)
 
     assert {:ok, _intent} =
@@ -1190,6 +1192,7 @@ defmodule Ryker.Publication.DispatcherTest do
              WorkSessions.pin_episode(id, "work-contributor", String.duplicate("a", 64))
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     bind_remote!(claim)
   end
 

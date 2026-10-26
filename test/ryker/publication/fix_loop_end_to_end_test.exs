@@ -172,7 +172,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert fixed.turn.status == :delivery_pending
     assert fixed.turn.session_id == task_session.id
     assert FakeWorkCoopAPI.state(fix_api).create_count == 0
-    assert Repo.aggregate(Session, :count, :id) == 2
+    assert Repo.aggregate(from(s in Session, where: s.execution_kind == :work), :count, :id) == 2
 
     assert [current] = fixed.turn.submission["context"]["current_inputs"]["items"]
     request = current["content"]["content"]["correction_request"]

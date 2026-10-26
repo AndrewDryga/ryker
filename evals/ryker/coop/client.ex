@@ -350,6 +350,31 @@ defmodule Ryker.Coop.Client do
     end
   end
 
+  defp create_job(
+         %{job: %{name: name} = template},
+         "ryker:completion-review:create:" <> id,
+         name,
+         task
+       ) do
+    Repo.transaction(fn ->
+      with {:ok, id} <- Ecto.UUID.cast(id),
+           {:ok, review_session} <- Repo.fetch(Session.Query.by_completion_review_id(id)),
+           {:ok, parent_job, _digest} <- Job.bind(template, "review-parent"),
+           {:ok, expected_job, expected_digest} <-
+             Ryker.Work.CompletionReview.FleetSession.job(parent_job, task),
+           true <-
+             review_session.external_ref == task and
+               review_session.policy_digest == template.digest and
+               review_session.worker_job_document == expected_job and
+               review_session.worker_job_digest == expected_digest,
+           {:ok, _session} <- JobAuthority.validate(review_session) do
+        {expected_job, expected_digest}
+      else
+        _invalid -> Repo.rollback(:model_eval_session_authority_mismatch)
+      end
+    end)
+  end
+
   defp create_job(%{job: %{name: name} = template}, key, name, task) do
     Repo.transaction(fn ->
       session = eval_session(key)

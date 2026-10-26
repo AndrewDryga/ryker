@@ -1710,6 +1710,7 @@ defmodule Ryker.Publication.CustodyTest do
   defp staged_candidate!(claim, suffix, label, options) do
     admit_followup!(claim, label)
     assert {:ok, work} = Custody.claim_next("work:#{suffix}:#{label}", 60, :work)
+    Ryker.Fixtures.CompletionReview.attest!(work)
     work = bind_remote!(work)
 
     assert {:ok, _offer} =
@@ -1744,6 +1745,8 @@ defmodule Ryker.Publication.CustodyTest do
                candidate_sha256,
                1
              )
+
+    Ryker.Fixtures.CompletionReview.approve!(work, final)
 
     assert {:ok, result} = Result.new(:reply, final)
 
@@ -2199,6 +2202,8 @@ defmodule Ryker.Publication.CustodyTest do
                1
              )
 
+    Ryker.Fixtures.CompletionReview.approve!(claim, final)
+
     assert {:ok, result} = Result.new(:reply, final)
 
     assert {:ok, _intent} =
@@ -2304,6 +2309,7 @@ defmodule Ryker.Publication.CustodyTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
+    Ryker.Fixtures.CompletionReview.attest!(claim)
     bind_remote!(claim)
   end
 

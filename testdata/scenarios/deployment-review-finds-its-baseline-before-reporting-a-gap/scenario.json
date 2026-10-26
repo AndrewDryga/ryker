@@ -3478,6 +3478,10 @@
     ],
     "quality_rubric": [
       {
+        "criterion": "Before its first final handoff, completes every material check available in this captured world. A caveat, completed goal, or repeated question does not substitute for that check; a genuine access denial may remain only after independent useful work is finished.",
+        "weight": 3
+      },
+      {
         "criterion": "The first reply gives the deployed baseline revision, the revision the saved plan will deploy, and a short Application changes summary from the comparison, without being asked again.",
         "weight": 3
       },
