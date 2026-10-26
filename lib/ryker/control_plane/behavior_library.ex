@@ -7,20 +7,20 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   (on or paused) or Past (expired, deleted or replaced) entries.
   """
   alias Ryker.Behaviors
-  alias Ryker.ControlPlane.{BehaviorLibrary, PagedRelation, RepositoryNames, Search}
+  alias Ryker.ControlPlane.{BehaviorLibrary, PagedRelation, Paths, RepositoryNames, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
   @payload_fields ~w(title task source_kind filter repository key value subject summary text visibility context_channel delivery_channel applicability)
   @shown %{"preferences" => :preference, "guidance" => :guidance}
 
-  @doc "The page that lists entries of `kind`; its rows are anchored `#behavior-<ref>`."
-  def path(:standing_assignment), do: "/rules"
-  def path(kind) when kind in [:preference, :guidance], do: "/instructions"
+  @doc "The page for a rule, or the saved instruction anchored in its library."
+  def path(:standing_assignment, ref), do: Paths.rule(ref)
+  def path(kind, ref) when kind in [:preference, :guidance], do: "/instructions#behavior-" <> ref
 
-  @doc "Where a confirmed Pause, Resume or Delete returns: the list the entry is in."
-  def return_path(:standing_assignment), do: "/rules"
-  def return_path(kind) when kind in [:preference, :guidance], do: "/instructions#saved"
+  @doc "Where a confirmed Pause, Resume or Delete returns."
+  def return_path(:standing_assignment, ref), do: Paths.rule(ref)
+  def return_path(kind, _ref) when kind in [:preference, :guidance], do: "/instructions#saved"
 
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     item = instruction_query() |> Behaviors.Behavior.Query.by_ref(ref) |> Repo.peek()
@@ -28,6 +28,14 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   end
 
   def fetch(_ref), do: :not_found
+
+  @doc "One standing rule with only its own recent matches, or :not_found."
+  def fetch_rule(ref) do
+    case fetch(ref) do
+      {:ok, %{kind: :standing_assignment} = rule} -> {:ok, %{rule: rule, runs: runs([rule])}}
+      _missing_or_other_kind -> :not_found
+    end
+  end
 
   defp instruction_query, do: BehaviorLibrary.Query.entries(DateTime.utc_now())
 
@@ -66,7 +74,6 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
       total: page.total,
       page: page.page,
       pages: page.pages,
-      runs: if(kinds == [:standing_assignment], do: runs(page.items), else: []),
       params: %{"view" => view, "q" => search, "show" => show}
     }
   end

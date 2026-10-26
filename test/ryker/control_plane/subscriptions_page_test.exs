@@ -2,8 +2,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
   @moduledoc """
   Automations › Follow-ups: work Ryker paused and will pick up again at a set
   time or when something happens. Each row says what it waits for, which
-  request it continues and when, in words; the identifiers support needs stay
-  in one closed Details disclosure.
+  request it continues and when, in words, without support identifiers.
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
@@ -17,6 +16,15 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     # columns of IDs and digests. These fields come from the saved run
     # matcher, not a claim that the run was approved or has finished.
     %{item: item_fixture()}
+  end
+
+  # The follow-up directory exposed IDs and revisions that did not help
+  # decide what was waiting or open the work it continues.
+  test "follow-ups show their useful context without a support disclosure", %{item: item} do
+    document = row(item)
+    assert Enum.empty?(LazyHTML.query(document, "details"))
+    refute LazyHTML.text(document) =~ "Source revision"
+    refute LazyHTML.text(document) =~ "Follow-up ID"
   end
 
   test "a list cut at 100 says so, and a list of exactly 100 does not" do
@@ -95,46 +103,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     # A timer continues at its moment; its deadline is only a safety net.
     refute words(LazyHTML.query(future, ".entity-meta")) =~ "stops waiting"
 
-    # The Details disclosure keeps its identity across a refresh, so an open
-    # one stays open.
-    assert LazyHTML.query(future, "details") |> LazyHTML.attribute("id") ==
-             LazyHTML.query(due, "details") |> LazyHTML.attribute("id")
-  end
-
-  test "support references stay in one closed Details disclosure with copy buttons", %{
-    item: item
-  } do
-    details = row(item) |> LazyHTML.query("details.follow-up-details:not([open])")
-
-    assert LazyHTML.query(details, "summary") |> LazyHTML.text() |> String.trim() == "Details"
-
-    assert LazyHTML.query(details, "summary") |> LazyHTML.attribute("aria-label") == [
-             "Details for An update on Run run-t2W6yCNeLUU9xFso"
-           ]
-
-    assert details
-           |> LazyHTML.query("button[data-copy-value]")
-           |> LazyHTML.attribute("data-copy-value") ==
-             [item.ref]
-
-    assert LazyHTML.text(details) =~ "Follow-up ID"
-    assert LazyHTML.text(details) =~ "Source revision"
-    assert LazyHTML.text(details) =~ "attachment title: Run Planning"
-    refute LazyHTML.text(details) =~ item.matcher_digest
-
-    # A follow-up that gave up keeps the digests that explain why.
-    timed_out = %{
-      item
-      | status: :timed_out,
-        resolution_kind: :deadline,
-        cursor_digest: String.duplicate("c", 64),
-        last_observation_digest: String.duplicate("o", 64)
-    }
-
-    text = row(timed_out) |> LazyHTML.query("details") |> LazyHTML.text()
-    assert text =~ "Matcher reference"
-    assert text =~ "Cursor reference"
-    assert text =~ "Observation reference"
+    assert Enum.empty?(LazyHTML.query(future, "details"))
   end
 
   test "each state reads as a word people use, and history says what happened", %{item: item} do

@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.PathsTest do
     assert Paths.incident_room("incident-room:demo-checkout-readiness") ==
              "/incident-rooms/demo-checkout-readiness"
 
+    assert Paths.rule("behavior:" <> @id) == "/rules/#{@id}"
     assert Paths.schedule("schedule:" <> @id) == "/schedules/#{@id}"
     assert Paths.channel("T0BHXKZJVDX", "C0BLU1GACKC") == "/channels/T0BHXKZJVDX/C0BLU1GACKC"
     assert Paths.failure("delivery", "delivery:" <> @id) == "/failures/delivery/#{@id}"
@@ -78,6 +79,7 @@ defmodule Ryker.ControlPlane.PathsTest do
   # The forward that serves everything but pages warns on a verified path, so a `~p` link that
   # names no page fails the build instead of answering 404.
   test "a verified path names a page, never what the forward serves" do
+    assert WebRouter.__verify_route__(["rules", @id]) == {nil, false}
     assert WebRouter.__verify_route__(["timeline", @id]) == {nil, false}
     assert WebRouter.__verify_route__(["incident-rooms", "demo"]) == {nil, false}
 

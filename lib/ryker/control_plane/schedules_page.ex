@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, Units}
   alias Ryker.{ConversationRef, Episodes, Schedules, UTCDateTime}
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @list_limit 100
   @runs_limit 200
@@ -44,10 +45,11 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   def description, do: "Tasks Ryker runs at a set time, once or on repeat."
 
   @doc "The Schedules list: the toolbar and the rows. How to add one is the page's help."
-  @spec list([map()], map()) :: iodata()
-  def list(items, params) do
+  @spec list([map()], map(), DateTime.t()) :: iodata()
+  def list(items, params, now \\ DateTime.utc_now()) do
     %{
       __changed__: nil,
+      now: now,
       items: Enum.take(items, @list_limit),
       full: length(items) > @list_limit,
       query: params["q"] || "",
@@ -83,7 +85,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
           link_row
           state={state(item.status)}
           text={first_line(item.task)}
-          meta={row_facts(item)}
+          meta={row_facts(item, @now)}
         />
       </Kit.entity_list>
       <p :if={@full} class="schedule-note">
@@ -132,18 +134,14 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   when it runs next and stops in its own time zone, its repository and any
   failed starts. Activity's "Coming up" rows use the same words.
   """
-  @spec row_facts(map()) :: list()
-  def row_facts(item) do
+  @spec row_facts(map(), DateTime.t()) :: list()
+  def row_facts(item, now \\ DateTime.utc_now()) do
     changeable? = item.status in @changeable
 
     [
       how_often(item),
       place(item),
-      if(item.status == :active and item.next_local) do
-        moment(next_lead(item), item.next_local, item.now_local, item.next_occurrence_at, :time,
-          zone: item.timezone
-        )
-      end,
+      if(item.status == :active and item.next_local, do: countdown(item, now)),
       if(changeable? and item.expires_local,
         do: moment("stops ", item.expires_local, item.now_local, item.expires_at, :date, [])
       ),
@@ -196,7 +194,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       schedule: schedule,
       tone: tone,
       word: word,
-      facts: detail_facts(schedule),
+      facts: detail_facts(schedule, now),
       runs: Enum.take(runs, @runs_limit),
       full: length(runs) > @runs_limit,
       now: now
@@ -259,7 +257,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       Schedules.zone_name(schedule.timezone) <> "."
   end
 
-  defp detail_facts(schedule) do
+  defp detail_facts(schedule, now) do
     changeable? = schedule.status in @changeable
 
     [
@@ -267,22 +265,30 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       {"Where results go", destination(schedule)},
       {"Repository", schedule.repository},
       {"What it may do", authority(schedule.authority)},
-      {"Next run", if(changeable?, do: next_run(schedule))},
+      {"Next run", if(changeable?, do: next_run(schedule, now))},
       {"Stops", if(changeable?, do: stops(schedule))},
       {"Started from", started_from(schedule)}
     ]
     |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
   end
 
-  defp next_run(%{status: :paused}), do: "None while it is paused"
+  defp next_run(%{status: :paused}, _now), do: "None while it is paused"
 
-  defp next_run(%{next_local: %NaiveDateTime{} = local} = schedule) do
-    moment(nil, local, schedule.now_local, schedule.next_occurrence_at, :time,
-      zone: schedule.timezone
-    )
+  defp next_run(%{next_local: %NaiveDateTime{} = local} = schedule, now) do
+    assigns = %{
+      countdown: countdown(schedule, now),
+      at: Calendar.strftime(local, "%-d %b %Y, %H:%M") <> zone_suffix(schedule.timezone)
+    }
+
+    ~H"""
+    <div class="schedule-next-run">
+      {@countdown}
+      <span class="schedule-next-at">{@at}</span>
+    </div>
+    """
   end
 
-  defp next_run(_schedule), do: nil
+  defp next_run(_schedule, _now), do: nil
 
   defp stops(%{expires_local: %NaiveDateTime{} = local} = schedule) do
     moment(nil, local, schedule.now_local, schedule.expires_at, :time, zone: schedule.timezone)
@@ -472,11 +478,46 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   # needs none.
   # A run that did not start when due is something to notice, not a run
   # coming up (manual testing, 2026-09-26: "next run 28 Aug" on 26 Sep).
-  defp next_lead(%{next_local: %NaiveDateTime{} = next, now_local: %NaiveDateTime{} = now}) do
-    if NaiveDateTime.compare(next, now) == :lt, do: "was due ", else: "next run "
+  defp countdown(item, now) do
+    seconds = DateTime.diff(item.next_occurrence_at, now)
+    local = short(item.next_local, item.now_local) <> zone_suffix(item.timezone)
+    assigns = %{item: item, seconds: seconds, local: local, text: countdown_text(seconds)}
+
+    ~H"""
+    <time
+      id={"schedule-next-" <> @item.ref}
+      class="schedule-countdown"
+      phx-hook="ScheduleCountdown"
+      data-remaining-seconds={@seconds}
+      datetime={DateTime.to_iso8601(@item.next_occurrence_at)}
+      title={@local <> " · " <> exact(@item.next_occurrence_at)}
+    >{@text}</time>
+    """
   end
 
-  defp next_lead(_item), do: "next run "
+  defp countdown_text(seconds) when seconds > 0 and seconds < 60,
+    do: "Next run in less than a minute"
+
+  defp countdown_text(seconds) when seconds <= 0 and seconds > -60, do: "Due now"
+  defp countdown_text(seconds) when seconds < 0, do: "Overdue by " <> countdown_duration(-seconds)
+  defp countdown_text(seconds), do: "Next run in " <> countdown_duration(seconds)
+
+  defp countdown_duration(seconds) do
+    minutes = div(seconds, 60)
+    hours = div(minutes, 60)
+    days = div(hours, 24)
+
+    parts =
+      cond do
+        days > 0 -> [{days, "day"}, {rem(hours, 24), "hour"}]
+        hours > 0 -> [{hours, "hour"}, {rem(minutes, 60), "minute"}]
+        true -> [{minutes, "minute"}]
+      end
+
+    parts
+    |> Enum.reject(fn {count, _unit} -> count == 0 end)
+    |> Enum.map_join(" ", fn {count, unit} -> Wording.count(count, unit) end)
+  end
 
   defp moment(lead, local, now_local, utc, style, options) do
     text =

@@ -161,7 +161,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     # The way to the rule itself is a link to it, not its identifier.
     assert document
            |> LazyHTML.query(".standing-rule[data-verdict=matched] a.standing-rule-link")
-           |> LazyHTML.attribute("href") == ["/rules#behavior-behavior:review-terraform-plans"]
+           |> LazyHTML.attribute("href") == ["/rules/review-terraform-plans"]
   end
 
   test "readable rule conditions retain nested fields and empty scalar distinctions" do
@@ -377,7 +377,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert Enum.empty?(LazyHTML.query(card, "details"))
 
     assert LazyHTML.query(card, ".standing-rule-link") |> LazyHTML.attribute("href") ==
-             ["/rules#behavior-behavior:recorded-local-rule"]
+             ["/rules/recorded-local-rule"]
   end
 
   test "a later rule change does not rewrite the recorded explanation" do

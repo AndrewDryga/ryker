@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.Assets do
     "conversation.mjs" => {:ryker, "priv/static/conversation.mjs", "text/javascript"},
     "draft-store.mjs" => {:ryker, "priv/static/draft-store.mjs", "text/javascript"},
     "drafts.mjs" => {:ryker, "priv/static/drafts.mjs", "text/javascript"},
+    "schedule-countdown.mjs" => {:ryker, "priv/static/schedule-countdown.mjs", "text/javascript"},
     "elapsed-time.mjs" => {:ryker, "priv/static/elapsed-time.mjs", "text/javascript"},
     "filter-toolbar.mjs" => {:ryker, "priv/static/filter-toolbar.mjs", "text/javascript"},
     "filter-menu.mjs" => {:ryker, "priv/static/filter-menu.mjs", "text/javascript"},

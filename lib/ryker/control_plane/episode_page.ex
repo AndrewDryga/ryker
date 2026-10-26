@@ -1759,7 +1759,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             <div :if={rule.criteria} class="standing-rule-definition">
               <.fact_list facts={rule_facts(rule)} />
             </div>
-            <a :if={rule.ref} class="standing-rule-link" href={"/rules#behavior-" <> rule.ref}>
+            <a :if={rule.ref} class="standing-rule-link" href={Paths.rule(rule.ref)}>
               Open in Standing rules →
             </a>
           </li>

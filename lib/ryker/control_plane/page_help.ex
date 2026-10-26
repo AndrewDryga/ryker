@@ -52,6 +52,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/repositories/:ref", :repositories},
     {"/working-copies", :working_copies},
     {"/rules", :rules},
+    {"/rules/:id", :rules},
     {"/schedules", :schedules},
     {"/schedules/:id", :schedule},
     {"/follow-ups", :follow_ups},
@@ -369,7 +370,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"What a rule does",
        [
-         "When a message sets off a rule, Ryker still decides whether to reply, react or start work."
+         "Open a rule to read its instructions, check its conditions and see its recent matches. When a message sets off a rule, Ryker still decides whether to reply, react or start work."
        ]}
     ])
   end

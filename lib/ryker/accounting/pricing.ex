@@ -15,29 +15,34 @@ defmodule Ryker.Accounting.Pricing do
 
   # The prices a new installation starts with; after that the saved prices
   # are the only ones any estimate reads.
-  # Verified 2026-09-05: https://developers.openai.com/api/docs/pricing
+  # 5.6 verified 2026-09-05; 6 and 6.1 verified 2026-10-25:
+  # https://developers.openai.com/api/docs/models
+  # https://developers.openai.com/api/docs/pricing
   # Codex ACP src/TokenCount.ts reports fresh input separately from cache reads;
   # output includes reasoning, so these carry no reasoning price. Turns can
   # contain several provider calls. Their context lengths, cache writes,
   # service tiers and tool fees are unavailable, so these are baseline
   # estimates at this rate-card date, not historical invoices.
   @defaults %{
-    "codex:gpt-5.6-sol" => {"4", "0.40", "20"},
-    "codex:gpt-5.6-terra" => {"2", "0.20", "12"},
-    "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20"}
+    "codex:gpt-5.6-sol" => {"4", "0.40", "20", ~D[2026-09-05]},
+    "codex:gpt-5.6-terra" => {"2", "0.20", "12", ~D[2026-09-05]},
+    "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20", ~D[2026-09-05]},
+    "codex:gpt-6.1-sol" => {"2", "0.10", "10", ~D[2026-10-25]},
+    "codex:gpt-6-astra" => {"10", "1", "50", ~D[2026-10-25]},
+    "codex:gpt-6-sol" => {"2", "0.20", "10", ~D[2026-10-25]},
+    "codex:gpt-6-luna" => {"0.10", "0.01", "0.50", ~D[2026-10-25]}
   }
-  @effective_from ~D[2026-09-05]
   @provenance "https://developers.openai.com/api/docs/pricing"
 
   @doc "The prices a new installation's Model prices start with."
   def settings_defaults do
-    Enum.map(@defaults, fn {target, {input, cached, output}} ->
+    Enum.map(@defaults, fn {target, {input, cached, output, day}} ->
       %{
         execution_target: target,
         input_usd_per_million: Decimal.new(input),
         cached_input_usd_per_million: Decimal.new(cached),
         output_usd_per_million: Decimal.new(output),
-        effective_from: @effective_from,
+        effective_from: day,
         provenance: @provenance
       }
     end)

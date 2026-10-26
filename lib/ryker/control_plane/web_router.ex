@@ -78,6 +78,7 @@ defmodule Ryker.ControlPlane.WebRouter do
     # A record is addressed by its plain id or slug (`Ryker.ControlPlane.Paths`).
     live("/timeline/:id", Ryker.ControlPlane.WorkbenchLive)
     live("/incident-rooms/:slug", Ryker.ControlPlane.WorkbenchLive)
+    live("/rules/:id", Ryker.ControlPlane.WorkbenchLive)
     live("/schedules/:id", Ryker.ControlPlane.WorkbenchLive)
     live("/channels/:workspace/:channel", Ryker.ControlPlane.WorkbenchLive)
     live("/failures/:kind/:id", Ryker.ControlPlane.WorkbenchLive)

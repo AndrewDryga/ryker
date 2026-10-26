@@ -5,8 +5,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
 
   Each row follows the Kit: what the follow-up waits for and its state, the
   request it continues, then when and where in words. Ryker creates and ends
-  these itself, so the page is read-only; the identifiers support needs stay
-  in one closed Details disclosure per row. An open list redraws when a
+  these itself, so the page is read-only. An open list redraws when a
   follow-up or what it waits on changes (`subscriptions/0`).
   """
   use Phoenix.Component
@@ -84,18 +83,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
           state={Presentation.status(item)}
           text={continues(item)}
           meta={facts(item, @now)}
-        >
-          <:details>
-            <Components.disclosure
-              id={"follow-up-details-" <> item.ref}
-              label="Details"
-              summary_aria_label={"Details for " <> item.title}
-              class="follow-up-details"
-            >
-              <Components.fact_list facts={details(item)} />
-            </Components.disclosure>
-          </:details>
-        </Kit.entity_row>
+        />
       </Kit.entity_list>
       <p :if={@full} class="follow-up-note">Showing the first 100 follow-ups.</p>
       <.list_empty :if={@items == []} query={@query} view={@view} />
@@ -172,27 +160,6 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   end
 
   defp target(_item), do: nil
-
-  defp details(item) do
-    [
-      %{label: "Follow-up ID", value: item.ref, identifier: true},
-      item[:condition] && %{label: "Matches", value: item.condition},
-      %{label: "Source revision", value: to_string(item.revision)}
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Kernel.++(if item.status == :timed_out, do: outcome_references(item), else: [])
-  end
-
-  # Once a follow-up gave up, the digests of what it last saw explain why.
-  defp outcome_references(item) do
-    for {label, value} <- [
-          {"Matcher reference", item.matcher_digest},
-          {"Cursor reference", item.cursor_digest},
-          {"Observation reference", item.last_observation_digest}
-        ],
-        value,
-        do: %{label: label, value: value, identifier: true}
-  end
 
   defp moment({text, nil}), do: text
 

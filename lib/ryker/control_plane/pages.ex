@@ -261,6 +261,23 @@ defmodule Ryker.ControlPlane.Pages do
     )
   end
 
+  def page(["rules", id], _params, options) do
+    with {:ok, ref} <- PathRef.reference("behavior", id),
+         {:ok, snapshot} <- options.projection.rule.(ref) do
+      body = Safe.to_iodata(BehaviorPage.detail(%{__changed__: nil, view: snapshot}))
+
+      snapshot.rule
+      |> BehaviorPage.subject()
+      |> ok(body)
+      |> Map.put(:back, {"All rules", "/rules"})
+      |> Map.put(:action, BehaviorPage.actions(snapshot.rule))
+    else
+      {:error, :path_ref} -> not_found("Rule")
+      :not_found -> not_found("Rule")
+      {:error, _reason} -> unavailable("Rule")
+    end
+  end
+
   def page(["usage"], params, options) do
     params = Map.take(params, ["window", "mode", "by"])
     snapshot = options.projection.usage.(params)
@@ -435,6 +452,8 @@ defmodule Ryker.ControlPlane.Pages do
   def subscriptions(["memory", "people"], _params), do: PeoplePage.subscriptions()
   def subscriptions(["feedback"], _params), do: FeedbackPage.subscriptions()
   def subscriptions(["feedback", "fix"], _params), do: ImprovementPage.subscriptions()
+
+  def subscriptions(["rules", _id], _params), do: BehaviorPage.subscriptions(:rules)
 
   def subscriptions(["rules"], _params), do: BehaviorPage.subscriptions(:rules)
   def subscriptions(["usage"], _params), do: UsagePage.subscriptions()

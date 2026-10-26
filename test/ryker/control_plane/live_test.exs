@@ -248,8 +248,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     assert outline(document, "main .behavior-page > *") == [
              "div.kit-toolbar",
-             "div.entity-list",
-             "section.behavior-matches"
+             "div.entity-list"
            ]
 
     assert has_element?(view, "main .behavior-page > .entity-list h3", "Triage alerts")
@@ -433,45 +432,60 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, pager, "Page 1 of 2")
   end
 
-  test "a two-thousand-character rule reaches the page whole, and its open disclosures keep their ids across a refresh" do
-    # The rule is the stored task. Between the row and the screen sit the
-    # projection's sanitizer and the preview; neither may cut the text, and
-    # the disclosure that holds it must keep the id PreserveReadingState uses
-    # to reopen it after a reload, or every refresh folds the reader's
-    # place shut.
-    long =
-      1..40
-      |> Enum.map_join(
-        "\n",
-        &"Step #{&1}: compare the posted plan against the last apply and say so."
-      )
-      |> String.slice(0, 2_000)
-      |> String.pad_trailing(2_000, "x")
-
+  test "a rule page shows only that rule's matches and missing rules answer 404" do
     source = SavedEntities.source!("slack:T123:C456")
-    rule = rule!(source, long)
+    first = rule!(source, "Check the first service.")
+    second = rule!(source, "Check the second service.")
+
+    for {rule, action} <- [{first, :ignore}, {second, :react}] do
+      Repo.insert!(%Ryker.Behaviors.StandingAssignmentRun{
+        assignment_id: rule.id,
+        ref: "rule-run:" <> rule.id,
+        source_input_ref: "input:" <> rule.id,
+        source_event_ref: "event:" <> rule.id,
+        outcome: :decided,
+        decision_action: action,
+        decision_ref: "decision:" <> rule.id
+      })
+    end
+
     conn = signed_in_conn() |> Map.put(:host, "localhost")
-    {:ok, view, html} = live(conn, "/rules")
-    document = LazyHTML.from_document(html)
+    {:ok, view, _html} = live(conn, Ryker.ControlPlane.Paths.rule(first.ref))
+    assert has_element?(view, ".behavior-matches .entity-name", "No reply needed")
+    refute has_element?(view, ".behavior-matches .entity-name", "Reacted")
+    assert get(conn, "/rules/missing-rule").status == 404
+  end
 
-    full = LazyHTML.query(document, "main details.behavior-full")
-    assert LazyHTML.attribute(full, "id") == ["behavior-#{rule.ref}-full"]
-    assert LazyHTML.query(full, "p.behavior-full-text") |> LazyHTML.text() == long
-    assert LazyHTML.query(document, "main article p.entity-text") |> LazyHTML.text() =~ "Step 1:"
+  test "a rule opens its full instructions and its own matches and refreshes in place" do
+    source = SavedEntities.source!("slack:T123:C456")
+    long = String.duplicate("Check the plan before continuing. ", 60)
+    rule = rule!(source, long)
+    path = Ryker.ControlPlane.Paths.rule(rule.ref)
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
+    {:ok, list, _html} = live(conn, "/rules")
+    assert has_element?(list, "a[href='#{path}']")
+    refute has_element?(list, ".behavior-matches, .behavior-full, .behavior-conditions")
+    {:ok, view, _html} = live(conn, path)
 
-    send(view.pid, :reload_page)
-    document = LazyHTML.from_document(render(view))
-
-    assert LazyHTML.query(document, "main details.behavior-full") |> LazyHTML.attribute("id") == [
-             "behavior-#{rule.ref}-full"
-           ]
-
-    assert LazyHTML.query(document, "main details.behavior-menu") |> LazyHTML.attribute("id") == [
-             "behavior-#{rule.ref}-menu"
-           ]
-
-    assert LazyHTML.query(document, "main details.behavior-full p.behavior-full-text")
+    assert render(view)
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("main .rule-task")
            |> LazyHTML.text() == long
+
+    assert has_element?(view, "main .behavior-matches", "No matches yet")
+    assert has_element?(view, "main a[href='/rules']", "All rules")
+    send(view.pid, :reload_page)
+
+    assert render(view)
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("main .rule-task")
+           |> LazyHTML.text() == long
+
+    assert {Ryker.Behaviors, :subscribe_behaviors, []} in Ryker.ControlPlane.WorkbenchLive.page_subscriptions(
+             path,
+             %{},
+             nil
+           )
   end
 
   test "malformed usage filters cannot crash navigation or search links" do

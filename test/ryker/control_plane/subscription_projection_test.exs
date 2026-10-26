@@ -253,7 +253,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     end
   end
 
-  test "a live refresh keeps the search, the view and an open Details disclosure without executing work",
+  test "a live refresh keeps the search and view without exposing technical details or executing work",
        %{subscription: subscription} do
     observer = self()
 
@@ -287,10 +287,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
 
     assert has_element?(view, ".entity-name", "An update on Run run-k9CpPp3nWjQrkCMG")
 
-    assert has_element?(
-             view,
-             "details[id='follow-up-details-#{subscription.ref}']:not([open])"
-           )
+    refute has_element?(view, ".follow-ups-view details")
 
     assert has_element?(view, "input[name=q][value=run-k9]")
     assert has_element?(view, "nav.segmented a[aria-current=page]", "Current")
@@ -299,7 +296,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     assert_receive {:subscriptions_projected, [_]}
     send(view.pid, :reload_page)
     assert_receive {:subscriptions_projected, [_]}
-    assert has_element?(view, "details[id='follow-up-details-#{subscription.ref}']")
+    refute has_element?(view, ".follow-ups-view details")
     assert has_element?(view, "input[name=q][value=run-k9]")
     assert Repo.get!(EventSubscription, subscription.id) == subscription
 

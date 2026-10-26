@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.BehaviorPage do
   @moduledoc """
   Rules (/rules), and the preferences and guidance people saved from
-  conversations (the lower half of /instructions), as Kit rows with the
+  conversations (the lower half of /instructions), with a page for each rule and Kit rows with the
   existing confirmed Pause, Resume and Delete actions.
 
   Every entry here is created only by asking Ryker and confirming what it
@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   attr(:view, :map, required: true, doc: "BehaviorLibrary.list(:standing_assignment, params)")
   attr(:now, :any, default: nil)
 
-  @doc "The /rules body: search and Current/Past, the rules, then recent matches."
+  @doc "The /rules directory: search, Current/Past and links to each rule."
   def rules(assigns) do
     assigns =
       assign(assigns,
@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       )
 
     ~H"""
-    <div class="behavior-page">
+    <div class="behavior-page rules-view">
       <Kit.toolbar>
         <Components.filter_toolbar
           id="behavior-search"
@@ -88,23 +88,53 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         label="Rule pages"
         summary={Wording.count(@view.total, "rule")}
       />
-      <section :if={@view.items != []} class="behavior-matches" aria-labelledby="rule-matches">
+    </div>
+    """
+  end
+
+  attr(:view, :map, required: true)
+  attr(:now, :any, default: nil)
+
+  @doc "One rule's full instructions, conditions and its own recent matches."
+  def detail(assigns) do
+    assigns =
+      assign(assigns,
+        item: assigns.view.rule,
+        conditions: conditions(assigns.view.rule),
+        now: assigns[:now] || DateTime.utc_now()
+      )
+
+    ~H"""
+    <div class="behavior-page rule-view">
+      <Kit.status_line state={state(@item.status)} />
+      <p class="entity-meta">
+        <%= for fact <- Enum.reject(facts(@item, @now), &is_nil/1) do %>
+          <span class="rule-fact">{fact}</span>
+        <% end %>
+      </p>
+      <section class="rule-instructions" aria-labelledby="rule-instructions">
+        <Kit.section_head id="rule-instructions" title="What it asks for" />
+        <p class="rule-task">{text(@item) || "This rule's instructions are no longer available."}</p>
+      </section>
+      <section :if={@conditions != []} class="rule-conditions" aria-labelledby="rule-conditions">
+        <Kit.section_head id="rule-conditions" title="Conditions" />
+        <ul>
+          <li :for={condition <- @conditions}>{condition}</li>
+        </ul>
+      </section>
+      <section class="behavior-matches" aria-labelledby="rule-matches">
         <Kit.section_head
           id="rule-matches"
           title="Recent matches"
-          lede="The latest messages that set off a rule on this page, newest first."
+          lede="The latest messages that matched this rule, newest first."
         />
         <Kit.entity_list :if={@view.runs != []} label="Recent matches">
           <Kit.entity_row
             :for={run <- @view.runs}
-            name={rule_name(@view.items, run.rule_ref)}
-            href={
-              if run.episode_id,
-                do: Paths.request(run.episode_id),
-                else: "#behavior-" <> run.rule_ref
-            }
+            name={outcome(run)}
+            href={run.episode_id && Paths.request(run.episode_id)}
             link_row
-            meta={[outcome(run), when_fact(run.at, @now)]}
+            meta={[when_fact(run.at, @now)]}
           />
         </Kit.entity_list>
         <Kit.empty
@@ -112,11 +142,19 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           variant={:hint}
           icon={:activity}
           title="No matches yet"
-          text="When a message sets off one of these rules, it shows up here."
+          text="Messages that match this rule will appear here."
         />
       </section>
     </div>
     """
+  end
+
+  @doc "Pause, Resume and the original conversation for a rule's page heading."
+  def actions(item) do
+    %{__changed__: nil, item: item}
+    |> controls()
+    |> Phoenix.HTML.Safe.to_iodata()
+    |> IO.iodata_to_binary()
   end
 
   attr(:channels, :list, required: true, doc: "Channels with instructions of their own")
@@ -233,8 +271,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         id: "behavior-" <> item.ref,
         name: subject(item),
         text: if(long, do: preview(text), else: text),
-        full: if(long, do: text),
-        conditions: conditions(item),
+        full: if(long and item.kind != :standing_assignment, do: text),
         manageable: item.status in ["active", "disabled"],
         source: source_url(item)
       )
@@ -243,47 +280,55 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     <Kit.entity_row
       id={@id}
       name={@name}
+      href={if @item.kind == :standing_assignment, do: Paths.rule(@item.ref)}
+      link_row={@item.kind == :standing_assignment}
       icon={:bolt}
       state={state(@item.status)}
       text={@text}
       meta={facts(@item, @now)}
     >
-      <:details :if={@full || @conditions != []}>
-        <details :if={@full} class="behavior-more behavior-full" id={@id <> "-full"}>
+      <:details :if={@full}>
+        <details class="behavior-more behavior-full" id={@id <> "-full"}>
           <summary phx-no-format><span class="behavior-closed">Show all</span><span class="behavior-open">Show less</span></summary>
           <p class="behavior-full-text">{@full}</p>
         </details>
-        <details
-          :if={@conditions != []}
-          class="behavior-more behavior-conditions"
-          id={@id <> "-conditions"}
-        >
-          <summary>Conditions</summary>
-          <ul>
-            <li :for={condition <- @conditions}>{condition}</li>
-          </ul>
-        </details>
       </:details>
       <:actions :if={@manageable || @source}>
-        <Components.action_button
-          :if={@manageable}
-          path={action(@item, if(@item.status == "active", do: "disabled", else: "active"))}
-          label={if @item.status == "active", do: "Pause", else: "Resume"}
-        />
-        <details class="behavior-menu" id={@id <> "-menu"}>
-          <summary phx-no-format><span class="behavior-menu-glyph" aria-hidden="true">⋯</span><span class="sr-only">More actions for {@name}</span></summary>
-          <div class="behavior-menu-items">
-            <a :if={@source} href={@source} rel="noopener noreferrer">Open original conversation</a>
-            <Components.action_button
-              :if={@manageable}
-              path={action(@item, "deleted")}
-              label="Delete"
-              tone={:danger}
-            />
-          </div>
-        </details>
+        <.controls item={@item} />
       </:actions>
     </Kit.entity_row>
+    """
+  end
+
+  attr(:item, :map, required: true)
+
+  defp controls(assigns) do
+    assigns =
+      assign(assigns,
+        id: "behavior-" <> assigns.item.ref,
+        name: subject(assigns.item),
+        manageable: assigns.item.status in ["active", "disabled"],
+        source: source_url(assigns.item)
+      )
+
+    ~H"""
+    <Components.action_button
+      :if={@manageable}
+      path={action(@item, if(@item.status == "active", do: "disabled", else: "active"))}
+      label={if @item.status == "active", do: "Pause", else: "Resume"}
+    />
+    <details :if={@manageable || @source} class="behavior-menu" id={@id <> "-menu"}>
+      <summary phx-no-format><span class="behavior-menu-glyph" aria-hidden="true">⋯</span><span class="sr-only">More actions for {@name}</span></summary>
+      <div class="behavior-menu-items">
+        <a :if={@source} href={@source} rel="noopener noreferrer">Open original conversation</a>
+        <Components.action_button
+          :if={@manageable}
+          path={action(@item, "deleted")}
+          label="Delete"
+          tone={:danger}
+        />
+      </div>
+    </details>
     """
   end
 
@@ -465,13 +510,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   end
 
   defp action(item, status), do: Paths.action("behavior", item.ref, to_string(status))
-
-  defp rule_name(items, ref) do
-    case Enum.find(items, &(&1.ref == ref)) do
-      nil -> "Rule"
-      item -> subject(item)
-    end
-  end
 
   defp outcome(%{outcome: :pending}), do: "Waiting for Ryker"
   defp outcome(%{outcome: :superseded}), do: "Replaced by a newer message"

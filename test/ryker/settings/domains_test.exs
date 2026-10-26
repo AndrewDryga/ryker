@@ -14,7 +14,15 @@ defmodule Ryker.Settings.DomainsTest do
     assert snapshot.pricing_rates
            |> Enum.map(& &1.execution_target)
            |> Enum.sort() ==
-             Enum.sort(["codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna"])
+             Enum.sort([
+               "codex:gpt-5.6-sol",
+               "codex:gpt-5.6-terra",
+               "codex:gpt-5.6-luna",
+               "codex:gpt-6.1-sol",
+               "codex:gpt-6-astra",
+               "codex:gpt-6-sol",
+               "codex:gpt-6-luna"
+             ])
   end
 
   test "each kind of work has its own models, and only a list the worker can run is saved",

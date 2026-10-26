@@ -941,7 +941,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert by_ref[active.ref].status == "active"
       assert by_ref[active.ref].title == "Review Terraform plans"
       assert by_ref[active.ref].source_kind == "slack_message"
-      assert by_ref[active.ref].library_path == "/rules#behavior-" <> active.ref
+      assert by_ref[active.ref].library_path == Ryker.ControlPlane.Paths.rule(active.ref)
       assert by_ref[paused.ref].status == "disabled"
 
       html = page("/channels/T123/C456")
@@ -958,7 +958,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       refute text =~ "Superseded"
       refute text =~ "Expired"
       hrefs = section |> LazyHTML.query("a") |> LazyHTML.attribute("href")
-      assert ("/rules#behavior-" <> active.ref) in hrefs
+      assert Ryker.ControlPlane.Paths.rule(active.ref) in hrefs
     end
 
     test "preferences and guidance apply through exact, repository and workspace scope with their labels",

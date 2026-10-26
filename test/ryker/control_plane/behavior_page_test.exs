@@ -5,6 +5,21 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
   @now ~U[2026-09-24 12:00:00Z]
 
+  # The Rules list mixed every rule's history into one feed and expanded
+  # long instructions in place, making the automations directory hard to scan.
+  test "rules open their own page and keep history and conditions out of the directory" do
+    rule = item(:standing_assignment)
+    document = rules_document(view(:standing_assignment, [rule]))
+
+    assert LazyHTML.query(document, ".entity-name a") |> LazyHTML.attribute("href") == [
+             "/rules/one"
+           ]
+
+    assert Enum.empty?(
+             LazyHTML.query(document, ".behavior-matches, .behavior-conditions, .behavior-full")
+           )
+  end
+
   test "states read as words people use, and only a current rule offers Pause or Resume" do
     # "disabled" and "superseded" are storage words. A past rule keeps its
     # state in words and offers no lifecycle control.
@@ -248,7 +263,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
         ]
     }
 
-    section = rules_document(snapshot) |> LazyHTML.query("section.behavior-matches")
+    section = detail_document(item, snapshot.runs) |> LazyHTML.query("section.behavior-matches")
 
     assert LazyHTML.query(section, "header.section-head h2") |> LazyHTML.text() ==
              "Recent matches"
@@ -259,16 +274,15 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     # A match that started work opens it from the whole row; one still
     # waiting opens its rule on this page.
     assert rows |> LazyHTML.query("h3 a") |> LazyHTML.attribute("href") == [
-             "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e",
-             "#behavior-behavior:one"
+             "/timeline/0193a5d2-7c1e-7b8a-9f00-00000000e01e"
            ]
 
-    assert Enum.all?(rows, &(LazyHTML.attribute(&1, "class") |> hd() =~ "entity-row-link"))
+    assert Enum.count(LazyHTML.query(section, ".entity-row-link")) == 1
 
+    assert LazyHTML.text(rows) =~ "No reply needed"
+    assert LazyHTML.text(rows) =~ "Waiting for Ryker"
     [ignored, pending] = Enum.map(rows, &(LazyHTML.query(&1, ".entity-meta") |> LazyHTML.text()))
-    assert ignored =~ "No reply needed"
     assert ignored =~ "2 h ago"
-    assert pending =~ "Waiting for Ryker"
     assert pending =~ "just now"
 
     assert Enum.empty?(LazyHTML.query(section, ".ui-button"))
@@ -313,7 +327,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     assert text =~ "not used yet"
   end
 
-  test "event conditions stay out of the row and read as field-is-value lines behind a closed disclosure" do
+  test "event conditions are readable on the rule page" do
     # A source-event rule matches event fields exactly. The JSON filter is a
     # detail for the person checking why a rule fired; it never sits in the
     # row as braces and quotes.
@@ -327,12 +341,10 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
         }
     }
 
-    document = rules_document(view(:standing_assignment, [rule]))
-    row = LazyHTML.query(document, "article.entity-row")
-    conditions = LazyHTML.query(row, "details.behavior-conditions")
-    assert LazyHTML.attribute(conditions, "open") == []
-    assert LazyHTML.attribute(conditions, "id") == ["behavior-behavior:one-conditions"]
-    assert LazyHTML.query(conditions, "summary") |> LazyHTML.text() == "Conditions"
+    document = detail_document(rule, [])
+    row = LazyHTML.query(document, ".rule-view")
+    conditions = LazyHTML.query(row, ".rule-conditions")
+    assert LazyHTML.query(conditions, "h2") |> LazyHTML.text() == "Conditions"
 
     assert LazyHTML.query(conditions, "li") |> Enum.map(&LazyHTML.text/1) == [
              "action is closed",
@@ -351,11 +363,22 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "When a GitHub event arrives"
   end
 
+  test "a past rule with no original conversation offers no empty action menu" do
+    # The detail header must not offer a menu with nothing a person can do.
+    rule = %{
+      item(:standing_assignment)
+      | status: "deleted",
+        source_conversation_ref: nil,
+        source_message_ref: nil
+    }
+
+    assert BehaviorPage.actions(rule) |> String.trim() == ""
+  end
+
   test "a two-thousand-character instruction is reachable whole, and a short one is not padded with an empty control" do
     # The stored task is the rule. A preview that cannot be expanded is a
-    # truncation with no way to read the rest, and an empty "Show all" on a
-    # one-line rule is noise. The full stored text must be present verbatim
-    # inside a disclosure whose id survives a live refresh.
+    # truncation with no way to read the rest. The detail page must show
+    # the full stored text verbatim without adding controls to the list.
     long =
       1..40
       |> Enum.map_join(
@@ -374,12 +397,8 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     document = rules_document(view(:standing_assignment, [rule]))
 
-    full = LazyHTML.query(document, "article .entity-body > details.behavior-full")
-    assert Enum.count(full) == 1
-    assert LazyHTML.attribute(full, "id") == ["behavior-behavior:one-full"]
-    assert LazyHTML.attribute(full, "open") == []
-    assert LazyHTML.query(full, "summary .behavior-closed") |> LazyHTML.text() == "Show all"
-    assert LazyHTML.query(full, "p.behavior-full-text") |> LazyHTML.text() == long
+    assert Enum.empty?(LazyHTML.query(document, "details.behavior-full"))
+    assert detail_document(rule, []) |> LazyHTML.query(".rule-task") |> LazyHTML.text() == long
 
     preview = LazyHTML.query(document, "article p.entity-text") |> LazyHTML.text()
     assert String.length(preview) < 400
@@ -398,9 +417,8 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
   test "every disclosure in an entry carries a stable id so an open one survives a live refresh" do
     # PreserveReadingState keys a <details> by its id and falls back to its
-    # position plus summary text. Two rules with the same "Show all" summary
-    # would swap open states whenever the list reorders after a reload, so
-    # each disclosure is named by the entry it belongs to.
+    # position plus summary text. Menus must keep their open state with
+    # their own rule when a live refresh changes the list order.
     long = String.duplicate("Watch the queue and say what changed. ", 20)
 
     rules = [
@@ -427,10 +445,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
       |> LazyHTML.attribute("id")
 
     assert ids == [
-             "behavior-behavior:a-full",
              "behavior-behavior:a-menu",
-             "behavior-behavior:b-full",
-             "behavior-behavior:b-conditions",
              "behavior-behavior:b-menu"
            ]
   end
@@ -667,6 +682,11 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
   end
 
   defp squish(text), do: text |> String.split() |> Enum.join(" ")
+
+  defp detail_document(rule, runs) do
+    render_component(&BehaviorPage.detail/1, view: %{rule: rule, runs: runs}, now: @now)
+    |> LazyHTML.from_fragment()
+  end
 
   defp rules_document(view) do
     render_component(&BehaviorPage.rules/1, view: view, now: @now)

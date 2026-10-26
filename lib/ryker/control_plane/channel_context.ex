@@ -169,7 +169,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
       last_used_at: behavior.last_used_at,
       confirmed_at: behavior.confirmed_at,
       source_url: BehaviorPage.source_url(behavior),
-      library_path: BehaviorLibrary.path(behavior.kind) <> "#behavior-" <> behavior.ref
+      library_path: BehaviorLibrary.path(behavior.kind, behavior.ref)
     }
   end
 

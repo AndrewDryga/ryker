@@ -29,6 +29,7 @@ defmodule Ryker.ControlPlane.Projection do
       activity: &Activity.list/1,
       admission_request: &ModelRequests.project_input/2,
       behavior: &BehaviorLibrary.fetch/1,
+      rule: &BehaviorLibrary.fetch_rule/1,
       behaviors: &BehaviorLibrary.list/2,
       channel: &ChannelDetail.fetch/3,
       channels: &ChannelDirectory.list/1,

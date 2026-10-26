@@ -51,6 +51,28 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   # GitHub key decrypted into a signer each time. An install without GitHub
   # never finishes setup, so its pages paid that on every read (2026-10-04
   # review).
+  # The picker was still limited to 5.6 after the worker supported 6 and
+  # 6.1, so owners could not choose the current models from Settings.
+  test "current Codex models can be selected and saved" do
+    initialize!()
+    {:ok, view, _html} = open("/settings/models")
+
+    for model <- ~w(gpt-6.1-sol gpt-6-astra gpt-6-sol gpt-6-luna) do
+      assert has_element?(
+               view,
+               "select[name='deep_models[0][model]'] option[value='codex:#{model}']"
+             )
+
+      view
+      |> form("#settings-request_models-form", %{
+        "deep_models" => %{"0" => %{"model" => "codex:#{model}", "effort" => "high"}}
+      })
+      |> render_submit()
+
+      assert Settings.fetch!().work.deep_models == ["codex:#{model}/high@default"]
+    end
+  end
+
   test "a page read reads the settings view once" do
     {:ok, _snapshot} = Settings.initialize(@actor)
     {:ok, view, _html} = open("/repositories")
@@ -1496,7 +1518,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
           do: select |> LazyHTML.query("option") |> LazyHTML.attribute("value")
 
     assert orders |> Enum.uniq() |> length() == 1
-    assert hd(orders) == ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra)
+
+    assert hd(orders) ==
+             ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra codex:gpt-6-astra codex:gpt-6-luna codex:gpt-6-sol codex:gpt-6.1-sol)
 
     deep =
       LazyHTML.query(
@@ -2219,7 +2243,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> render_click()
 
     refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
-    assert length(Settings.fetch!().pricing_rates) == 3
+    assert length(Settings.fetch!().pricing_rates) == 7
     assert Settings.fetch!().installation.revision == 4
     assert_patch(view, "/settings/prices")
     assert has_element?(view, ".form-feedback-success", "test-model was removed.")

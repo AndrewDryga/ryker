@@ -60,6 +60,9 @@ defmodule Ryker.ControlPlane.Paths do
   def incident_room(ref) when is_binary(ref),
     do: ~p"/incident-rooms/#{id("slack_incident", ref)}"
 
+  @spec rule(String.t()) :: String.t()
+  def rule(ref) when is_binary(ref), do: ~p"/rules/#{id("behavior", ref)}"
+
   @spec schedule(String.t()) :: String.t()
   def schedule(ref) when is_binary(ref), do: ~p"/schedules/#{id("schedule", ref)}"
 

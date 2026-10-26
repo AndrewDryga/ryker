@@ -799,13 +799,15 @@ defmodule Ryker.Delivery.ChatCard do
   defp behavior_name(:guidance), do: "Guidance"
   defp behavior_name(:standing_assignment), do: "Rule"
 
-  defp behavior_link(:standing_assignment, ref), do: {"Open rules", "/rules#behavior-" <> ref}
+  defp behavior_link(:standing_assignment, ref), do: {"Open rule", ControlPlane.Paths.rule(ref)}
   defp behavior_link(_kind, ref), do: {"Open instructions", "/instructions#behavior-" <> ref}
 
   defp automation_link("schedule:" <> _rest = ref),
     do: {"Open schedule", ControlPlane.Paths.schedule(ref)}
 
-  defp automation_link("behavior:" <> _rest = ref), do: {"Open rules", "/rules#behavior-" <> ref}
+  defp automation_link("behavior:" <> _rest = ref),
+    do: {"Open rule", ControlPlane.Paths.rule(ref)}
+
   defp automation_link(_ref), do: {nil, nil}
 
   defp outcome_line(tone, word, link, href),

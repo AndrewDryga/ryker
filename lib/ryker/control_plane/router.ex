@@ -1286,7 +1286,7 @@ defmodule Ryker.ControlPlane.Router do
 
   defp action_return_path("behavior", resource_ref, options) do
     case options.projection.behavior.(resource_ref) do
-      {:ok, %{kind: kind}} -> BehaviorLibrary.return_path(kind)
+      {:ok, %{kind: kind}} -> BehaviorLibrary.return_path(kind, resource_ref)
       _unavailable -> "/rules"
     end
   end

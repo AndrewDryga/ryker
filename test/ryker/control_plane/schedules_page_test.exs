@@ -35,6 +35,30 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
     updated_at: ~U[2026-09-20 08:00:00Z]
   }
 
+  test "countdowns use real elapsed time across daylight-saving changes and retain the exact instant" do
+    # On the fall-back day, subtracting the two local clock readings loses
+    # an hour. The next run must count UTC instants, even in another zone.
+    item = %{
+      @item
+      | next_occurrence_at: ~U[2026-10-25 02:30:00Z],
+        next_local: ~N[2026-10-25 03:30:00],
+        now_local: ~N[2026-10-25 02:30:00]
+    }
+
+    html = SchedulesPage.list([item], %{}, ~U[2026-10-25 00:30:00Z])
+
+    time =
+      html
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".schedule-countdown")
+
+    assert LazyHTML.text(time) == "Next run in 2 hours"
+    assert LazyHTML.attribute(time, "datetime") == ["2026-10-25T02:30:00Z"]
+    assert LazyHTML.attribute(time, "phx-hook") == ["ScheduleCountdown"]
+    assert LazyHTML.attribute(time, "data-remaining-seconds") == ["7200"]
+  end
+
   describe "fixed defects" do
     test "a schedule's destination names the channel once, never a doubled transport prefix" do
       # The schedule page printed "slack:slack:T123:C456 / 1787832000.001000":
@@ -107,11 +131,15 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
                "Summarize unresolved incidents."
 
       assert words(LazyHTML.query(row, ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in Slack channel · next run tomorrow 09:00 Berlin time · repository acme/api"
+               "Every day at 09:00 Berlin time · in Slack channel · Next run in 21 hours · repository acme/api"
 
       next = LazyHTML.query(row, ".entity-meta time")
       assert LazyHTML.attribute(next, "datetime") == ["2026-09-25T07:00:00Z"]
-      assert LazyHTML.attribute(next, "title") == ["25 Sep 2026, 07:00 UTC"]
+
+      assert LazyHTML.attribute(next, "title") == [
+               "tomorrow 09:00 Berlin time · 25 Sep 2026, 07:00 UTC"
+             ]
+
       refute LazyHTML.text(row) =~ "schedule:one"
     end
 
@@ -129,7 +157,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
         assert LazyHTML.text(state) == word
         assert LazyHTML.attribute(state, "data-tone") == [tone]
-        assert words(LazyHTML.query(row, ".entity-meta")) =~ "next run" == (status == :active)
+        assert words(LazyHTML.query(row, ".entity-meta")) =~ "Next run" == (status == :active)
       end
     end
 
@@ -192,7 +220,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       }
 
       assert words(LazyHTML.query(list_row(overdue), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in Slack channel · was due 28 Aug, 09:00 Berlin time"
+               "Every day at 09:00 Berlin time · in Slack channel · Overdue by 27 days 3 hours"
     end
 
     test "a direct conversation, a thread and a stop date read as words" do
@@ -206,12 +234,12 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
       }
 
       assert words(LazyHTML.query(list_row(direct), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in a direct conversation · next run tomorrow 09:00 Berlin time · stops 31 Oct"
+               "Every day at 09:00 Berlin time · in a direct conversation · Next run in 21 hours · stops 31 Oct"
 
       thread = %{@item | destination_thread_ref: "1787832000.001000", repository: nil}
 
       assert words(LazyHTML.query(list_row(thread), ".entity-meta")) ==
-               "Every day at 09:00 Berlin time · in a thread in Slack channel · next run tomorrow 09:00 Berlin time"
+               "Every day at 09:00 Berlin time · in a thread in Slack channel · Next run in 21 hours"
     end
 
     test "the list offers Current and Past, keeps the search across both, and says how to add one" do
@@ -315,7 +343,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
                {"Where results go", "Slack channel · in a thread"},
                {"Repository", "acme/api"},
                {"What it may do", "Read only"},
-               {"Next run", "tomorrow 09:00 Berlin time"},
+               {"Next run", "Next run in 21 hours 25 Sep 2026, 09:00 Berlin time"},
                {"Stops", "Never"},
                {"Started from", "Set up the morning summary"}
              ]
@@ -551,7 +579,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
 
   defp list_row(item) do
     [item]
-    |> SchedulesPage.list(%{"q" => "", "view" => "current"})
+    |> SchedulesPage.list(%{"q" => "", "view" => "current"}, @now)
     |> IO.iodata_to_binary()
     |> LazyHTML.from_fragment()
     |> LazyHTML.query(".entity-list .entity-row")

@@ -274,10 +274,14 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              "input:library"
            ) == {:ok, 1}
 
-    assert %{items: [item], runs: [run], counts: %{"active" => 1}} =
+    assert %{items: [item], counts: %{"active" => 1}} =
              BehaviorLibrary.list(:standing_assignment, %{})
 
     assert item.ref == rule.behavior.ref
+    assert {:ok, %{rule: detail, runs: [run]}} = BehaviorLibrary.fetch_rule(item.ref)
+    assert detail == item
+    assert BehaviorLibrary.fetch_rule(preference.behavior.ref) == :not_found
+    refute Map.has_key?(BehaviorLibrary.list(:standing_assignment, %{}), :runs)
     assert run.rule_ref == item.ref
     assert run.outcome == :pending
     assert item.payload["filter"] != nil

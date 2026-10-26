@@ -6,6 +6,7 @@ import {createSettingsGuard} from "/assets/settings-draft.mjs"
 import {applyFilterChange} from "/assets/filter-toolbar.mjs"
 import {ConversationHistory} from "/assets/history.mjs"
 import {FilterMenu} from "/assets/filter-menu.mjs"
+import {ScheduleCountdown} from "/assets/schedule-countdown.mjs"
 import {ElapsedTime} from "/assets/elapsed-time.mjs"
 import {RepositoryPicker} from "/assets/repository-picker.mjs"
 import {copyValueFromEvent} from "/assets/copy-value.mjs"
@@ -61,7 +62,7 @@ const PrivateKeyFile = {
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
   params: () => ({_csrf_token: csrfToken, draft: composerDraft(document)}),
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime, ScheduleCountdown}
 })
 liveSocket.connect()
 // After connect, so LiveView sees a submit first and its own forms stay its own.

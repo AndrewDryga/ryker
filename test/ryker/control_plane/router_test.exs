@@ -1900,8 +1900,8 @@ defmodule Ryker.ControlPlane.RouterTest do
     # and the run it started are the next thing on screen; a deleted schedule
     # returns to the list, because its page offers nothing more to do.
     for {kind, ref, action, expected, return_path} <- [
-          {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/rules"},
-          {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/rules"},
+          {"behavior", "behavior:one", "disabled", {:behavior_status, :disabled}, "/rules/one"},
+          {"behavior", "behavior:one", "deleted", {:behavior_status, :deleted}, "/rules/one"},
           {"schedule", "schedule:one", "paused", {:schedule_status, :paused}, "/schedules/one"},
           {"schedule", "schedule:one", "active", {:schedule_status, :active}, "/schedules/one"},
           {"schedule", "schedule:one", "deleted", {:schedule_status, :deleted}, "/schedules"},

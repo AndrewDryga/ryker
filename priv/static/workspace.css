@@ -1886,7 +1886,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    block resets it.) */
 .behavior-page .section-head, .instructions-editor > .section-head { position:static; top:auto; z-index:auto; padding:0; border:0; background:none; backdrop-filter:none; }
 .behavior-page .entity-text { white-space:pre-line; }
-.behavior-page .entity-meta code, .behavior-conditions code { font-family:var(--ryker-font-mono); font-size:12px; color:var(--ryker-text); overflow-wrap:anywhere; }
+.behavior-page .entity-meta code { font-family:var(--ryker-font-mono); font-size:12px; color:var(--ryker-text); overflow-wrap:anywhere; }
 .behavior-more { max-width:720px; margin:4px 0 0; }
 .behavior-more > summary { display:inline-flex; align-items:center; min-height:24px; padding:0; list-style:none; font-size:13px; line-height:18px; font-weight:500; color:var(--ryker-accent); cursor:pointer; }
 .behavior-more > summary::-webkit-details-marker { display:none; }
@@ -1895,7 +1895,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .behavior-full[open] .behavior-open { display:inline; }
 .behavior-page .entity-body:has(> .behavior-full[open]) > .entity-text { display:none; }
 .ryker-app .behavior-full-text { margin:4px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
-.behavior-conditions ul { margin:4px 0 0; padding:0; list-style:none; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .behavior-menu { position:relative; margin:0 -4px; }
 .ryker-app .behavior-menu > summary { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; padding:0; list-style:none; cursor:pointer; }
 .behavior-menu > summary::-webkit-details-marker { display:none; }
@@ -1924,7 +1923,14 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .instructions-global { max-width:720px; margin:12px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 @media (max-width:800px) {
   /* Row controls wrap under the text at the left edge, so the menu opens rightwards. */
-  .behavior-menu-items { right:auto; left:4px; }
+  .entity-actions { position:relative; }
+  .entity-actions .behavior-menu { position:static; }
+  .entity-actions .behavior-menu-items { right:auto; left:0; }
+}
+@media (max-width:600px) {
+  .page-action { position:relative; }
+  .page-action .behavior-menu { position:static; }
+  .page-action .behavior-menu-items { right:auto; left:0; }
 }
 
 /* Channels, repositories and working copies (2026-09-24 redesign) */
@@ -2355,8 +2361,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .schedule-task { max-width:720px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); white-space:pre-wrap; overflow-wrap:anywhere; }
 .schedule-runs .entity-name time { font-variant-numeric:tabular-nums; }
 .schedule-details { max-width:720px; margin:32px 0 0; }
-.follow-up-details { max-width:720px; margin:4px 0 0; }
-.follow-up-details > summary { min-height:32px; font-size:13px; font-weight:500; }
+.schedule-next-at { display:block; font-size:13px; color:var(--ryker-text-secondary); }
 @media (max-width:800px) {
   /* Row controls wrap under the text at the left edge, so the menu opens rightwards. */
   .entity-actions .schedule-menu-items { right:auto; left:0; }
@@ -3025,3 +3030,22 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .sent-prompt-parts p { display:flex; flex-wrap:wrap; gap:4px 10px; margin:0; font-size:13px; line-height:20px; }
 .ryker-app .sent-prompt-parts p span { color:var(--ryker-text-secondary); }
 .ryker-app .sent-prompt-parts .copy-block { margin-top:6px; }
+
+/* Automation directories: align the title, icon and controls at the top,
+   keep previews quiet and bounded, and give each row a clear reading rhythm. */
+:is(.rules-view, .schedules-view, .follow-ups-view) > .entity-list { margin-top:8px; }
+:is(.rules-view, .schedules-view, .follow-ups-view) .entity-row { align-items:start; padding:20px 0; }
+:is(.rules-view, .schedules-view, .follow-ups-view) .entity-icon { margin-top:2px; }
+:is(.rules-view, .schedules-view, .follow-ups-view) .entity-actions { margin-top:0; }
+:is(.rules-view, .schedules-view) .entity-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; color:var(--ryker-text-secondary); }
+:is(.rules-view, .schedules-view, .follow-ups-view) .entity-meta { margin-top:8px; line-height:20px; }
+.ryker-app .schedule-countdown { color:var(--ryker-text); font-weight:600; font-variant-numeric:tabular-nums; }
+.rule-view > section { margin-top:28px; }
+.rule-view .rule-fact { display:block; margin-top:4px; }
+.ryker-app .rule-task { max-width:76ch; margin:12px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:15px; line-height:1.7; }
+.rule-conditions ul { margin:12px 0 0; padding:0; list-style:none; font-size:13px; line-height:24px; }
+.rule-conditions code { overflow-wrap:anywhere; }
+@media (max-width:640px) {
+  :is(.rules-view, .schedules-view, .follow-ups-view) .entity-icon { width:32px; height:32px; margin-right:12px; }
+  :is(.rules-view, .schedules-view, .follow-ups-view) .entity-meta time { white-space:normal; }
+}
