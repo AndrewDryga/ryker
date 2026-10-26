@@ -543,6 +543,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
           {850, "850 ms"},
           {59_500, "59.5 s"},
           {1_990_000, "33 min 10 s"},
+          {2_123_000, "35 min 23 s"},
           {35_999_940_000, "9999 h 59 min"}
         ] do
       totals = Map.merge(snapshot.totals, %{provider_ms: ms, queued_ms: 0, host_ms: 0, timed: 1})
@@ -558,6 +559,11 @@ defmodule Ryker.ControlPlane.UsagePageTest do
 
       assert document |> LazyHTML.query(".usage-donut-chart .donut-caption") |> LazyHTML.text() ==
                "total time"
+
+      # An already-open tab kept the previous stylesheet after a deploy and
+      # showed "35 min 23 stotal time". Text must stay separated without CSS.
+      assert document |> LazyHTML.query(".donut-label") |> LazyHTML.text() ==
+               duration <> " total time"
 
       assert document |> LazyHTML.query(".usage-donut svg text") |> Enum.empty?()
     end

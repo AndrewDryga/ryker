@@ -502,7 +502,7 @@ defmodule Ryker.ControlPlane.UsagePage do
         arcs,
         "</svg><div class=\"donut-label\"><strong class=\"donut-total\">",
         Units.duration(total),
-        "</strong><span class=\"donut-caption\">total time</span></div></div><dl>",
+        "</strong> <span class=\"donut-caption\">total time</span></div></div><dl>",
         Enum.map(segments, fn {label, ms, class} ->
           [
             "<div><dt><span class=\"timing-key timing-",
