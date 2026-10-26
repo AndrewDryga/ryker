@@ -407,6 +407,15 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     assert LazyHTML.query(card, ".case-card-heading h3") |> LazyHTML.text() == "HCP Terraform"
     assert LazyHTML.query(card, ".case-card-heading-detail") |> LazyHTML.text() == "via Slack"
     assert text =~ "Planning"
+    assert Enum.empty?(LazyHTML.query(card, ".provider-state, .case-card-heading-meta"))
+
+    assert LazyHTML.query(card, ".provider-body .provider-facts > div:first-child dt")
+           |> LazyHTML.text() == "Status"
+
+    assert LazyHTML.query(card, ".provider-body .provider-facts > div:first-child .ui-fact-value")
+           |> LazyHTML.text()
+           |> String.trim() == "Planning"
+
     assert text =~ "Dryga/emisar"
     assert text =~ "run-k9CpPp3nWjQrkCMG"
     assert LazyHTML.query(card, ".provider-facts.ui-facts") |> Enum.count() == 1

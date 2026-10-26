@@ -97,7 +97,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "What this work was told is connected, and the repositories it can reach."},
     "repository_choices" =>
       {"Repositories to choose from", "tools", nil,
-       "The repositories this request could be routed to work in."}
+       "Work can edit the repository routing chooses; the others are read-only."}
   }
   @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   # The evidence a self-analysis was given, under its prompt's `context`: what
@@ -1590,17 +1590,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp summary_coverage(_summary), do: nil
 
-  defp summary_body(%{"state" => %{} = state} = summary) do
-    metadata = Map.delete(summary, "state")
-
-    [
-      recall_fields(state),
-      if(map_size(metadata) > 0,
-        do: Components.disclosure_html("Coverage and source", fields(metadata, 0)),
-        else: []
-      )
-    ]
-  end
+  defp summary_body(%{"state" => %{} = state}), do: recall_fields(state)
 
   defp summary_body(summary), do: fields(summary, 0)
 
@@ -2513,7 +2503,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     [
       "<dl class=\"context-rows\">",
       Enum.map(names, &context_row(&1, "Read and write")),
-      "</dl><p>The one routing chooses can be changed; the others are mounted read only beside it.</p>"
+      "</dl>"
     ]
   end
 
@@ -2718,6 +2708,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp recall(value) do
     groups = ~w(current related rollups observations knowledge)
+    invalid = recall_invalid(value, groups)
 
     [
       Enum.map(groups, fn
@@ -2739,23 +2730,21 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
               escape(recall_title(group)),
               "</h4>",
               recall_fields(Map.get(item, "state", item)),
-              "<p class=\"knowledge-meta\">",
-              escape(readable_candidate_time(item["updated_at"])),
-              "</p>",
               topic_sources(item["source_reads"]),
-              provenance(Map.delete(item, "state")),
               "</section>"
             ]
           end)
       end),
-      provenance(recall_remainder(value, groups))
+      if(map_size(invalid) > 0, do: fields(invalid, 0), else: [])
     ]
   end
 
-  defp recall_remainder(value, groups) do
-    Enum.reduce(groups, Map.drop(value, groups), fn group, remainder ->
-      invalid = value[group] |> List.wrap() |> Enum.reject(&is_map/1)
-      if invalid == [], do: remainder, else: Map.put(remainder, group, invalid)
+  # An unreadable retained entry is still evidence, not source metadata. Keep
+  # its escaped value visible without bringing back the technical folds.
+  defp recall_invalid(value, groups) do
+    Enum.reduce(groups, %{}, fn group, invalid ->
+      entries = value[group] |> List.wrap() |> Enum.reject(&is_map/1)
+      if entries == [], do: invalid, else: Map.put(invalid, group, entries)
     end)
   end
 
@@ -2837,7 +2826,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp topic_sources(reads) do
     links = reads |> List.wrap() |> Enum.map(&topic_source/1) |> Enum.reject(&is_nil/1)
-    if links == [], do: [], else: ["<ul class=\"learned-topic-sources\">", links, "</ul>"]
+
+    if links == [],
+      do: [],
+      else: [
+        "<ul class=\"learned-topic-sources\" aria-label=\"Source messages\">",
+        links,
+        "</ul>"
+      ]
   end
 
   defp topic_source(%{"tool" => "read_slack_source", "arguments" => args}) when is_map(args) do
@@ -2940,7 +2936,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     lead = Enum.find(~w(goal title summary), &present(state[&1]))
     narrative = ~w(open_loops decisions unresolved_questions)
     compact = ~w(active_topics participants topology purpose)
-    remaining = Map.drop(state, List.wrap(lead) ++ ["situation"] ++ narrative ++ compact)
+    # The exact refs and source metadata remain in the submitted JSON. A
+    # summary's prose should not repeat those records in nested disclosures.
+    remaining =
+      state
+      |> Map.drop(List.wrap(lead) ++ ["situation", "evidence_refs"] ++ narrative ++ compact)
+      |> Map.reject(fn {_key, value} -> blank?(value) end)
 
     [
       "<div class=\"saved-understanding\">",
@@ -2980,7 +2981,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           ]
       end),
       "</dl>",
-      provenance(remaining),
+      if(map_size(remaining) > 0, do: fields(remaining, 0), else: []),
       "</div>"
     ]
   end

@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{CapabilityTools, RequestContextHTML}
+  alias Ryker.ControlPlane.{CapabilityTools, PromptDocument, RequestContextHTML}
   alias Ryker.InspectionRedactor
   alias Ryker.StateTools.FixedTools
 
@@ -156,8 +156,16 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
              {"andrewdryga-test", "Read and write"}
            ]
 
-    assert LazyHTML.text(routing) =~
-             "The one routing chooses can be changed; the others are mounted read only beside it."
+    help = LazyHTML.query(routing, "[data-source=repository_choices] .prompt-source-help")
+
+    assert LazyHTML.text(help) ==
+             "Work can edit the repository routing chooses; the others are read-only."
+
+    refute LazyHTML.text(routing) =~ "The one routing chooses"
+
+    assert Enum.empty?(
+             LazyHTML.query(routing, "[data-source=repository_choices] .prompt-source-body > p")
+           )
   end
 
   test "retained Work history exposes its messages, limits and summary availability" do
@@ -1209,16 +1217,19 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert Enum.empty?(html |> LazyHTML.from_fragment() |> LazyHTML.query("details[open]"))
   end
 
-  test "conversation recall keeps source metadata and unfamiliar state fields inspectable" do
-    # The readable summary previously dropped purpose, evidence and new fields.
+  test "conversation recall keeps useful text without duplicate technical folds or update times" do
+    # Two Source details folds and a bare update time obscured one summary.
+    # Technical identifiers stay in the original submitted JSON, not the prose.
     context = %{
       "operator_context" => %{
         "continuity" => %{
           "current" => %{
             "source_ref" => "continuity:source",
+            "updated_at" => "2026-10-20T21:55:15Z",
             "state" => %{
               "situation" => "Allocation recovered",
               "purpose" => "Track recovery",
+              "evidence_refs" => ["record:evidence:one"],
               "future" => "<extra>"
             }
           }
@@ -1226,18 +1237,42 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       }
     }
 
+    artifact = InspectionRedactor.artifact(context)
+
     html =
-      context
-      |> InspectionRedactor.artifact()
+      artifact
       |> RequestContextHTML.assembly("$.work", "recall")
       |> IO.iodata_to_binary()
 
     assert html =~ "Track recovery"
     assert html =~ "&lt;extra&gt;"
-    assert html =~ "Source details"
+    refute html =~ "Source details"
+    refute html =~ "Evidence refs"
+    refute html =~ "record:evidence:one"
+    refute html =~ "21:55:15"
     document = LazyHTML.from_fragment(html)
+
+    assert Enum.empty?(
+             LazyHTML.query(
+               document,
+               ".conversation-recall details, .conversation-recall .knowledge-meta"
+             )
+           )
+
     assert Enum.empty?(LazyHTML.query(document, ".conversation-recall h5"))
     assert Enum.empty?(LazyHTML.query(document, ".context-inline-disclosure pre"))
+
+    raw =
+      artifact
+      |> PromptDocument.render("recall-submitted-document")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".submitted-prompt-formatted")
+      |> LazyHTML.text()
+
+    assert raw =~ "record:evidence:one"
+    assert raw =~ "2026-10-20T21:55:15Z"
+    assert raw =~ "continuity:source"
   end
 
   test "readable source notes retain safe link and emphasis formatting" do

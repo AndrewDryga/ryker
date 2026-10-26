@@ -1843,10 +1843,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp message_title(%{event_kind: :event}), do: "Incoming event"
   defp message_title(_message), do: "Incoming message"
 
-  # A recognized notification leads with provider, state, subject and a few
-  # labelled facts. The state badge is text; the accent only says which
-  # provider, and the provider is a format, not an authenticated sender.
+  # A notification's status is a plain fact inside its body, not a coloured
+  # badge. Recognition still proves a format, not an authenticated sender.
   defp provider_header(assigns) do
+    assigns = assign(assigns, :facts, provider_facts(assigns.provider))
+
     ~H"""
     <div
       class={"provider-message provider-#{@provider.provider}"}
@@ -1855,9 +1856,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     >
       <.card_heading title={@provider.name}>
         <:detail>via {source_transport(@provider)}</:detail>
-        <:meta :if={@provider.state}>
-          <span class={"provider-state tone-#{@provider.tone}"}>{@provider.state}</span>
-        </:meta>
       </.card_heading>
       <div class="provider-body">
         <p :if={@provider.subject || @provider.links != []} class="provider-subject">
@@ -1873,7 +1871,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
               else: link.label} ↗</a>
           </span>
         </p>
-        <.fact_list :if={@provider.facts != []} facts={@provider.facts} class="provider-facts" />
+        <.fact_list :if={@facts != []} facts={@facts} class="provider-facts" />
         <.disclosure
           :for={group <- @provider[:groups] || []}
           label={group.label}
@@ -1886,6 +1884,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
     </div>
     """
   end
+
+  defp provider_facts(%{state: nil, facts: facts}), do: facts
+
+  defp provider_facts(%{state: state, facts: facts}),
+    do: [%{label: "Status", value: state} | facts]
 
   defp source_transport(%{provider: :grafana}), do: "webhook"
   defp source_transport(_provider), do: "Slack"

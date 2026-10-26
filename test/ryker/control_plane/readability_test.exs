@@ -8,6 +8,20 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     %{css: Assets.call(conn, []).resp_body}
   end
 
+  test "notification states are plain facts and rule field paths have room to read", %{css: css} do
+    refute css =~ ".provider-state"
+
+    assert [_, fields] =
+             Regex.run(~r/\.ryker-app \.standing-rule \.ui-facts > div \{([^}]+)\}/, css)
+
+    assert fields =~ "grid-template-columns:minmax(0,184px) minmax(0,1fr)"
+
+    assert [_, sources] = Regex.run(~r/\.learned-topic-sources \{([^}]+)\}/, css)
+    assert sources =~ "margin:16px 0 0"
+    assert sources =~ "padding:12px 0 0"
+    assert sources =~ "border-top:1px solid var(--ryker-stroke)"
+  end
+
   test "peer input records keep full-width separators without a second details shell", %{css: css} do
     # Flattening the production input card must not remove separators or retain
     # the old nested disclosure's extra vertical padding (Andrew, 2026-10-25).

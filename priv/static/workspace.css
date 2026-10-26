@@ -919,12 +919,6 @@
    the card's edges, so the accent kept beside it ran under the heading (2026-10-08). */
 .provider-body { border-left:3px solid var(--ryker-stroke-strong); padding-left:12px; }
 .provider-terraform .provider-body, .provider-grafana .provider-body { border-left-color:var(--ryker-text-secondary); }
-.provider-state { font-size:13px; padding:2px 8px; border-radius:3px; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
-.provider-state.tone-planning { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
-.provider-state.tone-confirmation { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
-.provider-state.tone-failure { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
-.provider-state.tone-applied, .provider-state.tone-resolved { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
-.provider-state.tone-firing { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
 .provider-subject { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin:8px 0; font-size:14px; line-height:22px; color:var(--ryker-text); overflow-wrap:anywhere; }
 .provider-facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:4px 16px; margin:8px 0 0; font-size:14px; }
 .provider-facts > div { display:grid; grid-template-columns:96px minmax(0,1fr); gap:8px; }
@@ -1078,14 +1072,10 @@
    actions; lifecycle meaning keeps independent, labelled colors. */
 .status-active, .status-done { color:var(--ryker-success); background:var(--ryker-success-soft); border-color:var(--ryker-success); }
 .status-attention, .event-state.tone-warn { color:var(--ryker-warning); background:var(--ryker-warning-soft); border-color:var(--ryker-warning); }
-.event-state.tone-bad, .provider-state.tone-failure, .provider-state.tone-firing,
-.lab-notice {
+.event-state.tone-bad, .lab-notice {
   color:var(--ryker-error); background:var(--ryker-error-soft); border-color:var(--ryker-error);
 }
 .status-quiet, .event-state { color:var(--ryker-text-secondary); background:var(--ryker-surface-emphasis); }
-.provider-state.tone-planning { color:var(--ryker-info); background:var(--ryker-info-soft); }
-.provider-state.tone-confirmation { color:var(--ryker-warning); background:var(--ryker-warning-soft); }
-.provider-state.tone-applied, .provider-state.tone-resolved { color:var(--ryker-success); background:var(--ryker-success-soft); }
 
 .setup-shortcut { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:56px; margin:16px 0 2px; padding:9px 11px; border:1px solid var(--ryker-warning); border-radius:6px; background:var(--ryker-warning-soft); color:var(--ryker-text); }
 .setup-shortcut span { display:grid; gap:2px; }
@@ -1529,7 +1519,7 @@
 .learned-topic-summary > :first-child { margin-top:0; }
 .learned-topic-summary > :last-child { margin-bottom:0; }
 .learned-topic-meta { display:flex; flex-wrap:wrap; gap:4px; margin:12px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
-.learned-topic-sources { display:flex; flex-wrap:wrap; gap:4px 20px; margin:8px 0 0; padding:0; list-style:none; font-size:12px; }
+.learned-topic-sources { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 20px; margin:16px 0 0; padding:12px 0 0; border-top:1px solid var(--ryker-stroke); list-style:none; font-size:12px; }
 .learned-topic-details { margin:12px 0 0; }
 .candidate-state:empty { display:none; }
 .context-note-topics { display:flex; flex-wrap:wrap; gap:4px; list-style:none; margin:6px 0 0; padding:0; }
@@ -1542,7 +1532,6 @@
 .prompt-source-body .conversation-recall { margin-bottom:12px; }
 .learned-topics { display:grid; gap:12px; max-width:none; }
 .knowledge-entry > .knowledge-provenance,
-.conversation-recall > .knowledge-provenance,
 .learned-topic > .learned-topic-details { margin:12px calc(-1 * var(--knowledge-item-inset)) calc(-1 * var(--knowledge-item-inset)); padding:0 var(--knowledge-item-inset); border-top:1px solid var(--ryker-stroke); }
 @media (max-width:580px) {
   .prompt-source-body .knowledge-entry,
@@ -1578,7 +1567,7 @@
 .standing-rule-heading strong, .standing-rule.verdict-matched .standing-rule-heading strong { grid-area:name; min-width:0; margin:0; color:var(--ink); font-size:13px; line-height:21px; font-weight:600; }
 .standing-rule-reason, .standing-rule.verdict-matched .standing-rule-reason { grid-area:reason; margin:0; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 .standing-rule-definition { grid-area:details; min-width:0; margin:0; }
-.ryker-app .standing-rule .ui-facts > div { grid-template-columns:112px minmax(0,1fr); gap:12px; border:0; padding:0; }
+.ryker-app .standing-rule .ui-facts > div { grid-template-columns:minmax(0,184px) minmax(0,1fr); gap:12px; border:0; padding:0; }
 .ryker-app .standing-rule .ui-facts { gap:8px; }
 .ryker-app .standing-rule .ui-facts dd { font-size:13px; }
 .standing-rule.verdict-matched .ui-facts dt { color:var(--ryker-text-secondary); }
