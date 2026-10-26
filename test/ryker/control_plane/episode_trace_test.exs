@@ -48,6 +48,12 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
             "deployment" => nil,
             "errors" => [],
             "metadata" => %{},
+            "environment" => "_prod_",
+            "tags" => ["_prod_"],
+            "blocks" => [
+              %{"text" => %{"text" => "*<https://example.com/alert|Recurrent job failed>*"}},
+              %{"text" => %{"type" => "plain_text", "text" => "_literal_"}}
+            ],
             "attachments" => [
               %{"title" => "Run run-example", "title_link" => "https://example.com/run/example"}
             ]
@@ -77,8 +83,33 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     refute LazyHTML.text(wait) =~ "Ryker continues when the awaited event"
 
     assert LazyHTML.query(wait, ".wait-match a") |> LazyHTML.attribute("href") == [
-             "https://example.com/run/example"
+             "https://example.com/run/example",
+             "https://example.com/alert"
            ]
+
+    # Native alert waits exposed Slack's *<url|label>* envelope as prose.
+    assert LazyHTML.query(wait, ".wait-match strong a") |> LazyHTML.text() ==
+             "Recurrent job failed"
+
+    refute LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ "*<https://"
+    assert LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ "_prod_"
+    assert LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ ~s(Exactly ["_prod_"])
+    assert LazyHTML.query(wait, ".wait-match") |> LazyHTML.text() =~ "_literal_"
+    assert Enum.empty?(LazyHTML.query(wait, ".wait-match em"))
+
+    webhook = put_in(record.payload["event_matcher"]["source_kind"], "webhook")
+
+    plain =
+      render_component(&EpisodePage.render/1,
+        snapshot: %{detail | trace: EpisodeTrace.project(episode, [], [webhook])},
+        requests: nil,
+        params: %{}
+      )
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".wait-match")
+
+    assert LazyHTML.text(plain) =~ "*<https://example.com/alert|Recurrent job failed>*"
+    assert Enum.empty?(LazyHTML.query(plain, "strong, em"))
   end
 
   test "older untyped wait timing fields cannot crash the timeline" do

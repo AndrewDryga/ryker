@@ -385,6 +385,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   # A bounded, sanitized error excerpt lets the closed row explain a failure
   # without eagerly preparing its response, output or full error artifact.
+  defp failure_detail(%{"status" => "failed", "error" => error, "ryker_summary" => summary})
+       when error in ["invalid_arguments", "search_unavailable"] and is_binary(summary),
+       do: InspectionRedactor.artifact(summary, max_bytes: 1_024).text
+
+  defp failure_detail(%{
+         "status" => "failed",
+         "error" => "search_unavailable:" <> _,
+         "ryker_summary" => summary
+       })
+       when is_binary(summary),
+       do: InspectionRedactor.artifact(summary, max_bytes: 1_024).text
+
   defp failure_detail(%{"status" => "failed", "error" => error}) when is_binary(error),
     do: InspectionRedactor.artifact(error, max_bytes: 1_024).text
 

@@ -34,6 +34,14 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert css =~ ".recalled-knowledge { display:grid; gap:16px;"
     assert css =~ ".context-notes { display:grid; gap:12px;"
     assert css =~ ".ui-knowledge-item-footer"
+    # Native QA found titles shifting by39px between Code and Emisar rows,
+    # and a rotated non-square chevron protruding at320px. Reserve one shared
+    # brand column and a square rotation box for every row.
+    assert [_, row] = Regex.run(~r/\.tool-run-line \{([^}]+)\}/, css)
+    assert row =~ "grid-template-columns:80px minmax(0,1fr) auto"
+    assert [_, chevron] = Regex.run(~r/\.tool-run-detail > summary::after \{([^}]+)\}/, css)
+    assert chevron =~ "width:20px"
+    assert chevron =~ "height:20px"
     # The superseded direct-div spacing also selected the shared body/footer,
     # overriding their common rhythm only for conversation summaries.
     refute css =~ ".conversation-recall > div"

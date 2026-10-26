@@ -304,7 +304,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         verification: sanitized["verification"],
         trigger: wait_trigger(matcher),
         deadline: wait_time(sanitized["deadline_at"]),
-        conditions: wait_conditions(matcher["match"], []),
+        conditions: wait_conditions(matcher["match"], [], matcher["source_kind"]),
         timing: compact_details(timing),
         record: text
       }
@@ -322,33 +322,43 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp wait_trigger(%{"type" => type}) when type in ["after", "at"], do: "Scheduled time"
   defp wait_trigger(_matcher), do: "Recorded event condition"
 
-  defp wait_conditions(value, [_ | _] = path) when is_map(value) and map_size(value) == 0,
-    do: [wait_condition(value, path)]
+  defp wait_conditions(value, [_ | _] = path, source) when is_map(value) and map_size(value) == 0,
+    do: [wait_condition(value, path, source)]
 
-  defp wait_conditions(value, path) when is_map(value) do
+  defp wait_conditions(value, path, source) when is_map(value) do
+    # Block Kit explicitly distinguishes literal text from mrkdwn. Keep the
+    # parent object's choice while walking down to its nested text field.
+    source = if value["type"] == "plain_text", do: nil, else: source
+
     value
     |> Enum.sort()
-    |> Enum.flat_map(fn {key, nested} -> wait_conditions(nested, path ++ [key]) end)
+    |> Enum.flat_map(fn {key, nested} -> wait_conditions(nested, path ++ [key], source) end)
   end
 
-  defp wait_conditions([_ | _] = value, path) do
+  defp wait_conditions([_ | _] = value, path, source) do
     if Enum.all?(value, &is_map/1) do
       value
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {nested, index} ->
-        wait_conditions(nested, path ++ ["match #{index}"])
+        wait_conditions(nested, path ++ ["match #{index}"], source)
       end)
     else
-      [wait_condition(value, path)]
+      [wait_condition(value, path, source)]
     end
   end
 
-  defp wait_conditions(nil, []), do: []
-  defp wait_conditions(value, path), do: [wait_condition(value, path)]
+  defp wait_conditions(nil, [], _source), do: []
+  defp wait_conditions(value, path, source), do: [wait_condition(value, path, source)]
 
-  defp wait_condition(value, path) do
+  defp wait_condition(value, path, source) do
     label = Enum.map_join(path, " · ", &capitalize(human(&1)))
-    %{label: label, value: wait_value(value, List.last(path)), href: wait_url(value)}
+
+    %{
+      label: label,
+      value: wait_value(value, List.last(path)),
+      href: wait_url(value),
+      markdown?: source == "slack" and is_binary(value) and List.last(path) in ~w(text pretext)
+    }
   end
 
   defp wait_value(nil, _field), do: "No value (null)"

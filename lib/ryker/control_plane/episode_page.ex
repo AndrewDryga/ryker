@@ -2152,9 +2152,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <div :for={condition <- @step.wait.conditions}>
           <dt>{condition.label}</dt>
           <dd>
-            <a :if={condition.href} href={condition.href}>{condition.value}</a><span :if={
-              !condition.href
-            }>{condition.value}</span>
+            <a :if={condition.href} href={condition.href}>{condition.value}</a><div
+              :if={!condition.href && condition.markdown?}
+              class="markdown-preview"
+            >
+              {SlackMarkdown.html(condition.value)}
+            </div>
+            <span :if={!condition.href && !condition.markdown?}>{condition.value}</span>
           </dd>
         </div>
       </dl>

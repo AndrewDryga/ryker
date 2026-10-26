@@ -148,6 +148,55 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert Enum.empty?(LazyHTML.query(document, ".tool-run-detail[open]"))
   end
 
+  test "closed failures keep the human explanation rather than model-only state-tool codes" do
+    # Native alert review found a bare invalid_arguments and model-only search
+    # recovery instructions replacing the existing human explanation.
+    work = episode_with_tool!("human-errors", "small")
+
+    for {{error, expected}, sequence} <-
+          Enum.with_index(
+            [
+              {"invalid_arguments",
+               "Ryker rejected the call because its arguments did not match what the tool accepts."},
+              {"search_unavailable: Do not retry.",
+               "Slack lets Ryker search only for a short time after a message that mentions it, and this run had no such permission."}
+            ],
+            2
+          ) do
+      activity!(work, sequence, "tool.completed", %{
+        "status" => "failed",
+        "input" => %{"server" => "controller-tools", "tool" => "search_slack"},
+        # The explanation is attached by the state-call join, not inferred
+        # from an arbitrary worker tool's similarly named error code.
+        "ryker_summary" => expected,
+        "error" => error
+      })
+
+      document = work |> rendered() |> LazyHTML.from_document()
+      row = LazyHTML.query(document, "#event-activity-#{event_id(work, sequence)}")
+      assert Enum.empty?(LazyHTML.query(row, ".tool-run-detail[open]"))
+      assert LazyHTML.query(row, ".tool-run-error") |> LazyHTML.text() == expected
+    end
+  end
+
+  test "external failures do not inherit Ryker or Slack explanations from matching error codes" do
+    # The first humanization pass mapped every provider's invalid_arguments
+    # and search_unavailable to Ryker/Slack, even without host call evidence.
+    work = episode_with_tool!("external-errors", "small")
+
+    for {error, sequence} <- Enum.with_index(["invalid_arguments", "search_unavailable"], 2) do
+      activity!(work, sequence, "tool.completed", %{
+        "status" => "failed",
+        "input" => %{"server" => "external-search", "tool" => "search"},
+        "error" => error
+      })
+
+      document = work |> rendered() |> LazyHTML.from_document()
+      row = LazyHTML.query(document, "#event-activity-#{event_id(work, sequence)}")
+      assert LazyHTML.query(row, ".tool-run-error") |> LazyHTML.text() == error
+    end
+  end
+
   test "a completion withholding locations does not resurrect a start's path on the closed row" do
     work = episode_with_tool!("withheld-start-location", "small")
 

@@ -757,7 +757,7 @@
 .tool-run-steps { display:grid; margin:12px 0 0; padding:0; list-style:none; }
 .tool-run-step { border-top:1px solid var(--ryker-stroke); }
 .tool-run-step:first-child { border-top:0; }
-.tool-run-line { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:2px 14px; min-height:44px; padding:12px 0; font-size:13px; line-height:20px; }
+.tool-run-line { display:grid; grid-template-columns:80px minmax(0,1fr) auto; align-items:center; gap:2px 14px; min-height:44px; padding:12px 0; font-size:13px; line-height:20px; }
 .tool-run-detail > summary.tool-run-line { list-style:none; cursor:pointer; }
 .tool-run-detail > summary::-webkit-details-marker { display:none; }
 .ryker-app .tool-run-detail > summary:hover .tool-run-title { text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
@@ -774,7 +774,7 @@
 .tool-run-warning { color:var(--ryker-warning); }
 .tool-run-error { color:var(--ryker-error); }
 .tool-run-duration { grid-column:3; grid-row:1; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
-.tool-run-detail > summary::after { content:"›"; grid-column:3; grid-row:2; justify-self:end; color:var(--ryker-text-secondary); font-size:20px; }
+.tool-run-detail > summary::after { content:"›"; grid-column:3; grid-row:2; justify-self:end; width:20px; height:20px; text-align:center; color:var(--ryker-text-secondary); font-size:20px; line-height:20px; }
 .tool-run-detail[open] > summary::after { transform:rotate(90deg); }
 .tool-run-body { margin:0 0 12px; padding:4px 0 0; border:0; background:transparent; }
 .tool-run-body .action-card > :first-child:not(.case-card-heading) { margin-top:0; }

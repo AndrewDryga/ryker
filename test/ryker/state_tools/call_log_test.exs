@@ -192,6 +192,7 @@ defmodule Ryker.StateTools.CallLogTest do
                coop_event(work, 6, "tool.completed", DateTime.utc_now(), %{
                  "kind" => "execute",
                  "status" => "failed",
+                 "error" => "search_unavailable: Do not retry.",
                  "tool_call_id" => "exec-list"
                })
              ])
@@ -201,6 +202,18 @@ defmodule Ryker.StateTools.CallLogTest do
                "The tool failed, and Ryker has no record of receiving the call, so there is no error response to show.",
              "exec-list" => "Ryker answered the call, but the worker reported it as failed."
            } = failed_summaries(work)
+
+    {:ok, detail} = EpisodeProjection.fetch(work.episode.key)
+
+    step =
+      Enum.find(
+        detail.trace.steps,
+        &(&1[:stage] == "Tool call" &&
+            &1.summary ==
+              "Ryker answered the call, but the worker reported it as failed.")
+      )
+
+    assert ToolCard.line(step).error == step.summary
   end
 
   defp failed_summaries(work) do

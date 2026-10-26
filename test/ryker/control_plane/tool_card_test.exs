@@ -33,6 +33,19 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     path = String.duplicate("nested/", 30) <> "deployment.md"
     recorded = step(%{"kind" => "read", "title" => "Read file", "input" => %{"path" => path}})
     assert ToolCard.line(recorded).detail == path
+
+    # The closed row already identifies this single file. Opening it should
+    # expose evidence, not repeat the same filename above the Files fold.
+    grouped = render_component(&ToolCard.render/1, step: recorded, grouped: true)
+    assert Enum.empty?(grouped |> LazyHTML.from_fragment() |> LazyHTML.query(".action-path"))
+    standalone = render_component(&ToolCard.render/1, step: recorded)
+
+    assert standalone
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".action-path")
+           |> LazyHTML.text() ==
+             path
+
     recorded = Map.put(recorded, :reported_paths, %{"/locations/0/path" => "README.md"})
     assert ToolCard.line(recorded).detail == path <> " · 1 more file"
   end

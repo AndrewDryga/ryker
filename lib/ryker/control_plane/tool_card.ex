@@ -275,7 +275,12 @@ defmodule Ryker.ControlPlane.ToolCard do
         assigns.action.facts
       end
 
-    assigns = assign(assigns, :facts, facts)
+    paths =
+      if assigns.grouped,
+        do: Enum.reject(assigns.action.paths, &(&1 == detail)),
+        else: assigns.action.paths
+
+    assigns = assigns |> assign(:facts, facts) |> assign(:paths, paths)
 
     ~H"""
     <div class={"action-card action-#{@action.kind} action-event-#{@step.state}"}>
@@ -313,7 +318,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       </p>
       <p :for={note <- @action.withheld || []} :if={!@grouped} class="action-warning">{note}</p>
       <p :if={@action.warning && !@grouped} class="action-warning">⚠ {@action.warning}</p>
-      <code :for={path <- @action.paths} class="action-path">{path}</code>
+      <code :for={path <- @paths} class="action-path">{path}</code>
       <p :if={!@grouped && @step.state in ["failed", "cancelled"]} class="action-error">
         {failure_summary(@step)}
       </p>
