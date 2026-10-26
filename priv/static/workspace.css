@@ -556,6 +556,7 @@
 .case-event-content > .case-event-details { grid-column:1 / -1; grid-row:auto; }
 .case-card-heading { grid-column:1 / -1; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:8px 20px; position:static; margin:0; padding:0; border:0; background:transparent; backdrop-filter:none; color:var(--ink); }
 .case-card-heading-copy { display:grid; min-width:0; gap:4px; }
+.case-card-heading-label { margin:0; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.04em; }
 .case-card-heading-main { display:flex; min-width:0; flex-wrap:wrap; align-items:center; gap:4px 8px; }
 .case-card-heading h3 { min-width:0; margin:0; color:var(--ink); font-size:18px; line-height:26px; font-weight:600; letter-spacing:0; overflow-wrap:anywhere; }
 .case-card-heading-leading { display:inline-flex; flex:none; align-items:center; justify-content:center; min-height:24px; color:var(--ryker-text-secondary); }
@@ -1320,30 +1321,17 @@
 .repository-understanding > .knowledge-document-title { position:static; margin:0 0 12px; font-size:14px; line-height:22px; color:var(--ryker-text); }
 .summary-narrative { margin:16px 0; max-width:80ch; font-size:14px; line-height:22px; }
 .summary-narrative h5 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
-/* Notes, progress and provider/worker updates own one compact shell. The
-   component, not a page-specific stage class, selects the quiet treatment. */
-.case-entry-body:has(> .ui-activity-note) { background:transparent; border:0; border-radius:0; padding:12px var(--card-inset); }
-.case-entry:has(> .case-entry-body > .ui-activity-note) { --entry-time-inset:11px; }
-.ui-activity-note { min-width:0; max-width:84ch; padding-left:16px; border-left:2px solid var(--ryker-stroke-strong); overflow-wrap:anywhere; }
-.ui-activity-note-heading { position:static; top:auto; z-index:auto; margin:0; padding:0; border:0; background:transparent; backdrop-filter:none; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; }
-.ui-activity-note-label { margin:0 0 4px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.04em; }
-.ui-activity-note h3 { margin:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
-.ui-activity-note-meta { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
-.ui-activity-note-text { color:var(--ryker-text-secondary); font-size:13px; line-height:21px; }
-.ui-activity-note-text > .tool-run-steps { margin:0; }
-.ui-activity-note-text > .tool-run-steps .tool-run-line { padding:0; }
-.ui-activity-note-heading + .ui-activity-note-text { margin-top:6px; }
+/* Every activity keeps the timeline's shared surface, border, inset and
+   card_heading. Only the narrative measure is bounded, never the card. */
+.ui-activity-note { min-width:0; overflow-wrap:anywhere; }
+.ui-activity-note-text { max-width:80ch; color:var(--ryker-text-secondary); font-size:14px; line-height:22px; }
 .ui-activity-note-evidence { margin-top:12px; }
-.ui-activity-note-details { margin:0; border:0; }
-.ui-activity-note-details > summary { grid-template-columns:16px minmax(0,auto); width:fit-content; margin-left:auto; padding:0; }
-.ui-activity-note-details > .ui-disclosure-body { padding:8px 0 0; border-top:1px solid var(--ryker-stroke); }
 .ui-activity-note-compact { margin:0; border:0; }
 .ui-activity-note-compact > summary { min-height:44px; padding:0; grid-template-columns:16px minmax(0,1fr) auto; }
 .ui-activity-note-compact .ui-disclosure-label { color:var(--ryker-text-secondary); font-size:13px; font-weight:400; }
 .ui-activity-note-compact > .ui-disclosure-body { padding:8px 0 0; border-top:1px solid var(--ryker-stroke); }
-.case-entry:has(> .case-entry-body > .ui-activity-note[data-compact=true]) { --entry-time-inset:23px; }
-.ui-activity-note[data-tone=warn] { border-left-color:var(--ryker-warning); }
-.ui-activity-note[data-tone=bad] { border-left-color:var(--ryker-error); }
+.ui-activity-note[data-tone=warn] .case-card-heading h3 { color:var(--ryker-warning); }
+.ui-activity-note[data-tone=bad] .case-card-heading h3 { color:var(--ryker-error); }
 .event-wait .wait-verification { margin:0; max-width:80ch; color:var(--ryker-text); font-size:14px; line-height:22px; }
 .wait-trigger { display:flex; flex-wrap:wrap; gap:4px 16px; margin:12px 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .ryker-app .wait-match { display:grid; grid-template-columns:minmax(0,1fr); min-width:0; gap:8px; margin:0; padding:12px 0; border-top:1px solid var(--ryker-stroke); }

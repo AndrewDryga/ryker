@@ -1056,10 +1056,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       )
 
     ~H"""
-    <.activity_note :if={length(@lines) == 1}>
-      <:body><.tool_run_lines lines={@lines} /></:body>
-    </.activity_note>
-    <div :if={length(@lines) > 1} class="tool-run">
+    <div class="tool-run">
       <.card_heading title="Tool activity">
         <:detail :if={length(@lines) > 1}>{length(@lines)} steps</:detail>
         <:description :if={length(@services) > 1}>

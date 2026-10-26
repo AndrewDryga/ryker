@@ -91,8 +91,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(LazyHTML.query(document, ".action-card")) == 1
     assert Enum.empty?(LazyHTML.query(document, ".case-minor .action-card"))
-    assert Enum.empty?(LazyHTML.query(document, ".tool-run"))
-    assert Enum.count(LazyHTML.query(document, ".ui-activity-note .tool-run-detail")) == 1
+    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
+    assert Enum.count(LazyHTML.query(document, ".tool-run > .case-card-heading")) == 1
+    assert Enum.count(LazyHTML.query(document, ".tool-run .tool-run-detail")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note"))
 
     # A failure used to escape aggregation entirely, obscuring that it was the
     # same tool call. Both rows stay closed; failure stays visible on its row.
@@ -129,8 +131,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   end
 
   test "a standalone Slack status receipt uses a branded tool activity row" do
-    # A lone retained status used a large generic card while adjacent statuses
-    # used the proper Slack tool row. Group size must not change its meaning.
+    # A lone status lost its card while grouped statuses retained theirs.
+    # Group size must not change the card boundary or the branded row.
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
     [base | _] = snapshot.trace.steps
@@ -154,17 +156,19 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> render_episode([])
       |> LazyHTML.from_fragment()
 
-    assert Enum.empty?(LazyHTML.query(document, ".tool-run"))
+    assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
 
     assert Enum.count(
              LazyHTML.query(document, ".tool-run-step[data-service=slack] .tool-run-badge")
            ) == 1
 
     assert LazyHTML.query(document, ".tool-run-title") |> LazyHTML.text() == "Set working status"
-    # One status is one activity event, not a titled container around one row.
-    assert Enum.count(LazyHTML.query(document, ".ui-activity-note .tool-run-line")) == 1
-    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note header"))
-    refute LazyHTML.text(document) =~ "Tool activity"
+    assert Enum.count(LazyHTML.query(document, ".tool-run .tool-run-line")) == 1
+
+    assert LazyHTML.query(document, ".tool-run > .case-card-heading h3") |> LazyHTML.text() ==
+             "Tool activity"
+
+    assert Enum.empty?(LazyHTML.query(document, ".case-card-heading-detail, .ui-activity-note"))
     assert LazyHTML.text(document) =~ "is queued…"
 
     failed = %{

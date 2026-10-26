@@ -316,31 +316,26 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
              ".knowledge-actions { display:flex; justify-content:flex-end; margin-top:16px; }"
 
     assert css =~
-             ".ui-activity-note-text { color:var(--ryker-text-secondary); font-size:13px; line-height:21px; }"
+             ".ui-activity-note-text { max-width:80ch; color:var(--ryker-text-secondary); font-size:14px; line-height:22px; }"
 
     assert css =~ ".wait-match dd { margin:0; min-width:0;"
   end
 
-  test "the shared activity note owns its quiet shell at every viewport", %{css: css} do
-    assert [_, shell] =
-             Regex.run(~r/\.case-entry-body:has\(> \.ui-activity-note\) \{([^}]+)\}/, css)
-
-    assert shell =~ "background:transparent"
-    assert shell =~ "border:0"
-    assert shell =~ "border-radius:0"
-    assert shell =~ "padding:12px var(--card-inset)"
+  test "every standalone activity retains the standard timeline card at every viewport", %{
+    css: css
+  } do
+    # The shared note override stripped the card's surface and boundary from
+    # statuses, provider activity and progress, beside full tool cards.
+    refute css =~ ".case-entry-body:has(> .ui-activity-note)"
+    refute css =~ ".case-entry:has(> .case-entry-body > .ui-activity-note"
     assert css =~ ".case-entry-time { padding:var(--entry-time-inset,23px) 0 0;"
 
-    assert css =~
-             ".case-entry:has(> .case-entry-body > .ui-activity-note) { --entry-time-inset:11px; }"
-
-    assert css =~ ".ui-activity-note {"
-    assert [_, heading] = Regex.run(~r/\.ui-activity-note-heading \{([^}]+)\}/, css)
-    assert heading =~ "padding:0"
-    assert heading =~ "border:0"
-    assert heading =~ "background:transparent"
-    assert heading =~ "position:static"
-    assert heading =~ "backdrop-filter:none"
+    assert [_, note] = Regex.run(~r/\.ui-activity-note \{([^}]+)\}/, css)
+    refute note =~ "border-left"
+    refute note =~ "padding-left"
+    refute note =~ "max-width"
+    refute css =~ ".ui-activity-note-heading {"
+    refute css =~ ".ui-activity-note h3 {"
     assert css =~ ".ui-activity-note[data-tone=warn]"
     refute css =~ ".case-model-note"
     refute css =~ ".model-note-text"

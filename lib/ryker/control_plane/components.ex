@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.Components do
   slot(:evidence, doc: "Retained supporting artifacts, loaded on demand")
   slot(:details, doc: "Supporting diagnostics, never the main explanation")
 
-  @doc "The quiet timeline treatment shared by model notes, progress and worker updates."
+  @doc "The standard timeline card anatomy for model notes, progress and worker updates."
   def activity_note(assigns) do
     assigns =
       assign(
@@ -147,13 +147,13 @@ defmodule Ryker.ControlPlane.Components do
         <:meta :if={@meta != []}>{render_slot(@meta)}</:meta>
         {render_slot(@details)}
       </.disclosure>
-      <header :if={!@compact && (@title || @label || @meta != [])} class="ui-activity-note-heading">
-        <div>
-          <p :if={@label} class="ui-activity-note-label">{@label}</p>
-          <h3 :if={@title}>{@title}</h3>
-        </div>
-        <div :if={@meta != []} class="ui-activity-note-meta">{render_slot(@meta)}</div>
-      </header>
+      <.card_heading
+        :if={!@compact}
+        title={@title || @label || "Worker update"}
+        label={if @title, do: @label}
+      >
+        <:meta :if={@meta != []}>{render_slot(@meta)}</:meta>
+      </.card_heading>
       <div :if={@body != []} class="ui-activity-note-text">
         {render_slot(@body)}
       </div>
@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.Components do
         :if={@details != [] && !@compact}
         id={@details_id}
         label="Technical details"
-        class="ui-activity-note-details"
+        class="case-event-details"
       >
         {render_slot(@details)}
       </.disclosure>
@@ -604,6 +604,7 @@ defmodule Ryker.ControlPlane.Components do
   end
 
   attr(:title, :string, required: true)
+  attr(:label, :string, default: nil)
   attr(:class, :any, default: nil)
   attr(:meta_layout, :atom, values: [:inline, :stack_on_narrow], default: :inline)
   slot(:leading, doc: "A compact symbol that identifies the card kind")
@@ -620,6 +621,7 @@ defmodule Ryker.ControlPlane.Components do
       @class
     ]}>
       <div class="case-card-heading-copy">
+        <p :if={@label} class="case-card-heading-label">{@label}</p>
         <div class="case-card-heading-main">
           <span :if={@leading != []} class="case-card-heading-leading">{render_slot(@leading)}</span>
           <h3>{@title}</h3>

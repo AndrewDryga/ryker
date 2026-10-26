@@ -135,13 +135,17 @@ defmodule Ryker.ControlPlane.ComponentsTest do
 
     note = LazyHTML.query(document, "aside.ui-activity-note[data-tone=warn]")
     assert LazyHTML.attribute(note, "aria-label") == ["Model's note"]
-    assert LazyHTML.query(note, "h3") |> LazyHTML.text() == "<script>heading</script>"
+
+    assert LazyHTML.query(note, ".case-card-heading h3") |> LazyHTML.text() ==
+             "<script>heading</script>"
+
+    assert LazyHTML.query(note, ".case-card-heading-label") |> LazyHTML.text() == "Model's note"
 
     assert LazyHTML.query(note, ".ui-activity-note-text p") |> LazyHTML.text() ==
              "<img src=x onerror=alert(1)>"
 
     assert Enum.empty?(LazyHTML.query(note, "script, img"))
-    assert LazyHTML.query(note, ".ui-activity-note-meta") |> LazyHTML.text() == "Paused"
+    assert LazyHTML.query(note, ".case-card-heading-meta") |> LazyHTML.text() == "Paused"
 
     assert LazyHTML.attribute(LazyHTML.query(note, ".ui-activity-note-evidence a"), "href") ==
              ["#retained-plan"]
@@ -158,9 +162,10 @@ defmodule Ryker.ControlPlane.ComponentsTest do
       |> LazyHTML.from_fragment()
 
     assert LazyHTML.query(document, "h3") |> LazyHTML.text() == "Provider activity received"
-    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-label"))
+    assert Enum.count(LazyHTML.query(document, ".case-card-heading")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".case-card-heading-label"))
     assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-text"))
-    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-meta"))
+    assert Enum.empty?(LazyHTML.query(document, ".case-card-heading-meta"))
     assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-evidence"))
     assert Enum.empty?(LazyHTML.query(document, "details, button"))
   end

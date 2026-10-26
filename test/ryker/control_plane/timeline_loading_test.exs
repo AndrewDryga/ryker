@@ -447,21 +447,21 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
 
     # Andrew, 2026-10-01, of a card titled only "Selecting the reply button": "what does this card
     # mean in simple english, in practice?" It is the model's own note on what it was doing, and
-    # it reads as one: a quiet line, not a card.
+    # it reads with its kind labelled, inside the shared timeline card.
     assert [note] =
              document
              |> LazyHTML.query("article.case-entry")
              |> Enum.filter(&(LazyHTML.text(&1) =~ "Checking the deploy script"))
 
-    assert LazyHTML.query(note, ".ui-activity-note-label") |> LazyHTML.text() == "Model's note"
+    assert LazyHTML.query(note, ".case-card-heading-label") |> LazyHTML.text() == "Model's note"
 
     assert LazyHTML.query(note, ".ui-activity-note h3") |> LazyHTML.text() ==
              "Checking the deploy script"
   end
 
-  test "every worker update uses the shared compact note without losing its evidence or warning" do
-    # Provider heartbeats were still full-size cards and model notes had their
-    # own page-local skin. A new activity kind must not silently restore either.
+  test "every worker update uses the shared card header without losing its evidence or warning" do
+    # The shared activity override made populated events look uncontained beside
+    # tool cards. Every activity kind must retain the same card anatomy.
     work = episode_with_tool!("activity-notes", "small")
 
     events = [
@@ -491,7 +491,12 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     for sequence <- 2..12 do
       entry = LazyHTML.query(document, "#event-activity-#{event_id(work, sequence)}")
       assert Enum.count(LazyHTML.query(entry, ".ui-activity-note")) == 1
-      assert Enum.empty?(LazyHTML.query(entry, ".case-card-heading"))
+      note = LazyHTML.query(entry, ".ui-activity-note")
+
+      if LazyHTML.attribute(note, "data-compact") == [] do
+        assert Enum.count(LazyHTML.query(note, ".case-card-heading")) == 1
+      end
+
       assert Enum.empty?(LazyHTML.query(entry, ".case-event-content"))
     end
 
