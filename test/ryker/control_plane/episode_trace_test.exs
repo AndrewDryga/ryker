@@ -511,11 +511,18 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # elapsed label and could not link its source because command and inbox hashes
   # were treated as the same identity.
   test "the source is resolved through the admitted input rather than the command hash" do
+    start_supervised!(
+      {Names,
+       workspace: "TC9F5B40D364C",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     {entry, episode} = admitted_input!()
     assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
 
     assert detail.trace.source == %{
-             href: "https://slack.com/archives/C456/p1788562304000100",
+             href: "https://example-team.slack.com/archives/C456/p1788562304000100",
              label: "Open in Slack",
              transport: "Slack"
            }
@@ -523,6 +530,14 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     step = Enum.find(detail.trace.steps, &(&1.title == "Message added"))
     assert step.details == []
     refute String.starts_with?(entry.dedupe_key, "admit_input:")
+
+    reply = %{entry | destination_thread_ref: "1788562000.000100"}
+
+    assert EpisodeTrace.Input.message_link(reply).href ==
+             "https://example-team.slack.com/archives/C456/p1788562304000100?cid=C456&thread_ts=1788562000.000100"
+
+    foreign = %{reply | destination_conversation_ref: "slack:T999:C456"}
+    assert EpisodeTrace.Input.message_link(foreign) == nil
   end
 
   test "elapsed includes admission before the episode was created" do

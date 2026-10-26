@@ -310,6 +310,13 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "current and past select the rows they name, and search stays inside the chosen view" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     # Current is what can still act (on or paused); Past is what expired, was
     # deleted or was replaced. An unknown view is Current, never everything.
     source = SavedEntities.source!("slack:T123:C456")

@@ -1,9 +1,29 @@
 defmodule Ryker.ControlPlane.BehaviorPageTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{BehaviorPage, PageHelp}
 
   @now ~U[2026-09-24 12:00:00Z]
+
+  setup do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    :ok
+  end
+
+  test "an original source reply opens in its retained parent thread" do
+    assert BehaviorPage.source_url(%{
+             source_conversation_ref: "slack:T123:C456",
+             source_message_ref: "1787832001.000200",
+             source_thread_ref: "1787832000.000100"
+           }) ==
+             "https://example-team.slack.com/archives/C456/p1787832001000200?cid=C456&thread_ts=1787832000.000100"
+  end
 
   # The Rules list mixed every rule's history into one feed and expanded
   # long instructions in place, making the automations directory hard to scan.
@@ -105,7 +125,8 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
              "/actions/behavior/one/deleted"
            ]
 
-    assert LazyHTML.query(menu, "a[href^='https://slack.com/']") |> LazyHTML.text() =~
+    assert LazyHTML.query(menu, "a[href^='https://example-team.slack.com/archives/']")
+           |> LazyHTML.text() =~
              "Open original conversation"
 
     assert Enum.empty?(LazyHTML.query(document, "dl, .behavior-entry, .ui-status"))
@@ -564,7 +585,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
     row = instructions_document([], view(:guidance, [personal])) |> LazyHTML.query("article")
 
     assert row |> LazyHTML.query(".entity-meta a") |> LazyHTML.attribute("href") == [
-             "https://slack.com/app_redirect?team=T123&channel=U123"
+             "https://example-team.slack.com/team/U123"
            ]
   end
 

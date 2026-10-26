@@ -588,15 +588,20 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   @doc false
-  def source_message(%{
-        transport: "slack",
-        conversation_ref: conversation,
-        source_message_ref: ref
-      })
+  def source_message(
+        %{
+          transport: "slack",
+          conversation_ref: conversation,
+          source_message_ref: ref
+        } = item
+      )
       when is_binary(conversation) and is_binary(ref) do
     case ConversationRef.parse_slack(conversation) do
-      {:ok, _workspace, channel} -> Slack.archive_url(channel, ref)
-      :error -> nil
+      {:ok, workspace, channel} ->
+        Slack.archive_url(workspace, channel, ref, Map.get(item, :thread_ref))
+
+      :error ->
+        nil
     end
   end
 

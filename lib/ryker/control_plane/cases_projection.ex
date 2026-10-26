@@ -94,7 +94,8 @@ defmodule Ryker.ControlPlane.CasesProjection do
     case ConversationRef.parse_slack(conversation) do
       {:ok, workspace, channel} ->
         for ref <- refs,
-            url = Slack.app_redirect(workspace, channel, ref),
+            url = Slack.archive_url(workspace, channel, ref),
+            is_binary(url),
             uniq: true,
             do: {"Slack message", url}
 

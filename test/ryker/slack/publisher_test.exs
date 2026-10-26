@@ -55,13 +55,41 @@ defmodule Ryker.Slack.PublisherTest do
     assert {note.channel, note.thread} == {"C456", "1787831990.000100"}
 
     link =
-      "https://slack.com/archives/C456/p#{String.replace(answer.message_ref, ".", "")}" <>
+      "https://example-team.slack.com/archives/C456/p#{String.replace(answer.message_ref, ".", "")}" <>
         "?cid=C456&thread_ts=1787832000.000100"
 
     assert note.document["message"] =~ "(#{link})"
 
     assert {:ok, ^receipt} = Publisher.publish_message(request, binding)
     assert length(FakeSlackAPI.state(api).posts) == 2
+  end
+
+  test "other answered threads still receive one acknowledgement without a workspace origin" do
+    # An optional origin must not make a related question look ignored.
+    for origin <- [nil, "https://evil.example"] do
+      {:ok, api} = FakeSlackAPI.start_link(message_ref: &"1787832001.00020#{&1}")
+
+      {:ok, request} =
+        message_attributes()
+        |> Map.put(:also_answered, [
+          %{
+            "conversation_ref" => "slack:T123:C456",
+            "thread_ref" => "1787831990.000100",
+            "transport" => "slack"
+          }
+        ])
+        |> Request.new()
+
+      binding = put_in(publisher_binding(api), [:workspaces, "T123", :workspace_url], origin)
+      assert {:ok, receipt} = Publisher.publish_message(request, binding)
+      assert [_answer, note] = FakeSlackAPI.state(api).posts
+
+      assert note.document["message"] ==
+               "I answered this together with a related message, in its thread."
+
+      assert {:ok, ^receipt} = Publisher.publish_message(request, binding)
+      assert length(FakeSlackAPI.state(api).posts) == 2
+    end
   end
 
   test "a Slack refusal of the post is a definite failure, not an uncertain delivery" do
@@ -323,7 +351,15 @@ defmodule Ryker.Slack.PublisherTest do
   end
 
   defp publisher_binding(api) do
-    %{workspaces: %{"T123" => %{api: FakeSlackAPI, client: api}}}
+    %{
+      workspaces: %{
+        "T123" => %{
+          api: FakeSlackAPI,
+          client: api,
+          workspace_url: "https://example-team.slack.com"
+        }
+      }
+    }
   end
 
   defp message_request do

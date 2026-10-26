@@ -12,7 +12,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Slack.{AppHome, Collections, ID, Permalink, SavedEntity}
+  alias Ryker.Slack.{AppHome, Collections, ID, Names, Permalink, SavedEntity}
   alias Ryker.Work
 
   @maximum_collection_rows 10
@@ -526,7 +526,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   # The thread when its timestamp is Slack's, otherwise the channel.
   defp slack_url(workspace_ref, channel_ref, thread_ref) do
-    Permalink.app_redirect(workspace_ref, channel_ref, thread_ref) ||
+    Names.message_url(workspace_ref, channel_ref, thread_ref) ||
       Permalink.app_redirect(workspace_ref, channel_ref)
   end
 

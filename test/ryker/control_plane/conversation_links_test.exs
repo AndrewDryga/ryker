@@ -1,7 +1,24 @@
 defmodule Ryker.ControlPlane.ConversationLinksTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Ryker.ControlPlane.{Activity, ConversationMemory}
   alias Ryker.Slack.Names
+
+  test "a remembered source reply keeps its own message and parent thread" do
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    assert ConversationMemory.source_message(%{
+             transport: "slack",
+             conversation_ref: "slack:T123:C456",
+             source_message_ref: "1787832001.000200",
+             thread_ref: "1787832000.000100"
+           }) ==
+             "https://example-team.slack.com/archives/C456/p1787832001000200?cid=C456&thread_ts=1787832000.000100"
+  end
 
   # The surface was renamed from /lab to /conversations on 2026-09-13. The
   # stored conversation ref stayed control-plane:lab:<uuid>, so every link the

@@ -1,5 +1,5 @@
 defmodule Ryker.ControlPlane.OperatorUsabilityTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import Ryker.TestHelpers, only: [outline: 2]
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.ControlPlane.{BehaviorPage, FailureExplanation, FailuresPage, FindingsPage}
@@ -62,6 +62,13 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   end
 
   test "an entry's overflow control says which entry it acts on and never hides the ordinary action" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     # A "⋯" glyph is not a name. A screen reader user tabbing through twenty
     # rules hears "More actions for Triage deployment alerts", not "button"
     # twenty times, and the ordinary Pause or Resume stays visible beside it

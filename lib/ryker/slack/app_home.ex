@@ -11,7 +11,7 @@ defmodule Ryker.Slack.AppHome do
   page at a time, which is what a channel card means when it says an operator
   can open Home for the complete list.
   """
-  alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators, SavedEntity}
+  alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators, Permalink, SavedEntity}
   alias Ryker.Slack.Renderer.Blocks
   alias Ryker.Text
   alias Ryker.Wording
@@ -690,8 +690,10 @@ defmodule Ryker.Slack.AppHome do
     ref = Map.get(row, :ref, Map.get(row, "memory_ref"))
 
     case {url, ref} do
-      {"https://slack.com/app_redirect?" <> _rest = url, ref} when is_binary(ref) ->
-        button("ryker_home_open", text, ref, nil, url)
+      {url, ref} when is_binary(url) and is_binary(ref) ->
+        if String.starts_with?(url, "https://slack.com/app_redirect?") or
+             Permalink.archive_url?(url),
+           do: button("ryker_home_open", text, ref, nil, url)
 
       _missing ->
         nil

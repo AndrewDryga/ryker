@@ -39,6 +39,43 @@ defmodule Ryker.Records.SlackPostOffersTest do
     assert {:ok, delivered} =
              PlatformActionCustody.confirm_delivery(action.action_ref, lease_ref, receipt)
 
+    # A retained post must never borrow a replacement installation's workspace URL.
+    {:ok, _} = Ryker.Settings.initialize("control-plane:local")
+
+    Repo.update_all(Ryker.Settings.Slack,
+      set: [workspace_ref: "T999", workspace_url: "https://new-team.slack.com"]
+    )
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T999",
+       workspace_url: "https://new-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    [post] =
+      Ryker.Slack.ReplyRecords.documents("slack", confirmed.record.episode_id, [confirmed.record])
+
+    refute post["message_url"]
+    assert stop_supervised(Ryker.Slack.Names) == :ok
+
+    Repo.update_all(Ryker.Settings.Slack,
+      set: [workspace_ref: "T123", workspace_url: "https://example-team.slack.com"]
+    )
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    [post] =
+      Ryker.Slack.ReplyRecords.documents("slack", confirmed.record.episode_id, [confirmed.record])
+
+    assert post["message_url"] ==
+             "https://example-team.slack.com/archives/C789/p1787833000000400?cid=C789&thread_ts=1787832888.000300"
+
     assert audit = event_ref |> InteractionAudit.Query.by_event_ref() |> Repo.peek()
     assert audit.action_id == "post_delivery_receipt"
     assert audit.repaint_status == :pending

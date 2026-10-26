@@ -58,6 +58,13 @@ defmodule Ryker.ControlPlane.CasesPageTest do
   # reference shown to people and a link to nowhere; a Slack case's links were
   # bare message timestamps. A case links to where its messages can be opened.
   test "a case links to where its messages can be opened, never to an internal reference" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "TCASES",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     chat_id = Ecto.UUID.generate()
 
     from_chat =
@@ -78,7 +85,7 @@ defmodule Ryker.ControlPlane.CasesPageTest do
 
     assert case_links(case_page(from_slack)) == [
              {"Slack message ↗",
-              Ryker.Slack.app_redirect("TCASES", "CALERTS", "1787832001.000200")}
+              "https://example-team.slack.com/archives/CALERTS/p1787832001000200"}
            ]
   end
 

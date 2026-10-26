@@ -46,6 +46,13 @@ defmodule Ryker.Learning.ObservationsTest do
   end
 
   test "Memory shows original messages only as source provenance for a context record" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "TNOTES",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     entry = observe!("visible", "C1", @note)
     # A replay's import time and raw UUID are not the date or substance of the discussion.
     Repo.update_all(from(n in ConversationObservation, where: n.id == ^entry.id),

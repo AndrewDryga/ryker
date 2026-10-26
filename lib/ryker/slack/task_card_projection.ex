@@ -13,7 +13,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.{Permalink, TaskCard, WorkControls}
+  alias Ryker.Slack.{Names, TaskCard, WorkControls}
   alias Ryker.Slack.Renderer.Fields
   alias Ryker.StateTools
   alias Ryker.Wording
@@ -617,14 +617,14 @@ defmodule Ryker.Slack.TaskCardProjection do
   # stored every other part of it. With the origin unset this stays nil and the
   # card describes the question instead of linking nowhere.
   defp question_url(%Episodes.Episode{state: :waiting_for_input} = episode) do
-    with workspace_url when is_binary(workspace_url) <- Settings.slack_workspace_url(),
-         {:ok, %Records.Record{turn_id: turn_id}} when not is_nil(turn_id) <-
+    with {:ok, %Records.Record{turn_id: turn_id}} when not is_nil(turn_id) <-
            fetch_open_question(episode.id),
          %Work.Turn{
-           external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}
+           external_receipt:
+             %{"conversation_ref" => conversation, "message_ref" => message} = receipt
          } <-
            Repo.peek(Work.Turn.Query.by_id(turn_id)) do
-      Permalink.message_url(workspace_url, conversation, message)
+      Names.conversation_message_url(conversation, message, receipt["thread_ref"])
     else
       _unbuildable -> nil
     end

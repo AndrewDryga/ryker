@@ -464,8 +464,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
          },
          %Ingress.Inbox.Entry{source_item_ref: message_ref}
        ) do
-    with {:ok, _workspace, channel} <- ConversationRef.parse_slack(conversation_ref),
-         href when is_binary(href) <- Slack.archive_url(channel, message_ref, thread) do
+    with {:ok, workspace, channel} <- ConversationRef.parse_slack(conversation_ref),
+         href when is_binary(href) <- Slack.archive_url(workspace, channel, message_ref, thread) do
       %{href: href, label: "Open in Slack", transport: "Slack"}
     else
       _invalid -> nil

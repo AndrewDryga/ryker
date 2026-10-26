@@ -629,6 +629,13 @@ defmodule Ryker.Schedules.SchedulesTest do
   end
 
   test "run now is audited once and never moves the recurring cadence" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     fixture = delivered_offer!("run-now")
     assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "run-now"))
     original_next = confirmed.schedule.next_occurrence_at
@@ -640,7 +647,7 @@ defmodule Ryker.Schedules.SchedulesTest do
                row.ref == confirmed.schedule.ref and row.title == "Daily service health" and
                  row.status == :active and row.next_occurrence_at == original_next and
                  row.url ==
-                   "https://slack.com/app_redirect?team=T123&channel=C456&message_ts=1787832000.000100"
+                   "https://example-team.slack.com/archives/C456/p1787832000000100"
              end
            )
 

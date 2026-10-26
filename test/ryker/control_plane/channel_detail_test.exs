@@ -725,6 +725,13 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "a summary shows its retained state, sources and maintenance error, never its internals" do
+      start_supervised!(
+        {Ryker.Slack.Names,
+         workspace: "T123",
+         workspace_url: "https://example-team.slack.com",
+         fetch: fn _ -> {:error, :unavailable} end}
+      )
+
       # The old row was an opaque continuity UUID with a thread and a date; an
       # operator could not tell what the channel remembered or why recall was
       # blocked without opening PostgreSQL.
@@ -763,7 +770,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert item.request_path ==
                "/timeline/" <> source.episode.id
 
-      assert item.source == "https://slack.com/archives/C456/p1787832000000100"
+      assert item.source == "https://example-team.slack.com/archives/C456/p1787832000000100"
       assert item.maintenance_error == LearningActivity.error("source_capacity")
       assert item.maintenance_retry_at == ~U[2026-09-11 12:00:00.000000Z]
       assert item.recall_count == 3

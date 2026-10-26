@@ -189,6 +189,13 @@ defmodule Ryker.Slack.AppHomeActionsTest do
   end
 
   test "retained-work discard cannot cross a Slack workspace and is idempotent" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     assert AppHomeActions.discard_workspace(
              "ryker-work:missing:session:1",
              String.duplicate("a", 64),
@@ -240,7 +247,7 @@ defmodule Ryker.Slack.AppHomeActionsTest do
                  row.controls == ["discard_workspace"] and
                  row.discard_plan_fingerprint == session.discard_plan_fingerprint and
                  row.url ==
-                   "https://slack.com/app_redirect?team=T123&channel=C456&message_ts=1787832000.000100"
+                   "https://example-team.slack.com/archives/C456/p1787832000000100"
              end
            )
 

@@ -1,7 +1,18 @@
 defmodule Ryker.ControlPlane.PromptReadabilityTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   alias Ryker.ControlPlane.{PageRead, RepositoryNames, RequestContextHTML}
   alias Ryker.InspectionRedactor
+
+  setup do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    :ok
+  end
 
   test "continuity separates the opening source, previous reply and actual resume cause" do
     # Shape harvested from a resumed production request. A bounded opening
@@ -38,7 +49,7 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
     assert LazyHTML.query(document, ".continuity-opening") |> LazyHTML.text() =~ "Opening message"
 
     assert LazyHTML.query(document, ".continuity-opening a") |> LazyHTML.attribute("href") ==
-             ["https://slack.com/archives/C456/p1792535721651629"]
+             ["https://example-team.slack.com/archives/C456/p1792535721651629"]
 
     assert LazyHTML.query(document, ".continuity-reply .ui-message strong") |> LazyHTML.text() =~
              "Ryker"

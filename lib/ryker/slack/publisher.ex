@@ -250,8 +250,20 @@ defmodule Ryker.Slack.Publisher do
     do: :ok
 
   defp point_other_threads(binding, request, target, message_ref) do
-    link = Permalink.archive_url(target.channel_ref, message_ref, target.thread_ref)
+    workspace = Map.fetch!(binding.workspaces, target.workspace_ref)
 
+    link =
+      Permalink.archive_url(
+        workspace[:workspace_url],
+        target.channel_ref,
+        message_ref,
+        target.thread_ref
+      )
+
+    point_threads(binding, request, link)
+  end
+
+  defp point_threads(binding, request, link) do
     Enum.reduce_while(request.also_answered, :ok, fn place, :ok ->
       case point(binding, request, place, link) do
         {:ok, _message_ref} -> {:cont, :ok}

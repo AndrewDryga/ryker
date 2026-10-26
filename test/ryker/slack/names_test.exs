@@ -12,6 +12,33 @@ defmodule Ryker.Slack.NamesTest do
     def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
   end
 
+  test "message links use only the origin recorded for their exact workspace" do
+    # A multi-workspace operator's source links opened the default workspace
+    # and a Slack error page instead of the recorded message (2026-10-26).
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    assert Ryker.Slack.archive_url("T123", "C456", "1789161922.548889", "1789161900.000100") ==
+             "https://example-team.slack.com/archives/C456/p1789161922548889?cid=C456&thread_ts=1789161900.000100"
+
+    assert Ryker.Slack.archive_url("T999", "C456", "1789161922.548889") == nil
+    assert Ryker.Slack.archive_url(nil, "C456", "1789161922.548889") == nil
+
+    assert Names.conversation_message_url(
+             "slack:T123:C456",
+             "1789161922.548889",
+             "1789161900.000100"
+           ) ==
+             "https://example-team.slack.com/archives/C456/p1789161922548889?cid=C456&thread_ts=1789161900.000100"
+
+    assert Names.conversation_message_url("slack:T999:C456", "1789161922.548889") == nil
+    assert Names.conversation_message_url("control-plane:lab:abc", "1789161922.548889") == nil
+  end
+
   # After every restart the Channels and Setup pages read "Slack channel
   # C0BLU1GACKC and 3 other channels" until the cache had asked Slack about
   # each channel in turn, one every 1.6 s, although the membership sweep that

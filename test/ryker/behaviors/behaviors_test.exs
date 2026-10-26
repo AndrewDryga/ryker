@@ -428,6 +428,13 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   end
 
   test "App Home behavior controls cannot cross channel or operator scope" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     fixture = delivered_offers!("home-behavior-privacy")
 
     assert {:ok, workspace} =
@@ -444,7 +451,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert Enum.any?(snapshot.behaviors, fn row ->
              row.ref == workspace.behavior.ref and
                row.url ==
-                 "https://slack.com/app_redirect?team=T123&channel=C456&message_ts=1787832000.000100"
+                 "https://example-team.slack.com/archives/C456/p1787832000000100"
            end)
 
     assert Enum.any?(snapshot.behaviors, &(&1.ref == operator.behavior.ref))

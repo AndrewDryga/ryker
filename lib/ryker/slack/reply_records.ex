@@ -146,7 +146,7 @@ defmodule Ryker.Slack.ReplyRecords do
            sent_action(record),
          %{"message_ref" => message} <- action.external_receipt,
          url when is_binary(url) <-
-           Permalink.message_url(Settings.slack_workspace_url(), conversation, message) do
+           Names.conversation_message_url(conversation, message, action.thread_ref) do
       Map.put(document, "message_url", url)
     else
       _unsent -> document

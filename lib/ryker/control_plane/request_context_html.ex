@@ -2343,18 +2343,18 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp source_message_link("slack-source:v1:" <> rest = ref, label) do
     [workspace | _] = String.split(rest, ":")
 
-    case Slack.SourceRef.parse(ref, workspace) do
-      {:ok, %{message_ref: message, channel_ref: channel}} when is_binary(message) ->
-        [
-          "<a href=\"",
-          escape(Slack.archive_url(channel, message)),
-          "\">",
-          escape(label),
-          " →</a>"
-        ]
-
-      _invalid ->
-        []
+    with {:ok, %{message_ref: message, channel_ref: channel}} when is_binary(message) <-
+           Slack.SourceRef.parse(ref, workspace),
+         url when is_binary(url) <- Slack.archive_url(workspace, channel, message) do
+      [
+        "<a href=\"",
+        escape(url),
+        "\">",
+        escape(label),
+        " →</a>"
+      ]
+    else
+      _invalid -> []
     end
   end
 
@@ -2824,10 +2824,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     with "slack-source:v1:" <> rest <- ref,
          [workspace | _] <- String.split(rest, ":"),
          {:ok, %{message_ref: message, channel_ref: channel}} when is_binary(message) <-
-           Slack.SourceRef.parse(ref, workspace) do
+           Slack.SourceRef.parse(ref, workspace),
+         url when is_binary(url) <- Slack.archive_url(workspace, channel, message) do
       [
         "<li><a href=\"",
-        escape(Slack.archive_url(channel, message)),
+        escape(url),
         "\">",
         escape(topic_source_time(message)),
         " · ",

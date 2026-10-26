@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.InteractionRepaintSourcesTest do
-  # The confirmed-post projection reads installation settings; settings fixtures own
-  # the singleton and run serially rather than queuing async transactions behind it.
+  # The confirmed-post projection uses the workspace-scoped Slack name cache.
   use Ryker.DataCase, async: false
   alias Ryker.Behaviors.Behavior
   alias Ryker.{CanonicalJSON, Episodes, Repo}
@@ -184,20 +183,12 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     )
     |> Repo.update!()
 
-    now = DateTime.utc_now()
-
-    Repo.insert!(%Ryker.Settings.Installation{
-      host_ref: "installation",
-      revision: 1,
-      saved_by: "fixture",
-      saved_at: now,
-      inserted_at: now
-    })
-
-    Repo.insert!(%Ryker.Settings.Slack{
-      id: "installation",
-      workspace_url: "https://tenant.slack.com"
-    })
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: workspace,
+       workspace_url: "https://tenant.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
 
     message = "1791740759.096129"
 

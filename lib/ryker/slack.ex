@@ -37,13 +37,11 @@ defmodule Ryker.Slack do
   @spec app_redirect(term(), term()) :: String.t() | nil
   defdelegate app_redirect(workspace_ref, channel_ref), to: Permalink
 
-  @doc "Slack's link to one message; see `Ryker.Slack.Permalink.app_redirect/3`."
-  @spec app_redirect(term(), term(), term()) :: String.t() | nil
-  defdelegate app_redirect(workspace_ref, channel_ref, message_ref), to: Permalink
-
-  @doc "Slack's link to one message; see `Ryker.Slack.Permalink.archive_url/3`."
-  @spec archive_url(term(), term(), term()) :: String.t() | nil
-  defdelegate archive_url(channel_ref, message_ref, thread_ref \\ nil), to: Permalink
+  @doc "A message in its exact Slack workspace and thread, or nil when its origin is unknown."
+  @spec archive_url(term(), term(), term(), term()) :: String.t() | nil
+  defdelegate archive_url(workspace_ref, channel_ref, message_ref, thread_ref \\ nil),
+    to: Names,
+    as: :message_url
 
   @doc "Whether `value` is a Slack id: a workspace, channel, person or bot."
   @spec id?(term()) :: boolean()

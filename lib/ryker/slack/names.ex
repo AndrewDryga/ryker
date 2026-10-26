@@ -187,6 +187,24 @@ defmodule Ryker.Slack.Names do
     end
   end
 
+  @doc "A message in the exact workspace whose verified origin the cache holds, or nil."
+  @spec message_url(term(), term(), term(), term()) :: String.t() | nil
+  def message_url(workspace, channel, message, thread \\ nil) do
+    case cached(:origin) do
+      [{:origin, ^workspace, url}] -> Permalink.archive_url(url, channel, message, thread)
+      _unknown -> nil
+    end
+  end
+
+  @doc "A retained conversation's message, bound to its own workspace rather than today's settings."
+  @spec conversation_message_url(term(), term(), term()) :: String.t() | nil
+  def conversation_message_url(conversation, message, thread \\ nil) do
+    case ConversationRef.parse_slack(conversation) do
+      {:ok, workspace, channel} -> message_url(workspace, channel, message, thread)
+      :error -> nil
+    end
+  end
+
   @impl true
   def init(options) do
     case settings(options) do

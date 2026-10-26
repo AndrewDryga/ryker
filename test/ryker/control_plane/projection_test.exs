@@ -135,6 +135,13 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "projects bounded lifecycle metadata without exposing durable input payloads" do
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
     target = waiting_episode!("control:100%_literal", "raw-secret-value")
     _wildcard_decoy = waiting_episode!("control:100XXliteral", "other-secret-value")
 
@@ -221,7 +228,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert detail.trace.stopped.action == "Answer the question in the conversation"
     assert detail.episode.next_action == "operator input"
     assert detail.trace.source.transport == "Slack"
-    assert detail.trace.source.href == "https://slack.com/archives/C456/p1787832099000300"
+
+    assert detail.trace.source.href ==
+             "https://example-team.slack.com/archives/C456/p1787832099000300"
 
     assert Enum.any?(
              detail.trace.metrics,

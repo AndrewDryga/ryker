@@ -22,6 +22,57 @@ defmodule Ryker.Records.InputRequestsTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  test "a retained question never borrows a different workspace's current origin" do
+    # The old question builder dropped the workspace from its delivered receipt.
+    fixture = delivered_question!(:slack, "1787831990.000100")
+
+    {:ok, _} = Ryker.Settings.initialize("control-plane:local")
+
+    Repo.update_all(Ryker.Settings.Slack,
+      set: [workspace_ref: "T999", workspace_url: "https://new-team.slack.com"]
+    )
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T999",
+       workspace_url: "https://new-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: fixture.episode.id,
+      ref: "task-card:retained-question",
+      payload:
+        Ryker.Fixtures.TaskOffer.payload(%{
+          "title" => "A retained question",
+          "repository" => "ryker",
+          "prompt" => "Ask which rollout action to take."
+        })
+    }
+
+    assert {:ok, projection} = Ryker.Slack.TaskCardProjection.page(source)
+    assert projection.document["task_card"]["question_url"] == nil
+    assert stop_supervised(Ryker.Slack.Names) == :ok
+
+    Repo.update_all(Ryker.Settings.Slack,
+      set: [workspace_ref: "T123", workspace_url: "https://example-team.slack.com"]
+    )
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "T123",
+       workspace_url: "https://example-team.slack.com",
+       fetch: fn _ -> {:error, :unavailable} end}
+    )
+
+    assert {:ok, projection} = Ryker.Slack.TaskCardProjection.page(source)
+
+    assert projection.document["task_card"]["question_url"] ==
+             "https://example-team.slack.com/archives/C456/p1787832001000200?cid=C456&thread_ts=1787831990.000100"
+  end
+
   test "one exact delivered question choice becomes one generic input" do
     fixture = delivered_question!()
 

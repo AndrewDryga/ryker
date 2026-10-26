@@ -103,8 +103,7 @@ defmodule Ryker.Slack.AppHomeTest do
           kind: :operator_input,
           ref: "episode:one",
           title: "Choose the sampling strategy",
-          url:
-            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+          url: "https://example-team.slack.com/archives/COPS/p1787832000000100"
         },
         %{
           controls: ["retry"],
@@ -112,8 +111,7 @@ defmodule Ryker.Slack.AppHomeTest do
           recovery_generation: 3,
           ref: "publication:one",
           title: "Repair checkout deploy",
-          url:
-            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+          url: "https://example-team.slack.com/archives/COPS/p1787832000000100"
         },
         %{
           controls: ["discard_workspace"],
@@ -121,8 +119,7 @@ defmodule Ryker.Slack.AppHomeTest do
           kind: :retained_workspace,
           ref: "ryker-work:episode-one:session:1",
           title: "Preserved checkout patch",
-          url:
-            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+          url: "https://example-team.slack.com/archives/COPS/p1787832000000100"
         }
       ],
       schedules: [
@@ -132,8 +129,7 @@ defmodule Ryker.Slack.AppHomeTest do
           revision: 4,
           status: :active,
           title: "Daily audit",
-          url:
-            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+          url: "https://example-team.slack.com/archives/COPS/p1787832000000100"
         }
       ],
       work: [
@@ -142,8 +138,7 @@ defmodule Ryker.Slack.AppHomeTest do
           ref: "task-card:one",
           state: :working,
           title: "Repair checkout deploy",
-          url:
-            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+          url: "https://example-team.slack.com/archives/COPS/p1787832000000100"
         },
         %{
           next_action: "external_event",
@@ -151,7 +146,7 @@ defmodule Ryker.Slack.AppHomeTest do
           state: :waiting_for_event,
           title: "Track Terraform run run-LfSQGsUsJgv6vXJ2",
           url:
-            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000200"
+            "https://example-team.slack.com/archives/COPS/p1787832000000200?cid=COPS&thread_ts=1787832000.000100"
         }
       ]
     }
@@ -167,6 +162,20 @@ defmodule Ryker.Slack.AppHomeTest do
 
     assert [{"U123", %{"blocks" => blocks, "type" => "home"}}] = Agent.get(calls, & &1)
     assert length(blocks) < 100
+
+    assert 6 ==
+             for(
+               block <- blocks,
+               element <- [Map.get(block, "accessory") | List.wrap(Map.get(block, "elements"))],
+               is_map(element),
+               String.starts_with?(element["action_id"] || "", "ryker_home_open"),
+               String.starts_with?(
+                 element["url"] || "",
+                 "https://example-team.slack.com/archives/"
+               ),
+               do: element
+             )
+             |> length()
 
     text = Jason.encode!(blocks)
     assert text =~ "What needs you"

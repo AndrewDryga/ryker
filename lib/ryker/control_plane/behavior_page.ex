@@ -674,10 +674,15 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     end
   end
 
-  def source_url(%{source_conversation_ref: "slack:" <> _rest = ref, source_message_ref: stamp}) do
+  def source_url(
+        %{source_conversation_ref: "slack:" <> _rest = ref, source_message_ref: stamp} = item
+      ) do
     case ConversationRef.parse_slack(ref) do
-      {:ok, team, channel} -> Slack.app_redirect(team, channel, stamp)
-      :error -> nil
+      {:ok, team, channel} ->
+        Slack.archive_url(team, channel, stamp, Map.get(item, :source_thread_ref))
+
+      :error ->
+        nil
     end
   end
 

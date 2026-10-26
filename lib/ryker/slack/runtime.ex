@@ -194,6 +194,7 @@ defmodule Ryker.Slack.Runtime do
   """
   @spec delivery_adapter!(keyword() | map()) :: map()
   def delivery_adapter!(configuration) do
+    configuration = normalize_configuration!(configuration)
     gateway = supervisor_options!(configuration).gateway
     settings = gateway.handler_settings
     workspace_ref = settings.identity.workspace_ref
@@ -203,7 +204,11 @@ defmodule Ryker.Slack.Runtime do
         destination_allowed: &IncidentRooms.delivery_allowed/2,
         mention_authority: &Mentions.authority_for_delivery/1,
         workspaces: %{
-          workspace_ref => %{api: Client, client: settings.client}
+          workspace_ref => %{
+            api: Client,
+            client: settings.client,
+            workspace_url: configuration[:workspace_url]
+          }
         }
       },
       message_publisher: Publisher,
