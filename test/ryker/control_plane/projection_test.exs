@@ -1325,7 +1325,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert Enum.any?(detail.trace.steps, &(&1.title == "Tool permission decided"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Some activity was left out"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Provider rate limit"))
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Provider is still responding"))
+    assert Enum.any?(detail.trace.steps, &(&1.title == "Provider activity received"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Custom.notice"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Tool call"))
     refute inspect(detail.trace) =~ "must-not-render"

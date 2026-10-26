@@ -113,6 +113,42 @@ defmodule Ryker.ControlPlane.Components do
   def service_name(:workspace), do: "Code"
   def service_name(_service), do: "Tool"
 
+  attr(:title, :string, default: nil)
+  attr(:label, :string, default: nil)
+  attr(:tone, :atom, default: nil)
+  attr(:details_id, :string, default: nil)
+  slot(:meta, doc: "Recorded state or timing, not a live-status claim")
+  slot(:body, doc: "The recorded narrative, already safely rendered")
+  slot(:evidence, doc: "Retained supporting artifacts, loaded on demand")
+  slot(:details, doc: "Supporting diagnostics, never the main explanation")
+
+  @doc "The quiet timeline treatment shared by model notes, progress and worker updates."
+  def activity_note(assigns) do
+    ~H"""
+    <aside class="ui-activity-note" data-tone={@tone} aria-label={@label || @title}>
+      <header class="ui-activity-note-heading">
+        <div>
+          <p :if={@label} class="ui-activity-note-label">{@label}</p>
+          <h3 :if={@title}>{@title}</h3>
+        </div>
+        <div :if={@meta != []} class="ui-activity-note-meta">{render_slot(@meta)}</div>
+      </header>
+      <div :if={@body != []} class="ui-activity-note-text">
+        {render_slot(@body)}
+      </div>
+      <div :if={@evidence != []} class="ui-activity-note-evidence">{render_slot(@evidence)}</div>
+      <.disclosure
+        :if={@details != []}
+        id={@details_id}
+        label="Technical details"
+        class="ui-activity-note-details"
+      >
+        {render_slot(@details)}
+      </.disclosure>
+    </aside>
+    """
+  end
+
   attr(:decision, :string, required: true)
   attr(:reason, :string, default: nil)
   attr(:reason_label, :string, default: "Reason")

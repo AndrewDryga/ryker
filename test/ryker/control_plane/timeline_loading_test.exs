@@ -287,13 +287,95 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     # it reads as one: a quiet line, not a card.
     assert [note] =
              document
-             |> LazyHTML.query("article.case-minor")
+             |> LazyHTML.query("article.case-entry")
              |> Enum.filter(&(LazyHTML.text(&1) =~ "Checking the deploy script"))
 
-    assert LazyHTML.query(note, ".model-note-label") |> LazyHTML.text() == "Model's note"
+    assert LazyHTML.query(note, ".ui-activity-note-label") |> LazyHTML.text() == "Model's note"
 
-    assert LazyHTML.query(note, ".model-note h3") |> LazyHTML.text() ==
+    assert LazyHTML.query(note, ".ui-activity-note h3") |> LazyHTML.text() ==
              "Checking the deploy script"
+  end
+
+  test "every worker update uses the shared compact note without losing its evidence or warning" do
+    # Provider heartbeats were still full-size cards and model notes had their
+    # own page-local skin. A new activity kind must not silently restore either.
+    work = episode_with_tool!("activity-notes", "small")
+
+    events = [
+      {"model.thought",
+       %{"text" => "**Checking the deploy script**\n\nRead the migration first."}},
+      {"model.thought", %{"text" => "A note without a separate heading."}},
+      {"model.thought", %{"withheld" => %{"text" => "likely GitHub token"}}},
+      {"model.progress", %{"text" => "Checking the running revision."}},
+      {"provider.alive", %{"frames" => 1, "bytes" => 12_575}},
+      {"provider.alive", %{}},
+      {"provider.backoff", %{"target" => "codex", "retry_after_seconds" => 12}},
+      {"model.plan",
+       %{"step_count" => 1, "entries" => [%{"text" => "Read the migration first."}]}},
+      {"permission.decided", %{"outcome" => "cancelled", "tool_call_id" => "permission-1"}},
+      {"activity.elided", %{"dropped" => 12}},
+      {"custom.notice", %{}}
+    ]
+
+    for {{kind, payload}, sequence} <- Enum.with_index(events, 2) do
+      activity!(work, sequence, kind, payload)
+    end
+
+    document = LazyHTML.from_document(rendered(work))
+
+    for sequence <- 2..12 do
+      entry = LazyHTML.query(document, "#event-activity-#{event_id(work, sequence)}")
+      assert Enum.count(LazyHTML.query(entry, ".ui-activity-note")) == 1
+      assert Enum.empty?(LazyHTML.query(entry, ".case-card-heading"))
+      assert Enum.empty?(LazyHTML.query(entry, ".case-event-content"))
+    end
+
+    heartbeat = LazyHTML.query(document, "#event-activity-#{event_id(work, 6)}")
+    assert LazyHTML.query(heartbeat, "h3") |> LazyHTML.text() == "Provider activity received"
+    assert Enum.empty?(LazyHTML.query(heartbeat, ".ui-activity-note-text"))
+    diagnostics = LazyHTML.query(heartbeat, "details")
+    assert LazyHTML.attribute(diagnostics, "open") == []
+
+    assert LazyHTML.query(diagnostics, ".ui-disclosure-label") |> LazyHTML.text() ==
+             "Technical details"
+
+    assert LazyHTML.text(diagnostics) =~ "12575"
+    assert LazyHTML.text(diagnostics) =~ "Frames"
+    assert LazyHTML.query(diagnostics, "dd") |> LazyHTML.text() =~ "1"
+
+    empty = LazyHTML.query(document, "#event-activity-#{event_id(work, 7)}")
+    assert Enum.empty?(LazyHTML.query(empty, ".ui-activity-note-text"))
+    # The evidence protocol version is still retained, even without counters.
+    assert LazyHTML.text(LazyHTML.query(empty, "details")) =~ "Evidence version"
+
+    backoff = LazyHTML.query(document, "#event-activity-#{event_id(work, 8)}")
+    assert Enum.count(LazyHTML.query(backoff, ".ui-activity-note[data-tone=warn]")) == 1
+
+    assert LazyHTML.query(backoff, ".ui-activity-note-text") |> LazyHTML.text() =~
+             "retrying in 12s"
+
+    withheld = LazyHTML.query(document, "#event-activity-#{event_id(work, 4)}")
+
+    assert LazyHTML.query(withheld, ".ui-activity-note-text") |> LazyHTML.text() =~
+             "The worker withheld this thought: it looked like it held a GitHub token."
+
+    assert LazyHTML.query(document, ".ui-activity-note h3") |> LazyHTML.text() =~
+             "Model plan updated"
+
+    plan_id = "activity-#{event_id(work, 9)}-plan"
+    plan = LazyHTML.query(document, "#event-activity-#{event_id(work, 9)}")
+
+    assert LazyHTML.attribute(LazyHTML.query(plan, "[data-artifact]"), "data-artifact") == [
+             plan_id
+           ]
+
+    opened = LazyHTML.from_document(rendered(work, [plan_id]))
+
+    assert LazyHTML.query(opened, "#event-activity-#{event_id(work, 9)} pre") |> LazyHTML.text() =~
+             "Read the migration first."
+
+    assert LazyHTML.text(document) =~ "Coop policy refused this unattended permission request."
+    refute LazyHTML.text(document) =~ "1 frames"
   end
 
   defp activity!(work, sequence, kind, payload) do

@@ -462,8 +462,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         actor: "Coop",
         details: safe_payload_details(event.payload),
         stage: "Provider",
-        summary: provider_alive_summary(event.payload),
-        title: "Provider is still responding",
+        summary: nil,
+        title: "Provider activity received",
         tone: nil
       }
     )
@@ -800,19 +800,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     do: "in #{seconds}s"
 
   defp retry_in(_payload), do: nil
-
-  defp provider_alive_summary(payload) do
-    frames = payload["frames"]
-    bytes = payload["bytes"]
-
-    [frames && "#{frames} frames", bytes && "#{bytes} bytes observed"]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-    |> case do
-      "" -> "Provider frames are still arriving although no higher-level activity was narrated."
-      summary -> summary
-    end
-  end
 
   defp activity_status_tone(status) when status in ["failed", "denied"], do: :bad
   defp activity_status_tone(status) when status in ["cancelled", "backing off"], do: :warn

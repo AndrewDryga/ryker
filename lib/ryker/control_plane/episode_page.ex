@@ -1119,8 +1119,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         "case-entry case-#{@entry.kind}",
         compact_entry?(@entry) && "case-checkpoint",
         message_container?(@entry) && "message-container",
-        minor_entry?(@entry) && "case-minor",
-        @entry.kind == :event && @entry.step.stage == "Thinking" && "case-model-note"
+        minor_entry?(@entry) && "case-minor"
       ]}
       data-entry-kind={@entry.kind}
       data-direction={message_direction(@entry)}
@@ -1168,8 +1167,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Observations"}
           step={@entry.step}
         />
-        <.model_note
-          :if={@entry.kind == :event && @entry.step.stage == "Thinking"}
+        <.worker_activity
+          :if={@entry.kind == :event && activity_stage?(@entry.step.stage)}
           step={@entry.step}
         />
         <.event_wait :if={@entry.kind == :event && @entry.step[:wait]} step={@entry.step} />
@@ -1257,8 +1256,21 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "Search",
       "Work setup",
       "Work plan",
-      "Observations",
-      "Thinking"
+      "Observations"
+    ] || activity_stage?(stage)
+  end
+
+  # One shared reading treatment for every narrative/transport update. Tools
+  # retain their aggregate, and records keep their evidence and durable links.
+  defp activity_stage?(stage) do
+    stage in [
+      "Thinking",
+      "Progress",
+      "Provider",
+      "Plan",
+      "Permission",
+      "Recorder",
+      "Worker activity"
     ]
   end
 
@@ -1275,9 +1287,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp minor_entry?(%{kind: :event, step: %{stage: stage}})
        when stage in ["Queue", "Tool call", "Maintenance"],
        do: false
-
-  defp minor_entry?(%{kind: :event, step: %{stage: "Thinking"}}),
-    do: true
 
   defp minor_entry?(%{kind: :event, step: step} = entry),
     do: compact_entry?(entry) and is_nil(step[:candidate_response])
@@ -2094,20 +2103,44 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  defp model_note(assigns) do
-    assigns =
-      assign(assigns, :heading, String.replace_prefix(assigns.step.title, "Model's note: ", ""))
+  defp worker_activity(assigns) do
+    {label, title} = activity_heading(assigns.step)
+    assigns = assign(assigns, label: label, title: title)
 
     ~H"""
-    <aside class="model-note" aria-label="Model's note">
-      <p class="model-note-label">Model's note</p>
-      <h3 :if={@heading != "Model's note"}>{@heading}</h3>
-      <div :if={@step.summary} class="model-note-text markdown-preview">
-        {SlackMarkdown.html(@step.summary)}
-      </div>
-    </aside>
+    <.activity_note
+      label={@label}
+      title={@title}
+      tone={@step.tone}
+      details_id={"event-detail-#{@step.id}"}
+    >
+      <:meta :if={show_event_state?(@step) || @step.duration_ms}>
+        <span :if={show_event_state?(@step)}>{Episodes.label(@step.state)}</span>
+        <span :if={@step.duration_ms}>{Units.duration(@step.duration_ms)}</span>
+      </:meta>
+      <:body :if={@step.summary}>
+        <div class="markdown-preview">{SlackMarkdown.html(@step.summary)}</div>
+      </:body>
+      <:evidence :if={@step.artifacts != []}>
+        <.evidence_body
+          :for={{item, index} <- Enum.with_index(@step.artifacts)}
+          id={"tool-evidence-#{@step.id}-#{index}"}
+          item={item}
+        />
+      </:evidence>
+      <:details :if={@step.details != [] || @step.href}>
+        <.event_details step={@step} />
+      </:details>
+    </.activity_note>
     """
   end
+
+  defp activity_heading(%{stage: "Thinking", title: "Model's note"}), do: {"Model's note", nil}
+
+  defp activity_heading(%{stage: "Thinking", title: title}),
+    do: {"Model's note", String.replace_prefix(title, "Model's note: ", "")}
+
+  defp activity_heading(step), do: {nil, step.title}
 
   defp event_wait(assigns) do
     ~H"""

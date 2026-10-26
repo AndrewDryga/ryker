@@ -108,6 +108,63 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert LazyHTML.query(html, "summary .ui-icon") |> Enum.count() == 1
   end
 
+  test "an activity note keeps narrative, evidence and diagnostics in one reusable hierarchy" do
+    document =
+      render_component(
+        fn assigns ->
+          ~H"""
+          <Components.activity_note
+            title={@title}
+            label="Model's note"
+            tone={:warn}
+            details_id="note-diagnostics"
+          >
+            <:meta>Paused</:meta>
+            <:body>
+              <p>{@body}</p>
+            </:body>
+            <:evidence><a href="#retained-plan">Plan →</a></:evidence>
+            <:details><Components.fact_list facts={[%{label: "Frames", value: "1"}]} /></:details>
+          </Components.activity_note>
+          """
+        end,
+        title: "<script>heading</script>",
+        body: "<img src=x onerror=alert(1)>"
+      )
+      |> LazyHTML.from_fragment()
+
+    note = LazyHTML.query(document, "aside.ui-activity-note[data-tone=warn]")
+    assert LazyHTML.attribute(note, "aria-label") == ["Model's note"]
+    assert LazyHTML.query(note, "h3") |> LazyHTML.text() == "<script>heading</script>"
+
+    assert LazyHTML.query(note, ".ui-activity-note-text p") |> LazyHTML.text() ==
+             "<img src=x onerror=alert(1)>"
+
+    assert Enum.empty?(LazyHTML.query(note, "script, img"))
+    assert LazyHTML.query(note, ".ui-activity-note-meta") |> LazyHTML.text() == "Paused"
+
+    assert LazyHTML.attribute(LazyHTML.query(note, ".ui-activity-note-evidence a"), "href") ==
+             ["#retained-plan"]
+
+    assert LazyHTML.attribute(LazyHTML.query(note, "details"), "id") == ["note-diagnostics"]
+
+    assert LazyHTML.query(note, "details .ui-disclosure-label") |> LazyHTML.text() ==
+             "Technical details"
+  end
+
+  test "an activity note without narrative or evidence creates no empty wrappers or controls" do
+    document =
+      render_component(&Components.activity_note/1, title: "Provider activity received")
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, "h3") |> LazyHTML.text() == "Provider activity received"
+    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-label"))
+    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-text"))
+    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-meta"))
+    assert Enum.empty?(LazyHTML.query(document, ".ui-activity-note-evidence"))
+    assert Enum.empty?(LazyHTML.query(document, "details, button"))
+  end
+
   test "a source disclosure keeps its title and right-aligned metadata in the shared shell" do
     html =
       render_component(

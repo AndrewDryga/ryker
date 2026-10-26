@@ -263,9 +263,28 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
              ".knowledge-actions { display:flex; justify-content:flex-end; margin-top:16px; }"
 
     assert css =~
-             ".model-note-text { color:var(--ryker-text-secondary); font-size:13px; line-height:21px; }"
+             ".ui-activity-note-text { color:var(--ryker-text-secondary); font-size:13px; line-height:21px; }"
 
     assert css =~ ".wait-match dd { margin:0; min-width:0;"
+  end
+
+  test "the shared activity note owns its quiet shell at every viewport", %{css: css} do
+    assert [_, shell] =
+             Regex.run(~r/\.case-entry-body:has\(> \.ui-activity-note\) \{([^}]+)\}/, css)
+
+    assert shell =~ "background:transparent"
+    assert shell =~ "border:0"
+    assert shell =~ "border-radius:0"
+    assert shell =~ "padding:12px var(--card-inset)"
+    assert css =~ ".case-entry-time { padding:var(--entry-time-inset,23px) 0 0;"
+
+    assert css =~
+             ".case-entry:has(> .case-entry-body > .ui-activity-note) { --entry-time-inset:11px; }"
+
+    assert css =~ ".ui-activity-note {"
+    assert css =~ ".ui-activity-note[data-tone=warn]"
+    refute css =~ ".case-model-note"
+    refute css =~ ".model-note-text"
   end
 
   test "each selected knowledge item has a complete boundary rather than a separator line", %{
