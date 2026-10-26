@@ -8,6 +8,14 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     %{css: Assets.call(conn, []).resp_body}
   end
 
+  test "current plan titles advertise their event links without relying on color", %{css: css} do
+    # A title that looked like plain text hid the summary's route back to the
+    # exact recorded change, especially without hover or color perception.
+    assert [_, link] = Regex.run(~r/\.plan-step-title a \{([^}]+)\}/, css)
+    assert link =~ "text-decoration:underline"
+    assert link =~ "text-underline-offset:3px"
+  end
+
   test "notification states are plain facts and rule field paths have room to read", %{css: css} do
     refute css =~ ".provider-state"
 

@@ -288,6 +288,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         groups={@timeline_groups}
         params={@params}
       />
+      <.work_plan
+        :if={!@startup && @snapshot.trace[:work_plan]}
+        plan={@snapshot.trace.work_plan}
+        final={@snapshot.episode.state in [:complete, :cancelled]}
+      />
     </div>
     """
   end
@@ -1158,8 +1163,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Work setup"}
           step={@entry.step}
         />
-        <.work_plan
-          :if={@entry.kind == :event && @entry.step.stage == "Work plan"}
+        <.plan_change
+          :if={@entry.kind == :event && @entry.step.stage == "Plan change"}
           step={@entry.step}
         />
         <.observations
@@ -1254,7 +1259,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "Queue",
       "Search",
       "Work setup",
-      "Work plan",
+      "Plan change",
       "Observations"
     ] || activity_stage?(stage)
   end
@@ -1331,24 +1336,27 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  # The request's goals as one card (`EpisodeTrace.Work`): each step's outcome,
-  # its status in words, what finishes it or what it found, and its evidence.
-  # Plan history holds completion criteria, earlier attempts and every change,
-  # not a table of internal record fields (Andrew, 2026-10-25).
+  # A current/final checklist is not a historical event. Each title goes back
+  # to the event that supplied this status, outside this untimed summary.
   defp work_plan(assigns) do
     ~H"""
-    <div class="case-event-content work-plan">
-      <.card_heading title="Work plan" />
+    <Kit.section_card
+      id="work-plan-summary"
+      title={if(@final, do: "Final work plan", else: "Current work plan")}
+      class="work-plan-summary"
+    >
       <ol class="plan-steps">
         <li
-          :for={goal <- @step.plan.steps}
-          id={"event-" <> goal.id}
+          :for={goal <- @plan.steps}
+          id={"plan-summary-" <> goal.id}
           class="plan-step"
           data-state={goal.state}
           data-depth={goal.depth}
         >
           <div class="plan-step-head">
-            <strong class="plan-step-title">{goal.title}</strong>
+            <strong class="plan-step-title">
+              <a href={"#event-" <> goal.change_id}>{goal.title}</a>
+            </strong>
             <Kit.state tone={goal.tone} word={goal.status} />
           </div>
           <p :if={goal.optional || goal.attempt > 1} class="plan-step-flags">
@@ -1361,47 +1369,35 @@ defmodule Ryker.ControlPlane.EpisodePage do
             </span>
             {elem(plan_line(goal), 1)}
           </p>
-          <.plan_evidence id={"plan-evidence-#{goal.id}"} items={goal.evidence} />
+          <.plan_evidence id={"plan-summary-evidence-#{goal.id}"} items={goal.evidence} />
         </li>
       </ol>
-      <.disclosure
-        id={"plan-history-#{@step.id}"}
-        label="Plan history"
-        class="case-event-details"
+    </Kit.section_card>
+    """
+  end
+
+  # One reusable card for both kinds of recorded change. It carries no later
+  # status or result; the surrounding timeline supplies the record's time.
+  defp plan_change(assigns) do
+    assigns = assign(assigns, :change, assigns.step.plan_change)
+
+    ~H"""
+    <div class="case-event-content plan-change" data-state={@change.state}>
+      <.card_heading
+        title={@change.title}
+        label={if(@change.kind == "goal", do: "Step planned", else: "Step updated")}
       >
-        <.knowledge_item
-          :for={goal <- @step.plan.history}
-          title={goal.title}
-          id={"event-" <> goal.id <> "-history"}
-          class="plan-history-goal"
-          data-record-ref={goal.record_ref}
-        >
-          <p :if={goal.replaced || goal.optional || goal[:activity]} class="plan-step-flags">
-            <span :if={goal.replaced}>Earlier attempt</span>
-            <span :if={goal.optional}>Optional</span>
-            <span :if={goal[:activity]}>{goal.activity}</span>
-          </p>
-          <.fact_list :if={goal.facts != []} facts={goal.facts} />
-          <p :if={goal[:planned_at]} class="plan-history-time">
-            Planned
-            <time datetime={DateTime.to_iso8601(goal.planned_at)}>
-              {ShortTime.stamp(goal.planned_at, DateTime.utc_now())}
-            </time>
-          </p>
-          <ol :if={goal.changes != []} class="plan-history-changes">
-            <li :for={change <- goal.changes} id={"event-" <> change.id}>
-              <div class="plan-step-head">
-                <time datetime={DateTime.to_iso8601(change.at)} title={timestamp(change.at)}>
-                  {ShortTime.stamp(change.at, DateTime.utc_now())}
-                </time>
-                <Kit.state tone={change.tone} word={change.status} />
-              </div>
-              <p :if={change.detail}>{change.detail}</p>
-              <.plan_evidence id={"plan-history-evidence-#{change.id}"} items={change.evidence} />
-            </li>
-          </ol>
-        </.knowledge_item>
-      </.disclosure>
+        <:meta :if={@change.kind != "goal"}>
+          <Kit.state tone={@change.tone} word={@change.status} />
+        </:meta>
+      </.card_heading>
+      <p :if={@change.optional || @change.attempt > 1} class="plan-step-flags">
+        <span :if={@change.optional}>Optional</span>
+        <span :if={@change.attempt > 1}>Attempt {@change.attempt}</span>
+      </p>
+      <.fact_list :if={@change.kind == "goal" && @change.facts != []} facts={@change.facts} />
+      <p :if={@change.detail} class="case-event-summary">{@change.detail}</p>
+      <.plan_evidence id={"plan-change-evidence-#{@step.id}"} items={@change.evidence} />
     </div>
     """
   end
@@ -1409,7 +1405,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   attr(:id, :string, required: true)
   attr(:items, :list, required: true)
 
-  # The same evidence treatment on the current step and each history entry.
+  # The same evidence treatment on the summary and each recorded change.
   # A bounded page may omit still-retained records; unavailable destinations
   # are one counted note, never an empty disclosure or a wall of identifiers.
   defp plan_evidence(assigns) do
@@ -2324,18 +2320,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_description(:maintenance),
     do: "What happened afterwards to the worker Ryker used and its working copy."
 
-  # Where a record's ref is read on this page: a goal and its changes in the
-  # Work plan card, evidence at its Observations row, any other record at its
-  # own card.
-  defp step_record_links(%{plan: %{history: goals}}) do
-    for goal <- goals,
-        {ref, id} <-
-          [{goal[:record_ref], if(goal.replaced, do: goal.id <> "-history", else: goal.id)}] ++
-            Enum.map(goal.changes, &{&1[:record_ref], &1.id}),
-        is_binary(ref),
-        do: {ref, %{href: "#event-" <> id, title: goal.title}}
-  end
-
+  # Each plan change links to its own event; evidence links to its row.
   defp step_record_links(%{observations: rows}) when is_list(rows) do
     for row <- rows, is_binary(row.record_ref) do
       {row.record_ref, %{href: "#event-" <> row.id, title: row.area}}

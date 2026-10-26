@@ -948,7 +948,8 @@
 .setup-facts { grid-column:1 / -1; margin:8px 0 0; }
 .work-setup[data-state="blocked"] .case-event-summary { color:var(--ryker-text-secondary); }
 
-/* Work plan: the request's goals as compact steps; their history sits behind one disclosure. */
+/* Current checklist is untimed; individual plan changes remain timeline cards. */
+.execution-document > .work-plan-summary { max-width:none; margin-top:32px; }
 .plan-steps { grid-column:1 / -1; counter-reset:plan-goal; list-style:none; margin:0; padding:0; }
 .plan-step { position:relative; counter-increment:plan-goal; padding:18px 0 18px 40px; border-top:1px solid var(--stroke); }
 .plan-step::before { content:counter(plan-goal); position:absolute; left:0; top:18px; display:grid; place-items:center; box-sizing:border-box; width:26px; height:26px; border:1px solid var(--ryker-stroke-strong); border-radius:50%; color:var(--ryker-text-secondary); font:12px/20px var(--ryker-font-mono); }
@@ -961,6 +962,7 @@
 .plan-step:is([data-depth="2"], [data-depth="3"], [data-depth="4"]) { margin-left:40px; }
 .plan-step-head { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; }
 .plan-step-title { min-width:0; color:var(--ink); font-size:14px; line-height:22px; font-weight:600; overflow-wrap:anywhere; }
+.plan-step-title a { text-decoration:underline; text-underline-offset:3px; }
 .plan-step-flags { display:flex; flex-wrap:wrap; gap:4px 12px; margin:2px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
 .plan-step-line, .plan-step-evidence { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:13px; line-height:22px; overflow-wrap:anywhere; }
 .plan-step > .plan-step-line { margin-top:6px; }
@@ -973,13 +975,6 @@
 .record-links { display:inline-flex; flex-wrap:wrap; gap:4px 12px; min-width:0; }
 .record-links a { text-decoration:underline; text-underline-offset:3px; }
 .record-links code { font:13px/20px var(--ryker-font-mono); overflow-wrap:anywhere; }
-.plan-history-goal + .plan-history-goal { margin-top:16px; }
-.plan-history-goal .ui-facts { margin-top:12px; }
-.plan-history-time { margin:16px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
-.plan-history-changes { list-style:none; margin:8px 0 0; padding:0; }
-.plan-history-changes li { padding:8px 0; border-top:1px solid var(--stroke); }
-.plan-history-changes time { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; font-variant-numeric:tabular-nums; }
-.plan-history-changes p { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
 
 /* Observations: one compact row per piece of evidence; opening a row shows all of it. */
 .observation-rows { grid-column:1 / -1; }

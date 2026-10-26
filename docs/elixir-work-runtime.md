@@ -772,6 +772,15 @@ reaction is sent only after every earlier one of its kind in the turn is deliver
 accepted only once all of them are, so they always read before the answer in Slack, in Chat and on
 the timeline.
 
+Plan creation and progress are separate retained records. The request timeline shows each as a
+dated step-planned or step-updated card in the Work run that recorded it; a later update never
+changes an earlier card's status or result. The latest checklist sits after the timeline, outside
+the event stream, as Current work plan while the request is active or waiting and Final work plan
+once it completes or is cancelled. Each summary title links to the change supplying its current
+status. Repeated attempts replace only the summary's current step; the earlier attempt and all its
+updates remain chronological events. Page bounds and retention still apply, so absent source
+details or evidence are identified as not on this page, never inferred to be deleted or completed.
+
 All slots share that one adapter. The fleet client places each session on an enrolled worker and
 records the placement durably, so no slot addresses a Coop daemon of its own.
 

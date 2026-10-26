@@ -151,6 +151,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       state: page_state(episode, stopped),
       stats: stats(steps, activity_page, totals),
       steps: steps,
+      work_plan: EpisodeTrace.Work.work_plan(records),
       stopped: stopped
     }
   end

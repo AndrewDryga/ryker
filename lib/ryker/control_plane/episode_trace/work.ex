@@ -233,18 +233,45 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   @doc """
-  One step per state record the model wrote, with its card when it has one,
-  except the plan: every goal and goal update is one Work plan card. A piece
+  One step per state record the model wrote, at the time it was recorded.
+  Plan changes carry only that record's state, never a later result. A piece
   of evidence carries the row its Observations card shows (`observations/1`).
   """
   def record_steps(records) do
     anchors = record_anchors(records)
-    {goals, others} = Enum.split_with(records, &(&1.kind in ~w(goal goal_state)))
 
-    plan_steps(goals, anchors) ++
-      (others
-       |> Enum.with_index(1)
-       |> Enum.map(fn {record, index} -> record_step(record, index, anchors) end))
+    goals =
+      for record <- records, record.kind == "goal", into: %{}, do: {record.subject_ref, record}
+
+    records
+    |> Enum.with_index(1)
+    |> Enum.map(fn {record, index} ->
+      if record.kind in ~w(goal goal_state),
+        do: plan_record_step(record, goals, anchors),
+        else: record_step(record, index, anchors)
+    end)
+  end
+
+  defp plan_record_step(record, goals, anchors) do
+    change =
+      case {record.kind, goals[record.subject_ref]} do
+        {"goal", goal} -> plan_goal(goal, [], goals, %{}, anchors)
+        {"goal_state", %Records.Record{} = goal} -> plan_goal(goal, [record], goals, %{}, anchors)
+        {"goal_state", nil} -> unplanned_goal(record.subject_ref, [record], anchors)
+      end
+
+    step("record-#{record.id}", :work, record.inserted_at, %{
+      actor: "Ryker state",
+      owner: record_owner(record),
+      record_ref: record.ref,
+      details: [],
+      stage: "Plan change",
+      state: "",
+      summary: nil,
+      title: change.title,
+      plan_change: Map.put(change, :kind, record.kind),
+      tone: nil
+    })
   end
 
   defp record_step(record, index, anchors) do
@@ -397,8 +424,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp record_owner(_record), do: :episode
 
-  # Where each record's ref is read on the timeline, and the words a link to
-  # it shows: a goal and its updates at the goal's step, evidence at its row.
+  # Each plan record links to its own event, not an aggregate's earlier time.
   defp record_anchors(records) do
     goal_rows =
       for %Records.Record{kind: "goal", subject_ref: goal_id} = goal <- records,
@@ -423,12 +449,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp anchor(%Records.Record{kind: "goal", id: id, payload: payload}, _goals),
     do: %{href: "#event-record-#{id}", title: payload["requested_outcome"]}
 
-  defp anchor(%Records.Record{kind: "goal_state", subject_ref: goal_id}, goals) do
-    case goals[goal_id] do
-      %Records.Record{} = goal -> anchor(goal, goals)
-      nil -> nil
-    end
-  end
+  defp anchor(%Records.Record{kind: "goal_state", id: id, subject_ref: goal_id}, goals),
+    do: %{href: "#event-record-#{id}", title: goal_name(goal_id, goals)}
 
   defp anchor(_record, _goals), do: nil
 
@@ -548,15 +570,21 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp measurements(_dimensions), do: []
 
-  # The request's goals as one Work plan card where the first was planned:
-  # each goal's latest attempt is a step with its status, what finishes it
-  # and, once done, its recorded result and evidence. Earlier attempts and
-  # changes stay in Plan history; internal IDs stay out of the reading flow
-  # (Andrew approved the card, 2026-10-15: Read only stays out of
-  # the face). Successful plan and update calls fold into it (`SavedRecords`).
-  defp plan_steps([], _anchors), do: []
+  @doc "The latest checklist, separate from the chronological events; nil without a retained plan."
+  def work_plan(records) do
+    anchors = record_anchors(records)
 
-  defp plan_steps(records, anchors) do
+    records =
+      records
+      |> Enum.filter(&(&1.kind in ~w(goal goal_state)))
+      |> Enum.sort_by(& &1.sequence)
+
+    current_plan(records, anchors)
+  end
+
+  defp current_plan([], _anchors), do: nil
+
+  defp current_plan(records, anchors) do
     goals = for %Records.Record{kind: "goal"} = record <- records, do: record
 
     states =
@@ -583,24 +611,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         unplanned_goal(goal_id, updates, anchors)
       end
 
-    first = List.first(goals) || List.first(records)
-
-    [
-      step("plan-#{first.id}", :work, first.inserted_at, %{
-        actor: "Ryker state",
-        owner: record_owner(first),
-        details: [],
-        stage: "Work plan",
-        state: "",
-        summary: nil,
-        title: "Work plan",
-        plan: %{
-          steps: current_steps(planned ++ unplanned, by_id),
-          history: planned ++ unplanned
-        },
-        tone: nil
-      })
-    ]
+    %{steps: current_steps(planned ++ unplanned, by_id)}
   end
 
   defp plan_goal(%Records.Record{payload: payload} = goal, updates, by_id, successors, anchors) do
@@ -610,7 +621,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
     %{
       id: "record-#{goal.id}",
-      record_ref: goal.ref,
+      change_id: "record-#{if(latest, do: latest.id, else: goal.id)}",
       goal_id: goal.subject_ref,
       title: payload["requested_outcome"],
       state: state,
@@ -623,8 +634,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       parent: payload["parent_goal_id"],
       attempt: attempt(goal.subject_ref, by_id),
       replaced: Map.has_key?(successors, goal.subject_ref),
-      planned_at: goal.inserted_at,
-      activity: goal_activity(payload),
       facts:
         compact_details([
           {"Done when", payload["completion_contract"]},
@@ -632,8 +641,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
           {"After", goal_names(payload["prerequisite_goal_ids"], by_id)},
           {"Repeats", goal_name(payload["successor_of"], by_id)},
           {"Repeated by", goal_name(successors[goal.subject_ref], by_id)}
-        ]),
-      changes: Enum.map(updates, &goal_change(&1, anchors))
+        ])
     }
   end
 
@@ -643,7 +651,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
     %{
       id: "record-#{latest.id}",
-      record_ref: nil,
+      change_id: "record-#{latest.id}",
       goal_id: goal_id,
       title: "Goal details not on this page",
       state: latest.payload["state"],
@@ -659,14 +667,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       facts:
         compact_details([
           {"Plan", "Its plan record is not on this page."}
-        ]),
-      changes: Enum.map(updates, &goal_change(&1, anchors))
+        ])
     }
   end
 
   # The steps the card shows: each goal's latest attempt, where its first
   # attempt was planned, and a subgoal under the goal it belongs to. A goal
-  # another attempt replaced stays in the history, so it never counts as the
+  # another attempt replaced stays in its own events, so it never counts as the
   # work's result.
   defp current_steps(goals, by_id) do
     order = goals |> Enum.with_index() |> Map.new(fn {goal, index} -> {goal.goal_id, index} end)
@@ -715,20 +722,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     end
   end
 
-  defp goal_change(%Records.Record{payload: payload} = update, anchors) do
-    {status, tone} = goal_status(payload["state"])
-
-    %{
-      id: "record-#{update.id}",
-      record_ref: update.ref,
-      at: update.inserted_at,
-      status: status,
-      tone: tone,
-      detail: payload["detail"],
-      evidence: goal_evidence(update, anchors)
-    }
-  end
-
   defp goal_evidence(nil, _anchors), do: []
 
   defp goal_evidence(%Records.Record{payload: payload}, anchors) do
@@ -762,10 +755,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     do: Enum.map_join(ids, ", ", &goal_name(&1, by_id))
 
   defp goal_names(_ids, _by_id), do: nil
-
-  defp goal_activity(%{"authority" => "read_only", "kind" => "check"}), do: "Read-only check"
-  defp goal_activity(%{"authority" => "read_only"}), do: "Read-only work"
-  defp goal_activity(_payload), do: nil
 
   @doc "The worker fleet's own events for the episode's sessions."
   def coop_steps([]), do: []

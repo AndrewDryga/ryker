@@ -1,14 +1,7 @@
 defmodule Ryker.ControlPlane.WorkPlanCardTest do
   @moduledoc """
-  The Work plan card: a request's goals as one card of compact steps.
-
-  The timeline drew every planned goal and every goal update as a card of its
-  own, so two related steps became a stack of large panels whose details
-  explained record fields, and a goal's completion criteria read like a
-  result already achieved. Andrew approved one Work plan card (2026-10-15):
-  each step's outcome and status in words, what finishes it, its result and
-  evidence once done. Plan history keeps criteria, progress and earlier attempts
-  in bounded inner items, not the old database-field dump.
+  Plan changes retain their own place in the timeline; the latest checklist
+  is a separate summary, never a later result backdated to the first plan.
   """
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
@@ -19,34 +12,52 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
   alias Ryker.Records
   alias Ryker.Work.Custody
 
-  test "a request's goals and their updates are one Work plan card with each step's latest status" do
+  # Folding all changes into the first plan card made a completed result
+  # appear before the work that produced it (reported 2026-10-26).
+  test "plan changes keep their recorded times and the current checklist stays outside the timeline" do
     work = claimed!()
-    goal!(work, "check-health", "Check infrastructure health")
-    goal!(work, "double-check", "Double-check the findings")
+    goal = goal!(work, "check-health", "Check infrastructure health")
+    other = goal!(work, "double-check", "Double-check the findings")
+    {:ok, before} = EpisodeProjection.fetch(work.episode.key)
     evidence = evidence!(work, "nodes", %{"target" => "Nomad nodes"})
-    state!(work, "check-health", "working")
+    working = state!(work, "check-health", "working")
 
-    state!(work, "check-health", "completed", %{
-      "detail" => "Every node reports ready.",
-      "evidence_refs" => [evidence.ref]
-    })
+    completed =
+      state!(work, "check-health", "completed", %{
+        "detail" => "Every node reports ready.",
+        "evidence_refs" => [evidence.ref]
+      })
 
-    state!(work, "double-check", "blocked", %{"detail" => "The monitoring API refused the query."})
+    blocked =
+      state!(work, "double-check", "blocked", %{
+        "detail" => "The monitoring API refused the query."
+      })
 
     {detail, html} = rendered(work.episode)
 
-    assert [plan] = Enum.filter(detail.trace.steps, &(&1.stage == "Work plan"))
-    refute Enum.any?(detail.trace.steps, &(&1.stage == "Plan"))
-    refute Enum.any?(detail.trace.steps, &String.starts_with?(&1.title || "", "Goal"))
+    changes = Enum.filter(detail.trace.steps, &(&1.stage == "Plan change"))
 
-    assert Enum.map(plan.plan.steps, &{&1.title, &1.status}) == [
+    assert Enum.map(changes, &{&1.record_ref, &1.at}) ==
+             Enum.map([goal, other, working, completed, blocked], &{&1.ref, &1.inserted_at})
+
+    assert Enum.map(changes, & &1.plan_change.status) ==
+             ["Not started", "Not started", "In progress", "Done", "Blocked"]
+
+    assert hd(changes) == Enum.find(before.trace.steps, &(&1.record_ref == goal.ref))
+    refute Enum.any?(detail.trace.steps, &(&1.stage == "Work plan"))
+
+    assert Enum.map(detail.trace.work_plan.steps, &{&1.title, &1.status}) == [
              {"Check infrastructure health", "Done"},
              {"Double-check the findings", "Blocked"}
            ]
 
     document = LazyHTML.from_document(html)
-    assert document |> LazyHTML.query(".work-plan") |> Enum.count() == 1
-    steps = LazyHTML.query(document, ".work-plan .plan-step")
+    assert document |> LazyHTML.query(".work-plan-summary") |> Enum.count() == 1
+    assert Enum.count(LazyHTML.query(document, "#execution-timeline + #work-plan-summary")) == 1
+    assert Enum.empty?(LazyHTML.query(document, "#execution-timeline .work-plan-summary"))
+    assert Enum.count(LazyHTML.query(document, "#execution-timeline .plan-change")) == 5
+    refute html =~ "Plan history"
+    steps = LazyHTML.query(document, ".work-plan-summary .plan-step")
     assert Enum.count(steps) == 2
 
     [done, blocked] = Enum.map(steps, &LazyHTML.text/1)
@@ -54,8 +65,95 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     assert blocked =~ "The monitoring API refused the query."
 
     assert document
-           |> LazyHTML.query(".work-plan .plan-step a[href='#event-record-#{evidence.id}']")
+           |> LazyHTML.query(
+             ".work-plan-summary .plan-step a[href='#event-record-#{evidence.id}']"
+           )
            |> LazyHTML.text() == "Nomad nodes"
+
+    assert Enum.count(
+             LazyHTML.query(
+               document,
+               "#plan-summary-record-#{goal.id} a[href='#event-record-#{completed.id}']"
+             )
+           ) == 1
+
+    ids = LazyHTML.query(document, "[id]") |> LazyHTML.attribute("id")
+    assert length(ids) == length(Enum.uniq(ids))
+  end
+
+  test "the summary is current while waiting and final only when the request has ended" do
+    work = claimed!()
+    goal!(work, "check-health", "Check infrastructure health")
+    {:ok, snapshot} = EpisodeProjection.fetch(work.episode.key)
+
+    for {state, title} <- [
+          {:working, "Current work plan"},
+          {:waiting_for_input, "Current work plan"},
+          {:waiting_for_event, "Current work plan"},
+          {:complete, "Final work plan"},
+          {:cancelled, "Final work plan"}
+        ] do
+      episode = %{snapshot.episode | state: state}
+
+      html =
+        render_component(&EpisodePage.render/1,
+          snapshot: %{snapshot | episode: episode},
+          params: %{}
+        )
+
+      summary = html |> LazyHTML.from_document() |> LazyHTML.query("#work-plan-summary")
+      assert LazyHTML.text(summary) =~ title
+      # A request ending does not manufacture completion for an unfinished goal.
+      assert LazyHTML.text(summary) =~ "Not started"
+    end
+  end
+
+  test "a later run owns its plan update without moving the original plan into that run" do
+    work = claimed!()
+    goal = goal!(work, "check-health", "Check infrastructure health")
+    update = state!(work, "check-health", "working")
+    resumed_turn = Ecto.UUID.generate()
+    update = %{update | turn_id: resumed_turn}
+
+    [planned, changed] = EpisodeTrace.Work.record_steps([goal, update])
+    assert planned.owner == {:turn, work.turn.id}
+    assert changed.owner == {:turn, resumed_turn}
+    assert planned.at == goal.inserted_at
+    assert changed.at == update.inserted_at
+  end
+
+  test "the latest saved plan status follows record sequence even if the clock moves backwards" do
+    work = claimed!()
+    goal = goal!(work, "check-health", "Check infrastructure health")
+    working = state!(work, "check-health", "working")
+    completed = state!(work, "check-health", "completed", %{"detail" => "Every node is ready."})
+    completed = %{completed | inserted_at: DateTime.add(working.inserted_at, -1, :second)}
+    assert completed.sequence > working.sequence
+
+    %{steps: [step]} = EpisodeTrace.Work.work_plan([goal, working, completed])
+    assert step.status == "Done"
+    assert step.detail == "Every node is ready."
+    assert step.change_id == "record-#{completed.id}"
+  end
+
+  test "plan titles and progress render as text in both the events and summary" do
+    work = claimed!()
+    goal!(work, "check-health", "Inspect <script>alert('title')</script>")
+
+    state!(work, "check-health", "completed", %{"detail" => "<img src=x onerror=alert('result')>"})
+
+    {_detail, html} = rendered(work.episode)
+    document = LazyHTML.from_document(html)
+
+    assert Enum.empty?(
+             LazyHTML.query(
+               document,
+               ".plan-change script, .plan-change img, .work-plan-summary script, .work-plan-summary img"
+             )
+           )
+
+    assert LazyHTML.text(LazyHTML.query(document, ".work-plan-summary")) =~
+             "<img src=x onerror=alert('result')>"
   end
 
   test "a step not yet done says what finishes it as Done when, and only an optional step is marked" do
@@ -96,24 +194,22 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     end
   end
 
-  # The history was a database field dump: IDs and enums overwhelmed the
-  # criteria and actual progress, even after opening its human-facing label.
-  test "goal history separates criteria and progress without displaying bookkeeping IDs" do
+  test "plan events show criteria and progress without displaying bookkeeping IDs" do
     work = claimed!()
     goal = goal!(work, "check-health", "Check infrastructure health")
-    state!(work, "check-health", "working")
+    update = state!(work, "check-health", "working")
 
     {_detail, html} = rendered(work.episode)
     document = LazyHTML.from_document(html)
 
-    face = LazyHTML.query(document, ".work-plan .plan-steps")
+    face = LazyHTML.query(document, ".work-plan-summary .plan-steps")
     refute LazyHTML.text(face) =~ ~r/read only/i
     assert face |> LazyHTML.query("[data-copy-value]") |> Enum.count() == 0
 
-    details = LazyHTML.query(document, ".work-plan details")
-    history = LazyHTML.text(details)
-    assert history =~ "Plan history"
-    assert history =~ "Read-only check"
+    changes = LazyHTML.query(document, ".plan-change")
+    history = LazyHTML.text(changes)
+    assert history =~ "Step planned"
+    assert history =~ "Step updated"
     assert history =~ "Done when"
     assert history =~ "Current evidence supports a bounded conclusion."
     assert history =~ "In progress"
@@ -122,17 +218,14 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     refute history =~ "Membership"
     refute history =~ "Goal ID"
     refute history =~ "Operation"
-    assert Enum.count(LazyHTML.query(details, ".ui-knowledge-item")) == 1
-
-    assert LazyHTML.attribute(LazyHTML.query(details, ".ui-knowledge-item"), "data-record-ref") ==
-             [goal.ref]
-
-    assert Enum.empty?(LazyHTML.query(details, "button, .identifier"))
+    assert Enum.count(LazyHTML.query(document, "#event-record-#{goal.id} .plan-change")) == 1
+    assert Enum.count(LazyHTML.query(document, "#event-record-#{update.id} .plan-change")) == 1
+    assert Enum.empty?(LazyHTML.query(changes, "button, .identifier"))
   end
 
   # A repeated check after changed work is a new attempt; the one it replaces
   # keeps its result but is never counted as the work's.
-  test "a repeated attempt takes its predecessor's place, and the earlier attempt stays in the history" do
+  test "a repeated attempt replaces the summary step without changing the earlier events" do
     work = claimed!()
     goal!(work, "check-health", "Check infrastructure health")
 
@@ -145,17 +238,22 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     })
 
     {detail, html} = rendered(work.episode)
-    assert [plan] = Enum.filter(detail.trace.steps, &(&1.stage == "Work plan"))
-    assert [%{title: "Check infrastructure health again", attempt: 2}] = plan.plan.steps
+
+    assert [%{title: "Check infrastructure health again", attempt: 2}] =
+             detail.trace.work_plan.steps
 
     assert [step] = step_texts(html)
     assert step =~ "Attempt 2"
     refute step =~ "Every node was ready before the change."
 
     history =
-      html |> LazyHTML.from_document() |> LazyHTML.query(".work-plan details") |> LazyHTML.text()
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#execution-timeline .plan-change")
+      |> LazyHTML.text()
 
-    assert history =~ "Earlier attempt"
+    assert history =~ "Check infrastructure health"
+    assert history =~ "Check infrastructure health again"
     assert history =~ "Every node was ready before the change."
   end
 
@@ -183,13 +281,12 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     # Supply exactly the bounded projection boundary: the newer dependent
     # plan and the old goal's latest update, not its older plan/evidence.
     trace = EpisodeTrace.project(work.episode, [], [dependent, update])
-    [plan] = Enum.filter(trace.steps, &(&1.stage == "Work plan"))
-    missing = Enum.find(plan.plan.steps, &(&1.goal_id == "earlier-goal"))
+    missing = Enum.find(trace.work_plan.steps, &(&1.goal_id == "earlier-goal"))
     assert missing.title == "Goal details not on this page"
     assert missing.detail == "The earlier deployment is healthy."
     assert missing.evidence == [%{href: nil, title: "Evidence not on this page"}]
 
-    later = Enum.find(plan.plan.steps, &(&1.goal_id == "later-goal"))
+    later = Enum.find(trace.work_plan.steps, &(&1.goal_id == "later-goal"))
     assert Enum.find(later.facts, &(&1.label == "After")).value == "Goal details not on this page"
   end
 
@@ -216,7 +313,7 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
         )
         |> LazyHTML.from_document()
 
-      face = LazyHTML.query(document, ".work-plan .plan-steps")
+      face = LazyHTML.query(document, ".work-plan-summary .plan-steps")
       assert Enum.empty?(LazyHTML.query(face, ".plan-evidence, code"))
 
       assert LazyHTML.query(face, ".plan-evidence-unavailable")
@@ -238,9 +335,12 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     state!(work, "wait", "waiting", %{"detail" => "The rollout finishes at 10:00."})
 
     {detail, _html} = rendered(work.episode)
-    assert [plan] = Enum.filter(detail.trace.steps, &(&1.stage == "Work plan"))
 
-    assert Enum.map(plan.plan.steps, & &1.status) == ["Skipped", "Cancelled", "Waiting"]
+    assert Enum.map(detail.trace.work_plan.steps, & &1.status) == [
+             "Skipped",
+             "Cancelled",
+             "Waiting"
+           ]
   end
 
   test "a request with no goals has no Work plan card" do
@@ -249,6 +349,7 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
 
     {detail, html} = rendered(work.episode)
     refute Enum.any?(detail.trace.steps, &(&1.stage == "Work plan"))
+    assert detail.trace.work_plan == nil
     refute html =~ "Work plan"
   end
 
@@ -320,7 +421,7 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
   defp step_texts(html) do
     html
     |> LazyHTML.from_document()
-    |> LazyHTML.query(".work-plan .plan-step")
+    |> LazyHTML.query(".work-plan-summary .plan-step")
     |> Enum.map(&LazyHTML.text/1)
   end
 

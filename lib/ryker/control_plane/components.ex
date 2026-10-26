@@ -179,8 +179,8 @@ defmodule Ryker.ControlPlane.Components do
   slot(:footer)
   slot(:inner_block, required: true)
 
-  @doc "One bounded inner item for recalled knowledge or a goal's readable history."
-  def knowledge_item(assigns) do
+  # One bounded inner item for the sanitized recalled-knowledge builders below.
+  defp knowledge_item(assigns) do
     ~H"""
     <article class={["ui-knowledge-item", @class]} {@rest}>
       <h4 class={["ui-knowledge-item-title", @title_class]}>{@title}</h4>

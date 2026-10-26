@@ -18,9 +18,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
       search: Map.get(attributes, :search),
       setup: Map.get(attributes, :setup),
       wait: Map.get(attributes, :wait),
-      # A Work plan card's steps and history, an Observations card's rows, and
+      # One recorded plan change, an Observations card's rows, and
       # the row one piece of evidence gives its card (`EpisodeTrace.Work`).
-      plan: Map.get(attributes, :plan),
+      plan_change: Map.get(attributes, :plan_change),
       observations: Map.get(attributes, :observations),
       observation: Map.get(attributes, :observation),
       record_ref: Map.get(attributes, :record_ref),
