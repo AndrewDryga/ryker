@@ -1924,7 +1924,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 @media (max-width:800px) {
   /* Row controls wrap under the text at the left edge, so the menu opens rightwards. */
   .entity-actions { position:relative; }
-  .entity-actions .behavior-menu { position:static; }
+  .entity-row .entity-actions .behavior-menu { position:static; }
   .entity-actions .behavior-menu-items { right:auto; left:0; }
 }
 @media (max-width:600px) {
@@ -3036,7 +3036,6 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 :is(.rules-view, .schedules-view, .follow-ups-view) > .entity-list { margin-top:8px; }
 :is(.rules-view, .schedules-view, .follow-ups-view) .entity-row { align-items:start; padding:20px 0; }
 :is(.rules-view, .schedules-view, .follow-ups-view) .entity-icon { margin-top:2px; }
-:is(.rules-view, .schedules-view, .follow-ups-view) .entity-actions { margin-top:0; }
 :is(.rules-view, .schedules-view) .entity-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:normal; color:var(--ryker-text-secondary); }
 :is(.rules-view, .schedules-view, .follow-ups-view) .entity-meta { margin-top:8px; line-height:20px; }
 .ryker-app .schedule-countdown { color:var(--ryker-text); font-weight:600; font-variant-numeric:tabular-nums; }
