@@ -319,6 +319,23 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
            |> LazyHTML.attribute("aria-label") == ["Copy formatted prompt"]
   end
 
+  test "plain retained prompt text remains readable without a JSON copy control" do
+    memory =
+      File.read!("testdata/learning/retained-livebook-briefing-memory.json") |> Jason.decode!()
+
+    text = hd(memory["observations"])["summary"]
+
+    document =
+      text
+      |> InspectionRedactor.artifact()
+      |> PromptDocument.render("plain-prompt")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, "pre.submitted-prompt-raw") |> LazyHTML.text() == text
+    assert Enum.empty?(LazyHTML.query(document, "button[data-copy-block]"))
+  end
+
   defp formatted_json(document) do
     document
     |> LazyHTML.query(".submitted-prompt-formatted .prompt-row")

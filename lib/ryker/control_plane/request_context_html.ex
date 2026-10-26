@@ -2165,10 +2165,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     remaining = Map.drop(payload, List.wrap(title_key) ++ text_keys)
     metadata = if payload == item, do: remaining, else: Map.put(item, "payload", remaining)
 
-    [
-      "<article class=\"knowledge-entry\"><h4 class=\"knowledge-entry-title\">",
-      escape(title),
-      "</h4><div class=\"knowledge-entry-body\">",
+    body =
       Enum.map(text_keys, fn field ->
         [
           if(field in ~w(reason why completion_contract),
@@ -2177,12 +2174,15 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           ),
           readable_knowledge(payload[field])
         ]
-      end),
-      "</div>",
-      knowledge_meta(payload),
-      provenance(metadata),
-      "</article>"
-    ]
+      end)
+
+    Components.knowledge_item_html(title, body,
+      class: "knowledge-entry",
+      title_class: "knowledge-entry-title",
+      body_class: "knowledge-entry-body",
+      meta: knowledge_meta(payload),
+      footer: provenance(metadata)
+    )
   end
 
   defp knowledge_entry(item, _key), do: fields(item, 0)
@@ -2711,6 +2711,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     invalid = recall_invalid(value, groups)
 
     [
+      "<div class=\"recalled-knowledge\">",
       Enum.map(groups, fn
         "observations" ->
           value["observations"] |> List.wrap() |> Enum.filter(&is_map/1) |> notes()
@@ -2723,19 +2724,17 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           |> List.wrap()
           |> Enum.filter(&is_map/1)
           |> Enum.map(fn item ->
-            [
-              "<section class=\"conversation-recall\" data-memory-kind=\"",
-              group,
-              "\"><h4>",
-              escape(recall_title(group)),
-              "</h4>",
-              recall_fields(Map.get(item, "state", item)),
-              topic_sources(item["source_reads"]),
-              "</section>"
-            ]
+            body = recall_fields(Map.get(item, "state", item))
+
+            Components.knowledge_item_html(recall_title(group), body,
+              class: "conversation-recall",
+              rest: %{"data-memory-kind" => group},
+              footer: topic_sources(item["source_reads"])
+            )
           end)
       end),
-      if(map_size(invalid) > 0, do: fields(invalid, 0), else: [])
+      if(map_size(invalid) > 0, do: fields(invalid, 0), else: []),
+      "</div>"
     ]
   end
 
@@ -2749,7 +2748,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   # A topic's understanding is the useful content. Retrieval mechanics stay
-  # inspectable underneath, not before its title and summary.
+  # in the submitted JSON, not in another fold under its title and summary.
+  defp topics([]), do: []
+
   defp topics(items) do
     [
       "<ol class=\"context-notes learned-topics\">",
@@ -2761,48 +2762,30 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp learned_topic(item) do
     state = if is_map(item["state"]), do: Map.merge(item, item["state"]), else: item
     path = ConversationMemory.knowledge_path(state["source_ref"])
-    metadata = topic_metadata(state)
+    title = present(state["title"]) || present(state["topic_key"]) || "Topic"
+    sources = topic_sources(state["source_reads"])
+
+    footer = [
+      sources,
+      if(path,
+        do: ["<a class=\"knowledge-item-action\" href=\"", escape(path), "\">Open topic →</a>"],
+        else: []
+      )
+    ]
 
     [
-      "<li class=\"context-note learned-topic\" data-memory-kind=\"knowledge\"><header><h4>",
-      escape(present(state["title"]) || present(state["topic_key"]) || "Topic"),
-      "</h4>",
-      if(path, do: ["<a href=\"", escape(path), "\">Open topic →</a>"], else: []),
-      "</header><div class=\"learned-topic-summary markdown-preview\">",
-      SlackMarkdown.preview(present(state["summary"]) || ""),
-      "</div><p class=\"learned-topic-meta\">",
-      topic_meta(state),
-      "</p>",
-      topic_sources(state["source_reads"]),
-      if map_size(metadata) > 0 do
-        Components.disclosure_html("Retrieval details", fields(metadata, 0),
-          class: "learned-topic-details"
-        )
-      else
-        []
-      end,
+      "<li>",
+      Components.knowledge_item_html(
+        title,
+        SlackMarkdown.preview(present(state["summary"]) || ""),
+        class: "learned-topic",
+        body_class: "learned-topic-summary markdown-preview",
+        rest: %{"data-memory-kind" => "knowledge"},
+        meta: topic_meta(state),
+        footer: if(path || sources != [], do: footer, else: [])
+      ),
       "</li>"
     ]
-  end
-
-  defp topic_metadata(state) do
-    state
-    |> Map.drop(
-      ~w(state title summary source_ref source_reads conversation_ref source_count latest_source_at version kind)
-    )
-    |> Map.new(fn
-      {"can_update", value} ->
-        {"updates_in_this_request", if(value, do: "Allowed", else: "Not allowed")}
-
-      {key, value} when is_boolean(value) ->
-        {key, if(value, do: "Yes", else: "No")}
-
-      {"expires_at", value} ->
-        {"expires", readable_candidate_time(value)}
-
-      {key, value} ->
-        {key, value}
-    end)
   end
 
   defp topic_meta(state) do
@@ -2815,8 +2798,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       ),
       if(is_binary(state["latest_source_at"]),
         do: ["Latest source ", escape(readable_candidate_time(state["latest_source_at"]))]
-      ),
-      if(is_integer(state["version"]), do: ["Version ", escape(state["version"])])
+      )
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.intersperse(" · ")
@@ -2878,7 +2860,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     topics = item["topics"] |> List.wrap() |> Enum.filter(&is_binary/1)
 
     [
-      "<li class=\"context-note\" data-memory-kind=\"observation\" title=\"",
+      "<li class=\"context-note\" data-memory-kind=\"observation\" data-source-ref=\"",
       escape(item["source_ref"]),
       "\">",
       Components.message_block_html(

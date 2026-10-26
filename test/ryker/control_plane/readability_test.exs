@@ -22,6 +22,26 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert sources =~ "border-top:1px solid var(--ryker-stroke)"
   end
 
+  test "tool warnings and recalled knowledge share readable closed-row and inner-item layouts", %{
+    css: css
+  } do
+    # These live states looked acceptable in isolated source tests, but the
+    # joined page hid warnings, ellipsized paths and joined mismatched widths.
+    refute css =~ ".tool-run-badge[data-service=emisar]"
+    assert css =~ ".tool-run-warning"
+    assert css =~ ".tool-run-error"
+    assert css =~ ".ui-activity-note-compact > summary"
+    assert css =~ ".recalled-knowledge { display:grid; gap:16px;"
+    assert css =~ ".context-notes { display:grid; gap:12px;"
+    assert css =~ ".ui-knowledge-item-footer"
+    # The superseded direct-div spacing also selected the shared body/footer,
+    # overriding their common rhythm only for conversation summaries.
+    refute css =~ ".conversation-recall > div"
+    assert [_, text] = Regex.run(~r/\.tool-run-text \{([^}]+)\}/, css)
+    assert text =~ "white-space:normal"
+    refute text =~ "text-overflow:ellipsis"
+  end
+
   test "peer input records keep full-width separators without a second details shell", %{css: css} do
     # Flattening the production input card must not remove separators or retain
     # the old nested disclosure's extra vertical padding (Andrew, 2026-10-25).
@@ -313,10 +333,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     # A single standing rule had no boundary at all; two facts looked like one
     # text block. First/last-child resets must not remove an item's own edges.
     assert [_, item] =
-             Regex.run(
-               ~r/\.prompt-source-body \.knowledge-entry,\s*\.prompt-source-body \.conversation-recall,\s*\.prompt-source-body \.learned-topic \{([^}]+)\}/,
-               css
-             )
+             Regex.run(~r/\.ui-knowledge-item \{([^}]+)\}/, css)
 
     assert item =~ "box-sizing:border-box"
     assert item =~ "min-width:0"

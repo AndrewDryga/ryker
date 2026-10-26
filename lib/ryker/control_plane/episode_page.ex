@@ -1008,8 +1008,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # tool calls, informative cards, consecutive calls collapsed into one card
   # where it fits (like queues)". Tool calls and Slack status updates that
   # follow each other within a stage read as one card, a line per step, each
-  # opening to its full card. A failure remains a tool call, expanded so its
-  # reason is visible. Goals, evidence and replies still end the run.
+  # opening to its full card. A failure remains a closed tool call with its
+  # reason visible on the row. Goals, evidence and replies still end the run.
   defp tool_runs(entries) do
     entries
     |> Enum.reduce([], &add_to_run(&1, &2, tool_step?(&1)))
@@ -1072,26 +1072,19 @@ defmodule Ryker.ControlPlane.EpisodePage do
           data-service={line.service}
         >
           <details
-            :if={entry.step.stage == "Tool call" || line.failed}
+            :if={entry.step.stage == "Tool call"}
+            id={"tool-#{entry.step.id}-call"}
             class="tool-run-detail"
-            open={line.failed}
           >
             <summary class="tool-run-line">
-              <.service_badge service={line.service} />
-              <span class="tool-run-title">{line.title}</span>
-              <span class="tool-run-text" title={line.detail}>{line.detail}</span>
-              <span class="tool-run-duration"><span :if={line.failed}>{if entry.step.state == "cancelled", do: "Cancelled", else: "Failed"} </span>{line.duration}</span>
+              <ToolCard.row line={line} state={entry.step.state} />
             </summary>
             <div class="tool-run-body">
-              <ToolCard.render :if={entry.step.stage == "Tool call"} step={entry.step} grouped />
-              <p :if={entry.step.stage == "Status"} class="tool-status-error">{entry.step.summary}</p>
+              <ToolCard.render step={entry.step} grouped />
             </div>
           </details>
-          <div :if={entry.step.stage != "Tool call" && !line.failed} class="tool-run-line">
-            <.service_badge service={line.service} />
-            <span class="tool-run-title">{line.title}</span>
-            <span class="tool-run-text" title={line.detail}>{line.detail}</span>
-            <span class="tool-run-duration">{if line.failed, do: "Failed"}</span>
+          <div :if={entry.step.stage != "Tool call"} class="tool-run-line">
+            <ToolCard.row line={line} state={entry.step.state} />
           </div>
         </li>
       </ol>

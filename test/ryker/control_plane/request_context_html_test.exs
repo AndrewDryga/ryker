@@ -1375,6 +1375,46 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     |> LazyHTML.from_fragment()
   end
 
+  test "mixed recalled knowledge uses shared item boundaries and bottom actions without ID tooltips" do
+    # The real retained conversation put 80ch note lists directly against
+    # wider topic cards, with observation UUIDs popping up as hover pills.
+    fixture =
+      File.read!("testdata/control_plane/submitted-prompts/work-full.json") |> Jason.decode!()
+
+    memory = get_in(fixture, ["work", "operator_context", "continuity"])
+    assert is_map(memory)
+
+    topic =
+      File.read!("testdata/learning/retained-tenant-release-knowledge.json") |> Jason.decode!()
+
+    topic = Map.put(topic, "source_ref", "knowledge:00000000-0000-4000-8000-000000000001")
+    memory = Map.put(memory, "knowledge", [topic])
+    document = recall_document(memory)
+
+    assert Enum.count(LazyHTML.query(document, ".recalled-knowledge")) == 1
+    refute Enum.empty?(LazyHTML.query(document, ".conversation-recall.ui-knowledge-item"))
+    refute Enum.empty?(LazyHTML.query(document, ".learned-topic.ui-knowledge-item"))
+    assert Enum.empty?(LazyHTML.query(document, ".context-note[title]"))
+    refute Enum.empty?(LazyHTML.query(document, ".context-note[data-source-ref]"))
+
+    assert Enum.empty?(
+             LazyHTML.query(document, ".learned-topic details, .learned-topic > header a")
+           )
+
+    refute Enum.empty?(LazyHTML.query(document, ".learned-topic .ui-knowledge-item-footer a"))
+  end
+
+  test "missing recalled topics do not leave an empty item in the knowledge grid" do
+    # Empty topic lists became visible 16px gaps once mixed recall gained a
+    # shared grid. The retained continuity fixture has no selected topics.
+    fixture =
+      File.read!("testdata/control_plane/submitted-prompts/work-full.json") |> Jason.decode!()
+
+    document = recall_document(fixture["work"]["operator_context"]["continuity"])
+    refute Enum.empty?(LazyHTML.query(document, ".conversation-recall"))
+    assert Enum.empty?(LazyHTML.query(document, ".learned-topics"))
+  end
+
   test "attachment-only messages are readable in the briefing as well as the timeline" do
     # Slack alert bodies can live entirely in attachments while text is empty.
     context = %{

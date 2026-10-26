@@ -1515,8 +1515,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp opened_tool_body(%{assigns: %{episode: %{episode: %{id: episode_id}}}}, id) do
     case ToolActivity.disclosed_body(id, episode_id) do
       {:ok, text} ->
-        ["<pre>", text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string(), "</pre>"]
-        |> Components.copy_block_html()
+        text
+        |> Components.inspection_text_html()
         |> IO.iodata_to_binary()
 
       :error ->

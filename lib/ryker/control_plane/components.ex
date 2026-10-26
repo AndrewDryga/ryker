@@ -124,9 +124,30 @@ defmodule Ryker.ControlPlane.Components do
 
   @doc "The quiet timeline treatment shared by model notes, progress and worker updates."
   def activity_note(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :compact,
+        assigns.body == [] && assigns.evidence == [] && assigns.details != []
+      )
+
     ~H"""
-    <aside class="ui-activity-note" data-tone={@tone} aria-label={@label || @title}>
-      <header class="ui-activity-note-heading">
+    <aside
+      class="ui-activity-note"
+      data-tone={@tone}
+      data-compact={if @compact, do: "true"}
+      aria-label={@label || @title}
+    >
+      <.disclosure
+        :if={@compact}
+        id={@details_id}
+        label={@title || @label || "Worker update"}
+        class="ui-activity-note-compact"
+      >
+        <:meta :if={@meta != []}>{render_slot(@meta)}</:meta>
+        {render_slot(@details)}
+      </.disclosure>
+      <header :if={!@compact} class="ui-activity-note-heading">
         <div>
           <p :if={@label} class="ui-activity-note-label">{@label}</p>
           <h3 :if={@title}>{@title}</h3>
@@ -138,7 +159,7 @@ defmodule Ryker.ControlPlane.Components do
       </div>
       <div :if={@evidence != []} class="ui-activity-note-evidence">{render_slot(@evidence)}</div>
       <.disclosure
-        :if={@details != []}
+        :if={@details != [] && !@compact}
         id={@details_id}
         label="Technical details"
         class="ui-activity-note-details"
@@ -147,6 +168,44 @@ defmodule Ryker.ControlPlane.Components do
       </.disclosure>
     </aside>
     """
+  end
+
+  attr(:title, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:title_class, :any, default: nil)
+  attr(:body_class, :any, default: nil)
+  attr(:rest, :global)
+  slot(:meta)
+  slot(:footer)
+  slot(:inner_block, required: true)
+
+  # One bounded inner item for a recalled summary, fact, rule or learned topic.
+  defp knowledge_item(assigns) do
+    ~H"""
+    <article class={["ui-knowledge-item", @class]} {@rest}>
+      <h4 class={["ui-knowledge-item-title", @title_class]}>{@title}</h4>
+      <div class={["ui-knowledge-item-body", @body_class]}>{render_slot(@inner_block)}</div>
+      <div :if={@meta != []} class="ui-knowledge-item-meta">{render_slot(@meta)}</div>
+      <div :if={@footer != []} class="ui-knowledge-item-footer">{render_slot(@footer)}</div>
+    </article>
+    """
+  end
+
+  @doc "The same knowledge item for sanitized iodata views; body and slots must already be escaped."
+  def knowledge_item_html(title, body, options \\ []) do
+    %{
+      __changed__: nil,
+      title: title,
+      class: options[:class],
+      title_class: options[:title_class],
+      body_class: options[:body_class],
+      rest: options[:rest] || %{},
+      meta: html_slot(:meta, options[:meta]),
+      footer: html_slot(:footer, options[:footer]),
+      inner_block: html_slot(:inner_block, body)
+    }
+    |> knowledge_item()
+    |> Safe.to_iodata()
   end
 
   attr(:decision, :string, required: true)
@@ -326,6 +385,34 @@ defmodule Ryker.ControlPlane.Components do
   def copy_block_html(body, label \\ "Copy") do
     %{__changed__: nil, label: label, inner_block: html_slot(:inner_block, body)}
     |> copy_block()
+    |> Safe.to_iodata()
+  end
+
+  attr(:text, :string, required: true)
+  attr(:class, :any, default: nil)
+
+  @doc "Sanitized inspection text; only a JSON object or list gets a copy control."
+  def inspection_text(assigns) do
+    copyable =
+      case Jason.decode(assigns.text) do
+        {:ok, value} when is_map(value) or is_list(value) -> true
+        _ -> false
+      end
+
+    assigns = assign(assigns, :copyable, copyable)
+
+    ~H"""
+    <.copy_block :if={@copyable} label="Copy JSON">
+      <pre class={@class} tabindex="0">{@text}</pre>
+    </.copy_block>
+    <pre :if={!@copyable} class={@class} tabindex="0">{@text}</pre>
+    """
+  end
+
+  @doc "The same inspection text for on-demand tool-body replies."
+  def inspection_text_html(text, options \\ []) do
+    %{__changed__: nil, text: text, class: options[:class]}
+    |> inspection_text()
     |> Safe.to_iodata()
   end
 

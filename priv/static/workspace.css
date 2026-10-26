@@ -656,7 +656,6 @@
 .context-message-details > .ui-disclosure > .ui-disclosure-body { padding:0 0 14px; }
 .context-message-details .context-rows { margin:0 0 8px; }
 .conversation-recall h4 { font-size:16px; margin:0 0 14px; color:var(--ink); }
-.conversation-recall > div { margin:12px 0; }
 .conversation-recall h5 { font:600 13px/1.4 var(--font-sans); color:var(--ryker-text-secondary); margin:0 0 4px; }
 .conversation-recall p, .conversation-recall ul { margin:0; }
 .conversation-recall ul { padding-left:20px; }
@@ -753,9 +752,8 @@
 .prompt-group > header { margin:0 0 8px; padding:0; background:transparent; color:var(--ink); position:static; border:0; display:block; }
 .prompt-group > header p { margin:3px 0 0; font-size:13px; color:var(--secondary); }
 .action-card { overflow-wrap:anywhere; }
-/* A run of tool calls and status updates: one card, a line per step, each
-   step opening to its full card. Emisar's steps carry its mark and green,
-   which is the same green as Ryker's mint. */
+/* One run, one closed row per call. Identity stays in the supplied marks;
+   warnings and failure reasons stay readable without opening raw payloads. */
 .tool-run-steps { display:grid; margin:12px 0 0; padding:0; list-style:none; }
 .tool-run-step { border-top:1px solid var(--ryker-stroke); }
 .tool-run-step:first-child { border-top:0; }
@@ -765,20 +763,22 @@
 .ryker-app .tool-run-detail > summary:hover .tool-run-title { text-decoration:underline; text-decoration-color:color-mix(in srgb, var(--ryker-text) 30%, transparent); text-underline-offset:3px; }
 .tool-run-detail > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:4px; }
 .tool-run-badge { display:inline-flex; align-items:center; gap:6px; width:max-content; min-width:0; min-height:32px; padding:3px 6px; border:1px solid var(--ryker-stroke-strong); border-radius:5px; background:var(--ryker-surface-sunken); color:var(--ryker-text-secondary); font-size:11px; line-height:20px; font-weight:600; white-space:nowrap; }
-.tool-run-badge[data-service=emisar] { background:color-mix(in srgb, var(--ryker-mint) 14%, transparent); color:var(--ryker-text); }
 .emisar-mark .emisar-accent { stroke:var(--ryker-mint); }
 .tool-run-badge .service-mark { display:block; width:24px; height:24px; flex:none; object-fit:contain; }
 .tool-run-badge[data-service=github] .service-mark { filter:invert(1); }
 .tool-run-badge[data-service=ryker] { background:var(--ryker-surface-inverse); color:var(--ryker-text-inverse); }
 .tool-run-line > .tool-run-badge { grid-column:1; grid-row:1 / 3; }
 .tool-run-title { grid-column:2; grid-row:1; color:var(--ryker-text); font-weight:600; overflow-wrap:anywhere; }
-.tool-run-text { grid-column:2; grid-row:2; min-width:0; overflow:hidden; color:var(--ryker-text-secondary); text-overflow:ellipsis; white-space:nowrap; }
+.tool-run-text { grid-column:2; grid-row:2; min-width:0; color:var(--ryker-text-secondary); white-space:normal; overflow-wrap:anywhere; }
+.tool-run-warning, .tool-run-error { grid-column:2 / -1; margin-top:4px; font-size:12px; line-height:20px; overflow-wrap:anywhere; }
+.tool-run-warning { color:var(--ryker-warning); }
+.tool-run-error { color:var(--ryker-error); }
 .tool-run-duration { grid-column:3; grid-row:1; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; white-space:nowrap; }
 .tool-run-detail > summary::after { content:"›"; grid-column:3; grid-row:2; justify-self:end; color:var(--ryker-text-secondary); font-size:20px; }
 .tool-run-detail[open] > summary::after { transform:rotate(90deg); }
 .tool-run-body { margin:0 0 12px; padding:4px 0 0; border:0; background:transparent; }
 .tool-run-body .action-card > :first-child:not(.case-card-heading) { margin-top:0; }
-@media (max-width:640px) { .tool-run-line { column-gap:10px; } .tool-run-line > .tool-run-badge { grid-row:1; } .tool-run-text { grid-column:1 / 3; } }
+@media (max-width:640px) { .tool-run-line { column-gap:10px; } .tool-run-line > .tool-run-badge { grid-row:1; } .tool-run-text { grid-column:1 / 3; } .tool-run-warning, .tool-run-error { grid-column:1 / -1; } }
 .action-symbol { color:var(--secondary); font-size:18px; }
 .action-duration { font-size:12px; color:var(--secondary); font-variant-numeric:tabular-nums; }
 .action-description { color:var(--secondary); font-size:14px; line-height:20px; margin:8px 0 12px; }
@@ -792,7 +792,7 @@
 .action-facts dt { color:var(--secondary); font-size:13px; }
 .action-facts dd { margin:0; min-width:0; white-space:normal; overflow-wrap:anywhere; font-size:14px; }
 @media (max-width:580px) { .action-facts > div { grid-template-columns:minmax(0,1fr); gap:2px; } }
-.action-raw { margin-top:12px; border-top:1px solid var(--stroke); padding-top:8px; }
+.action-raw { margin-top:12px; border-top:1px solid var(--stroke); padding:0; }
 .action-raw summary { font-size:13px; color:var(--secondary); }
 .prompt-source-body .context-field h4 { font-size:12px; line-height:20px; font-weight:600; }
 .prompt-source-body .context-field p { font-size:14px; line-height:22px; }
@@ -1334,6 +1334,11 @@
 .ui-activity-note-details { margin:0; border:0; }
 .ui-activity-note-details > summary { grid-template-columns:16px minmax(0,auto); width:fit-content; margin-left:auto; padding:0; }
 .ui-activity-note-details > .ui-disclosure-body { padding:8px 0 0; border-top:1px solid var(--ryker-stroke); }
+.ui-activity-note-compact { margin:0; border:0; }
+.ui-activity-note-compact > summary { min-height:44px; padding:0; grid-template-columns:16px minmax(0,1fr) auto; }
+.ui-activity-note-compact .ui-disclosure-label { color:var(--ryker-text-secondary); font-size:13px; font-weight:400; }
+.ui-activity-note-compact > .ui-disclosure-body { padding:8px 0 0; border-top:1px solid var(--ryker-stroke); }
+.case-entry:has(> .case-entry-body > .ui-activity-note[data-compact=true]) { --entry-time-inset:23px; }
 .ui-activity-note[data-tone=warn] { border-left-color:var(--ryker-warning); }
 .ui-activity-note[data-tone=bad] { border-left-color:var(--ryker-error); }
 .event-wait .wait-verification { margin:0; max-width:80ch; color:var(--ryker-text); font-size:14px; line-height:22px; }
@@ -1506,37 +1511,32 @@
   .message-container .ui-message-title { margin-left:calc(-1 * var(--card-inset)); margin-right:calc(-1 * var(--card-inset)); padding-left:var(--card-inset); padding-right:var(--card-inset); }
 }
 /* Source notes: one entry each, the note first and who and when beneath it. */
-.context-notes { list-style:none; margin:0; padding:0; max-width:80ch; }
-.context-note { padding:10px 0; border-top:1px solid var(--stroke); overflow-wrap:anywhere; }
-.context-note:first-child { padding-top:0; border-top:0; }
-.context-note:last-child { padding-bottom:0; }
+.recalled-knowledge { display:grid; gap:16px; min-width:0; }
+.context-notes { display:grid; gap:12px; list-style:none; margin:0; padding:0; max-width:none; min-width:0; }
+.context-note { min-width:0; padding:0; border:0; overflow-wrap:anywhere; }
 .prompt-source-body .context-note-text { margin:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
 .context-note-meta { margin:2px 0 0; font-size:12px; line-height:18px; color:var(--secondary); }
-.learned-topic > header { position:static; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:6px 20px; margin:0 0 8px; padding:0; background:transparent; border:0; backdrop-filter:none; }
-.ryker-app .learned-topic > header h4 { margin:0; font-size:14px; line-height:22px; font-weight:600; }
-.learned-topic > header a { font-size:12px; }
 .learned-topic-summary { max-width:80ch; font-size:14px; line-height:23px; }
 .learned-topic-summary > :first-child { margin-top:0; }
 .learned-topic-summary > :last-child { margin-bottom:0; }
-.learned-topic-meta { display:flex; flex-wrap:wrap; gap:4px; margin:12px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
 .learned-topic-sources { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 20px; margin:16px 0 0; padding:12px 0 0; border-top:1px solid var(--ryker-stroke); list-style:none; font-size:12px; }
-.learned-topic-details { margin:12px 0 0; }
 .candidate-state:empty { display:none; }
 .context-note-topics { display:flex; flex-wrap:wrap; gap:4px; list-style:none; margin:6px 0 0; padding:0; }
 .context-note-topics li { padding:0 8px; border:1px solid var(--stroke); border-radius:10px; font-size:12px; line-height:18px; color:var(--ryker-text-secondary); }
 /* Each recalled object owns its title, content and source details. A complete
    frame remains visible even when a section contains only one rule or fact. */
-.prompt-source-body .knowledge-entry,
-.prompt-source-body .conversation-recall,
-.prompt-source-body .learned-topic { --knowledge-item-inset:16px; box-sizing:border-box; min-width:0; max-width:100%; margin:0; padding:var(--knowledge-item-inset); border:1px solid var(--ryker-stroke-strong); border-radius:6px; background:var(--ryker-surface-raised); overflow-wrap:anywhere; }
-.prompt-source-body .conversation-recall { margin-bottom:12px; }
+.ui-knowledge-item { --knowledge-item-inset:16px; box-sizing:border-box; min-width:0; max-width:100%; margin:0; padding:var(--knowledge-item-inset); border:1px solid var(--ryker-stroke-strong); border-radius:6px; background:var(--ryker-surface-raised); overflow-wrap:anywhere; }
+.ryker-app .ui-knowledge-item-title { margin:0 0 12px; color:var(--ryker-text); font-size:14px; line-height:22px; font-weight:600; }
+.ui-knowledge-item-body { min-width:0; }
+.ui-knowledge-item-meta { margin:12px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }
+.ui-knowledge-item-meta > p { margin:0; }
+.ui-knowledge-item-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 20px; margin-top:16px; padding-top:12px; border-top:1px solid var(--ryker-stroke); }
+.ui-knowledge-item-footer > .learned-topic-sources { margin:0; padding:0; border:0; }
+.ui-knowledge-item-footer > .knowledge-provenance { flex:1 1 100%; margin:0; }
+.knowledge-item-action { display:inline-flex; align-items:center; min-height:44px; font-size:12px; }
 .learned-topics { display:grid; gap:12px; max-width:none; }
-.knowledge-entry > .knowledge-provenance,
-.learned-topic > .learned-topic-details { margin:12px calc(-1 * var(--knowledge-item-inset)) calc(-1 * var(--knowledge-item-inset)); padding:0 var(--knowledge-item-inset); border-top:1px solid var(--ryker-stroke); }
 @media (max-width:580px) {
-  .prompt-source-body .knowledge-entry,
-  .prompt-source-body .conversation-recall,
-  .prompt-source-body .learned-topic { --knowledge-item-inset:12px; }
+  .ui-knowledge-item { --knowledge-item-inset:12px; }
 }
 /* A recalled request and its reply are one exchange, not another disclosure or
    two unrelated cards. Only the outer top-right/bottom-left corners are rounded. */

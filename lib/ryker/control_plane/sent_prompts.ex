@@ -229,9 +229,11 @@ defmodule Ryker.ControlPlane.SentPrompts do
               <span :if={part[:bytes]}>{Units.bytes(part.bytes)}</span>
               <span :if={part[:note]}>{part.note}</span>
             </p>
-            <Components.copy_block :if={part[:text]} label="Copy runtime instructions">
-              <pre class="model-document-text" tabindex="0">{part.text}</pre>
-            </Components.copy_block>
+            <Components.inspection_text
+              :if={part[:text]}
+              text={part.text}
+              class="model-document-text"
+            />
           </li>
           <li :for={block <- send.blocks}>
             <p>

@@ -20,6 +20,29 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     assert ToolCard.line(recorded).service == :slack
   end
 
+  test "a failed working-status update has one error rather than duplicate detail and error text" do
+    line = ToolCard.line(%{stage: "Status", state: "failed", summary: "Slack did not respond."})
+    assert line.error == "Slack did not respond."
+    assert line.detail == nil
+    assert line.service == :slack
+  end
+
+  test "file rows keep the full filename and disclose when one call reported additional files" do
+    # Stress the retained read-file argument shape: a generic 160-character
+    # preview must not remove the basename, the part a person needs to identify.
+    path = String.duplicate("nested/", 30) <> "deployment.md"
+    recorded = step(%{"kind" => "read", "title" => "Read file", "input" => %{"path" => path}})
+    assert ToolCard.line(recorded).detail == path
+    recorded = Map.put(recorded, :reported_paths, %{"/locations/0/path" => "README.md"})
+    assert ToolCard.line(recorded).detail == path <> " · 1 more file"
+  end
+
+  test "cancellation without a reason does not repeat its state as an error" do
+    recorded = %{step(%{}) | state: "cancelled", summary: "The tool call was cancelled."}
+    assert ToolCard.line(recorded).failed
+    assert ToolCard.line(recorded).error == nil
+  end
+
   test "a successful check search does not claim it found checks" do
     recorded =
       step(%{
@@ -34,7 +57,7 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     assert ToolCard.project(recorded).title == "GitHub checks searched"
   end
 
-  test "a single tool shares the aggregate branding and keeps raw evidence in technical details" do
+  test "a single tool shares aggregate branding and keeps raw evidence in peer disclosures" do
     # Tool redesign must not turn native grouped calls into one invented call,
     # nor make every reader scan the raw tool envelopes.
     fixture = File.read!("testdata/control_plane/oom-evidence-link.json") |> Jason.decode!()
@@ -44,7 +67,8 @@ defmodule Ryker.ControlPlane.ToolCardTest do
       |> LazyHTML.from_fragment()
 
     assert Enum.count(LazyHTML.query(document, ".action-card > header .tool-run-badge")) == 1
-    refute Enum.empty?(LazyHTML.query(document, ".action-technical .action-raw"))
+    assert Enum.empty?(LazyHTML.query(document, ".action-technical"))
+    refute Enum.empty?(LazyHTML.query(document, ".action-card > .action-raw"))
     assert Enum.count(LazyHTML.query(document, ".action-observation")) == 1
   end
 
@@ -77,6 +101,44 @@ defmodule Ryker.ControlPlane.ToolCardTest do
       assert LazyHTML.attribute(disclosures, expected) != []
       assert Enum.empty?(LazyHTML.query(disclosures, "pre"))
     end
+  end
+
+  test "expanded tools do not repeat a query already visible or offer copy for a plain error" do
+    # The failure card repeated Search beneath the same query and gave plain
+    # error prose a JSON-style copy button at the bottom of another fold.
+    recorded =
+      step(%{
+        "input" => %{
+          "server" => "controller-tools",
+          "tool" => "search_memory",
+          "arguments" => %{"query" => "project region infrastructure"}
+        }
+      })
+
+    recorded = %{
+      recorded
+      | artifacts:
+          recorded.artifacts ++
+            [
+              %{
+                label: "Error",
+                artifact:
+                  InspectionRedactor.artifact("invalid_arguments: missing required fields")
+              }
+            ]
+    }
+
+    document =
+      render_component(&ToolCard.render/1, step: recorded, grouped: true)
+      |> LazyHTML.from_fragment()
+
+    assert Enum.empty?(LazyHTML.query(document, ".action-facts"))
+    error = LazyHTML.query(document, ".action-raw:last-child")
+    assert LazyHTML.query(error, "pre") |> LazyHTML.text() =~ "invalid_arguments"
+    assert Enum.empty?(LazyHTML.query(error, "button"))
+
+    assert Enum.count(LazyHTML.query(document, ".action-raw:first-child button[data-copy-block]")) ==
+             1
   end
 
   test "recorded evidence and conversation tools explain the change without a metadata table" do
@@ -226,6 +288,10 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     assert html =~ "lib/config.ex"
     assert html =~ "Outside project"
     refute html =~ "/private/checkout"
+
+    line = step |> Map.put(:withheld, %{"output" => "too large"}) |> ToolCard.line()
+    assert line.warning =~ "Outside project"
+    assert line.warning =~ "withheld"
   end
 
   test "file names and search terms cannot change the type of activity" do
@@ -236,6 +302,24 @@ defmodule Ryker.ControlPlane.ToolCardTest do
         ] do
       assert ToolCard.project(step(%{"title" => title})).title == expected
     end
+  end
+
+  test "opening a search preserves the full query when only its worker title was retained" do
+    # The card polish removed the old description along with its extra fold,
+    # losing anything beyond the closed row's 160-character search preview.
+    # Stress the harvested worker-title shape without inventing tool arguments.
+    title = "Search for '" <> String.duplicate("credits ", 24) <> "' in config"
+    recorded = step(%{"kind" => "search", "title" => title})
+    assert String.length(ToolCard.line(recorded).detail) == 160
+
+    document =
+      render_component(&ToolCard.render/1, step: recorded, grouped: true)
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, ".action-description") |> LazyHTML.text() |> String.trim() ==
+             title
+
+    assert Enum.empty?(LazyHTML.query(document, ".action-technical"))
   end
 
   test "goal cards expose the requested outcome and completion condition without opening JSON" do

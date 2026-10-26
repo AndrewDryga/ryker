@@ -60,6 +60,117 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert rendered(work) =~ "rg --files"
   end
 
+  test "a closed file read names the reported file and keeps its boundary warning visible" do
+    # The retained runbook read showed only 'Read file'; discovering its path
+    # needed three disclosures, while its boundary warning was hidden inside.
+    work = episode_with_tool!("visible-file", "small")
+
+    activity!(work, 2, "tool.completed", %{
+      "kind" => "read",
+      "title" => "Read file",
+      "status" => "completed",
+      "locations" => [%{"path" => "/workspace/.agent/kb/runbooks/deployment.md"}],
+      "path_context" => %{
+        "basis" => "lexical",
+        "paths" => [%{"source" => "/locations/0/path", "scope" => "outside"}]
+      }
+    })
+
+    document = work |> rendered() |> LazyHTML.from_document()
+    row = LazyHTML.query(document, "#event-activity-#{event_id(work, 2)}")
+    summary = LazyHTML.query(row, ".tool-run-detail > summary")
+    assert LazyHTML.text(summary) =~ "/workspace/.agent/kb/runbooks/deployment.md"
+    assert LazyHTML.query(summary, ".tool-run-warning") |> LazyHTML.text() =~ "Outside project"
+    assert Enum.empty?(LazyHTML.query(row, ".tool-run-detail[open]"))
+    assert Enum.empty?(LazyHTML.query(row, ".action-technical"))
+    assert Enum.count(LazyHTML.query(row, ".action-card > .action-raw[data-artifact]")) == 1
+    assert Enum.empty?(LazyHTML.query(row, ".action-raw pre"))
+  end
+
+  test "a failed call stays closed with the useful error visible above its raw evidence" do
+    # The saved-knowledge failure opened itself and hid all seven missing
+    # fields below a generic explanation and two more disclosure levels.
+    work = episode_with_tool!("visible-failure", "small")
+
+    activity!(work, 2, "tool.completed", %{
+      "kind" => "other",
+      "title" => "search_memory",
+      "status" => "failed",
+      "input" => %{
+        "server" => "controller-tools",
+        "tool" => "search_memory",
+        "arguments" => %{"query" => "project region infrastructure"}
+      },
+      "error" =>
+        "invalid_arguments: 7 issues. /after (required): is required. /before (required): is required. /cursor (required): is required. /kinds (required): is required. /limit (required): is required. /scope (required): is required. /time_basis (required): is required. Nothing was changed; correct these fields and call again."
+    })
+
+    document = work |> rendered() |> LazyHTML.from_document()
+    row = LazyHTML.query(document, "#event-activity-#{event_id(work, 2)}")
+    assert Enum.empty?(LazyHTML.query(row, ".tool-run-detail[open]"))
+
+    assert LazyHTML.query(row, ".tool-run-detail > summary .tool-run-error") |> LazyHTML.text() ==
+             "Missing required arguments: after, before, cursor, kinds, limit, scope, time_basis."
+
+    assert Enum.empty?(LazyHTML.query(row, ".action-technical"))
+    assert Enum.count(LazyHTML.query(row, ".action-card > .action-raw")) == 2
+    assert Enum.empty?(LazyHTML.query(row, ".action-raw[data-artifact] pre"))
+  end
+
+  test "compact path and failure evidence respects withholding, redaction and bounded display" do
+    work = episode_with_tool!("safe-compact-evidence", "small")
+    secret = "ghp_" <> String.duplicate("a", 28)
+
+    activity!(work, 2, "tool.completed", %{
+      "kind" => "read",
+      "title" => "Read file",
+      "status" => "failed",
+      "locations" => [%{"path" => "/workspace/" <> secret}],
+      "error" => "Failed with " <> secret <> " " <> String.duplicate("x", 8_000)
+    })
+
+    activity!(work, 3, "tool.completed", %{
+      "kind" => "read",
+      "title" => "Read file",
+      "status" => "completed",
+      "locations" => [%{"path" => "/private/withheld-file"}],
+      "withheld" => %{"locations" => "likely credential"}
+    })
+
+    document = work |> rendered() |> LazyHTML.from_document()
+    text = LazyHTML.text(document)
+    refute text =~ secret
+    refute text =~ "/private/withheld-file"
+    assert text =~ "[redacted]"
+    assert text =~ "withheld"
+    row = LazyHTML.query(document, "#event-activity-#{event_id(work, 2)} .tool-run-error")
+    assert String.length(LazyHTML.text(row)) <= 400
+    assert Enum.empty?(LazyHTML.query(document, ".tool-run-detail[open]"))
+  end
+
+  test "a completion withholding locations does not resurrect a start's path on the closed row" do
+    work = episode_with_tool!("withheld-start-location", "small")
+
+    activity!(work, 2, "tool.started", %{
+      "tool_call_id" => "read-one",
+      "kind" => "read",
+      "title" => "Read file",
+      "locations" => [%{"path" => "/private/withheld-file"}]
+    })
+
+    activity!(work, 3, "tool.completed", %{
+      "tool_call_id" => "read-one",
+      "kind" => "read",
+      "status" => "completed",
+      "withheld" => %{"locations" => "likely credential"}
+    })
+
+    document = work |> rendered() |> LazyHTML.from_document()
+    summary = LazyHTML.query(document, "#event-activity-#{event_id(work, 3)} .tool-run-line")
+    refute LazyHTML.text(summary) =~ "/private/withheld-file"
+    assert LazyHTML.text(summary) =~ "withheld"
+  end
+
   test "an expired tool body closes instead of keeping the reader's copy" do
     work = episode_with_tool!("expired", String.duplicate("d", 40_000))
     id = tool_body(work, "output").artifact_id
@@ -213,7 +324,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
       |> LazyHTML.query(".action-facts dt")
       |> Enum.map(&LazyHTML.text/1)
 
-    assert labels == ["Search", "Action", "Pack", "Runner", "Lines", "Reason"]
+    assert labels == ["Action", "Pack", "Runner", "Lines", "Reason"]
     assert facts =~ "emisar-3hgr"
     refute facts =~ "~111"
     assert facts =~ "Inspect the completed initialization."
@@ -227,10 +338,10 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert LazyHTML.query(run, "details.tool-run-detail .tool-run-body .action-card")
            |> Enum.count() == 5
 
-    # Failure keeps the same row and is expanded so its error cannot disappear.
-    assert Enum.count(LazyHTML.query(run, ".tool-run-detail[open]")) == 1
+    # Failure keeps the same closed row; its reason belongs on the summary.
+    assert Enum.empty?(LazyHTML.query(run, ".tool-run-detail[open]"))
 
-    assert LazyHTML.query(run, ".tool-run-detail[open] .tool-run-duration") |> LazyHTML.text() =~
+    assert LazyHTML.query(run, ".tool-run-detail .tool-run-duration") |> LazyHTML.text() =~
              "Failed"
   end
 
@@ -331,13 +442,13 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     end
 
     heartbeat = LazyHTML.query(document, "#event-activity-#{event_id(work, 6)}")
-    assert LazyHTML.query(heartbeat, "h3") |> LazyHTML.text() == "Provider activity received"
+    assert Enum.empty?(LazyHTML.query(heartbeat, "h3"))
     assert Enum.empty?(LazyHTML.query(heartbeat, ".ui-activity-note-text"))
     diagnostics = LazyHTML.query(heartbeat, "details")
     assert LazyHTML.attribute(diagnostics, "open") == []
 
     assert LazyHTML.query(diagnostics, ".ui-disclosure-label") |> LazyHTML.text() ==
-             "Technical details"
+             "Provider activity received"
 
     assert LazyHTML.text(diagnostics) =~ "12575"
     assert LazyHTML.text(diagnostics) =~ "Frames"

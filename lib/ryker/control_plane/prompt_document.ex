@@ -316,13 +316,6 @@ defmodule Ryker.ControlPlane.PromptDocument do
   defp whitespace?(token), do: String.trim(token) == ""
 
   defp pre(text) do
-    Components.copy_block_html(
-      [
-        "<pre class=\"submitted-prompt submitted-prompt-raw\"><code>",
-        Plug.HTML.html_escape(text),
-        "</code></pre>"
-      ],
-      "Copy text"
-    )
+    Components.inspection_text_html(text, class: "submitted-prompt submitted-prompt-raw")
   end
 end

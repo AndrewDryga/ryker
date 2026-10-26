@@ -138,28 +138,50 @@ defmodule Ryker.ControlPlane.ToolCard do
           title: String.t(),
           detail: String.t() | nil,
           duration: String.t() | nil,
+          warning: String.t() | nil,
+          error: String.t() | nil,
           failed: boolean()
         }
   def line(%{stage: "Status"} = step) do
     %{
       service: :slack,
       title: status_title(step),
-      detail: step.summary,
+      detail: if(step.state != "failed", do: step.summary),
       duration: nil,
+      warning: nil,
+      error: if(step.state == "failed", do: step.summary),
       failed: step.state == "failed"
     }
   end
 
   def line(step) do
     action = project(step)
+    warnings = Enum.reject([action.warning | action.withheld || []], &is_nil/1)
 
     %{
       service: service(action),
       title: if(step.state == "started", do: "Started: " <> action.title, else: action.title),
       detail: line_detail(action),
       duration: step.duration_ms && Units.duration(step.duration_ms),
+      warning: if(warnings != [], do: Enum.join(warnings, " · ")),
+      error: failure_summary(step),
       failed: step.state in ["failed", "cancelled"]
     }
+  end
+
+  attr(:line, :map, required: true)
+  attr(:state, :string, default: nil)
+
+  @doc "The same compact contents for an expandable call or a status-only row."
+  def row(assigns) do
+    ~H"""
+    <Components.service_badge service={@line.service} />
+    <span class="tool-run-title">{@line.title}</span>
+    <span :if={@line.detail} class="tool-run-text">{@line.detail}</span>
+    <span class="tool-run-duration"><span :if={@line.failed}>{if @state == "cancelled", do: "Cancelled", else: "Failed"} </span>{@line.duration}</span>
+    <span :if={@line.warning} class="tool-run-warning">⚠ {@line.warning}</span>
+    <span :if={@line.error} class="tool-run-error">{@line.error}</span>
+    """
   end
 
   defp status_title(%{state: "failed"}), do: "Update working status"
@@ -190,6 +212,10 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   # The one fact that tells a step from the ones around it, on one line. A
   # command's exit code is on its card; its line names the command.
+  defp line_detail(%{kind: kind, paths: [path | rest]}) when kind in ["read", "edit"] do
+    if rest == [], do: path, else: path <> " · " <> Wording.count(length(rest), "more file")
+  end
+
   defp line_detail(action) do
     [
       for({label, value} <- action.facts, label != "Exit code", do: value),
@@ -207,12 +233,49 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   defp first_line(text), do: text |> String.split("\n", parts: 2) |> hd()
 
+  defp failure_summary(%{state: "cancelled", summary: "The tool call was cancelled."}), do: nil
+
+  defp failure_summary(%{state: state} = step) when state in ["failed", "cancelled"] do
+    text = step[:failure_detail] || step.summary
+    missing = if is_binary(text), do: Regex.scan(~r{/([^\s]+) \(required\): is required\.}, text)
+
+    case {text, missing} do
+      {"invalid_arguments: " <> rest, [_ | _] = fields} ->
+        # Only summarize an all-required-fields error. Mixed validation errors
+        # keep their own text rather than concealing the other failed checks.
+        [count | _] = String.split(rest, " ", parts: 2)
+
+        if count == Integer.to_string(length(fields)),
+          do: "Missing required arguments: " <> Enum.map_join(fields, ", ", &List.last/1) <> ".",
+          else: first_line(text) |> String.slice(0, 400)
+
+      {text, _} when is_binary(text) ->
+        first_line(text) |> String.slice(0, 400)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp failure_summary(_step), do: nil
+
   attr(:step, :map, required: true)
   attr(:grouped, :boolean, default: false)
 
   def render(assigns) do
     assigns =
       assigns |> assign_new(:grouped, fn -> false end) |> assign(:action, project(assigns.step))
+
+    detail = line_detail(assigns.action)
+
+    facts =
+      if assigns.grouped do
+        Enum.reject(assigns.action.facts, fn {_label, value} -> value == detail end)
+      else
+        assigns.action.facts
+      end
+
+    assigns = assign(assigns, :facts, facts)
 
     ~H"""
     <div class={"action-card action-#{@action.kind} action-event-#{@step.state}"}>
@@ -232,6 +295,15 @@ defmodule Ryker.ControlPlane.ToolCard do
       <pre :if={@action.kind == "command" && @action.description} class="action-command-line"><code>{@action.description}</code></pre>
       <p
         :if={
+          @action.kind == "search" ||
+            @action.tool in ~w(propose_memory propose_preference request_task propose_automation request_input)
+        }
+        class="action-description"
+      >
+        {@action.description}
+      </p>
+      <p
+        :if={
           @action.kind == "command" && is_nil(@action.description) && is_nil(@action.withheld) &&
             @step.state != "started"
         }
@@ -239,14 +311,14 @@ defmodule Ryker.ControlPlane.ToolCard do
       >
         The worker reported that a command ran, not which one.
       </p>
-      <p :for={note <- @action.withheld || []} class="action-warning">{note}</p>
-      <p :if={@action.warning} class="action-warning">⚠ {@action.warning}</p>
+      <p :for={note <- @action.withheld || []} :if={!@grouped} class="action-warning">{note}</p>
+      <p :if={@action.warning && !@grouped} class="action-warning">⚠ {@action.warning}</p>
       <code :for={path <- @action.paths} class="action-path">{path}</code>
-      <p :if={@step.summary && @step.state in ["failed", "cancelled"]} class="action-error">
-        {@step.summary}
+      <p :if={!@grouped && @step.state in ["failed", "cancelled"]} class="action-error">
+        {failure_summary(@step)}
       </p>
-      <dl :if={@action.facts != [] && @step.state != "started"} class="action-facts">
-        <div :for={{label, value} <- @action.facts}>
+      <dl :if={@facts != [] && @step.state != "started"} class="action-facts">
+        <div :for={{label, value} <- @facts}>
           <dt>{label}</dt><dd>{value}</dd>
         </div>
       </dl>
@@ -264,38 +336,29 @@ defmodule Ryker.ControlPlane.ToolCard do
       </section>
       <pre :if={@action.diff && @step.state != "started"} class="action-diff">{@action.diff}</pre>
       <Components.disclosure
-        :if={@step.artifacts != [] || (@action.kind != "command" && @action.description)}
-        id={"tool-#{@step.id}-technical"}
-        label="Technical details"
-        class="action-technical"
+        :for={{artifact, index} <- Enum.with_index(@step.artifacts)}
+        id={"tool-#{@step.id}-artifact-#{index}"}
+        label={if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}
+        class="action-raw"
+        data-artifact={
+          if artifact.artifact.state in [:collapsed, :retained], do: artifact[:artifact_id]
+        }
+        data-revoked={if artifact.artifact.state in [:expired, :not_recorded], do: "true"}
       >
-        <p :if={@action.kind != "command" && @action.description} class="action-description">
-          {@action.description}
+        <:meta :if={artifact.artifact.truncated || artifact.artifact.state == :collapsed}>
+          <span :if={artifact.artifact.truncated}>Partial display</span>
+          <span :if={artifact.artifact.state == :collapsed}>{bytes(artifact.artifact.bytes)}</span>
+        </:meta>
+        <p :if={artifact.artifact.state == :collapsed} class="artifact-loading" role="status">
+          Loading…
         </p>
-        <Components.disclosure
-          :for={{artifact, index} <- Enum.with_index(@step.artifacts)}
-          id={"tool-#{@step.id}-artifact-#{index}"}
-          label={if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}
-          class="action-raw"
-          data-artifact={
-            if artifact.artifact.state in [:collapsed, :retained], do: artifact[:artifact_id]
-          }
-          data-revoked={if artifact.artifact.state in [:expired, :not_recorded], do: "true"}
-        >
-          <:meta :if={artifact.artifact.truncated || artifact.artifact.state == :collapsed}>
-            <span :if={artifact.artifact.truncated}>Partial display</span>
-            <span :if={artifact.artifact.state == :collapsed}>{bytes(artifact.artifact.bytes)}</span>
-          </:meta>
-          <p :if={artifact.artifact.state == :collapsed} class="artifact-loading" role="status">
-            Loading…
-          </p>
-          <p :if={artifact.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
-            This body is no longer retained.
-          </p>
-          <Components.copy_block :if={artifact.artifact.state == :retained}>
-            <pre>{artifact.artifact.text}</pre>
-          </Components.copy_block>
-        </Components.disclosure>
+        <p :if={artifact.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
+          This body is no longer retained.
+        </p>
+        <Components.inspection_text
+          :if={artifact.artifact.state == :retained}
+          text={artifact.artifact.text}
+        />
       </Components.disclosure>
     </div>
     """
@@ -312,7 +375,14 @@ defmodule Ryker.ControlPlane.ToolCard do
     {title, description, kind, symbol} = naming(metadata, step, args, tool)
 
     file = file_path(args, step.title)
-    {paths, warning} = display_paths(step[:path_context], file)
+
+    reported =
+      for key <- ~w(path file_path),
+          is_binary(args[key]),
+          into: step[:reported_paths] || %{},
+          do: {"/input/#{key}", args[key]}
+
+    {paths, warning} = display_paths(step[:path_context], file, reported)
 
     %{
       tool: tool,
@@ -581,15 +651,22 @@ defmodule Ryker.ControlPlane.ToolCard do
     end
   end
 
-  defp display_paths(context, file) do
+  defp display_paths(context, file, reported) do
     case Work.activity_paths(context) do
       %{"paths" => paths} = context ->
-        files = for %{"scope" => "project", "path" => path} <- paths, do: path
+        files =
+          Enum.flat_map(paths, fn
+            %{"scope" => "project", "path" => path} -> [path]
+            %{"source" => source} -> List.wrap(reported[source])
+          end)
+
         {Enum.uniq(files), path_warnings(context)}
 
       nil ->
-        {List.wrap(file),
-         if(file && Path.type(file) == :absolute, do: "Project boundary not recorded")}
+        files = Enum.uniq(List.wrap(file) ++ Map.values(reported))
+
+        {files,
+         if(Enum.any?(files, &(Path.type(&1) == :absolute)), do: "Project boundary not recorded")}
     end
   end
 

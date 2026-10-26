@@ -458,9 +458,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp artifact_text(assigns) do
     ~H"""
     <section class={"timeline-artifact artifact-#{@section.id}"}>
-      <Components.copy_block :if={@section.artifact.state == :retained}>
-        <pre>{@section.artifact.text}</pre>
-      </Components.copy_block>
+      <Components.inspection_text
+        :if={@section.artifact.state == :retained}
+        text={@section.artifact.text}
+      />
       <p :if={@section.artifact.state != :retained}>{availability(@section.artifact)}</p>
     </section>
     """

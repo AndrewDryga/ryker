@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
 
     # A failure used to escape aggregation entirely, obscuring that it was the
-    # same tool call. Its error remains expanded, alongside adjacent calls.
+    # same tool call. Both rows stay closed; failure stays visible on its row.
     failed = %{step | id: "failed-recorded-tool", state: "failed", tone: :bad}
 
     document =
@@ -105,7 +105,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.count(LazyHTML.query(document, ".tool-run")) == 1
     assert Enum.count(LazyHTML.query(document, ".tool-run-step")) == 2
-    assert Enum.count(LazyHTML.query(document, ".tool-run-detail[open]")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".tool-run-detail[open]"))
+    assert LazyHTML.query(document, ".tool-run-duration") |> LazyHTML.text() =~ "Failed"
   end
 
   test "routing keeps its recorded choice and model reason in one compact outcome" do
@@ -174,10 +175,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> render_episode([])
       |> LazyHTML.from_fragment()
 
-    assert Enum.count(LazyHTML.query(document, ".tool-run-detail[open]")) == 1
+    assert Enum.empty?(LazyHTML.query(document, ".tool-run-detail"))
+    assert Enum.count(LazyHTML.query(document, ".tool-run-error")) == 1
 
-    assert LazyHTML.query(document, ".tool-run-body") |> LazyHTML.text() =~
-             "could not be delivered"
+    assert LazyHTML.query(document, ".tool-run-line .tool-run-error") |> LazyHTML.text() ==
+             "The working status could not be delivered."
   end
 
   test "opaque routing candidate references never become nonexistent timeline links" do

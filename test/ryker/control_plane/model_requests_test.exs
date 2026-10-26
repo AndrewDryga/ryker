@@ -105,6 +105,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert text =~ "<coop-output>Save only final generated images in .coop-output/turn-1."
     assert text =~ "«ünïcode» ✓"
     assert text =~ "Differs from the prompt text above"
+    assert Enum.empty?(LazyHTML.query(sent, "button[data-copy-block]"))
 
     assert sent |> LazyHTML.query(".ui-disclosure-meta") |> Enum.map(&LazyHTML.text/1) == [
              Units.bytes(byte_size(original <> opening <> schema <> closing)),

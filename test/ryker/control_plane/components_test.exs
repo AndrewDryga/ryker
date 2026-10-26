@@ -165,6 +165,30 @@ defmodule Ryker.ControlPlane.ComponentsTest do
     assert Enum.empty?(LazyHTML.query(document, "details, button"))
   end
 
+  test "a diagnostic-only activity is one compact closed row, not a detached details control" do
+    # Provider heartbeats left a title above a far-right Technical details
+    # control, making one retained event look like a broken, empty card.
+    document =
+      render_component(fn assigns ->
+        ~H"""
+        <Components.activity_note title="Provider activity received" details_id="provider-frame">
+          <:details><Components.fact_list facts={[%{label: "Frames", value: "1"}]} /></:details>
+        </Components.activity_note>
+        """
+      end)
+      |> LazyHTML.from_fragment()
+
+    compact = LazyHTML.query(document, ".ui-activity-note[data-compact=true]")
+    assert Enum.count(compact) == 1
+    assert Enum.empty?(LazyHTML.query(compact, "header, h3, details[open]"))
+
+    assert LazyHTML.query(compact, "details > summary .ui-disclosure-label")
+           |> LazyHTML.text() == "Provider activity received"
+
+    assert LazyHTML.query(compact, "details .ui-facts") |> LazyHTML.text() =~ "Frames"
+    refute LazyHTML.text(compact) =~ "Technical details"
+  end
+
   test "a source disclosure keeps its title and right-aligned metadata in the shared shell" do
     html =
       render_component(

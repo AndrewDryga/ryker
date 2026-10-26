@@ -177,6 +177,26 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     refute render(view) =~ String.duplicate("a", 200)
   end
 
+  test "plain tool output has no copy chrome after opening or refreshing" do
+    work = work_with_prompt!("plain-tool-output", "short")
+
+    event =
+      tool_call!(work.episode, "plain-output", "No matching records. <script>untrusted</script>")
+
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
+    {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
+    render_hook(view, "disclose", %{"artifact" => "activity-#{event.id}-output"})
+    assert_reply(view, %{"html" => html})
+    assert html =~ "No matching records."
+    assert html =~ "&lt;script&gt;"
+    refute html =~ "<script>"
+    refute html =~ "copy-block"
+    render_hook(view, "refresh", %{})
+    document = view |> render() |> LazyHTML.from_document()
+    output = LazyHTML.query(document, "[data-artifact='activity-#{event.id}-output']")
+    assert Enum.empty?(LazyHTML.query(output, "button[data-copy-block]"))
+  end
+
   defp bytes(work) do
     {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
 

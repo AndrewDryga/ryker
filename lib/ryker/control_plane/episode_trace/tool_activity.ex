@@ -237,6 +237,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         tool_kind: event.payload["kind"],
         path_context: safe_path_context(event.payload["path_context"]),
+        reported_paths: reported_paths(event.payload),
         withheld: withheld(event.payload),
         state: "started",
         summary: activity_tool_summary(input),
@@ -270,6 +271,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         tool_kind: event.payload["kind"],
         path_context: safe_path_context(event.payload["path_context"]),
+        reported_paths: reported_paths(event.payload),
+        failure_detail: failure_detail(event.payload),
         exit_code: exit_code(event.payload),
         withheld: withheld(event.payload),
         state: status,
@@ -288,6 +291,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     status = event.payload["status"] || "completed"
     duration_ms = nonnegative_diff(event.occurred_at, step.at)
     diagnostic? = setup_diagnostic?(event.payload) || step.stage == "Setup diagnostic"
+    withheld = merge_withheld(step[:withheld], withheld(event.payload))
+
+    paths = merge_reported_paths(step.reported_paths, event.payload, withheld)
 
     %{
       step
@@ -296,8 +302,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         artifacts: merge_artifacts(step[:artifacts] || [], tool_artifacts(event, disclosed)),
         tool_kind: event.payload["kind"] || step.tool_kind,
         path_context: safe_path_context(event.payload["path_context"] || step.path_context),
+        reported_paths: paths,
+        failure_detail: failure_detail(event.payload),
         exit_code: exit_code(event.payload),
-        withheld: merge_withheld(step[:withheld], withheld(event.payload)),
+        withheld: withheld,
         stage: if(diagnostic?, do: "Setup diagnostic", else: "Tool call"),
         summary: activity_outcome(event.payload, status, diagnostic?),
         title: if(diagnostic?, do: setup_diagnostic_title(event.payload), else: step.title),
@@ -343,6 +351,44 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       _ -> nil
     end
   end
+
+  # File locations are small facts needed on the closed row, unlike the lazy
+  # result body. Never recover a withheld location or substitute an absolute
+  # checkout path for the worker's normalized project-relative path.
+  defp reported_paths(%{"withheld" => %{"locations" => _reason}}), do: %{}
+
+  defp reported_paths(%{"locations" => locations}) when is_list(locations) do
+    locations
+    |> Enum.take(16)
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {%{"path" => path}, index} when is_binary(path) and byte_size(path) in 1..512 ->
+        if String.valid?(path) && !String.contains?(path, ["\n", "\r", <<0>>]) do
+          safe = InspectionRedactor.artifact(path, max_bytes: 2_048)
+          [{"/locations/#{index}/path", safe.text}]
+        else
+          []
+        end
+
+      _ ->
+        []
+    end)
+    |> Map.new()
+  end
+
+  defp reported_paths(_payload), do: %{}
+
+  defp merge_reported_paths(_started, _payload, %{"locations" => _reason}), do: %{}
+
+  defp merge_reported_paths(started, payload, _withheld),
+    do: Map.merge(started, reported_paths(payload))
+
+  # A bounded, sanitized error excerpt lets the closed row explain a failure
+  # without eagerly preparing its response, output or full error artifact.
+  defp failure_detail(%{"status" => "failed", "error" => error}) when is_binary(error),
+    do: InspectionRedactor.artifact(error, max_bytes: 1_024).text
+
+  defp failure_detail(_payload), do: nil
 
   defp activity_step(%Work.ActivityEvent{kind: "model.progress"} = event, _disclosed) do
     step("activity-#{event.id}", :work, event.occurred_at, %{
