@@ -484,7 +484,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       record_ref: record.ref,
       area: area,
       text: payload["observation"],
-      source: payload["source_name"],
+      source: observation_source(payload["source_name"]),
+      source_name: payload["source_name"],
       measured_at: observed_at(payload["observed_at"]),
       freshness: payload["freshness"],
       scope_note: payload["scope_note"],
@@ -517,6 +518,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp observation(_record, _anchors), do: nil
+
+  defp observation_source("slack-source:v1:" <> _reference), do: "Slack source"
+  defp observation_source("admit_input:" <> _reference), do: "Incoming message"
+  defp observation_source(name), do: name
 
   defp observation_area(payload),
     do: payload["target"] || payload["claim"] || payload["source_name"] || "Observation"

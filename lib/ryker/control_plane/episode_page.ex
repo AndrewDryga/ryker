@@ -1455,7 +1455,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
                 <span :if={row.contradicts} class="observation-flag">Contradicts its claim</span>
               </span>
               <span class="observation-text">{row.text}</span>
-              <span :if={observation_meta(row)} class="observation-meta">
+              <span
+                :if={observation_meta(row)}
+                class="observation-meta"
+                data-source-name={row[:source_name]}
+              >
                 {observation_meta(row)}
               </span>
               <span :if={row.scope_note} class="observation-scope">

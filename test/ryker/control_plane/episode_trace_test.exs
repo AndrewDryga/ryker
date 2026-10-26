@@ -449,6 +449,33 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     assert [step] = EpisodeTrace.Work.record_steps([record])
     assert %{label: "Source reference", value: source, identifier: true} in step.details
+
+    # Native card review found opaque citation IDs printed as source names
+    # on closed rows. Keep the bytes for inspection, not as the human label.
+    {_entry, episode} = admitted_input!()
+    {:ok, detail} = EpisodeProjection.fetch(episode.key)
+
+    for {name, label} <- [
+          {source, "Incoming message"},
+          {Ryker.Slack.SourceRef.message("TEXAMPLE", "CEXAMPLE", "1792905959.185719"),
+           "Slack source"},
+          {Ryker.Slack.SourceRef.channel("TEXAMPLE", "CEXAMPLE"), "Slack source"},
+          {"Google Cloud Monitoring", "Google Cloud Monitoring"}
+        ] do
+      retained = put_in(record.payload["source_name"], name)
+
+      document =
+        render_component(&EpisodePage.render/1,
+          snapshot: %{detail | trace: EpisodeTrace.project(episode, [], [retained])},
+          requests: nil,
+          params: %{}
+        )
+        |> LazyHTML.from_fragment()
+
+      meta = LazyHTML.query(document, ".observation-meta")
+      assert LazyHTML.text(meta) |> String.trim() == label
+      assert LazyHTML.attribute(meta, "data-source-name") == [name]
+    end
   end
 
   test "retrying a task that never started does not invent a briefing for its old attempt" do
