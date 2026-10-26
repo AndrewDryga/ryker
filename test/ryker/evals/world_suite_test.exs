@@ -17,6 +17,7 @@ defmodule Ryker.Evals.WorldSuiteTest do
         "concurrent-human-feedback-serializes",
         "current-uptime-check-uses-fresh-source",
         "explicit-operator-incident-offer",
+        "explicit-status-question-before-unfinished-work",
         "github-pr-review-remains-in-thread",
         "ordinary-thread-question-gets-natural-answer",
         "rivals-engineering-task-offer",
@@ -33,7 +34,7 @@ defmodule Ryker.Evals.WorldSuiteTest do
                paired_baseline: true
              )
 
-    assert length(plan) == 54
+    assert length(plan) == 60
 
     assert Enum.map(plan, &{&1.scenario.id, &1.repeat_index, &1.lane}) ==
              for(

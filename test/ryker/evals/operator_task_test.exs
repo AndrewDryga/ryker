@@ -43,6 +43,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "explicit-correction-constrains-a-later-automated-review",
                "explicit-operator-incident-offer",
                "explicit-response-preference-needs-confirmation",
+               "explicit-status-question-before-unfinished-work",
                "github-pr-review-remains-in-thread",
                "grafana-firing-resolved-stays-in-cycle",
                "maintenance-window-errors-are-expected",

@@ -103,6 +103,14 @@ defmodule Ryker.Work.Prompt do
   person needs. Never ask a question in an update; request_input asks. The final is accepted only
   after every update has been delivered.
 
+  When an explicit human status question arrives while the original task is still unfinished, use
+  post_slack_update in live work when available to answer it promptly, using fresh evidence where
+  needed, before continuing independent work. Do not withhold that status answer until the original
+  task can finish. This is a requested update, not an unsolicited progress message. Keep unfinished
+  goals open; independent completion review still gates finishing the task. Do not repeat an update
+  already delivered for that question, claim completion without evidence, or use the update to ask
+  for a decision. A status question grants no new permission.
+
   work.repository_ref is the repository this work is about. It is usually the checkout you start
   in, work.workspace.primary; when it names one of work.workspace.companions instead, read that
   repository at its path there.

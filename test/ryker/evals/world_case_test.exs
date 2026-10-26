@@ -16,6 +16,29 @@ defmodule Ryker.Evals.WorldCaseTest do
     missing-project-many-candidates-narrow-first
   )
 
+  test "the unanswered status question retains unfinished work and a required update trajectory" do
+    # Production exhausted its output attempts while withholding a supported
+    # status answer behind the original task's unfinished completion review.
+    assert {:ok, scenario} = WorldCase.fetch("explicit-status-question-before-unfinished-work")
+    assert scenario.provenance["kind"] == "production"
+    assert scenario.host_replay["model_events"] == []
+    assert "smoke" in scenario.tags
+    assert [event] = scenario.events
+    assert event["payload"]["text"] == "?"
+    assert event["payload"]["retained_question"]["text"] == "So how is it going?"
+    assert event["payload"]["retained_work"]["goal_state"]["state"] == "waiting"
+
+    assert Enum.find(WorldCase.fabricated_tools(scenario), &(&1["name"] == "post_slack_update")) ==
+             Enum.find(
+               Ryker.Slack.CapabilityTools.definitions(),
+               &(&1["name"] == "post_slack_update")
+             )
+
+    assert Enum.any?(scenario.expect["trajectory"], &(&1["tool"] == "post_slack_update"))
+    assert Enum.any?(scenario.expect["trajectory"], &(&1["tool"] == "backup.status"))
+    assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "wait_for"))
+  end
+
   @tag :grafana_scope
   test "the fabricated Grafana endpoint discloses its scope without rewriting source evidence" do
     # Three real-model runs correctly refused to guess the missing environment;
@@ -71,7 +94,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 42
+    assert length(scenarios) == 43
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"

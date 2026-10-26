@@ -574,6 +574,24 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
   end
 
+  test "an explicit status question gets an update before unfinished task work continues" do
+    # A live status question went unanswered through two completion reviews:
+    # the model held its supported status answer until the original work could
+    # finish, then exhausted its attempts without delivering that answer.
+    instructions = normalized_instructions()
+
+    assert instructions =~ "When an explicit human status question arrives"
+    assert instructions =~ "while the original task is still unfinished"
+    assert instructions =~ "post_slack_update in live work when available"
+    assert instructions =~ "using fresh evidence where needed"
+    assert instructions =~ "before continuing independent work"
+    assert instructions =~ "Do not withhold that status answer until the original task can finish"
+    assert instructions =~ "Keep unfinished goals open"
+    assert instructions =~ "independent completion review still gates finishing the task"
+    assert instructions =~ "Do not repeat an update already delivered for that question"
+    assert instructions =~ "A status question grants no new permission"
+  end
+
   # Andrew, 2026-09-26: the Work model should be able to add some emoji, not
   # only one. A reaction for every point the answer makes is noise on the
   # person's message, so the prompt asks for restraint; a count would be a
