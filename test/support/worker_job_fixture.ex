@@ -13,7 +13,7 @@ defmodule Ryker.Fixtures.WorkerJob do
     job =
       Map.merge(job, %{
         "source" => source(session.repository_ref, session.repository_source),
-        "mode" => if(session.repository_ref, do: "normal", else: "bare"),
+        "mode" => "normal",
         "companions" => Enum.map(refs, &%{"name" => &1, "source" => source(&1, nil)})
       })
 

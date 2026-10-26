@@ -28,7 +28,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
       },
       "companions" => [],
       "targets" => ["codex:gpt-6&sol@default"],
-      "mode" => "readonly",
+      "mode" => "normal",
       "repository_read_only" => true,
       "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
       "limits" => %{
@@ -48,16 +48,28 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     }
   end
 
+  # The upgraded worker removed mode aliases. Accepting one here would publish
+  # a job it cannot run; read-only authority now lives only in its explicit flag.
+  test "worker jobs use normal mode with an explicit read-only grant" do
+    job = Map.put(valid_job(), "mode", "normal")
+    assert JobSpec.validate(job) == :ok
+    assert job["repository_read_only"]
+
+    for mode <- ~w(readonly bare) do
+      assert JobSpec.validate(Map.put(job, "mode", mode)) == {:error, :invalid_coop_worker_job}
+    end
+  end
+
   test "the immutable job digest matches Coop's sorted and escaped Go JSON" do
     for {timestamp, digest} <- [
           {"2026-09-26T12:00:00Z",
-           "e3413eaa0fde8dffc7adb163162ab06a1d6b11ccd8918235cde00735cae49400"},
+           "f99e0c853235d59ca54d9e3d5eec95d2c70b1ef01e1f5fd7af1a02fef1e79b83"},
           {"2026-09-26T12:00:00.12345Z",
-           "97b9bcb9a49b0017e096997e6b3d2faef7f8689c1753e3e3d8d82c92e3ad5bd4"},
+           "912849518cdb641b0d52583c78c1eb989f1d3aeeed5649f2b0714609d2cc1ba5"},
           {"2026-09-26T12:00:00.000001Z",
-           "857d39e4484647feddef7ed81bf095c213363858bd3b152a9baa1d0ae6d1adc3"},
+           "f80344cd93c76c3fe1dde45a99b7749bb3719313f7017f0b78cfec95c46f92de"},
           {"2026-09-26T12:00:00.123456789Z",
-           "476e6a487c208a38aee4fc5d10ea082efbbdc72a8e555ececf6680349ad73554"}
+           "2396bbf41ba21b17d8e7be0e3911496ef319b7adbf786baac381a3763bf043eb"}
         ] do
       assert {:ok, ^digest} =
                JobSpec.digest(
@@ -138,17 +150,16 @@ defmodule Ryker.CoopFleet.JobSpecTest do
   end
 
   test "a workspaceless job carries no source or worker-local project settings" do
-    bare = %{
+    job = %{
       valid_job()
-      | "mode" => "bare",
-        "source" => nil,
+      | "source" => nil,
         "repository_read_only" => false,
         "targets" => ["codex"]
     }
 
-    assert JobSpec.validate(bare) == :ok
+    assert JobSpec.validate(job) == :ok
 
-    assert JobSpec.validate(Map.put(bare, "project_env", false)) ==
+    assert JobSpec.validate(Map.put(job, "project_env", false)) ==
              {:error, :invalid_coop_worker_job}
   end
 
@@ -205,8 +216,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
   test "session custody accepts only a matching immutable job and digest" do
     job = %{
       valid_job()
-      | "mode" => "bare",
-        "source" => nil,
+      | "source" => nil,
         "repository_read_only" => false,
         "targets" => ["codex"]
     }

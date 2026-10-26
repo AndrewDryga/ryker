@@ -196,7 +196,8 @@ defmodule Ryker.Work.CompletionReviewTest do
     assert session.worker_job_document["source"] == nil
     assert session.worker_job_document["environment"] == %{}
     assert session.worker_job_document["egress"]["mode"] == "none"
-    assert session.worker_job_document["mode"] == "readonly"
+    assert session.worker_job_document["mode"] == "normal"
+    assert session.worker_job_document["repository_read_only"]
 
     assert Repo.exists?(
              from(e in Ryker.Accounting.Execution,

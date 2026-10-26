@@ -1,8 +1,8 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
 FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
 
-ARG COOP_VERSION=v11.3.0-99-gc1dab36d
-ARG COOP_REVISION=c1dab36d0adfb26e3c087200f9e55d98f0a03cbd
+ARG COOP_VERSION=v12.0.1-5-gdffbeff3
+ARG COOP_REVISION=dffbeff36d9cc55f280592226cdfff5b427ac7de
 
 # Only the pinned commit, and each download tried again: on 2026-10-17 the tenant host's network
 # broke off a clone of Coop's whole history twice, after 397 s and 36 s, and its worker stayed on
@@ -76,4 +76,5 @@ ENV HOME=/var/lib/coop \
     COOP_RUNTIME=docker \
     TMPDIR=/var/lib/coop/tmp
 
+WORKDIR /tmp
 ENTRYPOINT ["/usr/local/bin/ryker-coop-entrypoint"]

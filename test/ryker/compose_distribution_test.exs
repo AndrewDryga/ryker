@@ -148,6 +148,10 @@ defmodule Ryker.ComposeDistributionTest do
     # override relabeled the pinned revision as whatever it named (2026-10-04
     # review); another Coop is a prebuilt image named in RYKER_COOP_IMAGE.
     assert worker_image =~ ~r/^ARG COOP_VERSION=v/m
+
+    # Coop refuses / as a project root. Its image preparation used to inherit
+    # Docker's / cwd, so upgrading the binary would stop the worker at boot.
+    assert worker_image =~ ~r/^WORKDIR \/tmp$/m
     refute read("compose.yml") =~ "COOP_VERSION"
     assert worker_image =~ "COPY --from=build /out/coop /usr/local/bin/coop"
     refute worker_image =~ "coop help sessions policies"

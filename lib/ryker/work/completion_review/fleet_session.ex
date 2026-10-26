@@ -42,7 +42,7 @@ defmodule Ryker.Work.CompletionReview.FleetSession do
         "job_ref" => external_ref,
         "source" => nil,
         "companions" => [],
-        "mode" => "readonly",
+        "mode" => "normal",
         "repository_read_only" => true,
         "environment" => %{},
         "check" => %{"argv" => [], "environment" => %{}},

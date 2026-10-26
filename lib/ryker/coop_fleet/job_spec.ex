@@ -73,7 +73,7 @@ defmodule Ryker.CoopFleet.JobSpec do
     Maps.exact_keys?(job, @root_fields) and
       job["version"] == 2 and
       Protocol.reference?(job["job_ref"]) and
-      job["mode"] in ~w(normal readonly bare) and
+      job["mode"] == "normal" and
       is_boolean(job["repository_read_only"])
   end
 
@@ -84,7 +84,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp execution_bounds?(job) do
-    egress?(job["egress"]) and limits?(job["limits"]) and mode_bounds?(job) and
+    egress?(job["egress"]) and limits?(job["limits"]) and
       environment?(job["environment"]) and check?(job["check"]) and
       resources?(job["resources"])
   end
@@ -128,8 +128,6 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   defp resources?(_resources), do: false
 
-  defp source_mode?(%{"mode" => "bare", "source" => nil}), do: true
-  defp source_mode?(%{"mode" => "bare"}), do: false
   defp source_mode?(%{"source" => nil}), do: true
   defp source_mode?(%{"source" => source}), do: source?(source)
 
@@ -255,16 +253,4 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp limits?(_limits), do: false
-
-  defp mode_bounds?(%{"mode" => "bare"} = job) do
-    job["companions"] == [] and not job["repository_read_only"] and restricted_bounds?(job)
-  end
-
-  defp mode_bounds?(%{"mode" => "readonly"} = job),
-    do: job["repository_read_only"] and restricted_bounds?(job)
-
-  defp mode_bounds?(_job), do: true
-
-  defp restricted_bounds?(job),
-    do: job["egress"]["mode"] != "filtered" and job["limits"]["warm_idle_timeout_ms"] == 0
 end
