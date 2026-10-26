@@ -1334,7 +1334,7 @@
 .case-entry-body:has(> .ui-activity-note) { background:transparent; border:0; border-radius:0; padding:12px var(--card-inset); }
 .case-entry:has(> .case-entry-body > .ui-activity-note) { --entry-time-inset:11px; }
 .ui-activity-note { min-width:0; max-width:84ch; padding-left:16px; border-left:2px solid var(--ryker-stroke-strong); overflow-wrap:anywhere; }
-.ui-activity-note-heading { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; }
+.ui-activity-note-heading { position:static; top:auto; z-index:auto; margin:0; padding:0; border:0; background:transparent; backdrop-filter:none; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; }
 .ui-activity-note-label { margin:0 0 4px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.04em; }
 .ui-activity-note h3 { margin:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
 .ui-activity-note-meta { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--ryker-text-secondary); font-size:12px; line-height:20px; }

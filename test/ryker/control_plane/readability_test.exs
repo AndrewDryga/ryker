@@ -282,6 +282,12 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
              ".case-entry:has(> .case-entry-body > .ui-activity-note) { --entry-time-inset:11px; }"
 
     assert css =~ ".ui-activity-note {"
+    assert [_, heading] = Regex.run(~r/\.ui-activity-note-heading \{([^}]+)\}/, css)
+    assert heading =~ "padding:0"
+    assert heading =~ "border:0"
+    assert heading =~ "background:transparent"
+    assert heading =~ "position:static"
+    assert heading =~ "backdrop-filter:none"
     assert css =~ ".ui-activity-note[data-tone=warn]"
     refute css =~ ".case-model-note"
     refute css =~ ".model-note-text"
