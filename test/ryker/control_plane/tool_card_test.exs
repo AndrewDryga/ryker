@@ -4,6 +4,53 @@ defmodule Ryker.ControlPlane.ToolCardTest do
   alias Ryker.ControlPlane.ToolCard
   alias Ryker.InspectionRedactor
 
+  test "frozen startup diagnostics retain their full tool evidence" do
+    # Diagnostic completions have a distinct stage, but their retained output
+    # must not disappear when permission evidence gains its own projection.
+    output = "Startup boundary evidence " <> String.duplicate("detail ", 80) <> "END OF EVIDENCE"
+
+    items = [
+      %{
+        "kind" => "tool.completed",
+        "payload" => %{
+          "title" => "mcp_startup.github",
+          "status" => "completed",
+          "output" => output
+        }
+      }
+    ]
+
+    html = ToolCard.snapshot_html(items, "review-diagnostic") |> IO.iodata_to_binary()
+    assert html =~ "END OF EVIDENCE"
+    assert html =~ "action-card"
+  end
+
+  test "frozen permission evidence keeps the policy outcome and selected option" do
+    # Host boundary cases: a permission receipt is evidence, not a tool call.
+    # Treating it as one silently removed the decision from review briefings.
+    for {outcome, phrase} <- [
+          {"allowed", "recorded allowed"},
+          {"cancelled", "refused this unattended"}
+        ] do
+      items = [
+        %{
+          "kind" => "permission.decided",
+          "payload" => %{
+            "outcome" => outcome,
+            "option_kind" => "allow_once",
+            "tool_call_id" => "permission-boundary"
+          }
+        }
+      ]
+
+      html = ToolCard.snapshot_html(items, "review-permission") |> IO.iodata_to_binary()
+      assert html =~ phrase
+      assert html =~ "allow_once"
+      refute html =~ "permission-boundary"
+      assert html =~ "ui-activity-note"
+    end
+  end
+
   test "known platform calls use human action names without erasing their native tool identity" do
     recorded =
       step(%{

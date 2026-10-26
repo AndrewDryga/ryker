@@ -17,6 +17,9 @@ Builder links for each card-design change. Keep preview, visual, integration and
 
 ## Pre-v1 replacements are clean cuts
 
+Historical timeline work also follows `.agent/kb/rules/historical-timeline-evidence.md`:
+frozen inputs, causal placement and saved outcomes must never be rewritten from later state.
+
 Remove superseded routes and implementations and update every caller, link, test,
 and document in the same change. Do not add redirects, compatibility aliases,
 legacy fallbacks, temporary dual paths, or staged compatibility migrations.

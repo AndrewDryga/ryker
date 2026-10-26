@@ -7,12 +7,72 @@ defmodule Ryker.ControlPlane.ToolCard do
   """
   use Phoenix.Component
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.EpisodeCausality
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
+  alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.Units
   alias Ryker.Emisar
   alias Ryker.Wording
   alias Ryker.Work
+
+  @doc "Retained, sanitized review observations drawn with the same tool cards, without live lookups."
+  def snapshot_html([], _prefix), do: "<p>No tool observations were included.</p>"
+
+  def snapshot_html(items, prefix) do
+    events =
+      for {%{"kind" => kind, "payload" => %{} = payload} = item, index} <- Enum.with_index(items) do
+        %Work.ActivityEvent{
+          id: Kit.content_id(prefix <> "-review-tool-#{index}", Jason.encode!(item)),
+          kind: kind,
+          payload: payload
+        }
+      end
+
+    causality = EpisodeCausality.index([], [])
+
+    disclosed =
+      for event <- events,
+          key <- ~w(output error content locations),
+          into: MapSet.new(),
+          do: "activity-#{event.id}-#{key}"
+
+    events
+    |> ToolActivity.steps(causality, disclosed)
+    |> Enum.map(fn step ->
+      # These bodies belong to a frozen review, not today's activity rows.
+      # Never wire their disclosures to a live activity lookup.
+      artifacts = Enum.map(step.artifacts, &Map.put(&1, :artifact_id, nil))
+      step = %{step | artifacts: artifacts}
+
+      html = snapshot_card(%{__changed__: nil, step: step})
+
+      Phoenix.HTML.Safe.to_iodata(html)
+    end)
+  end
+
+  defp snapshot_card(assigns) do
+    assigns = assign(assigns, :facts, Enum.reject(assigns.step.details, & &1[:identifier]))
+
+    ~H"""
+    <.render
+      :if={@step.stage in ["Tool call", "Setup diagnostic"]}
+      step={@step}
+      grouped={false}
+      class="ui-knowledge-item knowledge-entry"
+    />
+    <Components.activity_note
+      :if={@step.stage not in ["Tool call", "Setup diagnostic"]}
+      title={@step.title}
+      tone={@step.tone}
+    >
+      <:body>
+        <div :if={@step.summary} class="markdown-preview">{SlackMarkdown.html(@step.summary)}</div>
+        <Components.fact_list :if={@facts != []} facts={@facts} />
+      </:body>
+    </Components.activity_note>
+    """
+  end
 
   @tools %{
     "cite_source" =>
@@ -261,10 +321,14 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   attr(:step, :map, required: true)
   attr(:grouped, :boolean, default: false)
+  attr(:class, :any, default: nil)
 
   def render(assigns) do
     assigns =
-      assigns |> assign_new(:grouped, fn -> false end) |> assign(:action, project(assigns.step))
+      assigns
+      |> assign_new(:grouped, fn -> false end)
+      |> assign_new(:class, fn -> nil end)
+      |> assign(:action, project(assigns.step))
 
     detail = line_detail(assigns.action)
 
@@ -283,7 +347,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     assigns = assigns |> assign(:facts, facts) |> assign(:paths, paths)
 
     ~H"""
-    <div class={"action-card action-#{@action.kind} action-event-#{@step.state}"}>
+    <div class={["action-card action-#{@action.kind} action-event-#{@step.state}", @class]}>
       <Components.card_heading
         :if={!@grouped}
         title={if @step.state == "started", do: "Started: #{@action.title}", else: @action.title}

@@ -4,6 +4,116 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   alias Ryker.InspectionRedactor
   alias Ryker.StateTools.FixedTools
 
+  test "review records preserve the human question and the exact awaited verification" do
+    timer = File.read!("testdata/control_plane/timer-due.json") |> Jason.decode!()
+    wait = get_in(timer, ["input", "content", "content"])
+
+    context = %{
+      "records" => [
+        %{
+          "kind" => "input_request",
+          "status" => "open",
+          "payload" => %{
+            "question" => "Which running version?",
+            "choices" => ["Current version", "Planned version"]
+          }
+        },
+        %{
+          "kind" => "event_wait",
+          "status" => "open",
+          "payload" => Map.take(wait, ~w(kind verification event_matcher deadline_at))
+        }
+      ]
+    }
+
+    html =
+      [%{id: "context", artifact: InspectionRedactor.artifact(context)}]
+      |> RequestContextHTML.briefing(:completion_review, "review-waits")
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Which running version?"
+    assert html =~ "Current version"
+    assert html =~ "Planned version"
+    assert html =~ "Check node-a backup.service"
+    assert html =~ "Inspect backup status for completion"
+    assert html =~ "1h"
+    refute html =~ "Source details"
+  end
+
+  test "review evidence keeps bounded excerpts honest and tool observations in shared cards" do
+    # The host snapshot is a boundary document. A cut JSON excerpt must never
+    # be repaired into a fictional full briefing or enriched from live state.
+    context = %{
+      "work" => Ryker.CanonicalJSON.bounded(%{"inputs" => String.duplicate("a", 500)}, 100),
+      "candidate" => %{"delivery" => "none", "message" => nil},
+      "previous_inputs" => %{"items" => [], "window" => "Earlier submitted inputs"},
+      "records" => [],
+      "previous_reviews" => [],
+      "tool_observations" => %{
+        "items" => [
+          %{
+            "kind" => "tool.completed",
+            "payload" => %{
+              "title" => "Read file",
+              "status" => "completed",
+              "kind" => "read",
+              "input" => %{"path" => "/workspace/README.md"},
+              "output" => "Retained output"
+            }
+          }
+        ],
+        "omitted" => 3
+      },
+      "request_input_available" => false,
+      "dismissible_wait_refs" => [],
+      "ledger_sha256" => "must-not-be-primary",
+      "progress_sha256" => "must-not-be-primary"
+    }
+
+    sections = [%{id: "context", artifact: InspectionRedactor.artifact(context)}]
+
+    html =
+      sections
+      |> RequestContextHTML.briefing(:completion_review, "review")
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Partial excerpt"
+    assert html =~ "not the omitted middle"
+    assert html =~ "No new reply proposed"
+    assert html =~ "3 older observations"
+    assert html =~ "/workspace/README.md"
+    assert html =~ "action-card"
+    refute html =~ "must-not-be-primary"
+    refute html =~ "Other fields"
+    refute html =~ "Previous answer"
+    assert Enum.empty?(LazyHTML.query(LazyHTML.from_fragment(html), "details[open]"))
+  end
+
+  test "a timer shows the scheduled work and verification without opening raw JSON" do
+    input =
+      "testdata/control_plane/timer-due.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("input")
+
+    html =
+      %{"current_inputs" => %{"items" => [input]}}
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "timer")
+      |> IO.iodata_to_binary()
+
+    document = LazyHTML.from_fragment(html)
+    visible = document |> LazyHTML.query(".ui-message-body") |> LazyHTML.text()
+    assert html =~ "Scheduled check"
+    assert visible =~ "Inspect backup status for completion"
+    assert visible =~ "What to verify"
+    assert visible =~ "Check node-a backup.service"
+    assert visible =~ "Watch deadline"
+    refute visible =~ "This source event has no text body"
+    refute visible =~ "record:event_wait:"
+    assert Enum.empty?(LazyHTML.query(document, ".context-message-raw[open]"))
+  end
+
   # Andrew, 2026-09-28, of a Work briefing's Related outcomes: it dumped every
   # stored field, "Not supplied", refs, Slack's block JSON and ISO times, six
   # outcomes some 19,000 pixels tall. Each outcome now reads as what was

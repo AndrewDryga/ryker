@@ -46,7 +46,7 @@ defmodule Ryker.Work.CompletionReview.FleetSession do
         "repository_read_only" => true,
         "environment" => %{},
         "check" => %{"argv" => [], "environment" => %{}},
-        "egress" => %{"mode" => "none", "rules" => [], "export_destinations" => false},
+        "egress" => CoopFleet.JobTemplates.provider_only_egress(),
         "limits" => limits
       })
 

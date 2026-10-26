@@ -12,6 +12,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
+  alias Ryker.ControlPlane.ToolCard
+  alias Ryker.ControlPlane.Units
   alias Ryker.Slack
   alias Ryker.Wording
 
@@ -121,6 +123,35 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "feedback" => {"Feedback", "conversation", "Everything people said or did about the answer."},
     "omitted" => {"Left out", "runtime", "Evidence the analysis did not get, and why."}
   }
+  @review_parts %{
+    "candidate" =>
+      {"Proposed answer", "conversation",
+       "The exact answer and outcome awaiting independent review; not a sent reply."},
+    "work" =>
+      {"Work context", "memory",
+       "The original instructions, messages, context and capabilities the working model received."},
+    "previous_inputs" =>
+      {"Earlier inputs", "conversation",
+       "Earlier submitted messages from this Work session, including authorized refinements."},
+    "records" =>
+      {"Work records", "memory",
+       "The findings, plan and waits the reviewer could inspect. A completed goal alone is not proof."},
+    "tool_observations" =>
+      {"Tool observations", "tools",
+       "Retained tool results available to the reviewer, not model narration."},
+    "previous_reviews" =>
+      {"Earlier reviews", "memory",
+       "Earlier judgments on this same evidence, supplied as feedback rather than new requirements."},
+    "request_input_available" =>
+      {"Review scope", "runtime",
+       "Whether a person can be asked and which current waits the review may dismiss."},
+    "dismissible_wait_refs" => {"Review scope", "runtime", nil},
+    "ledger_sha256" =>
+      {"Evidence checks", "runtime",
+       "The host checks that the candidate and evidence still match before applying this review."},
+    "progress_sha256" => {"Evidence checks", "runtime", nil}
+  }
+  @review_order ~w(candidate work previous_inputs records tool_observations previous_reviews)
   # What each tool a request could use is for, in a line an on-call engineer
   # reads without the tool's contract. The name stays beside it: the
   # timeline's tool steps show that name.
@@ -211,11 +242,17 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     {"runtime", "Scope and permissions",
      "Where this run was bound and what the model was allowed to do."}
   ]
-  @group_labels Map.new([{"instructions", "Instructions"} | @briefing_groups], fn
-                  {group, label} -> {group, label}
-                  {group, label, _description} -> {group, label}
-                end)
-  @group_order ~w(instructions policy conversation summaries history memory tools runtime)
+  @group_labels Map.new(
+                  [
+                    {"instructions", "Instructions"},
+                    {"review", "Review evidence"} | @briefing_groups
+                  ],
+                  fn
+                    {group, label} -> {group, label}
+                    {group, label, _description} -> {group, label}
+                  end
+                )
+  @group_order ~w(instructions review policy conversation summaries history memory tools runtime)
   @part_order [
     "System prompt",
     "Global instructions",
@@ -367,6 +404,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       end,
       cond do
         is_nil(context) -> []
+        kind == :completion_review -> review_assembly(context.artifact, prefix)
         kind == :improvement -> analysis_assembly(context.artifact, prefix, counts)
         true -> assembly(context.artifact, root, prefix, counts)
       end,
@@ -381,6 +419,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp briefing_root(:admission), do: "$.context"
   defp briefing_root(:learning), do: "$"
   defp briefing_root(:improvement), do: "$.context"
+  defp briefing_root(:completion_review), do: "$.snapshot"
   defp briefing_root(_work), do: "$.work"
 
   # What a retry was told about the attempt before it, and the topic a
@@ -578,6 +617,200 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp analysis_assembly(_artifact, _prefix, _counts), do: []
 
+  defp review_assembly(%{state: :retained, truncated: false, text: text}, prefix) do
+    case Jason.decode(text) do
+      {:ok, %{} = snapshot} ->
+        rows =
+          for key <- @review_order, Map.has_key?(snapshot, key) do
+            source(
+              key,
+              "$.snapshot." <> key,
+              snapshot[key],
+              metadata(key, "$.snapshot"),
+              review_body(key, snapshot[key], prefix),
+              prefix
+            )
+          end
+
+        scope = Map.take(snapshot, ~w(request_input_available dismissible_wait_refs))
+        checks = Map.take(snapshot, ~w(ledger_sha256 progress_sha256))
+        other = snapshot |> root_parts("$.snapshot") |> Enum.filter(&(&1.title == "Other fields"))
+
+        group(
+          "Review evidence",
+          "Frozen inputs used to judge whether this work could finish.",
+          [
+            rows,
+            source(
+              "review_scope",
+              "$.snapshot.scope",
+              scope,
+              metadata("request_input_available", "$.snapshot"),
+              review_scope(scope),
+              prefix
+            ),
+            source(
+              "evidence_checks",
+              "$.snapshot.checks",
+              checks,
+              metadata("ledger_sha256", "$.snapshot"),
+              "<p>Bound to the recorded candidate, findings and tool evidence. If those change, the host requires another review; fingerprints remain in the submitted JSON.</p>",
+              prefix
+            ),
+            other_fields_source(other, "$.snapshot", prefix)
+          ],
+          group: "review"
+        )
+
+      _ ->
+        []
+    end
+  end
+
+  defp review_assembly(_, _prefix), do: []
+
+  defp review_body(_key, %{"json_preview" => _preview, "truncated" => true} = value, _prefix),
+    do: partial_review(value)
+
+  defp review_body("candidate", candidate, _prefix) when is_map(candidate) do
+    [
+      "<p class=\"context-note\">",
+      escape(
+        if(candidate["delivery"] == "none",
+          do: "No new reply proposed.",
+          else: "Proposed reply; not yet sent."
+        )
+      ),
+      "</p>",
+      if is_binary(candidate["message"]) do
+        Components.knowledge_item_html("Draft reply", readable_knowledge(candidate["message"]),
+          class: "knowledge-entry"
+        )
+      else
+        []
+      end,
+      if(is_binary(candidate["decision_reason"]),
+        do: readable_knowledge(candidate["decision_reason"]),
+        else: []
+      ),
+      if(is_map(candidate["outcome"]),
+        do: [
+          "<p>Proposed outcome: ",
+          escape(human(candidate["outcome"]["state"] || "unknown")),
+          ".</p>"
+        ],
+        else: []
+      )
+    ]
+  end
+
+  defp review_body("work", work, prefix) when is_map(work) do
+    Enum.map(context_parts(work, "$.snapshot.work"), fn {key, value, parent} ->
+      {title, _origin, _owner, _description} = metadata(key, parent)
+      content = source_body(key, value, field_path(parent, key), prefix, work)
+      Components.knowledge_item_html(title, content, class: "knowledge-entry")
+    end)
+  end
+
+  defp review_body(key, %{"items" => %{"json_preview" => _} = partial} = value, _prefix)
+       when key in ~w(previous_inputs tool_observations),
+       do: [
+         partial_review(partial),
+         "<p class=\"context-note\">",
+         escape(value["window"] || ""),
+         "</p>"
+       ]
+
+  defp review_body("previous_inputs", %{"items" => []}, _prefix),
+    do: "<p>No earlier inputs were included.</p>"
+
+  defp review_body("previous_inputs", %{"items" => items}, _prefix) when is_list(items),
+    do: Enum.map(items, &messages/1)
+
+  defp review_body("records", records, _prefix), do: knowledge_entries("records", records, false)
+
+  defp review_body("tool_observations", %{"items" => items} = value, prefix) when is_list(items),
+    do: [
+      ToolCard.snapshot_html(items, prefix),
+      if(is_integer(value["omitted"]) && value["omitted"] > 0,
+        do: [
+          "<p class=\"context-omission\">",
+          count(value["omitted"], "older observation"),
+          " omitted from this snapshot.</p>"
+        ],
+        else: []
+      )
+    ]
+
+  defp review_body("previous_reviews", reviews, _prefix) when is_list(reviews) do
+    Enum.map(reviews, fn review ->
+      Components.knowledge_item_html(
+        human(review["decision"] || "Earlier review"),
+        [
+          readable_knowledge(review["reason"] || "No reason retained."),
+          review_criteria(review["requirements"] || []),
+          review_criteria(review["actions"] || [])
+        ],
+        class: "knowledge-entry"
+      )
+    end)
+  end
+
+  defp review_body(_key, value, _prefix), do: fields(value, 0)
+
+  defp review_criteria(items) do
+    for %{"requirement" => requirement} = item <- items do
+      text =
+        for key <- ~w(evidence action basis),
+            is_binary(item[key]),
+            do: readable_knowledge(item[key])
+
+      Components.knowledge_item_html(requirement, text,
+        class: "knowledge-entry",
+        meta: if(is_binary(item["status"]), do: escape(human(item["status"])), else: [])
+      )
+    end
+  end
+
+  defp partial_review(value) do
+    [
+      "<p class=\"context-omission\"><strong>Partial excerpt.</strong> The reviewer received only the retained beginning and end, not the omitted middle.</p>",
+      if(is_integer(value["original_bytes"]),
+        do: [
+          "<p class=\"context-note\">Original size: ",
+          escape(Units.bytes(value["original_bytes"])),
+          ". The token link opens the exact excerpt in the submitted JSON.</p>"
+        ],
+        else: []
+      )
+    ]
+  end
+
+  defp review_scope(scope) do
+    [
+      "<dl class=\"context-rows\">",
+      context_row(
+        "Ask a person",
+        case scope["request_input_available"] do
+          true -> "Available when essential access, a fact or a decision is missing"
+          false -> "Unavailable; a genuine human blocker keeps the work unfinished"
+          _ -> "Not recorded"
+        end
+      ),
+      context_row(
+        "Current waits",
+        case scope["dismissible_wait_refs"] do
+          refs when is_list(refs) ->
+            count(length(refs), "wait") <> " eligible for dismissal if unnecessary"
+
+          _ ->
+            "Not recorded"
+        end
+      ),
+      "</dl><p>Judgment only: this reviewer cannot run actions, change files or post a reply.</p>"
+    ]
+  end
+
   defp absent_rows(group, context, parts, root, prefix) do
     dedicated =
       if routing?(root),
@@ -734,7 +967,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"instructions", value} ->
         [prompt_part("$.instructions", {"System prompt", "instructions", "policy"}, value)]
 
-      {key, value} when key in ["context", "work"] and is_map(value) ->
+      {key, value} when key in ["context", "work", "snapshot"] and is_map(value) ->
         context_prompt_parts(value, "$." <> key)
 
       {key, value} ->
@@ -869,6 +1102,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp part_section(key, "$.context") when is_map_key(@analysis_parts, key) do
     {title, origin, _description} = @analysis_parts[key]
     {title, origin, origin}
+  end
+
+  defp part_section(key, "$.snapshot") when is_map_key(@review_parts, key) do
+    {title, origin, _description} = @review_parts[key]
+    {title, "review", origin}
   end
 
   defp part_section(key, parent) do
@@ -1910,6 +2148,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     {title, origin, nil, description}
   end
 
+  defp metadata(key, "$.snapshot") when is_map_key(@review_parts, key) do
+    {title, origin, description} = @review_parts[key]
+    {title, origin, nil, description}
+  end
+
   defp metadata(key, _root) do
     Map.get(
       @sources,
@@ -2128,12 +2371,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # These are the frozen values sent to the model, not today's memory. Only
   # presentation changes: every remaining field stays under Source details.
-  defp knowledge_entries(key, value) do
+  defp knowledge_entries(key, value, raw_details \\ true) do
     items = knowledge_items(key, value)
 
     [
       "<div class=\"knowledge-entries\">",
-      Enum.map(items, &knowledge_entry(&1, key)),
+      Enum.map(items, &knowledge_entry(&1, key, raw_details)),
       "</div>",
       knowledge_action(key)
     ]
@@ -2150,7 +2393,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp knowledge_items(_key, value), do: List.wrap(value)
 
-  defp knowledge_entry(item, key) when is_map(item) do
+  defp knowledge_entry(item, key, raw_details) when is_map(item) do
     payload = if is_map(item["payload"]), do: item["payload"], else: item
 
     title_key =
@@ -2159,7 +2402,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     title = if title_key, do: payload[title_key], else: human(item["kind"] || key)
 
     text_keys =
-      ~w(value task what summary observation detail message reason why cause outcome attempted_actions completion_contract scope_note said_about_themselves)
+      ~w(value task what summary observation detail message reason why cause outcome attempted_actions completion_contract scope_note said_about_themselves question choices verification done_when)
       |> Enum.filter(&(not blank?(payload[&1])))
 
     remaining = Map.drop(payload, List.wrap(title_key) ++ text_keys)
@@ -2176,16 +2419,30 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         ]
       end)
 
+    body = if raw_details, do: body, else: [body, record_fields(remaining)]
+
     Components.knowledge_item_html(title, body,
       class: "knowledge-entry",
       title_class: "knowledge-entry-title",
       body_class: "knowledge-entry-body",
       meta: knowledge_meta(payload),
-      footer: provenance(metadata)
+      footer: if(raw_details, do: provenance(metadata), else: [])
     )
   end
 
-  defp knowledge_entry(item, _key), do: fields(item, 0)
+  defp knowledge_entry(item, _key, _raw_details), do: fields(item, 0)
+
+  # Narrative fields stay prominent. Preserve other meaningful frozen payload
+  # fields rather than mistaking the wait's question/matcher for provenance.
+  defp record_fields(remaining) do
+    remaining
+    |> Map.drop(
+      ~w(kind state authority_ceiling scope observed_at evidence_refs record_refs source_refs)
+    )
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
+    |> fields(0)
+  end
 
   defp knowledge_meta(payload) do
     values =
@@ -3205,18 +3462,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp message(input, total, kind) when is_map(input) do
-    actor = actor_label(input)
-    body = message_text(input["content"] || input)
+    {actor, body} = message_presentation(input)
     context = message_context(input, kind)
     raw = Jason.encode!(input, pretty: true)
     title = if(total > 1 and kind not in [:history, :learning, :new], do: context)
 
     Components.message_block_html(
       actor,
-      if(body,
-        do: message_body(body, input),
-        else: "<p class=\"context-absent\">This source event has no text body.</p>"
-      ),
+      body,
       person: slack_person(input),
       class: "context-message",
       rest: %{"data-message-context" => context},
@@ -3254,6 +3507,23 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp message(_input, _total, _kind), do: []
+
+  defp message_presentation(input) do
+    case SourceText.event_preview(input) do
+      %{actor: actor, text: text} ->
+        {actor, SlackMarkdown.preview(text)}
+
+      nil ->
+        text = message_text(input["content"] || input)
+
+        body =
+          if text,
+            do: message_body(text, input),
+            else: "<p class=\"context-absent\">This source event has no text body.</p>"
+
+        {actor_label(input), body}
+    end
+  end
 
   defp message_attachments(nil), do: []
 
@@ -3678,6 +3948,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # recorded it.
   defp field_label("owner"), do: "Recorded by"
   defp field_label("host_continuation"), do: "Continuation"
+  defp field_label("event_matcher"), do: "Wait for"
+  defp field_label("on_timeout"), do: "If time runs out"
+  defp field_label("poll_after"), do: "Check again after"
+  defp field_label("deadline_at"), do: "Deadline"
 
   defp field_label(key) do
     key

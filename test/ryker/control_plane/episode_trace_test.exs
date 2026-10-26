@@ -375,6 +375,42 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert is_nil(only.state)
   end
 
+  test "a timer preview is redacted and bounded before reaching the timeline" do
+    # A readable timer must not make model-copied credentials or signed URL
+    # queries visible; all admitted narratives share the inspection boundary.
+    event =
+      "testdata/control_plane/timer-due.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> get_in(["input", "content", "content"])
+      |> Map.put(
+        "verification",
+        "Bearer hidden-value https://example.test/view?token=unpublished"
+      )
+
+    admitted = %Ryker.Episodes.Event{
+      kind: :input_admitted,
+      dedupe_key: "timer-preview-boundary",
+      occurred_at: ~U[2026-10-26 19:45:58.000000Z],
+      payload: %{"payload" => %{"content" => event}}
+    }
+
+    assert [%{message: message}] = EpisodeTrace.Input.admitted([admitted], %{})
+    refute message.text =~ "hidden-value"
+    refute message.text =~ "unpublished"
+    assert message.text =~ "[redacted]"
+
+    oversized =
+      put_in(
+        admitted.payload["payload"]["content"]["verification"],
+        String.duplicate("x", 13_000)
+      )
+
+    assert [%{message: bounded}] = EpisodeTrace.Input.admitted([oversized], %{})
+    assert String.ends_with?(bounded.text, "[display truncated]")
+    assert byte_size(bounded.text) <= 12_000 + byte_size("\n[display truncated]")
+  end
+
   # A task approved in Chat was credited to "Slack user", and a Chat action card read "Asked
   # Control_plane to post the message." (2026-10-04 review).
   test "work done in Chat is credited to Chat and its person, never to Slack" do

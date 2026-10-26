@@ -410,7 +410,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   belongs to.
 
   A step that carries a durable owner takes its position from that owner: a
-  Turn sits at the position of the earliest input it selected, wherever its
+  Turn sits at the position of the latest input it selected, wherever its
   receipts happen to land in time. Only a step with no recorded owner falls
   back to the reader's current position, and an input message still opens a
   new one. This is what keeps a Turn 1 tool result that arrives after Message 2

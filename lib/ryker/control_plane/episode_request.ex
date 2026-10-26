@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       |> assign(:unused_history, unused_history)
       |> assign(:result?, request.phase == :result)
       |> assign(:run, if(request.phase == :result, do: request[:run]))
-      |> assign(:retried_after, if(request.phase == :result, do: request[:retried_after]))
+      |> assign(:retried_after, request[:retried_after])
       |> assign(:reason_from_model?, reason_from_model?(request))
       |> assign(:archived_response, archived)
       |> assign(
@@ -76,9 +76,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <:meta :if={@run && @run.total_ms}>took {Units.duration(@run.total_ms)}</:meta>
       </Components.card_heading>
       <p :if={@retried_after} class="request-retry">
-        Retried after attempt {@retried_after.generation} failed: {lower_first(
-          sentence(@retried_after.summary)
-        )} <a href={@retried_after.href}>See attempt {@retried_after.generation} ↑</a>
+        {@retried_after[:lead] || "Retried after"} attempt {@retried_after.generation} {@retried_after[
+          :transition
+        ] || "failed"}: {lower_first(sentence(@retried_after.summary))}
+        <a href={@retried_after.href}>See attempt {@retried_after.generation} ↑</a>
       </p>
       <p :if={@retention_note} class="artifact-unavailable request-retention">{@retention_note}</p>
       <section :if={!@result?} class="request-model-section" aria-label="Model">
@@ -98,6 +99,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <small :if={@reason_from_model?}>Model's reason</small>{@explanation}
       </p>
       <.decision_list :if={@decision != []} facts={@decision} />
+      <.review_items
+        :if={@result? && @request.source_kind == :completion_review}
+        review={@request[:background] || %{}}
+      />
       <section :if={@answers != []} class="routing-answers" aria-label="Selected reply">
         <Components.message_block :for={answer <- @answers} sender="Ryker" context="Selected reply">
           {Ryker.ControlPlane.SlackMarkdown.html(answer.value)}
@@ -208,6 +213,25 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </Components.disclosure>
       </Components.disclosure>
     </div>
+    """
+  end
+
+  defp review_items(assigns) do
+    assigns =
+      assign(assigns, :groups, [
+        {"Completion criteria", assigns.review[:requirements] || []},
+        {"Next steps", assigns.review[:actions] || []}
+      ])
+
+    ~H"""
+    <section :for={{title, items} <- @groups} :if={items != []} class="knowledge-entries">
+      <h4>{title}</h4>
+      <Components.knowledge_item :for={item <- items} title={item.title} class="knowledge-entry">
+        <:meta :if={item[:status]}>{Wording.words(item.status)}</:meta>
+        {Ryker.ControlPlane.SlackMarkdown.html(item.text)}
+        <p :if={item[:note]}>{item.note}</p>
+      </Components.knowledge_item>
+    </section>
     """
   end
 
@@ -487,13 +511,12 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   # Routing that ran more than once names each attempt, so a retried input's
   # cards read as the separate calls they were.
-  defp attempt_label(%{source_kind: :admission, generation: generation, generations: generations})
-       when is_integer(generation) and is_integer(generations) and generations > 1,
+  defp attempt_label(%{source_kind: :admission, generation: generation})
+       when is_integer(generation) and generation >= 1,
        do: "Attempt #{generation}"
 
-  defp attempt_label(%{source_kind: kind, generation: generation, generations: total})
-       when kind in @background_kinds and is_integer(generation) and is_integer(total) and
-              total > 1,
+  defp attempt_label(%{source_kind: kind, generation: generation})
+       when kind in @background_kinds and is_integer(generation) and generation >= 1,
        do: "Attempt #{generation}"
 
   defp attempt_label(_request), do: nil
@@ -638,6 +661,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp reason_from_model?(%{source_kind: :admission, phase: :result} = request),
     do: is_binary((document(request, "candidate") || %{})["reason"])
+
+  defp reason_from_model?(%{background: %{model_reason?: false}}), do: false
 
   defp reason_from_model?(%{source_kind: kind, phase: :result, background: %{reason: reason}})
        when kind in @background_kinds,

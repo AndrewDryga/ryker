@@ -173,8 +173,18 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
     described = EpisodeCausality.describe(index, {:turn, turn.id})
     assert described.inputs == [1, 2]
 
+    # A resumed check consumed its older timer and the latest human message.
+    # Choosing the earliest input filed the whole new briefing above the very
+    # message it contained, making a frozen prompt appear to read the future.
+    assert EpisodeCausality.position(index, {:turn, turn.id}) == 2
+
     html = rendered(episode)
     assert html =~ "Inputs: Message 1 + Message 2"
+
+    document = LazyHTML.from_fragment(html)
+    [first, second] = Enum.to_list(LazyHTML.query(document, ".conversation-chapter"))
+    assert Enum.empty?(LazyHTML.query(first, "#request-#{turn.id}"))
+    assert Enum.count(LazyHTML.query(second, "#request-#{turn.id}")) == 1
   end
 
   test "an unrecorded input selection is not an empty selection" do

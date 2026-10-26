@@ -138,7 +138,8 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
   @doc """
   The conversation position a group belongs to, from durable identity only.
 
-  A turn takes the position of the earliest input it actually selected. An
+  A turn takes the position of the latest input it actually selected. A batch
+  cannot be shown before one of the messages its frozen briefing contains. An
   unrecorded selection returns `nil`; the caller decides what to show, and must
   not substitute the nearest message in time.
   """
@@ -146,7 +147,7 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
   def position(index, owner) do
     case describe(index, owner) do
       %{kind: :input, ordinal: ordinal} -> ordinal
-      %{inputs: [first | _rest]} -> first
+      %{inputs: [_first | _rest] = inputs} -> List.last(inputs)
       _none -> nil
     end
   end

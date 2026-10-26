@@ -3,6 +3,56 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
   alias Ryker.ControlPlane.{PromptDocument, RequestContextHTML}
   alias Ryker.InspectionRedactor
 
+  test "every displayed model-call kind participates in prompt attribution coverage" do
+    # A new completion-review card bypassed the existing prompt matrix entirely.
+    # New producers must add their evidence/attribution cases, not silently use
+    # the generic JSON container. This complements the behavioral cases below.
+    displayed =
+      ~r/source_kind: :(\w+)/
+      |> Regex.scan(File.read!("lib/ryker/control_plane/episode_request.ex"),
+        capture: :all_but_first
+      )
+      |> List.flatten()
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert displayed == ~w(admission completion_review improvement learning work)
+  end
+
+  test "every completion-review snapshot value has a named readable home" do
+    # The real review's snapshot occupied 97% of its prompt and was attributed
+    # entirely to Other fields. These are host snapshot boundaries, not a
+    # fabricated model judgment; bounded values must remain visibly partial.
+    snapshot = %{
+      "candidate" => %{"delivery" => "none", "message" => nil},
+      "work" => %{
+        "json_preview" => "{\"inputs\":...<truncated>...}",
+        "original_bytes" => 90_000,
+        "truncated" => true,
+        "sha256" => "digest"
+      },
+      "previous_inputs" => %{"items" => [], "window" => "Latest submitted inputs"},
+      "records" => [],
+      "tool_observations" => %{"items" => [], "omitted" => 0},
+      "previous_reviews" => [],
+      "dismissible_wait_refs" => [],
+      "request_input_available" => true,
+      "ledger_sha256" => "ledger",
+      "progress_sha256" => "progress"
+    }
+
+    prompt = Ryker.Work.CompletionReview.Prompt.build(snapshot)
+    document = prompt_document(prompt)
+    fragments = LazyHTML.query(document, ".prompt-fragment")
+    paths = LazyHTML.attribute(fragments, "data-source")
+    refute "Other fields" in LazyHTML.attribute(fragments, "data-part")
+
+    for leaf <- leaf_paths(Jason.decode!(prompt), "$") do
+      assert Enum.count(paths, &(leaf == &1 || String.starts_with?(leaf, [&1 <> ".", &1 <> "["]))) ==
+               1
+    end
+  end
+
   test "Work history highlights the same message and summary components as routing" do
     # The actual nested Work bundle was unlabelled even though the same sources
     # in routing were individually inspectable.

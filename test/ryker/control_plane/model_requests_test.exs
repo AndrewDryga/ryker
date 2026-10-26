@@ -16,6 +16,28 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.Settings
   alias Ryker.Work.{Custody, Session, Submission, Turn}
 
+  test "a later briefing cannot rewrite the earlier call's inputs or rendered evidence" do
+    {episode, turn, _original} = frozen_turn!()
+    before = timeline_request(episode, turn)
+    before_html = render_component(&EpisodeRequest.render/1, request: before)
+    context = %{"inputs" => [%{"text" => "A later message not present in the earlier briefing."}]}
+    prompt = Jason.encode!(%{"instructions" => "Later instructions", "work" => context})
+    {:ok, submission} = Submission.new(context, prompt, %{"type" => "object"}, "inspection-test")
+
+    Repo.generate_id()
+    |> Turn.Changeset.insert(episode.id, turn.session_id, "turn:later-briefing")
+    |> Ecto.Changeset.change(
+      submission: submission,
+      submission_fingerprint: Submission.fingerprint(submission)
+    )
+    |> Repo.insert!()
+
+    after_request = timeline_request(episode, turn)
+    assert after_request.sections == before.sections
+    assert render_component(&EpisodeRequest.render/1, request: after_request) == before_html
+    refute before_html =~ "A later message"
+  end
+
   test "a request reads the frozen submission and distinguishes instructions from provider-owned context" do
     {episode, turn, original} = frozen_turn!()
     request = timeline_request(episode, turn)

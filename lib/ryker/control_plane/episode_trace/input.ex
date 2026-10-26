@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.ConsolePeople
+  alias Ryker.ControlPlane.SourceText
   alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.GitHub
@@ -209,13 +210,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     }
   end
 
-  defp admitted_message(%{payload: %{"payload" => %{"content" => %{"kind" => "timer_due"}}}}) do
+  defp admitted_message(%{
+         payload: %{"payload" => %{"content" => %{"kind" => "timer_due"} = event}}
+       }) do
+    preview = SourceText.event_preview(event)
+
     %{
       boundary: true,
       title: "Wait ended",
-      actor: "Ryker",
+      actor: preview.actor,
       person: nil,
-      text: "The time Ryker was waiting for came, so the work continues.",
+      text: bounded_text(preview.text),
       available: true,
       transport: "system",
       source: nil

@@ -1,0 +1,24 @@
+{
+  "provenance": "Timer payload harvested 2026-10-26. Resource names and record identities substituted; timestamps, event kind, matcher and instruction ordering retained. Transport-only identifiers omitted.",
+  "input": {
+    "actor_ref": "system:system:event-wait-timer",
+    "occurred_at": "2026-10-26T19:45:58.744534Z",
+    "current": true,
+    "content": {
+      "actor": {"kind": "system", "ref": "event-wait-timer"},
+      "source": {"kind": "system", "ref": "ryker"},
+      "content": {
+        "kind": "timer_due",
+        "cursor": null,
+        "deadline_at": "2026-10-27T00:30:00Z",
+        "event_matcher": {
+          "delay": "1h",
+          "on_timeout": "Inspect backup status for completion, failure or excessive runtime without changing services.",
+          "type": "after"
+        },
+        "event_wait_ref": "record:event_wait:scheduled-backup-check",
+        "verification": "Check node-a backup.service invocation retained-invocation, backup main-2026-10-26-automatic. Compare with 18:45 UTC: latest journal 18:26:24 example_ks.aggregated_timeline, CPU 12m18.149s. If complete discover authorized stored catalog and manifest verification; do not infer integrity from exit status. Do not repeat recovery mutations."
+      }
+    }
+  }
+}

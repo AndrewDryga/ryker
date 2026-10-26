@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.CompletionReviews do
   @moduledoc "Frozen completion judgments alongside the Work calls they reviewed."
   alias Ryker.Accounting
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, Paths}
+  alias Ryker.PromptDocument
   alias Ryker.Repo
   alias Ryker.Work
 
@@ -23,17 +24,23 @@ defmodule Ryker.ControlPlane.CompletionReviews do
       disclosed: Keyword.get(options, :disclosed)
     }
 
-    Enum.flat_map(runs, &cards(&1, turns[&1.turn_id], executions[&1.id], context))
+    Enum.flat_map(runs, fn run ->
+      previous =
+        Enum.find(runs, &(&1.turn_id == run.turn_id && &1.generation == run.generation - 1))
+
+      cards(run, turns[run.turn_id], executions[run.id], Map.put(context, :previous, previous))
+    end)
   end
 
   defp cards(run, turn, execution, context) do
     options = BackgroundCards.artifact_options(run, context)
+    prompt = PromptDocument.decode(run.prompt)
 
     base = %{
       kind: :request,
       source_kind: :completion_review,
       band: :work,
-      owner: :episode,
+      owner: {:turn, turn.id},
       title: "Completion review",
       target: BackgroundCards.target(run, execution),
       status: run.status,
@@ -55,7 +62,22 @@ defmodule Ryker.ControlPlane.CompletionReviews do
         phase: :submission,
         at: run.inserted_at,
         sort_at: run.inserted_at,
+        retried_after: previous_attempt(context.previous, options),
         sections: [
+          BackgroundCards.section(
+            "instructions",
+            "Review instructions",
+            prompt["instructions"],
+            :completion_review,
+            options
+          ),
+          BackgroundCards.section(
+            "context",
+            "Frozen review evidence",
+            prompt["snapshot"],
+            :completion_review,
+            options
+          ),
           BackgroundCards.submitted(
             run.prompt,
             "completion-review-#{run.id}-request",
@@ -90,7 +112,7 @@ defmodule Ryker.ControlPlane.CompletionReviews do
           at: run.remote_stopped_at || run.updated_at,
           sort_at: run.remote_stopped_at || run.updated_at,
           run: Map.put(CallRun.from_background(run, execution), :checks, nil),
-          background: decision(section.artifact),
+          background: outcome(run, section.artifact),
           sections: [section]
         })
 
@@ -100,17 +122,146 @@ defmodule Ryker.ControlPlane.CompletionReviews do
     end
   end
 
+  defp previous_attempt(nil, _options), do: nil
+
+  defp previous_attempt(run, options) do
+    section =
+      BackgroundCards.section(
+        "response",
+        "Earlier judgment",
+        run.result,
+        :completion_review,
+        options
+      )
+
+    previous = outcome(run, section.artifact)
+    failed? = run.status == :rejected and not previous[:model_reason?]
+
+    %{
+      generation: run.generation,
+      href: "#completion-review-#{run.id}-result",
+      lead: if(failed?, do: "Retried after", else: "Reviewed again after"),
+      transition: previous_transition(run, previous),
+      summary: previous[:reason] || "No usable decision or reason was retained."
+    }
+  end
+
+  defp previous_transition(%{error_code: "completion_review_stale"}, _previous),
+    do: "was superseded"
+
+  defp previous_transition(%{error_code: "completion_review_parent_stopped"}, _previous),
+    do: "was cancelled"
+
+  defp previous_transition(%{status: :rejected}, _previous), do: "failed"
+  defp previous_transition(%{status: :stale}, _previous), do: "was superseded"
+  defp previous_transition(_run, %{headline: "Keep working"}), do: "requested more work"
+  defp previous_transition(_run, %{headline: "A person is needed"}), do: "required human input"
+
+  defp previous_transition(_run, %{headline: "Wait for the required event"}),
+    do: "required an event wait"
+
+  defp previous_transition(_run, _previous),
+    do: "reviewed an earlier candidate or evidence snapshot"
+
+  defp outcome(%{error_code: "completion_review_stale"}, _artifact),
+    do: %{
+      headline: "Completion review superseded",
+      reason: stale_reason(),
+      facts: [],
+      model_reason?: false
+    }
+
+  defp outcome(%{error_code: "completion_review_parent_stopped"} = run, _artifact),
+    do: %{
+      headline: "Completion review cancelled",
+      reason: failure_reason(run),
+      facts: [],
+      model_reason?: false
+    }
+
+  defp outcome(%{status: :rejected, error_code: nil}, _artifact),
+    do: %{
+      headline: "Completion review failed",
+      reason: "No usable completion decision was produced. Its failure reason was not recorded.",
+      facts: [],
+      model_reason?: false
+    }
+
+  defp outcome(%{error_code: code} = run, _artifact) when is_binary(code),
+    do: %{
+      headline:
+        if(run.status == :stale,
+          do: "Completion review superseded",
+          else: "Completion review failed"
+        ),
+      reason: failure_reason(run),
+      facts: [],
+      model_reason?: false
+    }
+
+  defp outcome(_run, artifact), do: decision(artifact)
+
+  defp failure_reason(%{status: :stale}), do: stale_reason()
+
+  defp failure_reason(%{error_code: "completion_review_parent_stopped"}) do
+    "The parent work stopped or moved to another turn before this review could be used. No completion decision was applied."
+  end
+
+  defp failure_reason(%{error_code: "invalid_completion_review"}) do
+    "The reviewer returned an unusable answer. No completion decision was produced, so this review could not authorize a reply."
+  end
+
+  defp failure_reason(%{error_code: "completion_review_execution_timeout"}) do
+    "The completion review exceeded its time limit. No completion decision was produced, so this review could not authorize a reply."
+  end
+
+  defp failure_reason(run) do
+    receipt =
+      if is_map(run.stop_receipt),
+        do: run.stop_receipt,
+        else: PromptDocument.decode(run.stop_receipt)
+
+    cause =
+      case receipt["error_code"] do
+        "acp_protocol_error" ->
+          "The worker reported a protocol error before the reviewer could finish."
+
+        "output_contract_failed" ->
+          "The reviewer's answer did not pass its response-format checks."
+
+        _ ->
+          "The completion reviewer stopped without a usable answer."
+      end
+
+    cause <> " No completion decision was produced, so this review could not authorize a reply."
+  end
+
+  defp stale_reason do
+    "The candidate or its evidence changed before this review could be used. No completion decision was applied."
+  end
+
   # Read the redacted artifact, never unredacted model text into visible facts.
   defp decision(%{state: :retained, text: text}) do
     case Work.CompletionReview.Prompt.parse(text) do
-      {:ok, %{"decision" => choice, "reason" => reason, "actions" => actions}} ->
+      {:ok,
+       %{
+         "decision" => choice,
+         "reason" => reason,
+         "actions" => actions,
+         "requirements" => requirements
+       }} ->
         %{
           headline: decision_label(choice),
           reason: reason,
-          facts:
-            Enum.map(actions, fn action ->
-              %{label: "Next step", value: action["action"], note: action["basis"]}
-            end)
+          model_reason?: true,
+          facts: [],
+          requirements:
+            Enum.map(
+              requirements,
+              &%{title: &1["requirement"], text: &1["evidence"], status: &1["status"]}
+            ),
+          actions:
+            Enum.map(actions, &%{title: &1["requirement"], text: &1["action"], note: &1["basis"]})
         }
 
       _invalid ->

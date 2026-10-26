@@ -195,7 +195,17 @@ defmodule Ryker.Work.CompletionReviewTest do
     assert session.worker_job_document["targets"] == claim.session.worker_job_document["targets"]
     assert session.worker_job_document["source"] == nil
     assert session.worker_job_document["environment"] == %{}
-    assert session.worker_job_document["egress"]["mode"] == "none"
+    # Every review in a live follow-up failed Authentication required: offline
+    # jobs intentionally receive no provider broker. Keep workload egress denied,
+    # but let the isolated reviewer authenticate to its selected model.
+    assert session.worker_job_document["egress"] == %{
+             "mode" => "filtered",
+             "rules" => [],
+             "export_destinations" => false
+           }
+
+    assert session.worker_job_document["companions"] == []
+    assert session.worker_job_document["check"] == %{"argv" => [], "environment" => %{}}
     assert session.worker_job_document["mode"] == "normal"
     assert session.worker_job_document["repository_read_only"]
 
@@ -220,7 +230,131 @@ defmodule Ryker.Work.CompletionReviewTest do
 
     assert [briefing, response] = Ryker.ControlPlane.CompletionReviews.entries([claim.turn], [])
     assert briefing.title == "Completion review"
+    assert briefing.owner == {:turn, claim.turn.id}
+    assert response.owner == {:turn, claim.turn.id}
     assert response.sections |> hd() |> Map.fetch!(:artifact) |> Map.fetch!(:text) =~ "complete"
+
+    html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: briefing)
+
+    for section <- [
+          "System prompt",
+          "Proposed answer",
+          "Work context",
+          "Earlier inputs",
+          "Work records",
+          "Tool observations",
+          "Earlier reviews",
+          "Review scope"
+        ] do
+      assert html =~ section
+    end
+
+    refute html =~ "Other fields"
+
+    # Appending another attempt must not rewrite the earlier heading.
+    for kind <- [:admission, :learning, :completion_review] do
+      initial = %{briefing | source_kind: kind, generations: 1}
+      later = %{initial | generations: 3}
+      first_html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: initial)
+      later_html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: later)
+      assert first_html == later_html
+    end
+  end
+
+  test "a failed reviewer explains the missing decision before its retry", %{
+    claim: claim,
+    candidate: candidate,
+    settings: settings
+  } do
+    # Three real reviews stopped with acp_protocol_error and no answer. The
+    # timeline showed only timings, then Attempt 2, hiding why no reply arrived.
+    assert CompletionReview.review(claim, final(candidate), settings) ==
+             {:error, {:work_poll_window_elapsed, :completion_review}}
+
+    [run] = Repo.all(Run)
+
+    run
+    |> Ecto.Changeset.change(
+      status: :rejected,
+      error_code: "completion_review_provider_failed",
+      stop_receipt: %{
+        "kind" => "terminal_turn",
+        "state" => "failed",
+        "error_code" => "acp_protocol_error"
+      },
+      remote_stopped_at: DateTime.utc_now()
+    )
+    |> Repo.update!()
+
+    assert CompletionReview.review(claim, final(candidate), settings) ==
+             {:error, {:work_poll_window_elapsed, :completion_review}}
+
+    entries = Ryker.ControlPlane.CompletionReviews.entries([claim.turn], [])
+    failure = Enum.find(entries, &(&1.phase == :result))
+    retry = Enum.find(entries, &(&1.phase == :submission && &1.generation == 2))
+    html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: failure)
+    assert html =~ "Completion review failed"
+    assert html =~ "worker reported a protocol error"
+    assert html =~ "No completion decision was produced"
+    retry_html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: retry)
+    assert retry_html =~ "Retried after attempt 1 failed"
+    assert retry_html =~ "#completion-review-#{run.id}-result"
+
+    for {attributes, headline, explanation} <- [
+          {%{status: :stale, error_code: "completion_review_stale"},
+           "Completion review superseded", "evidence changed"},
+          {%{status: :rejected, error_code: "completion_review_parent_stopped"},
+           "Completion review cancelled", "parent work stopped"},
+          {%{status: :rejected, error_code: nil}, "Completion review failed",
+           "reason was not recorded"}
+        ] do
+      Run |> Repo.get!(run.id) |> Ecto.Changeset.change(attributes) |> Repo.update!()
+
+      result =
+        Ryker.ControlPlane.CompletionReviews.entries([claim.turn], [])
+        |> Enum.find(&(&1.id == "completion-review-#{run.id}-result"))
+
+      state_html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: result)
+      assert state_html =~ headline
+      assert state_html =~ explanation
+      refute state_html =~ "Model&#39;s reason"
+    end
+  end
+
+  test "the real stale-evidence transition is not described as a failed worker", %{
+    claim: claim,
+    candidate: candidate,
+    settings: settings
+  } do
+    assert CompletionReview.review(claim, final(candidate), settings) ==
+             {:error, {:work_poll_window_elapsed, :completion_review}}
+
+    [run] = Repo.all(Run)
+
+    assert {:ok, ended} =
+             Ryker.Work.CompletionReview.Custody.end_attempt(
+               claim,
+               run.id,
+               :completion_review_stale
+             )
+
+    assert ended.status == :rejected
+
+    assert {:ok, _stopped} =
+             Ryker.Work.CompletionReview.Custody.record_uncreated_stop(claim, run.id)
+
+    assert CompletionReview.review(claim, final(candidate), settings) ==
+             {:error, {:work_poll_window_elapsed, :completion_review}}
+
+    entries = Ryker.ControlPlane.CompletionReviews.entries([claim.turn], [])
+    result = Enum.find(entries, &(&1.id == "completion-review-#{run.id}-result"))
+    retry = Enum.find(entries, &(&1.phase == :submission && &1.generation == 2))
+    html = render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: result)
+    assert html =~ "Completion review superseded"
+    refute html =~ "Completion review failed"
+
+    assert render_component(&Ryker.ControlPlane.EpisodeRequest.render/1, request: retry) =~
+             "attempt 1 was superseded"
   end
 
   test("an unresolved requirement becomes a concrete correction", %{
