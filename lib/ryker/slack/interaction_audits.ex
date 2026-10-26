@@ -12,6 +12,7 @@ defmodule Ryker.Slack.InteractionAudits do
   Each control recorded, repainted, deferred, blocked or rearmed is announced
   after the outermost commit (`subscribe_interactions/0`).
   """
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.ConversationRef
   alias Ryker.Crypto
@@ -40,6 +41,55 @@ defmodule Ryker.Slack.InteractionAudits do
 
   def record(_interaction, _outcome),
     do: {:error, {:invalid_slack_interaction_audit, :request}}
+
+  @doc "Queues a host monitoring refresh, never a human click or a grant of authority."
+  def record_monitoring(%Work.Turn{delivered_at: %DateTime{}} = turn, status) do
+    receipt = turn.external_receipt
+
+    with %{"transport" => "slack", "message_ref" => message, "conversation_ref" => conversation} <-
+           receipt,
+         {:ok, workspace, channel} <- ConversationRef.parse_slack(conversation) do
+      fingerprint = CanonicalJSON.digest(status)
+
+      interaction = %{
+        action_id: "monitoring_status",
+        action_value: fingerprint,
+        actor_ref: "system:monitoring",
+        channel_ref: channel,
+        event_ref: "monitoring:#{turn.id}:#{Repo.generate_id()}",
+        message_ref: message,
+        occurred_at: Repo.now!(),
+        thread_ref: receipt["thread_ref"],
+        workspace_ref: workspace
+      }
+
+      Repo.transaction(fn -> record_monitoring_locked(turn, interaction) end)
+    else
+      _ -> {:error, :invalid_monitoring_destination}
+    end
+  end
+
+  defp record_monitoring_locked(turn, interaction) do
+    AdvisoryLock.hold!("slack-monitoring:#{turn.id}")
+    attributes = attributes(interaction, :confirmed)
+
+    latest =
+      interaction.workspace_ref
+      |> InteractionAudit.Query.latest_monitoring(
+        interaction.channel_ref,
+        interaction.message_ref
+      )
+      |> Repo.peek()
+
+    case latest do
+      %InteractionAudit{action_value_digest: digest}
+      when digest == attributes.action_value_digest ->
+        %{audit: latest, status: :duplicate}
+
+      _ ->
+        record_locked(attributes)
+    end
+  end
 
   @doc false
   def record_answer_in_transaction(
@@ -235,6 +285,8 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp record_locked(attributes) do
+    AdvisoryLock.hold!("slack-repaint-event:#{attributes.event_ref}")
+
     existing =
       attributes.event_ref
       |> InteractionAudit.Query.by_event_ref()

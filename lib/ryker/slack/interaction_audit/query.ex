@@ -11,6 +11,18 @@ defmodule Ryker.Slack.InteractionAudit.Query do
   def by_event_ref(queryable \\ all(), event_ref),
     do: where(queryable, [slack_interaction_audit: a], a.event_ref == ^event_ref)
 
+  @doc "The last host monitoring refresh for this exact delivered reply."
+  def latest_monitoring(queryable \\ all(), workspace, channel, message) do
+    queryable
+    |> where(
+      [slack_interaction_audit: a],
+      a.action_id == "monitoring_status" and a.workspace_ref == ^workspace and
+        a.channel_ref == ^channel and a.message_ref == ^message
+    )
+    |> order_by([slack_interaction_audit: a], desc: a.inserted_at, desc: a.id)
+    |> limit(1)
+  end
+
   @doc "When pending repaints fall due after `since`, as `[next_attempt_at, lease_expires_at]`."
   def select_next_due_after(since) do
     from(audit in all(),

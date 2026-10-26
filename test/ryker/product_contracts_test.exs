@@ -512,6 +512,7 @@ defmodule Ryker.ProductContractsTest do
              Ryker.Slack.MembershipReconciler,
              Ryker.Slack.IncidentRoomWorker,
              Ryker.Slack.InteractionFeedbackWorker,
+             Ryker.Slack.MonitoringWorker,
              Ryker.Slack.TaskCardWorker,
              Ryker.Slack.ThreadStatusWorker,
              Ryker.Slack.Tasks

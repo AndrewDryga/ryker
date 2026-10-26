@@ -17,6 +17,15 @@ PostgreSQL is the durable authority for ingress, episodes, Work, delivery, waits
 approvals, publication, worker placement and retention. Restarting containers recovers that
 custody; it does not create a second deployment state.
 
+Slack replies that arm monitoring keep their footer current even when a follow-up
+needs no new reply. The host counts accepted follow-ups in that reply's wait chain,
+shows its last check and next scheduled check, and links to the request history
+when `RYKER_CONTROL_PUBLIC_URL` is HTTPS. This is a receipt of checks, not proof that
+the monitored resource is healthy. Failed, stopped and cancelled monitoring are
+labelled explicitly. Reconciliation recovers after restart; Slack update failures
+use the same durable retry and Failures queue as control repaints. The original
+answer and its audit history are not rewritten.
+
 The bundled Coop worker uses the same outbound job API as a worker on another VM. Ryker supplies
 each job's code identity and settings; Coop fetches code directly on its trusted host. There are no
 worker policy files, generated worker JSON, or Ryker-side repository checkouts. The shared

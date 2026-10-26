@@ -2,7 +2,8 @@ defmodule Ryker.Slack.Supervisor do
   @moduledoc false
   use Supervisor
   alias Ryker.Slack.{ActionTokens, Gateway, IncidentRoomWorker, InteractionFeedbackWorker}
-  alias Ryker.Slack.{MembershipReconciler, Runtime, TaskCardWorker, ThreadStatusWorker}
+  alias Ryker.Slack.{MembershipReconciler, MonitoringWorker, Runtime}
+  alias Ryker.Slack.{TaskCardWorker, ThreadStatusWorker}
   alias Ryker.Slack.WorkspaceAdmins
   alias Ryker.Transcription
 
@@ -30,6 +31,7 @@ defmodule Ryker.Slack.Supervisor do
         {MembershipReconciler, reconciler},
         {IncidentRoomWorker, incident_worker},
         {InteractionFeedbackWorker, interaction_feedback_worker},
+        {MonitoringWorker, []},
         {TaskCardWorker, task_card_worker},
         {ThreadStatusWorker, thread_status_worker},
         {Task.Supervisor, name: Runtime.tasks()}

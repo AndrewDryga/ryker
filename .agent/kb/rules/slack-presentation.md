@@ -192,6 +192,21 @@ only use retained timestamps and identities, never invented ones.
 
 ## Implementation questions
 
+### Quiet monitoring
+
+The original reply's footer is a host-owned live receipt, not a saved promise.
+Follow its exact durable event-wait chain and show completed checks, the last
+accepted check time, whether another reply was needed, and the current next
+check. Link to the request's history when a public HTTPS console address is
+configured. A fired timer or running turn is not a completed check. Blocked
+checks say they could not complete; cancellation and ended monitoring remove
+the next check. Never infer resource health or completion from a settled turn,
+or publish internal decision reasons. Preserve the original reply and human
+answers. Quiet checks update the same message through durable repaint custody;
+normal replies for changed outcomes keep their existing delivery path.
+
+### Questions and answers
+
 The reply asks the question, once (Andrew, 2026-10-04: "in the reply"). The card under it adds
 only what the reply cannot: the full answers and their controls. A question answered by typing
 adds nothing under the reply. Once answered, retire the controls and show who answered plus

@@ -7,13 +7,15 @@ defmodule Ryker.Slack.InteractionRepaint do
   action values are never interpreted as authority here.
   """
   alias Ryker.Adapter
+  alias Ryker.AdvisoryLock
   alias Ryker.ConversationRef
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelSetup, ConfigurationSession}
   alias Ryker.Slack.{IncidentRoom, IncidentRoomCard}
-  alias Ryker.Slack.{InteractionAudit, Mentions, ReplyRecords}
+  alias Ryker.Slack.{InteractionAudit, Mentions, Monitoring, ReplyRecords}
   alias Ryker.Slack.{TaskCard, TaskCardProjection}
   alias Ryker.Work
 
@@ -21,6 +23,34 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   @spec repaint(InteractionAudit.t(), map()) :: :ok | {:error, term()}
   def repaint(%InteractionAudit{} = audit, %{api: api, client: client} = options) do
+    # Two independent audit leases may target one message. Serialize the build
+    # and HTTP update, not episode mutations, so an older footer cannot land last.
+    key =
+      Crypto.lock_key([
+        "slack-repaint:",
+        audit.workspace_ref,
+        ":",
+        audit.channel_ref,
+        ":",
+        audit.message_ref
+      ])
+
+    Repo.checkout(fn ->
+      if AdvisoryLock.try_session?(key) do
+        try do
+          repaint_locked(audit, api, client, options)
+        after
+          AdvisoryLock.release_session(key)
+        end
+      else
+        {:error, :slack_message_repaint_busy}
+      end
+    end)
+  end
+
+  def repaint(_audit, _options), do: {:error, :slack_interaction_repaint_invalid}
+
+  defp repaint_locked(audit, api, client, options) do
     if repaint_api?(api) do
       case repaint_source(audit, options) do
         {:ok, document, delivery_ref} ->
@@ -42,8 +72,6 @@ defmodule Ryker.Slack.InteractionRepaint do
       {:error, :slack_interaction_repaint_api_invalid}
     end
   end
-
-  def repaint(_audit, _options), do: {:error, :slack_interaction_repaint_invalid}
 
   defp repaint_source(audit, options) do
     case fetch_task_card(audit) do
@@ -225,7 +253,8 @@ defmodule Ryker.Slack.InteractionRepaint do
       {:ok,
        %{
          "message" => confirmation_message(records, message),
-         "records" => ReplyRecords.documents("slack", turn.episode_id, records)
+         "records" =>
+           ReplyRecords.documents("slack", turn.episode_id, records) |> Monitoring.decorate(turn)
        }}
     end
   end

@@ -72,6 +72,19 @@ defmodule Ryker.Episodes.Event.Query do
 
   def select_payloads(queryable), do: select(queryable, [episode_kernel_events: e], e.payload)
 
+  @doc "Only host decisions needed to follow wait lineage; internal model reasoning is excluded."
+  def monitoring_decisions(queryable \\ all()) do
+    queryable
+    |> where(
+      [episode_kernel_events: e],
+      e.kind in [:wait_resumed, :result_accepted, :delivery_confirmed]
+    )
+    |> select([episode_kernel_events: e], %{
+      "kind" => type(e.kind, :string),
+      "payload" => fragment("(?::jsonb) - 'decision_reason'", e.payload)
+    })
+  end
+
   @doc "Each admission as `{episode_id, dedupe_key, payload}`."
   def select_admissions(queryable),
     do: select(queryable, [episode_kernel_events: e], {e.episode_id, e.dedupe_key, e.payload})

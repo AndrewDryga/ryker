@@ -12,8 +12,10 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.Observations
   alias Ryker.Records
-  alias Ryker.Slack.{InteractionAudit, InteractionRepaint, Renderer}
+  alias Ryker.Slack.{InteractionAudit, InteractionAudits, InteractionRepaint}
+  alias Ryker.Slack.{Monitoring, Renderer}
   alias Ryker.StateTools.FixedTools
+  alias Ryker.Waits
   alias Ryker.Work.{Custody, Session, Turn}
 
   @captured Jason.decode!(File.read!("testdata/learning/recorded-private-source-citation.json"))
@@ -371,6 +373,179 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     refute_received {:updated, _, _, _, _}
   end
 
+  test "quiet follow-ups durably repaint the original reply and never rewrite its answer" do
+    # The three real accepted results left this footer stale for hours. Rebind
+    # only identities to this test's source-authorized delivered reply.
+    fixture = fixture!(:structured, nil, true)
+    captured = Jason.decode!(File.read!("testdata/slack/quiet-followups.json"))
+    episode = Repo.get!(Episodes.Episode, fixture.claim.episode.id)
+    wait = fixture.wait
+    next_wait = fixture.next_wait
+
+    events =
+      Enum.map(captured["events"], fn event ->
+        event
+        |> Jason.encode!()
+        |> String.replace(captured["wait_ref"], wait.ref)
+        |> String.replace("record:event_wait:fourth", next_wait.ref)
+        |> Jason.decode!()
+      end)
+
+    for {event, index} <- Enum.with_index(events, episode.next_sequence) do
+      at = DateTime.from_iso8601(event["payload"]["occurred_at"]) |> elem(1)
+      kind = if event["kind"] == "wait_resumed", do: :wait_resumed, else: :result_accepted
+
+      %Episodes.Event{
+        sequence: index,
+        kind: kind,
+        dedupe_key: "monitoring:#{index}",
+        fingerprint: CanonicalJSON.digest(event),
+        payload: event["payload"],
+        occurred_at: at
+      }
+      |> Episodes.Event.Changeset.insert(episode.id)
+      |> Repo.insert!()
+    end
+
+    Episodes.Episode
+    |> Repo.get!(episode.id)
+    |> Ecto.Changeset.change(
+      state: :waiting_for_event,
+      owner_kind: :event,
+      owner_ref: next_wait.ref,
+      active_input_refs: [],
+      owner_deadline_at: ~U[2026-10-27 00:30:00.000000Z],
+      next_sequence: episode.next_sequence + length(events)
+    )
+    |> Repo.update!()
+
+    assert {:ok, {:ok, subscription}} =
+             Repo.transaction(fn ->
+               Waits.EventSubscriptions.ensure_in_transaction(
+                 Repo.get!(Episodes.Episode, episode.id)
+               )
+             end)
+
+    assert {:ok, status} = Monitoring.snapshot(fixture.turn)
+    assert status["checks"] == 3
+    assert status["state"] == "waiting"
+    assert status["last_check_at"] == "2026-10-26T18:46:19.501343Z"
+    assert status["next_check_at"] == DateTime.to_iso8601(subscription.poll_after)
+
+    # A failed owner is not a completed check and must not retain the previous
+    # successful check's "No new reply needed" label.
+    episode = Repo.get!(Episodes.Episode, episode.id)
+
+    blocked_turn =
+      fixture.turn
+      |> Ecto.Changeset.change(status: :blocked, turn_ref: "turn:followup:3")
+      |> Repo.update!()
+
+    checking_episode =
+      episode
+      |> Ecto.Changeset.change(
+        state: :working,
+        owner_kind: :turn,
+        owner_ref: "turn:followup:3",
+        owner_deadline_at: nil,
+        next_sequence: episode.next_sequence - 1
+      )
+      |> Repo.update!()
+
+    assert {:ok, failed} = Monitoring.snapshot(fixture.turn)
+    assert failed["checks"] == 2
+    assert failed["state"] == "failed"
+    assert failed["next_check_at"] == nil
+
+    blocked_turn
+    |> Ecto.Changeset.change(status: fixture.turn.status, turn_ref: fixture.turn.turn_ref)
+    |> Repo.update!()
+
+    checking_episode
+    |> Ecto.Changeset.change(
+      state: episode.state,
+      owner_kind: episode.owner_kind,
+      owner_ref: episode.owner_ref,
+      owner_deadline_at: episode.owner_deadline_at,
+      next_sequence: episode.next_sequence
+    )
+    |> Repo.update!()
+
+    assert Monitoring.reconcile_episode(episode.id) == :ok
+    assert Monitoring.reconcile_episode(episode.id) == :ok
+    assert [audit] = Repo.all(InteractionAudit)
+    assert audit.actor_ref == "system:monitoring"
+    assert audit.action_id == "monitoring_status"
+    assert audit.repaint_status == :pending
+    assert audit.message_ref == fixture.audit.message_ref
+
+    assert repaint(audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert document["message"] == fixture.turn.delivery_document["message"]
+    projected = Enum.find(document["records"], &(&1["kind"] == "event_wait"))
+    assert projected["presentation"] == %{"monitoring" => status}
+    assert Repo.get!(Turn, fixture.turn.id).delivery_document == fixture.turn.delivery_document
+
+    # Old queue entries are only targets, never saved footer content. Even a
+    # retry of the original event reloads the current cancelled state.
+    episode = Repo.get!(Episodes.Episode, episode.id)
+
+    episode
+    |> Ecto.Changeset.change(
+      state: :cancelled,
+      owner_kind: nil,
+      owner_ref: nil,
+      owner_deadline_at: nil
+    )
+    |> Repo.update!()
+
+    assert repaint(audit) == :ok
+    assert_received {:updated, _, _, cancelled, _}
+    latest = Enum.find(cancelled["records"], &(&1["kind"] == "event_wait"))
+    assert latest["presentation"]["monitoring"]["state"] == "cancelled"
+    assert latest["presentation"]["monitoring"]["next_check_at"] == nil
+    assert Monitoring.reconcile_episode(episode.id) == :ok
+    assert Repo.aggregate(InteractionAudit, :count) == 2
+    # Returning to a previously shown state still needs a repaint: deduping
+    # forever by content hash would leave a failed check visible after retry.
+    Episodes.Episode
+    |> Repo.get!(episode.id)
+    |> Ecto.Changeset.change(
+      state: :waiting_for_event,
+      owner_kind: :event,
+      owner_ref: next_wait.ref,
+      owner_deadline_at: ~U[2026-10-27 00:30:00.000000Z]
+    )
+    |> Repo.update!()
+
+    assert Monitoring.reconcile_episode(episode.id) == :ok
+    assert Repo.aggregate(InteractionAudit, :count) == 3
+    assert {:ok, claim} = InteractionAudits.claim_next("monitoring-test", 30)
+    assert claim.message_ref == fixture.audit.message_ref
+
+    # A controller offline through the cancellation must still repair the
+    # footer on restart, not abandon terminal requests after one day.
+    Episodes.Episode
+    |> Repo.get!(episode.id)
+    |> Ecto.Changeset.change(
+      state: :cancelled,
+      owner_kind: nil,
+      owner_ref: nil,
+      owner_deadline_at: nil,
+      updated_at: DateTime.add(Enum.min([Repo.now!(), DateTime.utc_now()], DateTime), -2, :day)
+    )
+    |> Repo.update!()
+
+    assert DateTime.compare(
+             Repo.get!(Episodes.Episode, episode.id).updated_at,
+             DateTime.add(Repo.now!(), -1, :day)
+           ) == :lt
+
+    assert Monitoring.reconcile() == :ok
+    assert Repo.aggregate(InteractionAudit, :count) == 4
+    assert Enum.any?(Repo.all(Turn.Query.monitoring_replies(nil)), &(&1.id == fixture.turn.id))
+  end
+
   defp repaint(audit), do: InteractionRepaint.repaint(audit, %{api: API, client: self()})
 
   defp assert_neutral(document) do
@@ -382,7 +557,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     assert document["message"] =~ "source context"
   end
 
-  defp fixture!(shape, workspace \\ nil) do
+  defp fixture!(shape, workspace \\ nil, monitoring? \\ false) do
     raw =
       "testdata/learning/retained-haproxy-lifecycle.json"
       |> File.read!()
@@ -413,15 +588,59 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
              })
 
     assert {:ok, [record]} = Records.fetch_for_episode(claim.episode.id, [ref])
-    candidate = put_in(@captured["candidate"], ["outcome", "record_refs"], [record.ref])
+
+    {wait, next_wait} =
+      if monitoring? do
+        payload = %{
+          "kind" => "backup_progress",
+          "deadline_at" => "2026-10-27T00:30:00.000000Z",
+          "event_matcher" => %{
+            "type" => "after",
+            "delay" => "30m",
+            "on_timeout" => "Report what is known."
+          },
+          "verification" => "Check the replacement backup."
+        }
+
+        {:ok, first} =
+          Records.create(Records.token(claim.turn), "original-wait", "event_wait", payload)
+
+        {:ok, next} =
+          Records.create(Records.token(claim.turn), "next-wait", "event_wait", payload)
+
+        {first, next}
+      else
+        {nil, nil}
+      end
+
+    refs = if wait, do: [record.ref, wait.ref], else: [record.ref]
+    candidate = put_in(@captured["candidate"], ["outcome", "record_refs"], refs)
     delivery = if shape == :simple, do: Map.take(candidate, ["message"]), else: candidate
     turn = delivered_turn!(claim.turn, candidate, delivery, source.destination_conversation_ref)
+
+    turn =
+      if wait do
+        turn
+        |> Ecto.Changeset.change(
+          continuation: %{
+            "kind" => "wait",
+            "wait_kind" => "event",
+            "wait_ref" => wait.ref,
+            "deadline_at" => wait.payload["deadline_at"]
+          }
+        )
+        |> Repo.update!()
+      else
+        turn
+      end
 
     %{
       claim: claim,
       source: source,
       record: record,
       turn: turn,
+      wait: wait,
+      next_wait: next_wait,
       audit: %InteractionAudit{
         workspace_ref: source.source_ref,
         channel_ref: "C0TENANTOPS",

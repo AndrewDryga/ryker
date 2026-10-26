@@ -222,6 +222,22 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
              FailureProjection.slack_interaction("interaction:retry-block")
   end
 
+  test "a blocked automatic monitoring repaint never sends a human click acknowledgement" do
+    automatic = %{
+      interaction("monitoring:failed")
+      | action_id: "monitoring_status",
+        actor_ref: "system:monitoring"
+    }
+
+    assert {:ok, %{audit: audit}} = InteractionAudits.record(automatic, :confirmed)
+
+    options =
+      worker_options(max_attempts: 1, repaint: fn _, _ -> {:error, :slack_unavailable} end)
+
+    assert InteractionFeedbackWorker.run_once(options) == {:ok, {:blocked, audit.event_ref}}
+    refute_received {:ephemeral, _, _, _, _}
+  end
+
   # Slack asking Ryker to slow down is its pace, not a failed repaint. Each 429 spent one of
   # the repaint's attempts, so a busy workspace gave up on repaints Slack would have taken a
   # minute later (2026-10-04 review). The repaint waits the time Slack names.

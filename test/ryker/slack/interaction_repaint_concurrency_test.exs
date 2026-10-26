@@ -18,6 +18,54 @@ defmodule Ryker.Slack.InteractionRepaintConcurrencyTest do
     end
   end
 
+  defmodule PausedAPI do
+    def update_message(observer, _channel, _message, document, _delivery) do
+      send(observer, {:updating, self(), document})
+      receive do: (:finish_update -> :ok)
+    end
+  end
+
+  test "independent repaint leases cannot send older content after a newer message update" do
+    Sandbox.unboxed_run(Repo, fn ->
+      id = Ecto.UUID.generate()
+      observer = self()
+
+      try do
+        claim = fixture!(id)
+
+        [_slack, workspace, channel] =
+          String.split(claim.episode.destination_conversation_ref, ":")
+
+        audit = %InteractionAudit{
+          workspace_ref: workspace,
+          channel_ref: channel,
+          thread_ref: "repaint-lock",
+          message_ref: "1790522028.741419"
+        }
+
+        sender =
+          unboxed_task(fn ->
+            InteractionRepaint.repaint(audit, %{api: PausedAPI, client: observer})
+          end)
+
+        Process.put(:sender, sender)
+        assert_receive {:updating, pid, %{"message" => @message}}, 5_000
+
+        assert InteractionRepaint.repaint(audit, %{api: API, client: observer}) ==
+                 {:error, :slack_message_repaint_busy}
+
+        refute_received {:updated, _, _, _, _}
+        send(pid, :finish_update)
+        assert Task.await(sender) == :ok
+        assert InteractionRepaint.repaint(audit, %{api: API, client: observer}) == :ok
+        assert_received {:updated, _, _, %{"message" => @message}, _}
+      after
+        if sender = Process.get(:sender), do: stop_tasks([sender])
+        cleanup(id)
+      end
+    end)
+  end
+
   # Found live 2026-09-27: Andrew typed the answer to Ryker's question in its
   # Slack thread. Recording the answer started the next turn on the same
   # session, and the question's repaint ran 0.3 s later, while that transaction

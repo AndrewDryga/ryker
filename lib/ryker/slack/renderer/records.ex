@@ -15,7 +15,7 @@ defmodule Ryker.Slack.Renderer.Records do
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Slack
-  alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
+  alias Ryker.Slack.Renderer.{EmisarReview, MonitoringFooter, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
   alias Ryker.Text
   alias Ryker.UTCDateTime
@@ -72,6 +72,19 @@ defmodule Ryker.Slack.Renderer.Records do
     Enum.join(receipts, "\n")
   end
 
+  @doc "Current host monitoring receipts for the accessible notification text."
+  def monitoring_receipts(records) do
+    records
+    |> Enum.flat_map(fn
+      %{"kind" => "event_wait", "presentation" => %{"monitoring" => status}} ->
+        [MonitoringFooter.text(status, false)]
+
+      _ ->
+        []
+    end)
+    |> Enum.join("\n")
+  end
+
   # Each item's blocks in order, or the first refusal.
   defp render_each(items, render) do
     Enum.reduce_while(items, {:ok, []}, fn item, {:ok, blocks} ->
@@ -121,6 +134,16 @@ defmodule Ryker.Slack.Renderer.Records do
 
   # The host adds the next scheduled check it already knows; without it the
   # wait's own matcher says when the next check is.
+  defp render_record(
+         %{"kind" => "event_wait", "presentation" => %{"monitoring" => status} = meta} = record
+       )
+       when map_size(record) == 5 and map_size(meta) == 1 do
+    base = record |> Map.delete("presentation") |> event_wait(nil)
+
+    with {:ok, _} <- base,
+         do: MonitoringFooter.render(status)
+  end
+
   defp render_record(
          %{"kind" => "event_wait", "presentation" => %{"next_check_at" => at} = meta} = record
        )

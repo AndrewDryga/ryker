@@ -143,7 +143,8 @@ defmodule Ryker.Slack.Renderer do
   defp question_fallback(text, records) do
     receipts = Records.question_receipts(records)
     message = spoken(text)
-    parts = Enum.reject([receipts, message], &(&1 == ""))
+    monitoring = Records.monitoring_receipts(records)
+    parts = Enum.reject([receipts, monitoring, message], &(&1 == ""))
     Enum.join(parts, "\n\n")
   end
 

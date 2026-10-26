@@ -7,6 +7,49 @@ defmodule Ryker.Work.Turn.Query do
 
   def all, do: from(turns in Turn, as: :episode_work_turns)
 
+  @doc "A page of delivered Slack wait replies, excluding large prompts and tool output."
+  def monitoring_replies(queryable \\ all(), after_id) do
+    query =
+      queryable
+      |> join(:inner, [episode_work_turns: t], e in Episodes.Episode,
+        as: :episode_kernel_episodes,
+        on: e.id == t.episode_id
+      )
+      |> where(
+        [episode_kernel_episodes: e],
+        e.execution_mode == :live and is_nil(e.history_pruned_at)
+      )
+      |> where(
+        [episode_work_turns: t],
+        not is_nil(t.delivered_at) and is_nil(t.operational_pruned_at)
+      )
+      |> where(
+        [episode_work_turns: t],
+        fragment("?::jsonb->>'transport' = 'slack'", t.external_receipt)
+      )
+      |> where(
+        [episode_work_turns: t],
+        fragment("?::jsonb->>'wait_kind' = 'event'", t.continuation)
+      )
+      |> order_by([episode_work_turns: t], asc: t.id)
+      |> limit(100)
+      |> select(
+        [episode_work_turns: t],
+        struct(t, [
+          :id,
+          :episode_id,
+          :session_id,
+          :continuation,
+          :external_receipt,
+          :delivery_document,
+          :delivered_at,
+          :operational_pruned_at
+        ])
+      )
+
+    if after_id, do: where(query, [episode_work_turns: t], t.id > ^after_id), else: query
+  end
+
   @doc "The authorized same-session input briefings a completion reviewer needs for refinements."
   def review_inputs(queryable \\ all(), episode_id, session_id) do
     from(t in queryable,

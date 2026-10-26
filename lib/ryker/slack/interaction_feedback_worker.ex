@@ -113,7 +113,8 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   # tell the person was never told; now every refusal, raise or exit from the
   # Slack client is logged with its class and message.
   defp tell_the_presser(audit, options) do
-    if function_exported?(options.api, :post_ephemeral, 5) do
+    if audit.action_id != "monitoring_status" and
+         function_exported?(options.api, :post_ephemeral, 5) do
       case options.api.post_ephemeral(
              options.client,
              audit.channel_ref,

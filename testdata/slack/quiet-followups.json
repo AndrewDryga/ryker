@@ -1,0 +1,12 @@
+{
+  "provenance": "Production event ledger harvested 2026-10-26. Identities and resource names substituted; event ordering, delivery decisions and timestamps retained. Only fields consumed by the host projection are retained.",
+  "wait_ref": "record:event_wait:initial",
+  "events": [
+    {"kind":"wait_resumed","payload":{"expected_wait":{"kind":"event","ref":"record:event_wait:initial"},"turn_ref":"turn:followup:1","occurred_at":"2026-10-26T16:44:52.811079Z"}},
+    {"kind":"result_accepted","payload":{"delivery":"none","expected_turn_ref":"turn:followup:1","next_wait":{"ref":"record:event_wait:second","kind":"event","deadline_at":"2026-10-26T20:30:00.000000Z"},"decision_reason":"Replacement backup remains in progress without a confirmed failure or completion; preserve the observation and continue monitoring without another thread update.","occurred_at":"2026-10-26T16:45:32.813933Z"}},
+    {"kind":"wait_resumed","payload":{"expected_wait":{"kind":"event","ref":"record:event_wait:second"},"turn_ref":"turn:followup:2","occurred_at":"2026-10-26T17:45:13.655937Z"}},
+    {"kind":"result_accepted","payload":{"delivery":"none","expected_turn_ref":"turn:followup:2","next_wait":{"ref":"record:event_wait:third","kind":"event","deadline_at":"2026-10-26T22:30:00.000000Z"},"decision_reason":"Backup logs advanced and the replacement remains in progress; no failure, completion or required decision warrants another message.","occurred_at":"2026-10-26T17:45:55.810401Z"}},
+    {"kind":"wait_resumed","payload":{"expected_wait":{"kind":"event","ref":"record:event_wait:third"},"turn_ref":"turn:followup:3","occurred_at":"2026-10-26T18:45:34.928868Z"}},
+    {"kind":"result_accepted","payload":{"delivery":"none","expected_turn_ref":"turn:followup:3","next_wait":{"ref":"record:event_wait:fourth","kind":"event","deadline_at":"2026-10-27T00:30:00.000000Z"},"decision_reason":"Replacement backup continues advancing through tables without a confirmed failure or completion; retain evidence and continue observation silently.","occurred_at":"2026-10-26T18:46:19.501343Z"}}
+  ]
+}
