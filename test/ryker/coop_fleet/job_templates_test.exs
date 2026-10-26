@@ -96,6 +96,31 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
     assert template(templates, :knowledge).policy_name == "ryker-repo-app-knowledge"
   end
 
+  test "retained policy categories use the same model settings as generated jobs" do
+    work = %Work{
+      routing_models: ["routing"],
+      conversation_models: ["conversation"],
+      standard_models: ["standard"],
+      deep_models: ["deep"],
+      contributor_models: ["contributor"],
+      schedule_models: ["schedule"],
+      incident_models: ["incident"],
+      learning_models: ["learning"]
+    }
+
+    for template <- JobTemplates.from_settings(snapshot()) do
+      field = JobTemplates.model_field_for_policy(template.policy_name)
+
+      assert JobTemplates.execution(work, template.purpose, template.repositories != [])[
+               "targets"
+             ] == Map.fetch!(work, field)
+    end
+
+    assert JobTemplates.model_field_for_policy(nil) == nil
+    assert JobTemplates.model_field_for_policy("unknown-deep") == nil
+    assert JobTemplates.model_field_for_policy("ryker-deep") == nil
+  end
+
   # Knowledge runs read whole repositories with nobody watching, on the
   # standard Work policy and its open network, so a file could have the model
   # fetch or send anything (2026-10-04 review). Work keeps the open network:

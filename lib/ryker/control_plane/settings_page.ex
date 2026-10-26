@@ -50,6 +50,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :any, required: true)
   attr(:commands, :map, required: true)
   attr(:section, :atom, required: true)
+  attr(:model_usage, :map, default: nil)
   attr(:running_system, :map, default: nil)
   attr(:error, :string, default: nil)
   attr(:notice, :string, default: nil)
@@ -249,6 +250,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
             <.link :if={notice[:href]} navigate={notice.href}>{notice.link}</.link>
           </p>
         </div>
+        <p :if={@section == :model and @model_usage} class="settings-model-usage-note">
+          Usage below shows live runs with recorded usage, including retries and previous model choices.
+          <.link navigate="/usage?window=30d">Usage &amp; cost</.link>
+        </p>
+        <p
+          :if={(@section == :model and @model_usage) && @model_usage.unattributed > 0}
+          class="settings-model-usage-note"
+        >
+          {Wording.count(@model_usage.unattributed, "run")} could not be assigned to a category from retained history.
+        </p>
         <.live_component
           :for={key <- editors(@section)}
           module={SettingsEditor}
@@ -256,6 +267,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           section={section!(key)}
           view={@view}
           commands={@commands}
+          model_usage={@model_usage}
           show_header={titled?(@section)}
           paths={paths(key)}
         />

@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   """
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, FormDraft, Integrations, Kit, Paths, SettingsRows}
-  alias Ryker.ControlPlane.{SettingsSections, SettingsView}
+  alias Ryker.ControlPlane.{SettingsSections, SettingsView, ShortTime}
   alias Ryker.ConversationRef
   alias Ryker.Settings
   alias Ryker.Slack
@@ -43,7 +43,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     # one to the other starts again from what is saved.
     shown = Map.get(socket.assigns, :form, :none)
 
-    assigns = Map.merge(%{show_header: true, frame: :card, form: nil, paths: nil}, assigns)
+    assigns =
+      Map.merge(
+        %{show_header: true, frame: :card, form: nil, paths: nil, model_usage: nil},
+        assigns
+      )
+
     socket = assign(socket, assigns)
 
     cond do
@@ -647,7 +652,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         :if={!@collection?}
         id={@id}
         section={@section}
-        view={@view}
+        view={Map.put(@view, :model_usage, @model_usage)}
         draft={@draft}
         dirty={@dirty}
         errors={@errors}
@@ -900,13 +905,23 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         efforts: efforts,
         rows: rows,
         count: length(entries),
-        most: Settings.most_work_models()
+        most: Settings.most_work_models(),
+        usage: if(view[:model_usage], do: view.model_usage.categories[field.name])
       )
 
     ~H"""
     <fieldset class="settings-field settings-ladder" id={@id} aria-describedby={help_id(@id, @field)}>
       <legend>{@field.label}</legend>
       <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
+      <div :if={@usage} class="model-usage">
+        <%= if @usage.month > 0 do %>
+          <span><strong>{Wording.count(@usage.week, "run")}</strong> in 7 days</span>
+          <span><strong>{Wording.number(@usage.month)}</strong> in 30 days</span>
+          <span>Last used <ShortTime.time at={@usage.last_used_at} /></span>
+        <% else %>
+          <span>No runs recorded in 30 days</span>
+        <% end %>
+      </div>
       <div class="settings-ladder-box">
         <%!-- The column names, once for every row; each choice also keeps
         its own label, shown where the row stacks on a narrow screen. --%>

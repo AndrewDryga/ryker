@@ -2188,6 +2188,10 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    its place in the order, its three choices, and its move and remove
    buttons in fixed slots, so every row lines up whichever buttons it has. */
 .settings-ladder { --ladder-columns:20px minmax(0, 5fr) minmax(0, 3fr) minmax(0, 4fr) 104px; gap:12px; }
+.settings-model-usage-note { margin:0 0 16px; max-width:800px; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
+.settings-model-usage-note a { white-space:nowrap; }
+.model-usage { display:flex; flex-wrap:wrap; column-gap:20px; row-gap:4px; max-width:800px; font-size:12px; line-height:18px; color:var(--ryker-text-secondary); font-variant-numeric:tabular-nums; }
+.model-usage strong { color:var(--ryker-text); font-weight:600; }
 .settings-ladder-box { box-sizing:border-box; max-width:800px; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface); }
 .settings-ladder-columns, .settings-ladder-entry { display:grid; grid-template-columns:var(--ladder-columns); align-items:center; column-gap:10px; padding:0 12px; }
 .settings-ladder-columns { padding-top:8px; padding-bottom:8px; border-bottom:1px solid var(--ryker-stroke); font-size:12px; line-height:16px; font-weight:500; color:var(--ryker-text-secondary); }

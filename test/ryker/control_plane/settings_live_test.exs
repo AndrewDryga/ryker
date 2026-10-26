@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Plug.Conn.Query
+  alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Fixtures.Answers
@@ -71,6 +72,65 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
       assert Settings.fetch!().work.deep_models == ["codex:#{model}/high@default"]
     end
+  end
+
+  test "model usage refreshes beside each category without replacing a draft" do
+    initialize!()
+    now = DateTime.utc_now(:microsecond)
+
+    execution =
+      Repo.insert!(%Execution{
+        kind: "admission",
+        source_id: Ecto.UUID.generate(),
+        generation: "1",
+        transport: "slack",
+        conversation_ref: "slack:T123:C456",
+        execution_mode: "live",
+        status: "completed",
+        execution_target: "codex:gpt-6-luna/low@default",
+        usage_recorded: true,
+        usage_input_tokens: 10,
+        recorded_at: now,
+        remote_started_at: now
+      })
+
+    {:ok, view, _html} = open("/settings/models")
+    usage = "#settings-request_models-routing_models .model-usage"
+    assert has_element?(view, usage, "1 run in 7 days")
+    assert has_element?(view, usage, "1 in 30 days")
+    assert has_element?(view, usage <> " time[datetime='#{DateTime.to_iso8601(now)}']")
+
+    assert has_element?(
+             view,
+             "#settings-request_models-deep_models .model-usage",
+             "No runs recorded in 30 days"
+           )
+
+    view
+    |> form("#settings-request_models-form", %{
+      "routing_models" => %{"0" => %{"model" => "codex:gpt-6.1-sol", "effort" => "low"}}
+    })
+    |> render_change()
+
+    Repo.insert!(%{execution | id: nil, source_id: Ecto.UUID.generate()})
+    Ryker.PubSub.broadcast("usage", {:usage_recorded, execution.id})
+
+    assert {Ryker.Accounting, :subscribe_usage, []} in Ryker.ControlPlane.WorkbenchLive.page_subscriptions(
+             "/settings/models",
+             %{},
+             nil
+           )
+
+    send(view.pid, :reload_page)
+    assert has_element?(view, usage, "2 runs in 7 days")
+
+    assert has_element?(
+             view,
+             "select[name='routing_models[0][model]'] option[value='codex:gpt-6.1-sol'][selected]"
+           )
+
+    assert has_element?(view, "#settings-request_models-form[data-dirty=true]")
+    assert Settings.fetch!().work.routing_models != ["codex:gpt-6.1-sol/low@default"]
   end
 
   test "a page read reads the settings view once" do
@@ -1483,7 +1543,11 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              ),
              name
 
-      assert has_element?(view, "fieldset##{fieldset} > p##{id} + .settings-ladder-box"), name
+      assert has_element?(
+               view,
+               "fieldset##{fieldset} > p##{id} + .model-usage + .settings-ladder-box"
+             ),
+             name
 
       assert view
              |> element("##{id}")

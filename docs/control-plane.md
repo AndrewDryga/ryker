@@ -692,6 +692,13 @@ recorded reports and are not presented as live-traffic quality scores.
   incident and learning work are the Other work card. Each list is a bordered box of
   numbered rows under the column names Model, Reasoning effort and Account, each row
   with its move and remove buttons, and Add fallback as its last row.
+  Each category shows its measured live runs in the last 7 and 30 days and
+  when it was last used in that period, updating as usage arrives without
+  replacing an unsaved draft. Counts follow the executed policy, include retries
+  and earlier model choices, and exclude shadow and unmeasured attempts.
+  Conversation includes repository-free work; Standard includes repository
+  knowledge, and Learning includes self-analysis. Missing category history is
+  reported separately instead of guessed from the model name.
   Model accounts is the same box: a row per account with its remove button and
   Add account as its last row. A row says what is wrong with it as it is
   typed, once it can no longer become `provider@name`, and removing an account

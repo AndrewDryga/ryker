@@ -14,7 +14,8 @@ defmodule Ryker.ControlPlane.Projection do
   alias Ryker.ControlPlane.{FailureProjection, FeedbackProjection, FindingsProjection}
   alias Ryker.ControlPlane.{ImprovementProjection, IncidentProjection, InstructionSettings}
   alias Ryker.ControlPlane.{LearningActivity, LocalRoutingProjection, MemoryProjection}
-  alias Ryker.ControlPlane.{ModelRequests, OverviewProjection, PeopleProjection, ProductReadiness}
+  alias Ryker.ControlPlane.{ModelRequests, ModelUsageProjection, OverviewProjection}
+  alias Ryker.ControlPlane.{PeopleProjection, ProductReadiness}
   alias Ryker.ControlPlane.{RepositoryProjection, RunningSystemProjection, ScheduleProjection}
   alias Ryker.ControlPlane.SettingsView
   alias Ryker.ControlPlane.{SubscriptionProjection, UsageProjection, WorkspaceProjection}
@@ -76,6 +77,7 @@ defmodule Ryker.ControlPlane.Projection do
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,
+      model_usage: &ModelUsageProjection.page/0,
       subscriptions: &SubscriptionProjection.list/1,
       usage: &UsageProjection.page/1,
       usage_filter_options: &UsageProjection.filter_options/0,

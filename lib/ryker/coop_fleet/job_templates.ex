@@ -47,6 +47,21 @@ defmodule Ryker.CoopFleet.JobTemplates do
 
   defp model_field(purpose), do: Map.get(@models, purpose)
 
+  @doc "The Models setting behind a retained policy name, even after its repository is removed."
+  def model_field_for_policy(policy) when is_binary(policy) do
+    Enum.find_value(@models, fn {purpose, field} ->
+      installation? = purpose in @installation and policy == name(purpose, :installation, "", "")
+      repository? = purpose in @repository and String.starts_with?(policy, "ryker-repo-")
+      environment? = purpose in @environment and String.starts_with?(policy, "ryker-env-")
+
+      if installation? or
+           ((repository? or environment?) and String.ends_with?(policy, "-" <> suffix(purpose))),
+         do: field
+    end)
+  end
+
+  def model_field_for_policy(_missing), do: nil
+
   @spec warm_idle_timeout_ms(atom()) :: non_neg_integer()
   def warm_idle_timeout_ms(:admission), do: @routing_warm_idle_timeout_ms
   def warm_idle_timeout_ms(_purpose), do: 0

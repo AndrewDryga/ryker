@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   """
   use Phoenix.LiveView, layout: false
   alias Phoenix.HTML.Safe
+  alias Ryker.Accounting
   alias Ryker.Backoff
   alias Ryker.ConsoleAccess
   alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
@@ -107,6 +108,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        params: %{},
        body: "",
        running_system: nil,
+       model_usage: nil,
        page_title: "Activity",
        page_description: nil,
        page_action: nil,
@@ -198,6 +200,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        page_status: 200,
        body: "",
        running_system: nil,
+       model_usage: nil,
        page_title: "Workspace",
        page_description: nil,
        page_back: nil,
@@ -330,6 +333,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     case settings_route(segments, params) do
       {:setup, nil} -> SettingsView.setup_subscriptions()
+      {:model, nil} -> SettingsView.subscriptions() ++ [{Accounting, :subscribe_usage, []}]
       {_section, _form} -> SettingsView.subscriptions()
       nil -> page_subscriptions_at(segments, params, draft_id)
     end
@@ -1828,6 +1832,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       native: :settings,
       page_title: SettingsPage.title(section, form, settings),
       settings: settings,
+      model_usage: model_usage(options, section, settings),
       settings_commands: settings_commands(options, socket.assigns.viewer),
       settings_section: section,
       settings_form: form,
@@ -1844,6 +1849,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       access: if(section == :access, do: access_people())
     )
   end
+
+  defp model_usage(options, :model, {:ok, _view}), do: options.projection.model_usage.()
+  defp model_usage(_options, _section, _settings), do: nil
 
   # Who is signed in and who is invited, for Settings › Access.
   defp access_people,
@@ -2784,6 +2792,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             view={@settings}
             commands={@settings_commands}
             running_system={@running_system}
+            model_usage={@model_usage}
             error={@settings_error}
             section={@settings_section}
             notice={@setup_notice}
