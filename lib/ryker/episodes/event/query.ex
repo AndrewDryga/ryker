@@ -77,7 +77,7 @@ defmodule Ryker.Episodes.Event.Query do
     queryable
     |> where(
       [episode_kernel_events: e],
-      e.kind in [:wait_resumed, :result_accepted, :delivery_confirmed]
+      e.kind in [:wait_resumed, :owner_transferred, :result_accepted, :delivery_confirmed]
     )
     |> select([episode_kernel_events: e], %{
       "kind" => type(e.kind, :string),

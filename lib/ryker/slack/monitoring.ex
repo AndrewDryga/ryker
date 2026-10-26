@@ -32,6 +32,20 @@ defmodule Ryker.Slack.Monitoring do
   end
 
   defp advance(
+         %{
+           "kind" => "owner_transferred",
+           "payload" => %{
+             "expected_owner" => %{"kind" => "turn", "ref" => ref},
+             "new_owner" => %{"kind" => "turn", "ref" => next}
+           }
+         },
+         %{"state" => "checking", "owner_ref" => ref} = status
+       )
+       when is_binary(next) do
+    %{status | "owner_ref" => next}
+  end
+
+  defp advance(
          %{"kind" => "result_accepted", "payload" => %{"expected_turn_ref" => ref} = payload},
          %{"state" => "checking", "owner_ref" => ref} = status
        ) do

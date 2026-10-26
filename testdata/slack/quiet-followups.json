@@ -1,6 +1,10 @@
 {
   "provenance": "Production event ledger harvested 2026-10-26. Identities and resource names substituted; event ordering, delivery decisions and timestamps retained. Only fields consumed by the host projection are retained.",
   "wait_ref": "record:event_wait:initial",
+  "retry_events": [
+    {"kind":"wait_resumed","payload":{"expected_wait":{"kind":"event","ref":"record:event_wait:fourth"},"turn_ref":"turn:followup:4","occurred_at":"2026-10-26T19:45:58.744534Z"}},
+    {"kind":"owner_transferred","payload":{"expected_owner":{"kind":"turn","ref":"turn:followup:4"},"new_owner":{"kind":"turn","ref":"turn:retry:4"},"occurred_at":"2026-10-26T20:03:28.758860Z"}}
+  ],
   "events": [
     {"kind":"wait_resumed","payload":{"expected_wait":{"kind":"event","ref":"record:event_wait:initial"},"turn_ref":"turn:followup:1","occurred_at":"2026-10-26T16:44:52.811079Z"}},
     {"kind":"result_accepted","payload":{"delivery":"none","expected_turn_ref":"turn:followup:1","next_wait":{"ref":"record:event_wait:second","kind":"event","deadline_at":"2026-10-26T20:30:00.000000Z"},"decision_reason":"Replacement backup remains in progress without a confirmed failure or completion; preserve the observation and continue monitoring without another thread update.","occurred_at":"2026-10-26T16:45:32.813933Z"}},

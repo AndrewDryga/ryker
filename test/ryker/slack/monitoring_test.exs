@@ -54,6 +54,25 @@ defmodule Ryker.Slack.MonitoringTest do
            }
   end
 
+  # Live acceptance found this after a new human input resumed the fourth
+  # blocked check: it was mislabeled inactive because custody gave it a new ref.
+  test "a retried check keeps the original wait chain without counting another completion" do
+    events = @captured["events"] ++ @captured["retry_events"]
+
+    assert Monitoring.project(@captured["wait_ref"], events) == %{
+             "checks" => 3,
+             "last_check_at" => "2026-10-26T18:46:19.501343Z",
+             "state" => "checking",
+             "owner_ref" => "turn:retry:4"
+           }
+
+    unrelated = put_in(List.last(events), ["payload", "expected_owner", "ref"], "other-turn")
+
+    assert Monitoring.project(@captured["wait_ref"], Enum.drop(events, -1) ++ [unrelated])[
+             "owner_ref"
+           ] == "turn:followup:4"
+  end
+
   test "the live footer replaces a consumed wait without rewriting the answer or leaking audit prose" do
     record = wait_record()
 
