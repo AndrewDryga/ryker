@@ -8,6 +8,9 @@ defmodule Ryker.Records.Response.Query do
   def by_record_id(queryable \\ all(), record_id),
     do: where(queryable, [episode_state_record_responses: r], r.record_id == ^record_id)
 
+  def with_preloaded_inbox_entry(queryable \\ all()),
+    do: preload(queryable, [episode_state_record_responses: r], :inbox_entry)
+
   @doc "The option the latest answer to question `record_id` chose: its index, or its words."
   def latest_choice(record_id) do
     from(r in by_record_id(record_id),

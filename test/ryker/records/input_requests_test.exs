@@ -16,6 +16,7 @@ defmodule Ryker.Records.InputRequestsTest do
   alias Ryker.Records.Response
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.InteractionAudit
+  alias Ryker.Slack.{Renderer, ReplyRecords}
   alias Ryker.TestSupport.FakeCoopAPI
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
@@ -31,6 +32,33 @@ defmodule Ryker.Records.InputRequestsTest do
     assert answer.status == :recorded
     assert answer.response.choice == "Stop the rollout"
     assert answer.record.status == :answered
+
+    # The retired Slack card only said "Answered", hiding both the selected
+    # option and its authenticated author (reported 2026-10-26).
+    [document] = ReplyRecords.documents("slack", fixture.episode.id, [answer.record])
+
+    assert document["presentation"]["answer"] == %{
+             "choice" => "Stop the rollout",
+             "user_name" => "Slack user",
+             "user_ref" => "U123"
+           }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which rollout action?", "records" => [document]})
+
+    assert [_reply, footer] = rendered["blocks"]
+
+    assert footer["elements"] == [
+             %{"type" => "mrkdwn", "text" => "Answered by <@U123>"},
+             %{
+               "type" => "plain_text",
+               "text" => ~s(· Selected "Stop the rollout"),
+               "emoji" => true
+             }
+           ]
+
+    # Slack screen readers use top-level text rather than the visible blocks.
+    assert rendered["text"] =~ ~s(Selected "Stop the rollout")
 
     assert {:ok, entry} = Inbox.fetch(answer.input_ref)
     assert entry.source_kind == "slack"
@@ -72,6 +100,29 @@ defmodule Ryker.Records.InputRequestsTest do
     Repo.update_all(Record, set: [status: :dismissed])
     assert InputRequests.answer(answer(fixture, 0, "stale")) == {:error, :input_request_stale}
     assert Repo.aggregate(Response, :count, :id) == 0
+  end
+
+  test "a question's displayed answer is not replaced by a newer answer to another question" do
+    first = delivered_question!()
+    assert {:ok, first_answer} = InputRequests.answer(answer(first, 1, "first-answer"))
+    second = delivered_question!()
+    second_input = answer(second, 0, "second-answer") |> Map.put(:actor_ref, "U456")
+    assert {:ok, second_answer} = InputRequests.answer(second_input)
+
+    [first_document] = ReplyRecords.documents("slack", first.episode.id, [first_answer.record])
+    [second_document] = ReplyRecords.documents("slack", second.episode.id, [second_answer.record])
+
+    assert first_document["presentation"]["answer"] == %{
+             "choice" => "Stop the rollout",
+             "user_name" => "Slack user",
+             "user_ref" => "U123"
+           }
+
+    assert second_document["presentation"]["answer"] == %{
+             "choice" => "Roll out to one percent",
+             "user_name" => "Slack user",
+             "user_ref" => "U456"
+           }
   end
 
   test "a question delivered to a joined input's origin thread can be answered from that thread" do
@@ -294,6 +345,8 @@ defmodule Ryker.Records.InputRequestsTest do
     assert is_nil(response.choice_index)
     assert Repo.aggregate(Response, :count) == 1
     assert Repo.get!(Record, fixture.record.id).status == :open
+    [document] = ReplyRecords.documents("slack", fixture.episode.id, [fixture.record])
+    refute get_in(document, ["presentation", "answer"])
     assert Repo.aggregate(Ryker.Memories.MemoryEntry, :count) == 0
   end
 
@@ -429,7 +482,7 @@ defmodule Ryker.Records.InputRequestsTest do
                claim.lease_ref,
                claim.session.generation,
                claim.session.create_generation,
-               "coop-session:question"
+               "coop-session:question:#{episode_id}"
              )
 
     assert {:ok, turn} =
@@ -439,7 +492,7 @@ defmodule Ryker.Records.InputRequestsTest do
                claim.lease_ref,
                session.generation,
                claim.turn.submit_generation,
-               "coop-turn:question"
+               "coop-turn:question:#{episode_id}"
              )
 
     candidate = ~s({"delivery":"reply","message":"Which rollout action should I take?"})

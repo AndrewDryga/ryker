@@ -110,7 +110,7 @@ defmodule Ryker.Slack.Renderer do
       {:ok,
        %{
          "blocks" => message_blocks(text) ++ record_blocks,
-         "text" => spoken(text)
+         "text" => question_fallback(text, records)
        }}
     else
       {:error, {:invalid_slack_mentions, _reason}} ->
@@ -131,12 +131,21 @@ defmodule Ryker.Slack.Renderer do
       {:ok,
        %{
          "blocks" => message_blocks(text) ++ record_blocks,
-         "text" => spoken(text)
+         "text" => question_fallback(text, records)
        }}
     end
   end
 
   defp render_document(_document), do: {:error, {:invalid_slack_render, :document}}
+
+  # Screen readers read this field, not the blocks. Put the answer first so
+  # the notification bound cannot hide it behind a long original question.
+  defp question_fallback(text, records) do
+    receipts = Records.question_receipts(records)
+    message = spoken(text)
+    parts = Enum.reject([receipts, message], &(&1 == ""))
+    Enum.join(parts, "\n\n")
+  end
 
   # A notification shows the message's text, which Slack takes literally
   # (`"mrkdwn" => false`), so it says the reply's words without the Markdown

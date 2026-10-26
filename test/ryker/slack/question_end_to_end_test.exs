@@ -278,7 +278,24 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert {:ok, rendered_question} = Renderer.render(question_document)
     assert inspect(rendered_question["blocks"]) =~ request.payload["question"]
     refute Enum.any?(rendered_question["blocks"], &(&1["type"] == "actions"))
-    refute inspect(rendered_question["blocks"]) =~ answer_text
+
+    # The retired card hid the accepted choice and person. Repaint must use
+    # this question's authenticated receipt, without copying a typed reply.
+    assert List.last(rendered_question["blocks"])["elements"] == [
+             %{"type" => "mrkdwn", "text" => "Answered by <@U123>"},
+             %{
+               "type" => "plain_text",
+               "text" =>
+                 if(answer_kind == :typed,
+                   do: "· Replied in thread",
+                   else: ~s(· Selected "One percent")
+                 ),
+               "emoji" => true
+             }
+           ]
+
+    if answer_kind == :typed, do: refute(inspect(rendered_question["blocks"]) =~ answer_text)
+    assert String.starts_with?(rendered_question["text"], "Answered · Slack user · ")
 
     assert {:ok, continuation_claim} =
              Custody.claim_next("slack-question-continuation", 60, :work)

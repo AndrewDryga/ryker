@@ -14,13 +14,15 @@ defmodule Ryker.Slack.ReplyRecords do
   alias Ryker.Delivery
   alias Ryker.Emisar
   alias Ryker.GitHub
+  alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Settings
-  alias Ryker.Slack.{IncidentRoom, Permalink, SavedEntity}
+  alias Ryker.Slack.{IncidentRoom, Names, Permalink, SavedEntity}
+  alias Ryker.Text
   alias Ryker.Waits
   alias Ryker.Work
 
@@ -89,10 +91,50 @@ defmodule Ryker.Slack.ReplyRecords do
       |> Enum.zip_with(records, &present_saved_entity/2)
       |> Enum.zip_with(records, &present_sent_post/2)
       |> Enum.zip_with(records, &present_repository/2)
+      |> Enum.zip_with(records, &present_answer/2)
     else
       documents
     end
   end
+
+  # An answered question keeps its exact accepted option and author. The
+  # original payload and the separate human reply stay unchanged.
+  defp present_answer(document, %{kind: "input_request", status: :answered, id: id}) do
+    response =
+      id
+      |> Records.Response.Query.by_record_id()
+      |> Records.Response.Query.with_preloaded_inbox_entry()
+      |> Repo.peek()
+
+    case response do
+      %Records.Response{
+        actor_ref: actor,
+        choice: choice,
+        inbox_entry: %Ingress.Inbox.Entry{
+          source_kind: "slack",
+          actor_kind: :user,
+          actor_ref: author,
+          destination_conversation_ref: conversation
+        }
+      }
+      when actor == author ->
+        user =
+          if Names.person_ref?(actor), do: String.replace_prefix(actor, "slack:user:", "")
+
+        workspace = Names.workspace_from_destination(conversation)
+        person = Names.person(workspace, user)
+        user_name = if user, do: Text.characters(person.name, 120)
+        presentation = Map.get(document, "presentation", %{})
+        answer = %{"choice" => choice, "user_ref" => user, "user_name" => user_name}
+        presentation = Map.put(presentation, "answer", answer)
+        Map.put(document, "presentation", presentation)
+
+      _unavailable ->
+        document
+    end
+  end
+
+  defp present_answer(document, _record), do: document
 
   # A confirmed post said the delivery worker was "sending or reconciling" it
   # forever, because the card was built from the offer and the offer cannot know

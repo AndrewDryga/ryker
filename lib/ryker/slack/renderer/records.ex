@@ -10,8 +10,11 @@ defmodule Ryker.Slack.Renderer.Records do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Delivery
+  alias Ryker.Maps
   alias Ryker.Publication
   alias Ryker.Records
+  alias Ryker.Reference
+  alias Ryker.Slack
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
   alias Ryker.Text
@@ -55,6 +58,18 @@ defmodule Ryker.Slack.Renderer.Records do
       |> render_each(&render_chunk/1)
 
     with {:ok, blocks} <- result, do: {:ok, blocks ++ source_blocks(records)}
+  end
+
+  @doc "Answered-question receipts for accessible text, after `render/1` validates the records."
+  @spec question_receipts([map()]) :: String.t()
+  def question_receipts(records) do
+    receipts =
+      for %{"kind" => "input_request", "status" => "answered"} = record <- records do
+        presentation = Map.get(record, "presentation", %{})
+        answered_question_text(presentation)
+      end
+
+    Enum.join(receipts, "\n")
   end
 
   # Each item's blocks in order, or the first refusal.
@@ -292,13 +307,14 @@ defmodule Ryker.Slack.Renderer.Records do
     presentation = Map.get(record, "presentation", %{})
 
     with :ok <- reference(ref),
-         :ok <- remembered_presentation(presentation),
+         :ok <- question_presentation(presentation, status),
          {:ok, %{payload: prepared}} <-
            Records.RecordPayload.prepare("input_request", payload, ref) do
       if status == "open" do
         {:ok, input_request_blocks(ref, prepared)}
       else
-        {:ok, [context(question_status(status))] ++ remembered_blocks(presentation["memory"])}
+        {:ok,
+         [question_status(status, presentation)] ++ remembered_blocks(presentation["memory"])}
       end
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -500,9 +516,45 @@ defmodule Ryker.Slack.Renderer.Records do
     ]
   end
 
-  defp question_status("answered"), do: "Answered"
+  defp question_status("answered", %{"answer" => %{"user_ref" => user, "choice" => choice}}) do
+    author =
+      if user do
+        user = String.replace_prefix(user, "slack:user:", "")
+        "Answered by #{mention(user)}"
+      else
+        "Answered · Person not recorded"
+      end
+
+    detail = answer_detail(choice)
+
+    %{
+      "type" => "context",
+      "elements" => [
+        %{"type" => "mrkdwn", "text" => author},
+        plain_text(detail)
+      ]
+    }
+  end
+
+  defp question_status(status, _presentation), do: context(question_status(status))
+
+  defp question_status("answered"), do: "Answered · Answer details unavailable"
   defp question_status("dismissed"), do: "Question closed"
   defp question_status("superseded"), do: "Replaced by a newer question"
+
+  defp answered_question_text(%{
+         "answer" => %{"user_ref" => user, "user_name" => name, "choice" => choice}
+       }) do
+    name = name || "Slack user"
+    author = if user, do: "Answered · #{escape(name)}", else: "Answered · Person not recorded"
+    detail = choice |> answer_detail() |> escape()
+    author <> " " <> detail
+  end
+
+  defp answered_question_text(_presentation), do: question_status("answered")
+
+  defp answer_detail(choice) when is_binary(choice), do: ~s(· Selected "#{choice}")
+  defp answer_detail(nil), do: "· Replied in thread"
 
   defp event_wait_blocks(%{"deadline_at" => nil}, _next_check), do: []
 
@@ -585,6 +637,33 @@ defmodule Ryker.Slack.Renderer.Records do
       do: :ok,
       else: {:error, {:invalid_slack_render, :record}}
   end
+
+  defp question_presentation(presentation, status) do
+    with true <- Maps.only_keys?(presentation, ~w(answer memory)),
+         memory = Map.delete(presentation, "answer"),
+         :ok <- remembered_presentation(memory),
+         :ok <- answer_presentation(presentation["answer"], status) do
+      :ok
+    else
+      _invalid -> {:error, :invalid_question_presentation}
+    end
+  end
+
+  defp answer_presentation(nil, _status), do: :ok
+
+  defp answer_presentation(
+         %{"user_ref" => user, "user_name" => name, "choice" => choice} = answer,
+         "answered"
+       )
+       when map_size(answer) == 3 do
+    if (is_nil(user) or Slack.person_ref?(user)) and
+         (is_nil(name) or Reference.text?(name, 120)) and
+         (is_nil(choice) or Reference.text?(choice, 240)),
+       do: :ok,
+       else: {:error, :invalid_answer_presentation}
+  end
+
+  defp answer_presentation(_answer, _status), do: {:error, :invalid_answer_presentation}
 
   # The host knows whether the answer was saved, so what was remembered comes
   # from its receipt, not from prose a reader cannot check. It is a receipt,

@@ -194,8 +194,16 @@ only use retained timestamps and identities, never invented ones.
 
 The reply asks the question, once (Andrew, 2026-10-04: "in the reply"). The card under it adds
 only what the reply cannot: the full answers and their controls. A question answered by typing
-adds nothing under the reply, and an answered question says "Answered" in one line. Chat and
-GitHub follow the same rule.
+adds nothing under the reply. Once answered, retire the controls and show who answered plus
+the full accepted option in quotes in a compact footer. Attribute it only from the question's exact
+authenticated response receipt; native Slack names resolve the person. A typed answer says
+Replied in thread without inventing a selected option. Missing response or actor data is
+explicitly unavailable, never guessed from the choices, the question author or the latest
+unrelated reply (Andrew, 2026-10-26). Keep the human's original answer separate.
+The accessible notification text carries the same receipt before the original question, so a
+long question cannot crowd out its accepted answer. Use the authenticated person's cached name
+when known, never an opaque Slack ID; a missing cached name stays Slack user. Escape names and
+choices as literal text rather than interpreting option content as mentions or Markdown.
 
 Keep the full question and every offered answer readable. For up to five choices, use short,
 distinct button labels. When choices are long, show each complete answer above the controls,

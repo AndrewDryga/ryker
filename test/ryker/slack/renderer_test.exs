@@ -3275,6 +3275,120 @@ defmodule Ryker.Slack.RendererTest do
     assert open["style"] == "primary"
   end
 
+  # Retiring the controls hid which answer was selected and who chose it.
+  # Keep the complete option literal, including Slack-looking control syntax.
+  test "answered question receipts name who replied and preserve the full selected answer" do
+    choice = "Keep <@U999> & *literal* \"quoted\" " <> String.duplicate("界", 200)
+
+    question = %{
+      "kind" => "input_request",
+      "payload" => %{"choices" => [choice], "question" => "Which storage policy?"},
+      "ref" => "record:input_request:answer-receipt",
+      "status" => "answered",
+      "presentation" => %{
+        "answer" => %{"user_ref" => "U123", "user_name" => "@Alex", "choice" => choice}
+      }
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which policy?", "records" => [question]})
+
+    assert [_reply, footer] = rendered["blocks"]
+
+    assert footer["elements"] == [
+             %{"type" => "mrkdwn", "text" => "Answered by <@U123>"},
+             %{"type" => "plain_text", "text" => ~s(· Selected "#{choice}"), "emoji" => true}
+           ]
+
+    escaped_choice = Ryker.Slack.Renderer.Blocks.escape(choice)
+
+    assert rendered["text"] ==
+             ~s(Answered · @Alex · Selected "#{escaped_choice}"\n\nWhich policy?)
+
+    authority = %{
+      "broadcasts" => [],
+      "channels" => [],
+      "user_groups" => [],
+      "users" => [],
+      "workspace_ref" => "T123"
+    }
+
+    assert {:ok, with_authority} =
+             Renderer.render(%{
+               "message" => "Which policy?",
+               "records" => [question],
+               "slack_mentions" => authority
+             })
+
+    assert with_authority["text"] == rendered["text"]
+
+    assert {:ok, long_question} =
+             Renderer.render(%{
+               "message" => String.duplicate("Which policy? ", 400),
+               "records" => [question]
+             })
+
+    assert String.starts_with?(
+             long_question["text"],
+             ~s(Answered · @Alex · Selected "#{escaped_choice}"\n\n)
+           )
+
+    assert String.length(long_question["text"]) <= 3_000
+
+    unnamed = put_in(question["presentation"]["answer"]["user_name"], nil)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which policy?", "records" => [unnamed]})
+
+    assert rendered["text"] =~ "Answered · Slack user · Selected"
+    refute rendered["text"] =~ "U123"
+
+    unsafe_name = put_in(question["presentation"]["answer"]["user_name"], "@Alex <!channel>")
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which policy?", "records" => [unsafe_name]})
+
+    assert rendered["text"] =~ "Answered · @Alex &lt;!channel&gt; · Selected"
+
+    typed = put_in(question["presentation"]["answer"]["choice"], nil)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which policy?", "records" => [typed]})
+
+    assert [_reply, footer] = rendered["blocks"]
+    assert List.last(footer["elements"])["text"] == "· Replied in thread"
+    assert rendered["text"] == "Answered · @Alex · Replied in thread\n\nWhich policy?"
+
+    unknown_author = put_in(question["presentation"]["answer"]["user_ref"], nil)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which policy?", "records" => [unknown_author]})
+
+    assert [_reply, footer] = rendered["blocks"]
+    assert hd(footer["elements"])["text"] == "Answered · Person not recorded"
+    assert rendered["text"] =~ "Answered · Person not recorded · Selected"
+
+    missing = Map.delete(question, "presentation")
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "Which policy?", "records" => [missing]})
+
+    assert [_reply, footer] = rendered["blocks"]
+    assert hd(footer["elements"])["text"] == "Answered · Answer details unavailable"
+    assert rendered["text"] == "Answered · Answer details unavailable\n\nWhich policy?"
+
+    for invalid <- [
+          put_in(question["presentation"]["answer"]["user_ref"], "U123><!channel"),
+          put_in(question["presentation"]["answer"]["user_name"], String.duplicate("x", 121)),
+          put_in(question["presentation"]["answer"]["choice"], String.duplicate("x", 241)),
+          put_in(question["presentation"]["answer"]["unexpected"], true),
+          %{question | "status" => "open"}
+        ] do
+      assert Renderer.render(%{"message" => "Which policy?", "records" => [invalid]}) ==
+               {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
   # The host knows whether remember_answer succeeded; the model was writing
   # "Remembered X" in prose, which a reader cannot check and the prompt has to
   # police. The answered question carries the receipt instead.
@@ -3291,6 +3405,7 @@ defmodule Ryker.Slack.RendererTest do
 
     remembered =
       Map.put(question, "presentation", %{
+        "answer" => %{"user_ref" => "U123", "user_name" => "@Alex", "choice" => nil},
         "memory" => %{
           "applicability" => "the checkout workload in production",
           "subject" => "GCP project for checkout",
@@ -3306,6 +3421,8 @@ defmodule Ryker.Slack.RendererTest do
     assert text =~ "emisar-project-qa"
     assert text =~ "GCP project for checkout"
     assert text =~ "the checkout workload in production"
+    assert text =~ "Answered by <@U123>"
+    assert text =~ "Replied in thread"
 
     # It is a receipt, not a control: nothing here grants or asks for anything.
     refute Enum.any?(with_memory["blocks"], &(&1["type"] == "actions"))
