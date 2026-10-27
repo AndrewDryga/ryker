@@ -508,7 +508,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp anchor(%Records.Record{kind: "evidence", id: id, payload: payload}, _goals),
-    do: %{href: "#event-record-#{id}", title: observation_area(payload)}
+    do: %{href: "#event-record-#{id}", title: evidence_label(payload)}
 
   defp anchor(%Records.Record{kind: "goal", id: id, payload: payload}, _goals),
     do: %{href: "#event-record-#{id}", title: payload["requested_outcome"]}
@@ -517,6 +517,24 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     do: %{href: "#event-record-#{id}", title: goal_name(goal_id, goals)}
 
   defp anchor(_record, _goals), do: nil
+
+  # Several observations can share one claim and target. Link to the saved
+  # observation itself so readers can tell which evidence they are opening.
+  defp evidence_label(%{"observation" => text} = payload) when is_binary(text) do
+    case String.trim(text) do
+      "" ->
+        observation_area(payload)
+
+      text ->
+        text
+        |> InspectionRedactor.artifact()
+        |> Map.fetch!(:text)
+        |> String.replace(~r/\s+/u, " ")
+        |> Text.shorten_to_word(180)
+    end
+  end
+
+  defp evidence_label(payload), do: observation_area(payload)
 
   @doc """
   Adjacent evidence from one turn as one Observations card: a compact row per

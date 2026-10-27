@@ -82,20 +82,39 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       kind: "evidence",
       sequence: 1,
       inserted_at: snapshot.trace.received_at,
-      payload: %{"area" => "Readiness", "summary" => "Both endpoints passed."}
+      payload: %{
+        "target" => "Infrastructure health",
+        "claim" => "Infrastructure health",
+        "observation" => "Both application endpoints pass readiness; both VMs are in zone-a."
+      }
+    }
+
+    # The real records used the same target and claim for ten different
+    # observations. Repeating that scope made every restored link identical.
+    disk = %{
+      evidence
+      | id: Ecto.UUID.generate(),
+        ref: "record:evidence:disk",
+        sequence: 2,
+        payload:
+          Map.put(
+            evidence.payload,
+            "observation",
+            "Last-hour database disk utilization maximum 6.5%."
+          )
     }
 
     finding = %Ryker.Records.Record{
       id: Ecto.UUID.generate(),
       kind: "finding",
-      sequence: 2,
+      sequence: 3,
       inserted_at: snapshot.trace.received_at,
       payload: %{
         "status" => "expected",
         "what" => "The service is passing readiness checks.",
         "reason" => "Both endpoints passed the latest probes.",
         "scope" => "Application readiness",
-        "cause_evidence" => [evidence.ref, "record:evidence:outside-page"]
+        "cause_evidence" => [evidence.ref, disk.ref, "record:evidence:outside-page"]
       }
     }
 
@@ -103,7 +122,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       snapshot
       |> put_in(
         [:trace, :steps],
-        Ryker.ControlPlane.EpisodeTrace.Work.record_steps([evidence, finding])
+        Ryker.ControlPlane.EpisodeTrace.Work.record_steps([evidence, disk, finding])
       )
       |> render_episode([])
       |> LazyHTML.from_fragment()
@@ -111,7 +130,10 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     card = LazyHTML.query(document, ".finding-card")
 
     assert LazyHTML.attribute(LazyHTML.query(card, ".record-links a"), "href") ==
-             ["#event-record-#{evidence.id}"]
+             ["#event-record-#{evidence.id}", "#event-record-#{disk.id}"]
+
+    assert Enum.map(LazyHTML.query(card, ".record-links a"), &LazyHTML.text/1) ==
+             [evidence.payload["observation"], disk.payload["observation"]]
 
     assert LazyHTML.text(card) =~ "1 evidence record not on this page."
     assert LazyHTML.text(LazyHTML.query(card, ".finding-metadata")) =~ "Normal behavior"

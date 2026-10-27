@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
            |> LazyHTML.query(
              ".work-plan-summary .plan-step a[href='#event-record-#{evidence.id}']"
            )
-           |> LazyHTML.text() == "Nomad nodes"
+           |> LazyHTML.text() == evidence.payload["observation"]
 
     assert Enum.count(
              LazyHTML.query(
