@@ -1134,11 +1134,13 @@
    including native LiveViews, gets the same controls, spacing and form states. */
 
 
-.action-console { margin-block:16px; border:1px solid var(--stroke); border-radius:8px; overflow:hidden; background:var(--ryker-surface); }
-.action-console .action-command-line { margin:0; border:0; border-radius:0; }
+.action-console { min-width:0; max-width:100%; margin-block:16px; border:1px solid var(--stroke); border-radius:8px; overflow:hidden; background:var(--ryker-surface); }
+.action-console pre { box-sizing:border-box; min-width:0; max-width:100%; margin:0; padding:12px 16px; border:0; border-radius:0; font:13px/20px var(--ryker-font-mono); white-space:pre-wrap; overflow-wrap:anywhere; }
+.action-console pre code { font:inherit; color:inherit; }
 .action-command-output { border-top:1px solid var(--stroke); min-width:0; }
 .action-command-output .copy-block { margin:0; }
-.action-command-output pre { margin:0; border:0; border-radius:0; }
+.action-command-output pre { max-height:min(24rem, 50vh); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.action-command-output pre:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:-2px; }
 .action-command-output > p { margin:12px 16px; }
 
 .ryker-app :is(.filter-toolbar, .filter-toolbar-controls) .filter-control {

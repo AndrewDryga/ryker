@@ -3,6 +3,28 @@ defmodule Ryker.ControlPlane.ExecutionCardDesignTest do
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Assets, Components}
 
+  test "inline command output stays bounded and scrollable without another disclosure" do
+    # Removing the output disclosure also removed its inherited styles: a
+    # retained command's output grew to 5,779px instead of scrolling inside it.
+    stylesheet = File.read!("priv/static/workspace.css")
+    [_, output] = Regex.run(~r/\n\.action-command-output pre\s*\{([^}]+)\}/, stylesheet)
+    assert output =~ "max-height:min(24rem, 50vh)"
+    assert output =~ "overflow:auto"
+    assert output =~ "overscroll-behavior:contain"
+  end
+
+  test "command and inline output share readable typography and padding" do
+    # The same console displayed an 11.7px command beside 14px unpadded output.
+    stylesheet = File.read!("priv/static/workspace.css")
+    assert [_, text] = Regex.run(~r/\n\.action-console pre\s*\{([^}]+)\}/, stylesheet)
+    assert text =~ "font:13px/20px var(--ryker-font-mono)"
+    assert text =~ "padding:12px 16px"
+    assert text =~ "white-space:pre-wrap"
+    assert text =~ "overflow-wrap:anywhere"
+    assert text =~ "max-width:100%"
+    assert stylesheet =~ ~r/\.action-console pre code\s*\{[^}]*font:inherit/
+  end
+
   test "execution cards have one reading column rather than a phantom metadata column" do
     # The first product rollout kept the old two-column event grid. New sections
     # lost 16px at their right edge, while facts and evidence spanned both columns.
