@@ -309,6 +309,21 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
 
   # -- Fixture -------------------------------------------------------------------------
 
+  test "a review continuation explains the exhausted correction without claiming acceptance" do
+    event = %Event{
+      kind: :owner_transferred,
+      sequence: 1,
+      dedupe_key: "transfer:completion-review:example",
+      occurred_at: ~U[2026-10-27 02:31:26.000000Z],
+      payload: %{"transfer_ref" => "transfer:completion-review:example"}
+    }
+
+    assert [%{summary: summary}] = Input.kernel_steps([event], %{})
+    assert summary =~ "Completion review identified more work"
+    assert summary =~ "requested a bounded continuation"
+    assert summary =~ "earlier answer was not accepted"
+  end
+
   defp events, do: @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("events")
 
   # What the person asked for, without the checks and references the host

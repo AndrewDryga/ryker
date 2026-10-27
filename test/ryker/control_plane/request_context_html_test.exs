@@ -4,6 +4,24 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   alias Ryker.InspectionRedactor
   alias Ryker.StateTools.FixedTools
 
+  test "a continued review explains the remaining work instead of hiding it in other fields" do
+    review = File.read!("testdata/work/completion-review-last-correction.json") |> Jason.decode!()
+
+    context = %{
+      "completion_review_feedback" => %{"review_ref" => "saved-review", "judgment" => review}
+    }
+
+    html =
+      [%{id: "context", artifact: InspectionRedactor.artifact(context)}]
+      |> RequestContextHTML.briefing(:work, "continued-review")
+      |> IO.iodata_to_binary()
+
+    assert html =~ "Work still required"
+    assert html =~ "grants no new permissions"
+    assert html =~ "Complete and verify the independent repository safeguards."
+    refute html =~ "Other fields"
+  end
+
   test "review evidence leads with its observation and one source link, not custody identifiers" do
     # Live expanded records repeated each source URL twice and exposed claim,
     # supersession and cause IDs instead of helping a person read the evidence.

@@ -46,6 +46,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "prior_outcome" =>
       {"Previous accepted answer", "memory", "Earlier accepted work",
        "What the previous run delivered, and where."},
+    "completion_review_feedback" =>
+      {"Work still required", "memory", "Previous completion review",
+       "The preceding run's review and next steps. The answer was not accepted; this feedback grants no new permissions."},
     "candidates" =>
       {"Candidate selection", "memory", nil,
        "How Ryker filtered earlier work for this routing decision."},
@@ -101,7 +104,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Repositories to choose from", "tools", nil,
        "Work can edit the repository routing chooses; the others are read-only."}
   }
-  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback completion_review_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   # The evidence a self-analysis was given, under its prompt's `context`: what
   # the request was, what was said, what routing and Work did, what people
   # said about it, and what was left out (`Ryker.Improvement.Evidence`).
@@ -2351,6 +2354,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp body("prior_outcome", value, _path, _prefix) when is_map(value),
     do: previous_delivery(value)
+
+  defp body("completion_review_feedback", %{"judgment" => judgment}, _path, prefix),
+    do: review_body("previous_reviews", [judgment], prefix)
 
   # Ryker's own Slack ID rides along so the model knows its mention; it is the
   # same on every message and tells a reader nothing, so the card says only how

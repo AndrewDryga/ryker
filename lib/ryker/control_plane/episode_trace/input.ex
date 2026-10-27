@@ -377,6 +377,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
        do: "The run had stopped, and a retry started it again as a new run."
 
   defp lifecycle_summary(:owner_transferred, %{
+         "transfer_ref" => "transfer:completion-review:" <> _
+       }) do
+    "Completion review identified more work after this run used its correction attempts. Ryker requested a bounded continuation; the earlier answer was not accepted."
+  end
+
+  defp lifecycle_summary(:owner_transferred, %{
          "transfer_ref" => "transfer:wait-state-changed:" <> _
        }) do
     "An approval or wait finished while the answer was being checked. Ryker started a fresh run with that result; the earlier answer was not rejected as a model error."
