@@ -28,7 +28,11 @@ defmodule Ryker.ControlPlane.LabCardLinksTest do
   # styled as a button kept a block box, so its words sat at the top of the button beside the
   # centred words of a form's button.
   test "a link and a form button on a card centre their words alike" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     assert [_, button] =
              Regex.run(

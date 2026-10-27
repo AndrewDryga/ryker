@@ -399,6 +399,12 @@ console is in use, so quitting the browser doesn't sign anyone out. The cookie i
 derived from `RYKER_CREDENTIAL_KEY`, so signing in lasts through restarts, deploys and upgrades. A
 new credential key signs every browser out.
 
+Styles and browser scripts share a content-addressed asset directory. A deploy
+that changes those files cannot reuse a CDN's older bundle. A tab still running
+the previous bundle stays disconnected instead of receiving incompatible page
+updates. Use **Reload page** when ready; Ryker does not automatically reload and
+discard unsent attachments or interrupt a message being sent.
+
 A service that publishes the console can name a person too, and then nobody needs a link: a token
 Cloudflare Access signed, at the published address, or Tailscale Serve's `Tailscale-User-Login`,
 at a `*.ts.net` address. Serve's headers aren't signed, so Ryker ignores them anywhere else: through

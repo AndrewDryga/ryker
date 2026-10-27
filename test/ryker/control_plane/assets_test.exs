@@ -1,6 +1,50 @@
 defmodule Ryker.ControlPlane.AssetsTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{Assets, BrowserGuard}
+  import Phoenix.LiveViewTest
+  alias Ryker.ControlPlane.{Assets, BrowserGuard, Layouts}
+
+  test "a deployment cannot combine current HTML with cached older styles or module imports" do
+    # The CDN changed no-cache to a four-hour browser cache. A successful
+    # deployment then rendered new plan markup with old CSS and command hooks.
+    # A content-addressed directory must cover the entire module graph.
+    paths = Layouts.stylesheets()
+    assert Enum.all?(paths, &Regex.match?(~r|\A/assets/[a-f0-9]{32}/[^/]+\.css\z|, &1))
+    prefix = paths |> hd() |> Path.dirname()
+
+    html = render_component(&Layouts.root/1, page_title: "Activity", inner_content: "")
+
+    scripts =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("script[src]")
+      |> LazyHTML.attribute("src")
+
+    assert length(scripts) == 2
+    assert Enum.all?(scripts, &(Path.dirname(&1) == prefix))
+    assert_imports_served(scripts, MapSet.new())
+
+    assert Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).status == 404
+    assert get("/" <> String.duplicate("0", 32) <> "/workspace.css").status == 404
+  end
+
+  defp assert_imports_served([], _visited), do: :ok
+
+  defp assert_imports_served([path | rest], visited) do
+    if MapSet.member?(visited, path) do
+      assert_imports_served(rest, visited)
+    else
+      response = get(String.replace_prefix(path, "/assets", ""))
+      assert response.status == 200, path
+
+      imports =
+        for [_, relative] <- Regex.scan(~r/^import .* from "([^"\s]+)"/m, response.resp_body) do
+          assert String.starts_with?(relative, "./"), "unversioned import #{relative}"
+          Path.join(Path.dirname(path), String.trim_leading(relative, "./"))
+        end
+
+      assert_imports_served(rest ++ imports, MapSet.put(visited, path))
+    end
+  end
 
   # Every page load downloaded the console's scripts and stylesheets again, about 650 KB
   # uncompressed, because every response leaves BrowserGuard marked no-store (2026-10-04). A
@@ -67,7 +111,7 @@ defmodule Ryker.ControlPlane.AssetsTest do
 
   test "the page guard's no-store does not reach a script" do
     guarded =
-      Plug.Test.conn(:get, "/control-plane.js")
+      Plug.Test.conn(:get, String.replace_prefix(Assets.path("control-plane.js"), "/assets", ""))
       |> Map.put(:host, "localhost")
       |> Map.put(:remote_ip, {127, 0, 0, 1})
       |> BrowserGuard.call([])
@@ -78,6 +122,11 @@ defmodule Ryker.ControlPlane.AssetsTest do
   end
 
   defp get(path, headers \\ []) do
+    path =
+      if path in ~w(/workspace.css /phoenix.mjs),
+        do: String.replace_prefix(Assets.path(String.trim_leading(path, "/")), "/assets", ""),
+        else: path
+
     headers
     |> Enum.reduce(Plug.Test.conn(:get, path), fn {name, value}, conn ->
       Plug.Conn.put_req_header(conn, name, value)

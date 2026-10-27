@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.SignInTest do
     assert get(local(), "/metrics").resp_body == "ryker_up 1\n"
     assert get(published(), "/healthz").status == 200
     assert get(published(), "/metrics").status == 303
-    assert get(local(), "/assets/control-plane.css").status == 200
+    assert get(local(), Ryker.ControlPlane.Assets.path("control-plane.css")).status == 200
   end
 
   # Slack opens a link to preview it before anyone clicks, so opening a link must not use it.
@@ -177,11 +177,15 @@ defmodule Ryker.ControlPlane.SignInTest do
     {:ok, _id} = ConsoleAccess.sign_out(token)
 
     assert {:ok, _socket} =
-             LiveSocket.connect(%{}, %Phoenix.Socket{}, %{
-               peer_data: %{address: {127, 0, 0, 1}},
-               uri: URI.parse("http://localhost:4321/live"),
-               session: page
-             })
+             LiveSocket.connect(
+               %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+               %Phoenix.Socket{},
+               %{
+                 peer_data: %{address: {127, 0, 0, 1}},
+                 uri: URI.parse("http://localhost:4321/live"),
+                 session: page
+               }
+             )
 
     assert {:ok, %{redirected: {:redirect, %{to: "/sign-in"}}}} =
              WorkbenchLive.mount(%{}, page, %Phoenix.LiveView.Socket{endpoint: Endpoint})

@@ -7,11 +7,27 @@ defmodule Ryker.ControlPlane.RelearnSelectionTest do
   test "every local control-plane module import has a served JavaScript asset" do
     # One missing helper makes the browser reject the whole entry module,
     # breaking the existing composer as well as source selection.
-    entry = Assets.call(Plug.Test.conn(:get, "/control-plane.js"), [])
+    entry =
+      Assets.call(
+        Plug.Test.conn(
+          :get,
+          String.replace_prefix(Assets.path("control-plane.js"), "/assets", "")
+        ),
+        []
+      )
+
     assert entry.status == 200
 
-    for [_, path] <- Regex.scan(~r/from "(\/assets\/[^"\s]+)"/, entry.resp_body) do
-      response = Assets.call(Plug.Test.conn(:get, String.replace_prefix(path, "/assets", "")), [])
+    imports = Regex.scan(~r/from "\.\/([^"\s]+)"/, entry.resp_body)
+    assert imports != []
+
+    for [_, path] <- imports do
+      response =
+        Assets.call(
+          Plug.Test.conn(:get, String.replace_prefix(Assets.path(path), "/assets", "")),
+          []
+        )
+
       assert response.status == 200, "missing imported asset #{path}"
 
       assert Plug.Conn.get_resp_header(response, "content-type") == [
@@ -84,7 +100,13 @@ defmodule Ryker.ControlPlane.RelearnSelectionTest do
     html = render(preview())
     assert html =~ ~s(class="relearn-excerpt markdown-preview)
     assert html =~ ~s(class="relearn-full-message markdown-preview")
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     refute css =~ ~r/\.relearn-(?:excerpt|full-message)\s*\{[^}]*white-space:pre-wrap/
     assert css =~ ".ryker-app .relearn-selection-tools [hidden] { display:none; }"
   end

@@ -138,11 +138,15 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
 
     for page <- [session, linked, %{}, expired, ended] do
       assert {:ok, _socket} =
-               LiveSocket.connect(%{}, %Phoenix.Socket{}, %{
-                 peer_data: %{address: {127, 0, 0, 1}},
-                 uri: URI.parse("https://#{@published}/live"),
-                 session: page
-               })
+               LiveSocket.connect(
+                 %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+                 %Phoenix.Socket{},
+                 %{
+                   peer_data: %{address: {127, 0, 0, 1}},
+                   uri: URI.parse("https://#{@published}/live"),
+                   session: page
+                 }
+               )
     end
 
     assert %{via: :cloudflare, login: "dev@tenant.example"} = Viewer.from_session(session)

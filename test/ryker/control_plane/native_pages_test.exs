@@ -287,7 +287,11 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   test "embedded plans use the card width on narrow screens and metric values do not inherit table padding" do
     # Visual QA at 320px left only 125px for plan text, and a metric split
     # "measured" mid-word after inheriting the generic definition-list style.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     assert css =~
              ~r/\.ryker-app \.episode-metrics dd\s*\{[^}]*padding:\s*0[^}]*overflow-wrap:\s*normal/
@@ -297,7 +301,12 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   end
 
   test "stage goals are compact list rows rather than nested bordered cards" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     assert css =~ ~r/\.task-progress \.plan-step\s*\{[^}]*padding:\s*0 0 0 26px[^}]*border:\s*0/
     assert css =~ ~r/\.task-progress \.plan-step::before\s*\{[^}]*border:\s*0/
     assert css =~ ~r/\.task-progress \.plan-step-head\s*\{[^}]*justify-content:\s*flex-start/
@@ -305,7 +314,11 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   end
 
   test "a toolbar's views wrap on a phone instead of scrolling out of sight" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     phone =
       ~r/@media\s*\(max-width:\s*(\d+)px\)\s*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/
@@ -324,7 +337,11 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   # border than the select beside it. Every rule that finishes a control in
   # the search form finishes the custom filters too.
   test "activity's custom filters keep the search form's control finish" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     selectors =
       ~r/([^{}]+)\{/
@@ -512,7 +529,11 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     assert LazyHTML.attribute(wait, "data-state") == ["waiting"]
     assert LazyHTML.text(wait) =~ "Waiting for your answer"
 
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     assert css =~
              "@media (prefers-reduced-motion:no-preference) { .story-wait[data-state=working]::before { animation:story-wait-sweep 3s linear infinite; }"
@@ -581,7 +602,12 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   test "the packaged asset allowlist serves local modules but never arbitrary paths" do
     for file <-
           ~w(phoenix.mjs phoenix_live_view.esm.js control-plane.js copy-value.mjs reading-state.mjs composer.mjs conversation.mjs drafts.mjs elapsed-time.mjs filter-toolbar.mjs leave-guard.mjs control-plane.css workspace.css) do
-      conn = Assets.call(Plug.Test.conn(:get, "/#{file}"), [])
+      conn =
+        Assets.call(
+          Plug.Test.conn(:get, String.replace_prefix(Assets.path(file), "/assets", "")),
+          []
+        )
+
       assert conn.status == 200
       assert conn.halted
       assert conn.resp_body != ""

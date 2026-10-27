@@ -258,7 +258,12 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     assert LazyHTML.query(note, "a[href='/settings/prices']") |> LazyHTML.text() ==
              "Change these in Settings › Model prices"
 
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     [_, table] = Regex.run(~r/\.usage-page #cost-method > \.table-wrap \{([^}]+)\}/, css)
     assert table =~ "margin-top:12px"
     [_, rates] = Regex.run(~r/#cost-method > \.usage-rates-note \{([^}]+)\}/, css)
@@ -503,7 +508,13 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     # (Andrew, 2026-10-03: ""slack" should not be same as large and same style
     # as username link to episodes, style them properly, you can use an icon").
     assert document |> LazyHTML.query("#usage-users .usage-source svg") |> Enum.count() == 3
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     [_, link] = Regex.run(~r/td:first-child a\.usage-source \{([^}]+)\}/, css)
     assert link =~ "font-size:13px"
     assert link =~ "color:var(--ryker-text-secondary)"
@@ -568,7 +579,12 @@ defmodule Ryker.ControlPlane.UsagePageTest do
       assert document |> LazyHTML.query(".usage-donut svg text") |> Enum.empty?()
     end
 
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     assert css =~ ".donut-label"
     assert css =~ "overflow-wrap:anywhere"
   end
@@ -975,7 +991,11 @@ defmodule Ryker.ControlPlane.UsagePageTest do
     # QA, 2026-09-25, at 390px: the token chart and every breakdown table were
     # cut at the screen edge with nothing saying they scroll sideways. Each
     # scrolling part now shades the side that has more, and only that side.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     for part <- [".chart-scroll", ".table-wrap"] do
       rules =

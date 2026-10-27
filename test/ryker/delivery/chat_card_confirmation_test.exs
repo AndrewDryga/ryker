@@ -77,7 +77,11 @@ defmodule Ryker.Delivery.ChatCardConfirmationTest do
   # vertical rhythm, and it's small compared to rest of card". The confirmed line is one row at
   # the card's own size, its dot, word and link on one centre line.
   test "a confirmed card's footer is one row at the card's text size" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     assert [_, row] =
              Regex.run(~r/\.chat-message-extras \.lab-card \.lab-card-outcome \{([^}]+)\}/, css)

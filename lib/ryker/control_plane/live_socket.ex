@@ -8,22 +8,27 @@ defmodule Ryker.ControlPlane.LiveSocket do
   counts reconnects the same way: signed out, ended from Settings › Access, or an Access sign-in
   that ran out (2026-10-04 review). Refused here instead, such a page reconnected over and over
   and never left (2026-10-13).
+
+  The loaded asset bundle must match before any page can join: reconnect does
+  not replace the browser's styles or modules. A stale tab keeps its DOM and
+  unsent attachments until its reader explicitly reloads it.
   """
   use Phoenix.LiveView.Socket
   alias Phoenix.LiveView.Socket
-  alias Ryker.ControlPlane.{BrowserGuard, Endpoint}
+  alias Ryker.ControlPlane.{Assets, BrowserGuard, Endpoint}
 
   @impl true
   def id(socket), do: Socket.id(socket)
 
   @impl true
-  def connect(_params, socket, %{peer_data: %{address: address}, uri: %URI{host: host}}) do
+  def connect(params, socket, %{peer_data: %{address: address}, uri: %URI{host: host}}) do
     control_plane = Endpoint.config(:control_plane)
     access = Map.get(control_plane, :access, :loopback)
     published_host = Map.get(control_plane, :public_host)
 
     if BrowserGuard.peer_allowed?(address, access) and
-         BrowserGuard.local_host?(host, published_host),
+         BrowserGuard.local_host?(host, published_host) and
+         params["asset_bundle"] == Assets.path("control-plane.js"),
        do: {:ok, socket},
        else: :error
   end

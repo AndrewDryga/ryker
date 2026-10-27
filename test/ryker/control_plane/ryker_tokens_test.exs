@@ -420,9 +420,9 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
         |> LazyHTML.attribute("href")
 
       assert hrefs == [
-               "/assets/ryker-tokens.css",
-               "/assets/control-plane.css",
-               "/assets/workspace.css"
+               Assets.path("ryker-tokens.css"),
+               Assets.path("control-plane.css"),
+               Assets.path("workspace.css")
              ]
 
       assert hrefs == Layouts.stylesheets()
@@ -456,11 +456,32 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     |> Map.new(fn [_, name, value] -> {name, String.downcase(value)} end)
   end
 
-  defp tokens_css, do: Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
-  defp workspace_css, do: Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+  defp tokens_css do
+    Assets.call(
+      Plug.Test.conn(
+        :get,
+        String.replace_prefix(Assets.path("ryker-tokens.css"), "/assets", "")
+      ),
+      []
+    ).resp_body
+  end
 
-  defp control_plane_css,
-    do: Assets.call(Plug.Test.conn(:get, "/control-plane.css"), []).resp_body
+  defp workspace_css do
+    Assets.call(
+      Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+      []
+    ).resp_body
+  end
+
+  defp control_plane_css do
+    Assets.call(
+      Plug.Test.conn(
+        :get,
+        String.replace_prefix(Assets.path("control-plane.css"), "/assets", "")
+      ),
+      []
+    ).resp_body
+  end
 
   defp contrast(tokens, foreground, background) do
     [low, high] =

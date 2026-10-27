@@ -74,7 +74,12 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     Code.ensure_loaded!(Kit)
     refute function_exported?(Kit, :ask_hint, 1), "Kit.ask_hint/1 still exists"
 
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     refute css =~ ".ask-hint", "workspace.css still styles .ask-hint"
   end
 
@@ -172,7 +177,12 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
   # while Activity, the page a reader opens it from, stopped at 1280px. The
   # timeline takes Activity's gutter and its content width.
   test "a request's timeline reads at the width Activity reads at" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     activity = top_level(css, ".ryker-app .native-page > .activity-page")
     timeline = top_level(css, ".episode-workbench")
 

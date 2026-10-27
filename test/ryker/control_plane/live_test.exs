@@ -163,6 +163,27 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, @active_count, "7")
   end
 
+  test "a stale tab cannot receive new markup or discard its unsent files on reconnect" do
+    # LiveView reconnects without replacing root CSS/scripts. Refuse the
+    # stale transport before it can patch; automatic reload would discard
+    # attachments kept only in the DOM and could interrupt a pending send.
+    connection = %{
+      peer_data: %{address: {127, 0, 0, 1}},
+      uri: URI.parse("http://localhost:4321/live")
+    }
+
+    for params <- [%{}, %{"asset_bundle" => "/assets/old/control-plane.js"}] do
+      assert LiveSocket.connect(params, %Phoenix.Socket{}, connection) == :error
+    end
+
+    assert {:ok, _} =
+             LiveSocket.connect(
+               %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+               %Phoenix.Socket{},
+               connection
+             )
+  end
+
   test "rules and saved entries are live navigable and keep their filters after a reload" do
     for {path, selected} <- [
           {"/rules?q=emisar&view=past", ["Past"]},
@@ -2193,20 +2214,38 @@ defmodule Ryker.ControlPlane.LiveTest do
       session: %{"console_session" => session_token()}
     }
 
-    assert {:ok, connected} = LiveSocket.connect(%{}, socket, local)
+    assert {:ok, connected} =
+             LiveSocket.connect(
+               %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+               socket,
+               local
+             )
+
     assert connected.private.connect_info == local
 
-    assert LiveSocket.connect(%{}, socket, %{
-             local
-             | peer_data: %{address: {203, 0, 113, 5}}
-           }) == :error
+    assert LiveSocket.connect(
+             %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+             socket,
+             %{
+               local
+               | peer_data: %{address: {203, 0, 113, 5}}
+             }
+           ) == :error
 
-    assert LiveSocket.connect(%{}, socket, %{
-             local
-             | uri: URI.parse("http://attacker.example/live")
-           }) == :error
+    assert LiveSocket.connect(
+             %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+             socket,
+             %{
+               local
+               | uri: URI.parse("http://attacker.example/live")
+             }
+           ) == :error
 
-    assert LiveSocket.connect(%{}, socket, %{}) == :error
+    assert LiveSocket.connect(
+             %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+             socket,
+             %{}
+           ) == :error
   end
 
   # A console published at a tailnet name (mac-server, 2026-10-01) must go live there too: the
@@ -2220,12 +2259,21 @@ defmodule Ryker.ControlPlane.LiveTest do
       session: %{"console_session" => session_token()}
     }
 
-    assert {:ok, _connected} = LiveSocket.connect(%{}, socket, tailnet)
+    assert {:ok, _connected} =
+             LiveSocket.connect(
+               %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+               socket,
+               tailnet
+             )
 
-    assert LiveSocket.connect(%{}, socket, %{
-             tailnet
-             | uri: URI.parse("https://evil.example/live")
-           }) == :error
+    assert LiveSocket.connect(
+             %{"asset_bundle" => Ryker.ControlPlane.Assets.path("control-plane.js")},
+             socket,
+             %{
+               tailnet
+               | uri: URI.parse("https://evil.example/live")
+             }
+           ) == :error
   end
 
   test "an input keeps one canonical timeline while routing adds evidence and becomes work" do

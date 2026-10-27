@@ -1,14 +1,14 @@
 defmodule Ryker.ControlPlane.Layouts do
   @moduledoc false
   use Phoenix.Component
-  alias Ryker.ControlPlane.{Components, Navigation}
+  alias Ryker.ControlPlane.{Assets, Components, Navigation}
 
   # The stylesheets both shells load, in cascade order: the tokens declare
   # the roles, control-plane.css the base rules and application chrome, and
   # workspace.css the operator workspace on top of them.
-  @stylesheets ~w(/assets/ryker-tokens.css /assets/control-plane.css /assets/workspace.css)
+  @stylesheets ~w(ryker-tokens.css control-plane.css workspace.css)
 
-  def stylesheets, do: @stylesheets
+  def stylesheets, do: Enum.map(@stylesheets, &Assets.path/1)
 
   # The shell for a confirmed action, a record view or an HTTP error: the same
   # sidebar and stylesheets as the live shell, without a socket.
@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.Layouts do
       |> assign_new(:back, fn -> nil end)
       |> assign_new(:status, fn -> nil end)
       |> assign_new(:title_href, fn -> nil end)
-      |> assign(:stylesheets, @stylesheets)
+      |> assign(:stylesheets, stylesheets())
 
     ~H"""
     <!DOCTYPE html>
@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.Layouts do
   # since nothing it leads to opens yet. `@body` is markup `SignIn` made, escaping every value.
   # sobelow_skip ["XSS.Raw"]
   def sign_in(assigns) do
-    assigns = assign(assigns, :stylesheets, @stylesheets)
+    assigns = assign(assigns, :stylesheets, stylesheets())
 
     ~H"""
     <!DOCTYPE html>
@@ -91,7 +91,7 @@ defmodule Ryker.ControlPlane.Layouts do
   # before the body is parsed: it shows or hides the page's help as this
   # browser chose before anything paints. The module runs after parsing.
   def root(assigns) do
-    assigns = assign(assigns, :stylesheets, @stylesheets)
+    assigns = assign(assigns, :stylesheets, stylesheets())
 
     ~H"""
     <!DOCTYPE html>
@@ -103,9 +103,9 @@ defmodule Ryker.ControlPlane.Layouts do
         <title>{@page_title || "Ryker"} · Ryker</title>
         <link :for={href <- @stylesheets} rel="stylesheet" href={href} />
         <link rel="icon" type="image/svg+xml" href="/assets/brand/avatar.svg" />
-        <script src="/assets/page-help-early.js">
+        <script src={Assets.path("page-help-early.js")}>
         </script>
-        <script type="module" src="/assets/control-plane.js">
+        <script type="module" src={Assets.path("control-plane.js")}>
         </script>
       </head>
       <body class="control-room">{@inner_content}</body>

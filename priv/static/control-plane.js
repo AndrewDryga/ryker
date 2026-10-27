@@ -1,21 +1,21 @@
-import {Socket} from "/assets/phoenix.mjs"
-import {LiveSocket} from "/assets/phoenix_live_view.esm.js"
-import {createReadingStateHook} from "/assets/reading-state.mjs"
-import {createInstructionDraft} from "/assets/instruction-draft.mjs"
-import {createSettingsGuard} from "/assets/settings-draft.mjs"
-import {applyFilterChange} from "/assets/filter-toolbar.mjs"
-import {ConversationHistory} from "/assets/history.mjs"
-import {FilterMenu} from "/assets/filter-menu.mjs"
-import {ScheduleCountdown} from "/assets/schedule-countdown.mjs"
-import {ElapsedTime} from "/assets/elapsed-time.mjs"
-import {RepositoryPicker} from "/assets/repository-picker.mjs"
-import {copyValueFromEvent} from "/assets/copy-value.mjs"
-import {markOutboundFromEvent} from "/assets/outbound-links.mjs"
-import {setupTooltips} from "/assets/tooltips.mjs"
-import {setupPromptParts} from "/assets/prompt-parts.mjs"
-import {composerDraft} from "/assets/conversation.mjs"
-import {createToggleHook, setupPageHelp, wideQuery} from "/assets/page-help.mjs"
-import {createPendingForms} from "/assets/pending.mjs"
+import {Socket} from "./phoenix.mjs"
+import {LiveSocket} from "./phoenix_live_view.esm.js"
+import {createReadingStateHook} from "./reading-state.mjs"
+import {createInstructionDraft} from "./instruction-draft.mjs"
+import {createSettingsGuard} from "./settings-draft.mjs"
+import {applyFilterChange} from "./filter-toolbar.mjs"
+import {ConversationHistory} from "./history.mjs"
+import {FilterMenu} from "./filter-menu.mjs"
+import {ScheduleCountdown} from "./schedule-countdown.mjs"
+import {ElapsedTime} from "./elapsed-time.mjs"
+import {RepositoryPicker} from "./repository-picker.mjs"
+import {copyValueFromEvent} from "./copy-value.mjs"
+import {markOutboundFromEvent} from "./outbound-links.mjs"
+import {setupTooltips} from "./tooltips.mjs"
+import {setupPromptParts} from "./prompt-parts.mjs"
+import {composerDraft} from "./conversation.mjs"
+import {createToggleHook, setupPageHelp, wideQuery} from "./page-help.mjs"
+import {createPendingForms} from "./pending.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
 // drafts and unsaved edits across patches. Each hook's behaviour lives in its
@@ -61,7 +61,7 @@ const PrivateKeyFile = {
 
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
-  params: () => ({_csrf_token: csrfToken, draft: composerDraft(document)}),
+  params: () => ({_csrf_token: csrfToken, asset_bundle: new URL(import.meta.url).pathname, draft: composerDraft(document)}),
   hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime, ScheduleCountdown}
 })
 liveSocket.connect()

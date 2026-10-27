@@ -64,16 +64,49 @@ defmodule Ryker.ControlPlane.Assets do
 
   def init(options), do: options
 
+  def path(asset) when is_map_key(@assets, asset),
+    do: "/assets/#{bundle_digest()}/#{asset}"
+
   def call(%{method: "GET", path_info: [_ | _] = segments} = conn, _options) do
     asset = Enum.join(segments, "/")
 
-    case @assets[asset] || @brand_assets[asset] do
+    case @brand_assets[asset] || versioned_asset(segments) do
       {app, path, type} -> serve(conn, asset, Application.app_dir(app, path), type)
       nil -> conn |> send_resp(404, "Not found") |> halt()
     end
   end
 
   def call(conn, _options), do: conn |> send_resp(404, "Not found") |> halt()
+
+  defp versioned_asset([digest | segments]) do
+    if digest == bundle_digest(), do: @assets[Enum.join(segments, "/")]
+  end
+
+  # A CDN imposed four hours of caching despite no-cache, mixing new HTML
+  # with old CSS and hooks after deployment. One content-addressed directory
+  # covers every script, including relative imports of imported modules.
+  defp bundle_digest do
+    key = {__MODULE__, :bundle_digest}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        digest =
+          @assets
+          |> Enum.sort()
+          |> Enum.map(fn {asset, {app, file, type}} ->
+            {asset, prepared(Application.app_dir(app, file), type).etag}
+          end)
+          |> :erlang.term_to_binary()
+          |> Crypto.sha256_hex()
+          |> binary_part(0, 32)
+
+        :persistent_term.put(key, digest)
+        digest
+
+      digest ->
+        digest
+    end
+  end
 
   # Every page load downloaded the scripts and stylesheets again, about 650 KB
   # uncompressed, under the no-store every response leaves BrowserGuard with

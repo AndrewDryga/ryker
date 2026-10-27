@@ -180,12 +180,21 @@ defmodule Ryker.ControlPlane.PageHelpTest do
       |> LazyHTML.from_document()
 
     [early] =
-      LazyHTML.query(document, "head script[src='/assets/page-help-early.js']") |> Enum.to_list()
+      LazyHTML.query(document, "head script[src='#{Assets.path("page-help-early.js")}']")
+      |> Enum.to_list()
 
     for attribute <- ["type", "defer", "async"],
         do: assert(LazyHTML.attribute(early, attribute) == [], "the early script is #{attribute}")
 
-    conn = Assets.call(Plug.Test.conn(:get, "/page-help-early.js"), [])
+    conn =
+      Assets.call(
+        Plug.Test.conn(
+          :get,
+          String.replace_prefix(Assets.path("page-help-early.js"), "/assets", "")
+        ),
+        []
+      )
+
     assert conn.status == 200
     assert conn.resp_body =~ "data-page-help"
   end

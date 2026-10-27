@@ -110,7 +110,13 @@ defmodule Ryker.ControlPlane.BrandAssetsTest do
         render_component(&Layouts.static/1, title: "Retry delivery", body: ""),
         render_component(&Navigation.sidebar/1, path: "/", live: true),
         render_component(&Navigation.mobile/1, path: "/", live: true),
-        Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
+        Assets.call(
+          Plug.Test.conn(
+            :get,
+            String.replace_prefix(Assets.path("ryker-tokens.css"), "/assets", "")
+          ),
+          []
+        ).resp_body
       ]
       |> Enum.join("\n")
 

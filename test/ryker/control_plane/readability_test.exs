@@ -4,7 +4,9 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
   # The rules below read the one stylesheet the console serves.
   setup_all do
-    conn = Plug.Test.conn(:get, "/workspace.css")
+    conn =
+      Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", ""))
+
     %{css: Assets.call(conn, []).resp_body}
   end
 
@@ -205,7 +207,14 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     # The surfaces are Ryker roles now (priv/static/ryker-tokens.css); resolve
     # the secondary text and both light surfaces through the same file.
-    ryker = Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
+    ryker =
+      Assets.call(
+        Plug.Test.conn(
+          :get,
+          String.replace_prefix(Assets.path("ryker-tokens.css"), "/assets", "")
+        ),
+        []
+      ).resp_body
 
     resolve = fn "var(--" <> name ->
       [_, value] =
@@ -627,7 +636,14 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
   test "settings feedback colours stay legible on the dark section panel", %{css: css} do
     # A refusal an operator cannot read is a refusal they will retry blindly.
-    tokens = Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
+    tokens =
+      Assets.call(
+        Plug.Test.conn(
+          :get,
+          String.replace_prefix(Assets.path("ryker-tokens.css"), "/assets", "")
+        ),
+        []
+      ).resp_body
 
     assert css =~ ".form-feedback-error"
     assert css =~ "color:var(--ryker-error)"

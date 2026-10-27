@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.Components do
   import Phoenix.HTML.Form, only: [options_for_select: 2]
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
+  alias Ryker.ControlPlane.Assets
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
@@ -94,7 +95,7 @@ defmodule Ryker.ControlPlane.Components do
       <img
         :if={@service in [:slack, :github]}
         class="service-mark"
-        src={"/assets/platforms/#{@service}.svg"}
+        src={Assets.path("platforms/#{@service}.svg")}
         alt=""
         aria-hidden="true"
         width="24"

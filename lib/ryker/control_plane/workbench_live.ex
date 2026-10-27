@@ -2736,7 +2736,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           <Navigation.mobile path={@path} live={true} setup={@setup_progress} viewer={@viewer} />
         </div>
         <div class="connection-offline app-warning" role="status">
-          Reconnecting… Your view will update automatically.
+          Connection lost, or a new version is ready. Reconnecting…
+          <a href={@location}>Reload page</a>
+          when ready; unsent attachments will need to be selected again.
         </div>
         <div :if={@unavailable} class="app-warning" role="status">
           This view could not refresh. Showing the last observed state; execution continues independently.

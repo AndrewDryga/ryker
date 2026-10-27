@@ -44,7 +44,6 @@ defmodule Ryker.PublicFunctionsTest do
       "an operator asks which settings revision runs from a release shell",
     # A list a module keeps in an attribute, read by a test that walks it so
     # an entry added later is covered without editing the test.
-    "Ryker.ControlPlane.Layouts.stylesheets" => "each stylesheet a page links exists",
     "Ryker.ControlPlane.PageHelp.routes" => "every page has help, and help only pages that exist",
     "Ryker.ControlPlane.WorkbenchLive.page_events" =>
       "every announcement a context makes redraws a page",

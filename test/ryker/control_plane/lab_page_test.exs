@@ -75,7 +75,12 @@ defmodule Ryker.ControlPlane.LabPageTest do
 
     # Steady 12px rows with hairlines between them; day headings in the Kit's
     # sentence-case type, never uppercase.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
+
     [_, row] = Regex.run(~r/\n\.lab-directory-item \{([^}]+)\}/, css)
     assert row =~ "padding:12px 16px"
 
@@ -92,7 +97,11 @@ defmodule Ryker.ControlPlane.LabPageTest do
   # page 554 px wide on a 390 px phone, sliding the header and the composer
   # sideways. A code block keeps its lines and scrolls inside itself.
   test "a code block scrolls inside the message instead of widening the page" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     [_, block] = Regex.run(~r/\n\.md-code \{([^}]+)\}/, css)
     assert block =~ "max-width:100%"
@@ -105,7 +114,11 @@ defmodule Ryker.ControlPlane.LabPageTest do
     # showed the browser's triangle before its own chevron ("▶ More ›"), and
     # on a phone the example prompts were plain lines with nothing to say
     # they could be tapped.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    css =
+      Assets.call(
+        Plug.Test.conn(:get, String.replace_prefix(Assets.path("workspace.css"), "/assets", "")),
+        []
+      ).resp_body
 
     [_, file] = Regex.run(~r/\n\.lab-native-composer input\[type=file\] \{([^}]+)\}/, css)
     assert file =~ "position:absolute"

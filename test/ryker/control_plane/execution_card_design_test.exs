@@ -116,7 +116,15 @@ defmodule Ryker.ControlPlane.ExecutionCardDesignTest do
     end
 
     for service <- ["slack", "github"] do
-      conn = Assets.call(Plug.Test.conn(:get, "/platforms/#{service}.svg"), [])
+      conn =
+        Assets.call(
+          Plug.Test.conn(
+            :get,
+            String.replace_prefix(Assets.path("platforms/#{service}.svg"), "/assets", "")
+          ),
+          []
+        )
+
       assert conn.status == 200
       assert conn.resp_body == File.read!("site/assets/platforms/#{service}.svg")
     end
