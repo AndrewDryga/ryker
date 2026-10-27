@@ -1076,7 +1076,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
            )
   end
 
-  test "missing validation does not claim a candidate passed checks" do
+  test "a retained candidate without validation cannot invent a validation event or claim checks passed" do
     turn = measured_turn!("unvalidated", "codex:gpt-5.6-terra/medium", DateTime.utc_now())
 
     Repo.update_all(from(saved in Ryker.Work.Turn, where: saved.id == ^turn.id),
@@ -1094,8 +1094,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     )
 
     assert {:ok, detail} = EpisodeProjection.fetch(episode_key!(turn.episode_id))
-    assert candidate = Enum.find(detail.trace.steps, &(&1.title == "Response recorded"))
-    assert candidate.tone == nil
+    # Keep the candidate for inspection, but a mutable attempt counter does
+    # not locate a validation event in history. The old undated placeholder
+    # appeared after cleanup and looked like a new response.
+    assert is_binary(Repo.get!(Ryker.Work.Turn, turn.id).candidate)
+    refute Enum.any?(detail.trace.steps, &(&1.title == "Response recorded"))
     refute Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
   end
 

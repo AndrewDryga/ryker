@@ -97,8 +97,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     Enum.map(history, &validation_history_step(turn, &1))
   end
 
-  defp validation_steps(%Work.Turn{validation_intent: nil, candidate_attempt: nil}), do: []
-  defp validation_steps(turn), do: [validation_step(turn)]
+  defp validation_steps(%Work.Turn{validation_intent: %{"verdict" => verdict}} = turn)
+       when verdict in ["accept", "reject"],
+       do: [validation_step(turn)]
+
+  # The attempt counter is mutable bookkeeping, not a recorded response or
+  # validation event. Only retained history or an actual verdict earns a card.
+  defp validation_steps(_turn), do: []
 
   defp validation_band(nil, _at), do: :work
   defp validation_band(_finished_at, nil), do: :answer

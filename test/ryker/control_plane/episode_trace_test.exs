@@ -23,6 +23,40 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
   @received ~U[2026-09-04 22:51:44.000000Z]
 
+  test "an attempt counter without a validation receipt cannot invent an undated response event" do
+    # A retained production turn had attempt 1 but no verdict/history. Two
+    # invented 'Response recorded' cards appeared after all dated cleanup,
+    # falsely implying that another answer had arrived at the end.
+    turn = %Turn{
+      id: Ecto.UUID.generate(),
+      inserted_at: @received,
+      candidate_attempt: 1,
+      validation_intent: nil,
+      validation_history: []
+    }
+
+    for intent <- [nil, %{}] do
+      steps = EpisodeTrace.Work.turn_steps([%{turn | validation_intent: intent}], [])
+      refute Enum.any?(steps, &String.contains?(&1.id, "-validation-"))
+    end
+
+    # A real historical verdict remains visible even when its time was not
+    # retained. Never make it disappear or manufacture a timestamp for it.
+    steps =
+      EpisodeTrace.Work.turn_steps(
+        [
+          %{
+            turn
+            | validation_intent: %{"verdict" => "reject", "violations" => ["Missing evidence"]}
+          }
+        ],
+        []
+      )
+
+    assert [%{at: nil, title: "Sent back to fix"}] =
+             Enum.filter(steps, &String.contains?(&1.id, "-validation-"))
+  end
+
   test "a prepared wait shows its actual verification and source filter before technical details" do
     # Harvested event-only wait shape: the old card hid the exact lifecycle
     # condition and showed only generic boilerplate and an opaque trigger enum.
