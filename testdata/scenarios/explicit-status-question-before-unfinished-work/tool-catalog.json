@@ -1,5 +1,4 @@
 {
-  "version": 1,
   "servers": [
     {
       "name": "controller-tools",
@@ -32,6 +31,18 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "observed_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When the source measured this observation, as an ISO 8601 UTC timestamp. Omit or use null when the source does not provide a measurement time. Never substitute the current time, recording time, or a time guessed from prose."
+              },
               "relation": {
                 "enum": [
                   "supports",
@@ -47,6 +58,7 @@
                 "type": "string"
               },
               "subject": {
+                "description": "A short, specific title for this observation, usually 2–6 words: Application readiness, Database backups, or VM CPU. Distinguish what each observation measures; do not repeat a broad episode title. Keep dates, times, URLs, and run identifiers out of the title.",
                 "maxLength": 120,
                 "minLength": 1,
                 "type": "string"
@@ -1928,26 +1940,25 @@
       "name": "fabricated-world",
       "tools": [
         {
-          "name": "backup.status",
           "description": "Read the captured Cassandra backup status for cassandra-dbzrk101. Read-only historical replay evidence; no service or repository changes.",
           "inputSchema": {
-            "type": "object",
             "additionalProperties": false,
             "properties": {
               "host": {
-                "type": "string",
                 "enum": [
                   "cassandra-dbzrk101"
-                ]
+                ],
+                "type": "string"
               }
             },
             "required": [
               "host"
-            ]
-          }
+            ],
+            "type": "object"
+          },
+          "name": "backup.status"
         },
         {
-          "name": "post_slack_update",
           "description": "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most 3 per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
           "inputSchema": {
             "additionalProperties": false,
@@ -1963,9 +1974,11 @@
               "message"
             ],
             "type": "object"
-          }
+          },
+          "name": "post_slack_update"
         }
       ]
     }
-  ]
+  ],
+  "version": 1
 }

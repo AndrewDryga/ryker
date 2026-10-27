@@ -49,6 +49,40 @@ defmodule Ryker.StateTools.EvidenceToolsTest do
     end
   end
 
+  test "a citation preserves its source measurement time separately from its title and recording time" do
+    # The tool always replaced the measurement with nil, even when the source
+    # supplied one, leaving every displayed measurement unavailable.
+    options = bound_options!()
+    arguments = Map.put(citation(hd(@sources)), "observed_at", "2026-10-27T15:00:00Z")
+
+    assert {:ok, %{"record_ref" => ref}} = Tools.call("cite_source", arguments, options)
+    record = Repo.get_by!(Record, ref: ref)
+    assert record.payload["observed_at"] == "2026-10-27T15:00:00Z"
+    assert record.payload["target"] == arguments["subject"]
+    refute DateTime.to_iso8601(record.inserted_at) == record.payload["observed_at"]
+  end
+
+  test "an unavailable measurement is never inferred from a citation title" do
+    options = bound_options!()
+
+    arguments =
+      citation(hd(@sources))
+      |> Map.put("subject", "Infrastructure health October 27 around 15:00 UTC")
+      |> Map.put("observed_at", nil)
+
+    assert {:ok, %{"record_ref" => ref}} = Tools.call("cite_source", arguments, options)
+    assert Repo.get_by!(Record, ref: ref).payload["observed_at"] == nil
+  end
+
+  test "an invalid measurement time refuses the citation without recording it" do
+    options = bound_options!()
+    arguments = Map.put(citation(hd(@sources)), "observed_at", "2026-02-30T15:00:00Z")
+    count = Repo.aggregate(Record, :count, :id)
+    assert {:error, reason} = Tools.call("cite_source", arguments, options)
+    assert reason =~ "observed_at"
+    assert Repo.aggregate(Record, :count, :id) == count
+  end
+
   defp citation(source) do
     %{
       "subject" => "Live Emisar monitoring coverage",

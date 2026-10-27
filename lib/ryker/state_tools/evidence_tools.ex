@@ -14,7 +14,7 @@ defmodule Ryker.StateTools.EvidenceTools do
       "freshness" => nil,
       "health_effect" => nil,
       "observation" => arguments["observation"],
-      "observed_at" => nil,
+      "observed_at" => arguments["observed_at"],
       "relation" => relation,
       "scope_note" => nil,
       "source_id" => arguments["source_ref"],

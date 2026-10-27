@@ -93,9 +93,18 @@ defmodule Ryker.StateTools.Catalog do
       "Preserve one source-backed observation for this episode.",
       %{
         "observation" => text(4_000),
+        "observed_at" =>
+          describe(
+            JSONSchema.nullable(timestamp()),
+            "When the source measured this observation, as an ISO 8601 UTC timestamp. Omit or use null when the source does not provide a measurement time. Never substitute the current time, recording time, or a time guessed from prose."
+          ),
         "relation" => enum(~w(supports contradicts context)),
         "source_ref" => source(500),
-        "subject" => text(120),
+        "subject" =>
+          describe(
+            text(120),
+            "A short, specific title for this observation, usually 2–6 words: Application readiness, Database backups, or VM CPU. Distinguish what each observation measures; do not repeat a broad episode title. Keep dates, times, URLs, and run identifiers out of the title."
+          ),
         "supersedes" => array(reference(256), 0, 10)
       },
       ~w(observation relation source_ref subject supersedes)
