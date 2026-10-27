@@ -13,7 +13,7 @@ defmodule Ryker.Work.Dispatcher do
   alias Ryker.CoopFleet
   alias Ryker.ErrorDetail
   alias Ryker.Reference
-  alias Ryker.Work.{Custody, Executor}
+  alias Ryker.Work.{CompletionReview, Custody, Executor}
   alias Ryker.Work.Custody.Turns
   require Logger
 
@@ -127,6 +127,18 @@ defmodule Ryker.Work.Dispatcher do
 
   defp execution_failure(claim, :work_wait_state_changed = reason, settings),
     do: rerun_stale_context(claim, reason, settings)
+
+  defp execution_failure(
+         %{turn: %{status: :pending}} = claim,
+         {:work_turn_terminal, "failed", "output_contract_failed", _detail} = reason,
+         settings
+       ) do
+    case CompletionReview.continue_failed(claim) do
+      {:ok, :continued} -> {:ok, {:deferred, {:work_rerun_pending, reason}}}
+      {:ok, :not_applicable} -> stop_or_defer(claim, reason, settings)
+      {:error, failure} -> custody_failed(reason, failure)
+    end
+  end
 
   # A worker restart cancels the agent under a running turn, and Coop fails the turn as
   # acp_cancelled. Such a turn stopped for a person at once, though a new run answered it

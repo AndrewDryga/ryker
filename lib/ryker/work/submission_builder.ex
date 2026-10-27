@@ -23,7 +23,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.StateTools
-  alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
+  alias Ryker.Work.{CompletionReview, Contract, PlatformTools, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
   @retained_cases 3
@@ -49,7 +49,7 @@ defmodule Ryker.Work.SubmissionBuilder do
           episode: %Episodes.Episode{} = episode,
           session: %Session{} = session,
           turn: %Turn{} = turn
-        },
+        } = claim,
         options
       )
       when is_list(options) do
@@ -62,6 +62,8 @@ defmodule Ryker.Work.SubmissionBuilder do
          records <- Records.model_records(episode, session),
          {:ok, metadata} <-
            context_metadata(episode, session, snapshot.active, contract.mode, options),
+         {:ok, feedback} <- CompletionReview.continuation_context(claim),
+         metadata <- Ryker.Maps.put_present(metadata, "completion_review_feedback", feedback),
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
          {:ok, submission} <-

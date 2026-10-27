@@ -10,8 +10,9 @@ defmodule Ryker.Work.CompletionReviewTest do
   alias Ryker.Inspectors
   alias Ryker.Repo
   alias Ryker.TestSupport.FakeWorkCoopAPI
-  alias Ryker.Work.{CompletionReview, Custody, Final, Session, Turn, ValidationContext}
+  alias Ryker.Work.{Cancellation, CompletionReview}
   alias Ryker.Work.CompletionReview.{FleetSession, Prompt, Run}
+  alias Ryker.Work.{Custody, Dispatcher, Final, Session, Turn, ValidationContext}
   alias Ryker.Work.Executor.Validation
 
   defmodule PendingAPI do
@@ -29,6 +30,14 @@ defmodule Ryker.Work.CompletionReviewTest do
 
     def create_session(_client, _key, _policy, _external_ref, _source),
       do: {:error, :coop_worker_capacity_unavailable}
+  end
+
+  defmodule FailedExecutor do
+    def run(_claim, _options) do
+      {:error,
+       {:work_turn_terminal, "failed", "output_contract_failed",
+        "caller rejected semantic output after 3 attempts"}}
+    end
   end
 
   # Boundary doubles exercise host decisions; they are not harvested model judgments.
@@ -371,6 +380,243 @@ defmodule Ryker.Work.CompletionReviewTest do
     assert html =~ "Read the deployed version"
     refute html =~ "Passed first time"
     assert Repo.get!(Turn, claim.turn.id).validation_intent == nil
+  end
+
+  # A live backup recovery consumed two corrections before review requested
+  # independent work on candidate three. Coop stopped without ever sending that
+  # instruction to its model. A continuation must carry the exact feedback,
+  # preserve the rejected turn, and still require a new accepted answer.
+  test "a final correction from completion review continues with its exact feedback",
+       %{} = context do
+    %{claim: stale_claim} = context
+    {claim, judgment} = rejected_last_candidate!(context)
+    reason = terminal_reason()
+
+    assert Dispatcher.run_claim(stale_claim,
+             executor: FailedExecutor,
+             worker_ref: "review-repair"
+           ) ==
+             {:ok, {:deferred, {:work_rerun_pending, reason}}}
+
+    stopped = Repo.get!(Turn, claim.turn.id)
+    assert stopped.cancellation_intent["action"] == "transfer"
+
+    assert stopped.cancellation_intent["transfer_ref"] ==
+             "transfer:completion-review:#{stopped.id}"
+
+    assert stopped.candidate == claim.turn.candidate
+    assert stopped.validation_history == claim.turn.validation_history
+    assert stopped.accepted_at == nil
+    assert stopped.delivery_document == nil
+
+    assert {:ok, stop} = Custody.claim_next("review-repair-stop", 300, :work)
+
+    {:ok, receipt} =
+      Cancellation.terminal_receipt(
+        claim.session.coop_session_id,
+        claim.turn.coop_turn_id,
+        "failed",
+        nil,
+        "open",
+        nil
+      )
+
+    assert {:ok, settled} =
+             Custody.settle_cancellation(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               stop.lease_ref,
+               receipt
+             )
+
+    assert {:ok, next} = Custody.claim_next("review-repair-next", 300, :work)
+    assert next.turn.turn_ref == settled.episode.owner_ref
+    assert next.session.id == claim.session.id
+    assert next.turn.candidate == nil
+    assert {:ok, submission} = Inspectors.submission(next)
+    assert submission["context"]["completion_review_feedback"]["judgment"] == judgment
+    assert submission["context"]["repository_ref"] == claim.session.repository_ref
+
+    # The feedback is part of this native transcript only. A different worker
+    # session must not gain the old review through this convenience projection.
+    assert {:ok, other} =
+             Inspectors.submission(%{next | session: %{next.session | id: Ecto.UUID.generate()}})
+
+    refute Map.has_key?(other["context"], "completion_review_feedback")
+  end
+
+  for variant <- [:missing_review, :different_candidate, :different_rejection, :spent] do
+    test "completion continuation refuses #{variant}", %{} = context do
+      {claim, _judgment} = rejected_last_candidate!(context)
+
+      case unquote(variant) do
+        :missing_review ->
+          Repo.delete_all(Run)
+
+        :different_candidate ->
+          Repo.update_all(Run, set: [candidate_sha256: String.duplicate("f", 64)])
+
+        :different_rejection ->
+          {:ok, _turn} =
+            Custody.stage_candidate(
+              claim.episode.id,
+              claim.turn.turn_ref,
+              claim.lease_ref,
+              claim.turn.candidate_sha256,
+              3,
+              claim.turn.candidate,
+              claim.turn.candidate_sha256,
+              4
+            )
+
+          {:ok, _turn} =
+            Custody.prepare_validation(
+              claim.episode.id,
+              claim.turn.turn_ref,
+              claim.lease_ref,
+              claim.turn.candidate_sha256,
+              4,
+              {:reject, ["Fix the output shape."]},
+              nil
+            )
+
+        :spent ->
+          ref = "turn:rerun:2:#{Ecto.UUID.generate()}"
+          Repo.update_all(from(t in Turn, where: t.id == ^claim.turn.id), set: [turn_ref: ref])
+
+          Repo.update_all(from(e in Episodes.Episode, where: e.id == ^claim.episode.id),
+            set: [owner_ref: ref]
+          )
+      end
+
+      claim = %{
+        claim
+        | turn: Repo.get!(Turn, claim.turn.id),
+          episode: Repo.get!(Episodes.Episode, claim.episode.id)
+      }
+
+      assert Dispatcher.run_claim(claim, executor: FailedExecutor, worker_ref: "review-refused") ==
+               {:ok, {:deferred, {:work_stop_pending, terminal_reason()}}}
+
+      assert Repo.get!(Turn, claim.turn.id).cancellation_intent["action"] == "block"
+    end
+  end
+
+  test "a reviewed correction cannot restart work after a person stops it", %{} = context do
+    {claim, _judgment} = rejected_last_candidate!(context)
+
+    assert {:ok, _request} =
+             Custody.request_stop(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               "stop:review-continuation",
+               "Stop this work."
+             )
+
+    assert Dispatcher.run_claim(claim, executor: FailedExecutor, worker_ref: "review-stop") ==
+             {:ok, {:lease_lost, terminal_reason()}}
+
+    assert Repo.get!(Turn, claim.turn.id).cancellation_intent["cancel_ref"] ==
+             "stop:review-continuation"
+  end
+
+  # The automatic transfer used to take precedence over a later human Stop,
+  # returning success while still starting another turn behind the person's back.
+  for action <- [:stop, :cancel] do
+    test "a person can #{action} a completion continuation already queued", %{} = context do
+      {claim, _judgment} = rejected_last_candidate!(context)
+      assert CompletionReview.continue_failed(claim) == {:ok, :continued}
+
+      request_action =
+        if unquote(action) == :stop, do: &Custody.request_stop/5, else: &Custody.request_cancel/5
+
+      assert {:ok, request} =
+               request_action.(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 "stop:queued-review-continuation",
+                 "Stop this work."
+               )
+
+      assert request.turn.cancellation_intent["action"] ==
+               if(unquote(action) == :stop, do: "block", else: "cancel")
+
+      assert {:ok, stop} = Custody.claim_next("stop-queued-review", 300, :work)
+
+      {:ok, receipt} =
+        Cancellation.terminal_receipt(
+          claim.session.coop_session_id,
+          claim.turn.coop_turn_id,
+          "failed",
+          nil,
+          "closed",
+          nil
+        )
+
+      assert {:ok, settled} =
+               Custody.settle_cancellation(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 stop.lease_ref,
+                 receipt
+               )
+
+      assert settled.turn.status == if(unquote(action) == :stop, do: :blocked, else: :superseded)
+
+      assert settled.turn.last_error_code ==
+               if(unquote(action) == :stop, do: "operator_stop", else: "operator_cancelled")
+
+      assert Repo.aggregate(Turn.Query.by_episode_id(claim.episode.id), :count) == 1
+    end
+  end
+
+  defp rejected_last_candidate!(%{
+         claim: claim,
+         candidate: candidate,
+         sha256: sha,
+         settings: settings
+       }) do
+    review = File.read!("testdata/work/completion-review-last-correction.json")
+    judgment = Jason.decode!(review)
+    {:ok, api} = FakeWorkCoopAPI.start_link([review], review_only: true)
+    settings = Map.merge(settings, %{api: FakeWorkCoopAPI, client: api})
+
+    {:ok, turn} =
+      Custody.stage_candidate(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        sha,
+        1,
+        candidate,
+        sha,
+        3
+      )
+
+    claim = %{claim | turn: turn}
+    assert {:reject, violations} = CompletionReview.review(claim, final(candidate), settings)
+
+    {:ok, turn} =
+      Custody.prepare_validation(
+        claim.episode.id,
+        turn.turn_ref,
+        claim.lease_ref,
+        sha,
+        3,
+        {:reject, violations},
+        nil
+      )
+
+    {%{claim | turn: turn}, judgment}
+  end
+
+  defp terminal_reason do
+    {:work_turn_terminal, "failed", "output_contract_failed",
+     "caller rejected semantic output after 3 attempts"}
   end
 
   test("a review cannot authorize a different candidate", %{

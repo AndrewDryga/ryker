@@ -1,0 +1,39 @@
+{
+  "decision": "continue",
+  "reason": "The progress update is supported, and backup completion legitimately awaits a future event. However, the authorized repository safeguards and their verification are independent of that backup and remain unsupported in the included evidence. Recover their retained status and advance any unfinished work before yielding solely to the backup watch.",
+  "requirements": [
+    {
+      "requirement": "Report the current backup's observed progress accurately.",
+      "status": "satisfied",
+      "evidence": "The 02:24 UTC service receipt shows the replacement invocation still running after ten hours, with application table progress last logged at 00:15 UTC. The candidate correctly avoids claiming completion or integrity."
+    },
+    {
+      "requirement": "Protect existing complete backups and safely clear the original stalled process and maintenance lock.",
+      "status": "unresolved",
+      "evidence": "A replacement service invocation establishes that the original invocation was replaced. Included evidence does not establish retention protection or verification that all original child processes exited and released the lock; retained history is truncated."
+    },
+    {
+      "requirement": "Complete a shared three-node recovery backup, verify stored manifests/checksums, and resume schedules and retention only after verification.",
+      "status": "unresolved",
+      "evidence": "db-node-01 remains running. Earlier successful service exits on db-node-02 and db-node-03 do not establish stored cluster completeness or integrity. The existing durable follow-up can preserve this genuine dependency."
+    },
+    {
+      "requirement": "Implement runtime limits, whole-process termination, and alerts for excessive runtime and stale complete backups even while a backup is active.",
+      "status": "unresolved",
+      "evidence": "These are explicitly authorized outcomes. Included observations establish live progress checks but provide no implementation or retained completion evidence for the independent repository work."
+    },
+    {
+      "requirement": "Run required formatting, changed-environment validation, and relevant regression checks; report deployment requirements truthfully.",
+      "status": "unresolved",
+      "evidence": "No included verification receipts settle these requirements. The truncated work state may contain prior work and should be recovered before repeating or extending it."
+    }
+  ],
+  "actions": [
+    {
+      "requirement": "Complete and verify the independent repository safeguards.",
+      "action": "Read the retained goal and artifact details using get_work_state, then inspect the Cassandra backup service definitions, monitoring rules, and relevant tests in the writable example-infra checkout. Recover existing changes and check receipts; implement any missing authorized safeguards and run the required checks.",
+      "basis": "get_work_state is advertised and its current result was withheld/truncated. The primary example-infra repository is writable, and the authorized task explicitly includes these safeguards and validation independently of recovery-backup completion."
+    }
+  ],
+  "dismiss_wait_refs": []
+}

@@ -12,6 +12,53 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # Review continuation originally locked the episode row before the source
+  # advisory lock. A concurrent Stop held those in reverse order and deadlocked.
+  test "review continuation waits for the source lock without holding the episode row" do
+    Sandbox.unboxed_run(Repo, fn ->
+      command = create_episode!()
+      {:ok, claim} = Custody.claim_next("review-lock-order", 60, :work)
+      parent = self()
+
+      stopper =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            :ok = Episodes.lock_source(claim.episode.key)
+            send(parent, {:source_locked, backend_pid()})
+            receive do: (:stop -> :ok)
+
+            Custody.request_stop(
+              claim.episode.id,
+              claim.episode.key,
+              claim.turn.turn_ref,
+              "stop:lock-order",
+              "Stop this work."
+            )
+          end)
+        end)
+
+      assert_receive {:source_locked, source_backend}, 5_000
+
+      continuation =
+        unboxed_task(fn ->
+          send(parent, {:continuing, backend_pid()})
+          Ryker.Work.CompletionReview.continue_failed(claim)
+        end)
+
+      try do
+        assert_receive {:continuing, continuation_backend}, 5_000
+        await_finished_or_blocked(continuation, continuation_backend, source_backend)
+        send(stopper.pid, :stop)
+        assert {:ok, {:ok, _}} = Task.await(stopper, 5_000)
+        assert Task.await(continuation, 5_000) == {:error, :work_lease_lost}
+      after
+        send(stopper.pid, :stop)
+        stop_tasks([stopper, continuation])
+        cleanup(command)
+      end
+    end)
+  end
+
   test "simultaneous workers cannot own the same logical turn" do
     # A process crash can release many queued episodes at once. Competing pool
     # workers must converge on one fenced owner without duplicating the turn.

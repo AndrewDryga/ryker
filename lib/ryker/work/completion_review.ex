@@ -1,8 +1,14 @@
 defmodule Ryker.Work.CompletionReview do
   @moduledoc "Evidence-based completion review before a substantive Work answer is accepted."
   alias Ryker.{Knowledge, Records, Repo}
-  alias Ryker.Work.CompletionReview.{Custody, Evidence, Executor, Prompt, Run}
+  alias Ryker.Work.CompletionReview.{Continuation, Custody, Evidence, Executor, Prompt, Run}
   alias Ryker.Work.{Final, FinalPreflight}
+
+  @doc "Continue an exhausted reviewed correction under its lease, or leave ordinary failures alone."
+  defdelegate continue_failed(claim), to: Continuation
+
+  @doc "Internal — the immediate same-session review feedback for the next Work briefing."
+  defdelegate continuation_context(claim), to: Continuation, as: :context
 
   @doc "Whether this live result needs a completion decision, including silent task results."
   def required?(%{episode: %{execution_mode: :shadow}}, _delivery), do: false

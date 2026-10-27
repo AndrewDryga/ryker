@@ -21,6 +21,110 @@ defmodule Ryker.Records.DerivedContextTest do
   @captured "testdata/learning/recorded-private-source-citation.json"
   @source "testdata/learning/retained-haproxy-lifecycle.json"
 
+  # A reviewer can see an older record absent from its parent's briefing.
+  # Replaying its prose without inheriting that record's roots leaked withdrawn
+  # evidence through an otherwise-authorized same-session continuation.
+  test "review-only evidence is reauthorized before feedback reaches another turn" do
+    {producer, source, record} = cited_source!()
+    recipient = replacement!(producer)
+    assert KnowledgeSnapshot.expose(recipient, []) == :ok
+    review = review_feedback!(recipient, record)
+    submission = %{"context" => %{"completion_review_feedback" => review}}
+
+    assert KnowledgeSnapshot.authorize_submission(
+             recipient.episode,
+             recipient.session,
+             submission
+           ) == :ok
+
+    assert KnowledgeFixtures.forget!(source) == :ok
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) == :ok
+
+    assert KnowledgeSnapshot.authorize_submission(
+             recipient.episode,
+             recipient.session,
+             submission
+           ) ==
+             {:error, :work_knowledge_context_stale}
+  end
+
+  test "disclosed review feedback retains its evidence withdrawal fence" do
+    {producer, source, record} = cited_source!()
+    recipient = replacement!(producer)
+    assert KnowledgeSnapshot.expose(recipient, []) == :ok
+    review = review_feedback!(recipient, record)
+    submission = %{"context" => %{"completion_review_feedback" => review}}
+
+    assert KnowledgeSnapshot.expose_submission(%{
+             recipient
+             | turn: %{recipient.turn | submission: submission}
+           }) == :ok
+
+    assert KnowledgeFixtures.forget!(source) == :ok
+
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) ==
+             {:error, :work_knowledge_context_stale}
+  end
+
+  for variant <- [:altered_feedback, :truncated_ledger, :pruned_review] do
+    test "review feedback refuses #{variant}", %{} do
+      {producer, _source, record} = cited_source!()
+      recipient = replacement!(producer)
+      assert KnowledgeSnapshot.expose(recipient, []) == :ok
+      review = review_feedback!(recipient, record)
+      run = Repo.get!(Ryker.Work.CompletionReview.Run, review["review_ref"])
+
+      review =
+        case unquote(variant) do
+          :altered_feedback ->
+            put_in(review, ["judgment", "reason"], "Unrecorded instructions.")
+
+          :truncated_ledger ->
+            prompt = Jason.encode!(%{"snapshot" => %{"records" => %{"truncated" => true}}})
+            Repo.update!(Ecto.Changeset.change(run, prompt: prompt))
+            review
+
+          :pruned_review ->
+            Repo.update!(Ecto.Changeset.change(run, pruned_at: DateTime.utc_now(), prompt: nil))
+            review
+        end
+
+      assert KnowledgeSnapshot.authorize_submission(recipient.episode, recipient.session, %{
+               "context" => %{"completion_review_feedback" => review}
+             }) == {:error, :work_knowledge_context_stale}
+    end
+  end
+
+  defp review_feedback!(recipient, record) do
+    result = File.read!("testdata/work/completion-review-last-correction.json")
+    prompt = Jason.encode!(%{"snapshot" => %{"records" => [Records.Record.document(record)]}})
+    digest = String.duplicate("a", 64)
+
+    run =
+      Repo.insert!(%Ryker.Work.CompletionReview.Run{
+        id: Ecto.UUID.generate(),
+        turn_id: recipient.turn.id,
+        generation: 1,
+        candidate_sha256: digest,
+        ledger_sha256: digest,
+        progress_sha256: digest,
+        policy: "fixture",
+        policy_digest: digest,
+        prompt: prompt,
+        prompt_sha256: Ryker.Crypto.sha256_hex(prompt),
+        output_schema: %{},
+        started_at: DateTime.utc_now(),
+        status: :applied,
+        result: result,
+        result_sha256: Ryker.Crypto.sha256_hex(result),
+        validation_receipt: %{},
+        stop_receipt: %{},
+        remote_stopped_at: DateTime.utc_now()
+      })
+
+    %{"review_ref" => run.id, "judgment" => Jason.decode!(result)}
+  end
+
   # Task records may survive fitting after direct guidance is trimmed. Their
   # inherited guidance receipts must still revoke the recipient's native context.
   test "inherited task records retain guidance withdrawal fences" do

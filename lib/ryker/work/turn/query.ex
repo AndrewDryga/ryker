@@ -77,6 +77,17 @@ defmodule Ryker.Work.Turn.Query do
   def by_session_ids(queryable \\ all(), session_ids),
     do: where(queryable, [episode_work_turns: t], t.session_id in ^session_ids)
 
+  @doc "A stopped predecessor whose settled transfer named this exact successor."
+  def transferred_to(queryable \\ all(), turn_ref) do
+    where(
+      queryable,
+      [episode_work_turns: t],
+      t.status == :superseded and not is_nil(t.cancellation_receipt) and
+        fragment("?::jsonb->>'action' = 'transfer'", t.cancellation_intent) and
+        fragment("?::jsonb->>'new_turn_ref' = ?", t.cancellation_intent, ^turn_ref)
+    )
+  end
+
   @doc "Turns that reached Coop or produced anything: a candidate or a result."
   def begun(queryable) do
     where(

@@ -400,7 +400,7 @@ defmodule Ryker.Work.Custody do
           Ecto.UUID.t(),
           String.t(),
           pos_integer(),
-          :wait_state_changed | nil
+          :wait_state_changed | :completion_review | nil
         ) :: {:ok, map()} | {:error, term()}
   defdelegate request_rerun(
                 episode_id,

@@ -8,7 +8,7 @@ defmodule Ryker.Records.DerivedContext do
   alias Ryker.Records.Record
   alias Ryker.Work
 
-  @kinds ~w(episode_record episode_delivery episode_outcome)
+  @kinds ~w(episode_record episode_delivery episode_outcome completion_review)
   @stale {:error, :work_knowledge_context_stale}
   @record_bytes 2_048
   @delivery_bytes 2_048
@@ -37,7 +37,10 @@ defmodule Ryker.Records.DerivedContext do
 
     Enum.map(context["records"] || [], &record/1) ++
       Enum.map(context["related_outcomes"] || [], &outcome/1) ++
-      Enum.map(Enum.reject([context["prior_outcome"], previous], &is_nil/1), &delivery/1)
+      Enum.map(Enum.reject([context["prior_outcome"], previous], &is_nil/1), &delivery/1) ++
+      Enum.map(List.wrap(context["completion_review_feedback"]), fn feedback ->
+        %{"kind" => "completion_review", "document" => feedback}
+      end)
   end
 
   defp continuation_delivery(context) do
@@ -235,6 +238,28 @@ defmodule Ryker.Records.DerivedContext do
         turn_ids: [document["source_turn_ref"] | Enum.flat_map(proofs, & &1.turn_ids)],
         sources: Learning.LearningSources.for_work_input(event.payload["payload"])
       }
+    else
+      _ -> nil
+    end
+  end
+
+  defp proof(%{"kind" => "completion_review", "document" => document}, destination) do
+    with true <- Maps.exact_keys?(document, ~w(review_ref judgment)),
+         %Work.CompletionReview.Run{status: :applied, pruned_at: nil} = run <-
+           get_uuid(&Work.CompletionReview.Run.Query.by_id/1, document["review_ref"]),
+         {:ok, judgment} <- Work.CompletionReview.Prompt.parse(run.result),
+         true <- judgment == document["judgment"],
+         %Work.Turn{operational_pruned_at: nil} = turn <-
+           get_uuid(&Work.Turn.Query.by_id/1, run.turn_id),
+         true <- turn.episode_id == destination.id,
+         {:ok, %{"snapshot" => %{"records" => records}}} <- Jason.decode(run.prompt || ""),
+         true <- is_list(records),
+         proofs <- Enum.map(records, &proof(record(&1), destination)),
+         true <- Enum.all?(proofs, &is_map/1) do
+      # Work inputs and tool observations belong to the parent's transcript.
+      # Historical records reviewed separately must bring their own producers'
+      # complete custody. A truncated/pruned ledger cannot authorize new prose.
+      %{turn_ids: [turn.id | Enum.flat_map(proofs, & &1.turn_ids)], sources: []}
     else
       _ -> nil
     end
