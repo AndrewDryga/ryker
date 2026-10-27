@@ -132,25 +132,28 @@ defmodule Ryker.Continuity.Handover do
 
   @doc """
   Bind the turn's draft to the candidate the host is validating. A draft bound
-  to an earlier candidate is dropped so a replaced attempt cannot publish it.
+  to an earlier candidate is dropped unless the replacement's successful
+  preflight explicitly validated that exact, unchanged draft.
   """
   @spec candidate_staged_in_transaction(Work.Turn.t(), String.t(), pos_integer()) ::
           :ok | {:error, term()}
   def candidate_staged_in_transaction(%Work.Turn{} = turn, candidate_sha256, candidate_attempt)
       when is_binary(candidate_sha256) and is_integer(candidate_attempt) and candidate_attempt > 0 do
     if Repo.in_transaction?() do
-      bind_candidate_draft(fetch_and_lock_draft(turn), candidate_sha256, candidate_attempt)
+      bind_candidate_draft(fetch_and_lock_draft(turn), candidate_sha256, candidate_attempt, turn)
     else
       {:error, :conversation_summary_transaction_required}
     end
   end
 
-  defp bind_candidate_draft({:error, :not_found}, _candidate_sha256, _candidate_attempt), do: :ok
+  defp bind_candidate_draft({:error, :not_found}, _candidate_sha256, _candidate_attempt, _turn),
+    do: :ok
 
   defp bind_candidate_draft(
          {:ok, %ConversationSummaryDraft{candidate_sha256: nil} = draft},
          candidate_sha256,
-         candidate_attempt
+         candidate_attempt,
+         _turn
        ),
        do: bind_draft(draft, candidate_sha256, candidate_attempt)
 
@@ -161,14 +164,33 @@ defmodule Ryker.Continuity.Handover do
             candidate_attempt: candidate_attempt
           }},
          candidate_sha256,
-         candidate_attempt
+         candidate_attempt,
+         _turn
        ),
        do: :ok
 
-  defp bind_candidate_draft({:ok, %ConversationSummaryDraft{} = draft}, _sha256, _attempt) do
-    case Repo.delete(draft) do
-      {:ok, _draft} -> :ok
-      {:error, changeset} -> {:error, {:conversation_summary_persistence, changeset.errors}}
+  defp bind_candidate_draft({:ok, %ConversationSummaryDraft{} = draft}, sha256, attempt, turn) do
+    # Staging used to delete this draft after validate_final had accepted it,
+    # invalidating the host's own continuity fingerprint on the final attempt.
+    if revalidated_draft?(turn, draft) do
+      bind_draft(draft, sha256, attempt)
+    else
+      case Repo.delete(draft) do
+        {:ok, _draft} -> :ok
+        {:error, changeset} -> {:error, {:conversation_summary_persistence, changeset.errors}}
+      end
+    end
+  end
+
+  defp revalidated_draft?(turn, draft) do
+    case Jason.decode(turn.candidate || "") do
+      {:ok, %{} = candidate} ->
+        turn.final_preflight_candidate_sha256 == Work.FinalPreflight.candidate_sha256(candidate) and
+          turn.final_preflight_continuity_sha256 ==
+            CanonicalJSON.digest(preflight_document({:ok, draft}))
+
+      _invalid ->
+        false
     end
   end
 

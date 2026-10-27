@@ -2059,6 +2059,75 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert Repo.aggregate(ConversationSummary, :count) == 0
   end
 
+  test "a revalidated replacement preserves exactly the summary it validated" do
+    # A successful replacement preflight was followed by staging deleting its
+    # unchanged summary. The host then spent the final attempt rejecting its
+    # own changed fingerprint and stranded an otherwise valid approval wait.
+    joined!("T123", "C899")
+    work = open_work!("revalidated-summary", "slack:T123:C899", nil, "ryker")
+    assert {:ok, _draft} = Continuity.stage(work.state_token, state("Retained evidence"))
+    claim = bind_work!(work)
+    first = ~s({"delivery":"none","decision_reason":"first"})
+    second = ~s({"delivery":"none","decision_reason":"second"})
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               work.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               first,
+               digest(first),
+               1
+             )
+
+    candidate_sha = FinalPreflight.candidate_sha256(Jason.decode!(second))
+
+    ledger_sha =
+      FinalPreflight.ledger_sha256(
+        work.episode.id,
+        work.episode.semantic_version,
+        [],
+        claim.turn.id
+      )
+
+    assert {:ok, _} =
+             Custody.record_final_preflight(
+               work.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               candidate_sha,
+               ledger_sha,
+               work.episode.semantic_version
+             )
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               work.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               digest(first),
+               1,
+               second,
+               digest(second),
+               2
+             )
+
+    assert {:ok, _} =
+             Custody.verify_final_preflight(
+               work.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               candidate_sha,
+               []
+             )
+
+    draft = Repo.one!(ConversationSummaryDraft)
+    assert draft.candidate_sha256 == digest(second)
+    assert draft.candidate_attempt == 2
+  end
+
   test "final preflight rejects a summary changed after validation" do
     joined!("T123", "C999")
     work = open_work!("preflight-fence", "slack:T123:C999", nil, "ryker")
