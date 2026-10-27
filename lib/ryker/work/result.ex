@@ -58,7 +58,8 @@ defmodule Ryker.Work.Result do
     end
   end
 
-  def new(:none, nil, decision_reason, %{"kind" => "wait", "wait_kind" => "event"} = continuation) do
+  def new(:none, nil, decision_reason, %{"kind" => "wait", "wait_kind" => kind} = continuation)
+      when kind in ["input", "event"] do
     with {:ok, result} <- new(:none, nil, decision_reason, @complete),
          {:ok, continuation} <- prepare_continuation(continuation) do
       {:ok, %{result | continuation: continuation}}

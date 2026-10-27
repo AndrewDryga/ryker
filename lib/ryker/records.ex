@@ -148,13 +148,31 @@ defmodule Ryker.Records do
   """
   @spec validation_records(Ecto.UUID.t()) :: map()
   def validation_records(episode_id) do
+    delivered_questions =
+      episode_id
+      |> Record.Query.by_episode_id()
+      |> Record.Query.select_delivered_question_refs()
+      |> Repo.all()
+      |> MapSet.new()
+
     episode_id
     |> Record.Query.by_episode_id()
     |> Record.Query.in_use()
     |> Record.Query.ordered_by_sequence()
     |> Repo.all()
     |> Map.new(fn record ->
-      {record.ref, validation_record(record)}
+      value = validation_record(record)
+
+      value =
+        case record.kind do
+          "input_request" ->
+            Map.put(value, "delivered", MapSet.member?(delivered_questions, record.ref))
+
+          _other ->
+            value
+        end
+
+      {record.ref, value}
     end)
   end
 

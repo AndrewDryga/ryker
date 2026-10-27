@@ -273,6 +273,38 @@ defmodule Ryker.Work.ExecutorTest do
     end
   end
 
+  test "an automated receipt retains the delivered question and clears working without another reply" do
+    # Three cancellation receipts after a delivered question caused two extra
+    # replies and a misleading working indicator on 2026-10-27.
+    claim = claim_after_human_reply!(:input)
+    question = Repo.get_by!(Record, episode_id: claim.episode.id, kind: "input_request")
+
+    candidate =
+      silent("The cancellation is already reported; the delivered question remains unanswered.")
+      |> Jason.decode!()
+      |> put_in(["outcome", "state"], "waiting_for_input")
+      |> put_in(["outcome", "record_refs"], [question.ref])
+      |> Jason.encode!()
+
+    {:ok, fake} = fake_for(claim, [candidate])
+    FakeAPI.update(fake, fn state -> %{state | submit_count: 1} end)
+
+    assert {:ok, %{status: :accepted, turn: turn, episode: episode}} =
+             Executor.run(claim, options(fake))
+
+    assert turn.status == :settled
+    assert turn.delivery_ref == nil
+    assert turn.delivery_document == nil
+    assert episode.state == :waiting_for_input
+    assert episode.owner_ref == question.ref
+    assert Custody.claim_next("quiet-question-proof", 60, :work) == {:ok, nil}
+    assert FakeAPI.state(fake).validations |> Enum.map(& &1.verdict) == [:accept]
+    status_episode = %{episode | destination_conversation_ref: "slack:T123:C456"}
+
+    assert [%{phase: :waiting_for_input, status: ""}] =
+             Ryker.Slack.ThreadStatusProjection.targets([], [status_episode], %{}, "T123")
+  end
+
   test "a follow-up cannot reuse knowledge hidden in the previous native session" do
     # Empty current recall does not erase the transcript of a warm provider session.
     claim = claim_with_bound_empty_session!("withdrawn-session-knowledge")
@@ -5189,11 +5221,11 @@ defmodule Ryker.Work.ExecutorTest do
 
   defp claim_episode!(suffix), do: claim_episode!(suffix, nil, :live)
 
-  defp claim_after_human_reply! do
+  defp claim_after_human_reply!(wait_kind \\ :event) do
     first = claim_episode!("quiet-human-followup")
 
-    {:ok, fake} =
-      FakeAPI.start_link([reply("The plan is ready; I will report the apply outcome.")])
+    candidate = initial_wait_reply(first, wait_kind)
+    {:ok, fake} = FakeAPI.start_link([candidate])
 
     assert {:ok, %{turn: accepted}} = Executor.run(first, options(fake))
 
@@ -5238,6 +5270,23 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, next} = Custody.claim_next("quiet-human-next", 60, :work)
     next
   end
+
+  defp initial_wait_reply(first, :input) do
+    assert {:ok, question} =
+             Records.create(Records.token(first.turn), "verify", "input_request", %{
+               "question" => "Can you share the verification output?",
+               "choices" => []
+             })
+
+    reply("Can you share the verification output?")
+    |> Jason.decode!()
+    |> put_in(["outcome", "state"], "waiting_for_input")
+    |> put_in(["outcome", "record_refs"], [question.ref])
+    |> Jason.encode!()
+  end
+
+  defp initial_wait_reply(_first, :event),
+    do: reply("The plan is ready; I will report the apply outcome.")
 
   defp claim_episode!(suffix, payload), do: claim_episode!(suffix, payload, :live)
 

@@ -16,9 +16,24 @@ defmodule Ryker.Work.ResultTest do
     assert result.continuation == continuation
     assert Result.prepare_document(Result.document(result)) == {:ok, result}
     assert Result.validate_at(result, ~U[2027-09-09 12:00:00Z]) == :ok
+  end
 
-    assert {:error, _} =
-             Result.new(:none, nil, "Do not ask.", %{continuation | "wait_kind" => "input"})
+  test "a previously delivered question can remain open without another delivery" do
+    # Cancellation receipts repeated an already delivered question because
+    # freezing allowed silence only for event waits (2026-10-27).
+    continuation = %{
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => "record:question",
+      "deadline_at" => nil
+    }
+
+    assert {:ok, result} =
+             Result.new(:none, nil, "The question is already visible.", continuation)
+
+    assert result.continuation == continuation
+    assert Result.prepare_document(Result.document(result)) == {:ok, result}
+    assert Result.validate_at(result, ~U[2027-09-09 12:00:00Z]) == :ok
   end
 
   test "event deadlines are compared chronologically across calendar boundaries" do

@@ -22,6 +22,13 @@ defmodule Ryker.Records.InputRequestsTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  test "quiet input waits require the exact question's confirmed delivery" do
+    # A saved question is not proof the person ever saw it. Only the
+    # delivered answer referencing this question permits a silent follow-up.
+    fixture = delivered_question!()
+    assert Records.validation_records(fixture.episode.id)[fixture.record.ref]["delivered"] == true
+  end
+
   test "a retained question never borrows a different workspace's current origin" do
     # The old question builder dropped the workspace from its delivered receipt.
     fixture = delivered_question!(:slack, "1787831990.000100")
@@ -619,6 +626,10 @@ defmodule Ryker.Records.InputRequestsTest do
                delivery_thread_ref,
                "1787832001.000200"
              )
+
+    # Accepted and ready to send is not delivered: the quiet-wait proof must
+    # stay false until the exact delivery receipt has been confirmed.
+    assert Records.validation_records(episode_id)[record.ref]["delivered"] == false
 
     assert {:ok, settled} =
              Custody.confirm_delivery(

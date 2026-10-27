@@ -660,14 +660,6 @@ defmodule Ryker.Work.ValidatorTest do
        "outcome.record_refs"},
       {Jason.encode!(put_in(valid, ["outcome", "artifact_refs"], ["bad ref"])),
        "outcome.artifact_refs"},
-      {Jason.encode!(
-         valid
-         |> Map.put("delivery", "none")
-         |> Map.put("message", nil)
-         |> Map.put("decision_reason", "Wait silently.")
-         |> put_in(["outcome", "state"], "waiting_for_input")
-         |> put_in(["outcome", "record_refs"], ["record:wait:1"])
-       ), "input-waiting outcome requires delivery reply"},
       {Jason.encode!(put_in(valid, ["outcome", "state"], "waiting_for_input")),
        "must reference the durable"}
     ]
@@ -1176,6 +1168,77 @@ defmodule Ryker.Work.ValidatorTest do
              Validator.validate(complete, context(open_required_goals: goals), @now)
 
     assert violation =~ "check-service"
+  end
+
+  test "automated receipts may keep an already delivered question open without another reply" do
+    # Three cancellation receipts produced two extra replies to the same
+    # unanswered question on 2026-10-27: the host forbade a silent input wait.
+    wait = %{
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => "record:question",
+      "deadline_at" => nil
+    }
+
+    question = record("input_request", wait) |> Map.put("delivered", true)
+
+    document = %{
+      "decision_reason" =>
+        "Cancellation was already reported; the verification question is unchanged.",
+      "delivery" => "none",
+      "message" => nil,
+      "outcome" => %{
+        "state" => "waiting_for_input",
+        "record_refs" => ["record:question"],
+        "artifact_refs" => []
+      }
+    }
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               Jason.encode!(document),
+               context(records: %{"record:question" => question}),
+               @now
+             )
+
+    assert accepted.result.delivery == :none
+    assert accepted.result.continuation == wait
+
+    undelivered = Map.put(question, "delivered", false)
+
+    assert {:reject, violations} =
+             Validator.validate(
+               Jason.encode!(document),
+               context(records: %{"record:question" => undelivered}),
+               @now
+             )
+
+    assert Enum.any?(violations, &String.contains?(&1, "not been delivered"))
+
+    another = put_in(undelivered, ["continuation", "wait_ref"], "record:new-question")
+
+    two_questions =
+      put_in(document, ["outcome", "record_refs"], ["record:question", "record:new-question"])
+
+    assert {:reject, violations} =
+             Validator.validate(
+               Jason.encode!(two_questions),
+               context(
+                 records: %{"record:question" => question, "record:new-question" => another}
+               ),
+               @now
+             )
+
+    assert Enum.any?(violations, &String.contains?(&1, "not been delivered"))
+
+    assert {:reject, violations} =
+             Validator.validate(
+               Jason.encode!(document),
+               context(records: %{"record:question" => question}, visible_reply_required: true),
+               @now
+             )
+
+    assert Enum.any?(violations, &String.contains?(&1, "explicit human request"))
   end
 
   defp context(overrides \\ []) do

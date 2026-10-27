@@ -58,17 +58,21 @@ defmodule Ryker.Work.FinalTest do
              "message" => nil,
              "outcome" => empty_outcome()
            }) == {:error, {:invalid_work_final, :decision_reason}}
+  end
 
-    assert Final.parse(%{
-             "decision_reason" => "Waiting is already visible elsewhere.",
-             "delivery" => "none",
-             "message" => nil,
-             "outcome" => %{
-               "artifact_refs" => [],
-               "record_refs" => ["record:wait:1"],
-               "state" => "waiting_for_input"
-             }
-           }) == {:error, {:invalid_work_final, :state_requires_visible_reply}}
+  test "silent input waits are structurally valid while the validator checks delivery proof" do
+    # Notification turns were forced to ask an already delivered question again.
+    assert {:ok, _final} =
+             Final.parse(%{
+               "decision_reason" => "Waiting is already visible elsewhere.",
+               "delivery" => "none",
+               "message" => nil,
+               "outcome" => %{
+                 "artifact_refs" => [],
+                 "record_refs" => ["record:wait:1"],
+                 "state" => "waiting_for_input"
+               }
+             })
   end
 
   test "the audited silence reason accepts 240 Unicode characters and rejects 241" do

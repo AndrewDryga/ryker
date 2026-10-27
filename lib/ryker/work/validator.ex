@@ -88,6 +88,7 @@ defmodule Ryker.Work.Validator do
     |> mention_violations(final, context)
     |> timer_wait_delivery_violations(final, context)
     |> visibility_violations(final, context)
+    |> question_delivery_violations(final, context)
     |> platform_action_violations(context)
     |> missing_record_violations(final, context)
     |> missing_artifact_violations(final, context)
@@ -228,6 +229,30 @@ defmodule Ryker.Work.Validator do
   end
 
   defp visibility_violations(violations, _final, _context), do: violations
+
+  defp question_delivery_violations(
+         violations,
+         %{delivery: :none, state: :waiting_for_input} = final,
+         context
+       ) do
+    questions =
+      final.record_refs
+      |> Enum.map(&context.records[&1])
+      |> Enum.filter(fn record -> is_map(record) and record.kind == "input_request" end)
+
+    delivered? = questions != [] and Enum.all?(questions, &Map.get(&1, :delivered, false))
+
+    if delivered? do
+      violations
+    else
+      [
+        "This question has not been delivered. Set delivery to reply so the person can answer; only an already delivered question may remain open silently."
+        | violations
+      ]
+    end
+  end
+
+  defp question_delivery_violations(violations, _final, _context), do: violations
 
   # A timer Ryker arms on its own, such as the next check of a watch, says nothing until it fires.
   # One a person asked for is confirmed in the reply that arms it: "I'll tell you the Berlin time
@@ -789,6 +814,21 @@ defmodule Ryker.Work.Validator do
 
   defp prepare_record(
          ref,
+         %{"continuation" => continuation, "kind" => "input_request", "delivered" => delivered} =
+           record
+       )
+       when map_size(record) == 3 and is_boolean(delivered) do
+    with true <- Reference.token?(ref),
+         {:ok, continuation} <- prepare_record_continuation(continuation) do
+      {:ok, %{continuation: continuation, kind: "input_request", delivered: delivered}}
+    else
+      false -> {:error, {:invalid_work_validation_context, :record}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prepare_record(
+         ref,
          %{
            "continuation" => continuation,
            "kind" => "event_wait",
@@ -1007,7 +1047,7 @@ defmodule Ryker.Work.Validator do
   end
 
   defp final_violation(:state_requires_visible_reply) do
-    "An input-waiting outcome requires delivery reply so the user can answer. Event waiting may use delivery none with its durable wait record."
+    "A silent waiting outcome must reference its durable wait record. An input wait may be silent only when its question was already delivered."
   end
 
   defp final_violation(:title) do

@@ -8,6 +8,25 @@ defmodule Ryker.Records.Record.Query do
 
   def all, do: from(records in Record, as: :episode_state_records)
 
+  @doc "Question references included in a confirmed visible answer from this episode."
+  def select_delivered_question_refs(queryable \\ all()) do
+    from([episode_state_records: r] in queryable,
+      join: t in Work.Turn,
+      as: :episode_work_turns,
+      on: t.episode_id == r.episode_id,
+      where:
+        r.kind == "input_request" and not is_nil(t.delivered_at) and
+          fragment("?::jsonb->>'delivery' = 'reply'", t.delivery_document) and
+          fragment(
+            "jsonb_exists(?::jsonb #> '{outcome,record_refs}', ?)",
+            t.delivery_document,
+            r.ref
+          ),
+      distinct: true,
+      select: r.ref
+    )
+  end
+
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_state_records: r], r.id == ^id)
 
   def by_ref(queryable \\ all(), ref),
