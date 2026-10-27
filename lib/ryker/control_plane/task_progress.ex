@@ -42,10 +42,15 @@ defmodule Ryker.ControlPlane.TaskProgress do
   @spec draft_reason(map(), map() | nil) :: map()
   def draft_reason(
         %{"stage" => "draft_pr", "state" => "failed", "reason" => nil} = stage,
-        %{"blocked_reason" => reason}
+        %{"blocked_reason" => reason} = publication
       )
       when is_binary(reason) and reason != "",
-      do: %{stage | "reason" => "PR creation failed: " <> reason}
+      do: %{
+        stage
+        | "reason" =>
+            Slack.Renderer.TaskPublication.blocked_label(publication["pull_request_number"]) <>
+              ": " <> reason
+      }
 
   def draft_reason(stage, _publication), do: stage
 end

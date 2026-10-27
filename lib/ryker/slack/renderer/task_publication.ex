@@ -76,7 +76,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
     detail =
       cond do
         not (is_binary(url) and is_integer(number)) -> ""
-        is_nil(pull_request_state) -> " · #{link(url, "Open draft PR ##{number}")}"
+        is_nil(pull_request_state) -> " · #{link(url, "Open PR ##{number}")}"
         true -> " · #{link(url, "PR ##{number}")}"
       end
 
@@ -260,11 +260,16 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
       else: blocked_message(controls, nil, reason, number)
   end
 
-  defp blocked_message(_controls, _unverified, reason, _number) when is_binary(reason),
-    do: ":warning: *PR creation failed:* #{escape(reason)}"
+  defp blocked_message(_controls, _unverified, reason, number) when is_binary(reason),
+    do: ":warning: *#{blocked_label(number)}:* #{escape(reason)}"
 
-  defp blocked_message(_controls, _unverified, _reason, _number),
-    do: ":warning: *PR creation failed.*"
+  defp blocked_message(_controls, _unverified, _reason, number),
+    do: ":warning: *#{blocked_label(number)}.*"
+
+  @doc "The blocked publication label shared by the Slack card and the task page."
+  @spec blocked_label(integer() | nil) :: String.t()
+  def blocked_label(number) when is_integer(number), do: "PR update blocked"
+  def blocked_label(_number), do: "PR creation failed"
 
   defp unverified_offer(number) when is_integer(number) do
     "I saved the newer change as it is. I can add it to draft PR ##{number} marked unverified"

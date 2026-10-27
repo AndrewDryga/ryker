@@ -39,34 +39,29 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   defp task_offer(ref, offer), do: task_offer(ref, offer, nil)
 
-  defp task_offer(ref, %{"kind" => "engineering"} = offer, repository),
-    do: [
-      section(offer_summary(offer, repository)),
-      actions(ref, engineering_button(ref, repository_name(offer, repository)))
-    ]
+  defp task_offer(ref, %{"kind" => "engineering"} = offer, repository) do
+    offer_sections(offer, repository) ++
+      [actions(ref, engineering_button(ref, repository_name(offer, repository)))]
+  end
 
   # One offer owns both incident paths; the host starts exactly one of them.
-  defp task_offer(ref, %{"kind" => "incident", "repository" => _repository} = offer, repository),
-    do: [
-      section(offer_summary(offer, repository)),
-      actions(ref, [investigate_button(ref), incident_button(ref)])
-    ]
+  defp task_offer(ref, %{"kind" => "incident", "repository" => _repository} = offer, repository) do
+    offer_sections(offer, repository) ++
+      [actions(ref, [investigate_button(ref), incident_button(ref)])]
+  end
 
   # Both the open and the confirmed card render this. An operator returning to
   # the thread reads the confirmed card to find out what was authorized, and
   # repainting it down to a title and a check mark answered nothing.
   defp offer_summary(%{"kind" => "engineering"} = offer, repository) do
-    offer_lines(
-      "*#{escape(offer["title"])}*\nRepository: #{repository_label(offer, repository)}#{offer_source(offer)}",
-      offer
-    )
+    "*#{escape(offer["title"])}*\nRepository: #{repository_label(offer, repository)}#{offer_source(offer)}"
   end
 
-  defp offer_summary(%{"repository" => nil, "title" => title} = offer, _repository),
-    do: offer_lines("*#{escape(title)}*", offer)
+  defp offer_summary(%{"repository" => nil, "title" => title}, _repository),
+    do: "*#{escape(title)}*"
 
   defp offer_summary(%{"title" => title} = offer, repository) do
-    offer_lines("*#{escape(title)}*\nRepository: #{repository_label(offer, repository)}", offer)
+    "*#{escape(title)}*\nRepository: #{repository_label(offer, repository)}"
   end
 
   # The repository GitHub knows, linked, when the host presented the offer's
@@ -81,7 +76,10 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   defp repository_name(%{"repository" => ref}, _repository), do: ref
 
-  defp offer_lines(head, offer), do: Enum.join([head | offer_brief(offer)], "\n\n")
+  # Slack folds each section independently: opening the success checks must
+  # not expand the authority limits as well (or hide both behind one control).
+  defp offer_sections(offer, repository),
+    do: Enum.flat_map([offer_summary(offer, repository) | offer_brief(offer)], &sections/1)
 
   # What the task will do, from the fields the host validated. The offer's
   # `prompt` is the worker's own instruction and never appears here: this card
@@ -106,7 +104,7 @@ defmodule Ryker.Slack.Renderer.Offers do
 
     hidden = length(values) - @brief_items
     more = if hidden > 0, do: ["• and #{hidden} more"], else: []
-    Enum.join(["*#{label}:*" | shown ++ more], "\n")
+    Enum.join(["*#{heading(label)}*" | shown ++ more], "\n")
   end
 
   defp offer_source(%{"repository_source" => %{"kind" => kind, "name" => name}})
@@ -118,31 +116,27 @@ defmodule Ryker.Slack.Renderer.Offers do
   @doc "The confirmed task offer, with the incident room it opened once the host knows it."
   @spec confirmed_task_offer(map(), map()) :: [map()]
   def confirmed_task_offer(%{"kind" => "engineering"} = offer, presentation),
-    do: [section(offer_outcome(offer, presentation, "✓ Task started in this thread."))]
+    do: offer_outcome(offer, presentation, "✓ Task started in this thread.")
 
   def confirmed_task_offer(offer, %{"incident_room" => %{"url" => url}} = presentation)
       when is_binary(url) do
-    [
-      section(offer_outcome(offer, presentation, "✓ Incident room created.")),
-      actions(
-        "incident-room-link",
-        url_button("ryker_open_incident_room", "Open incident room", "room", url)
-      )
-    ]
+    offer_outcome(offer, presentation, "✓ Incident room created.") ++
+      [
+        actions(
+          "incident-room-link",
+          url_button("ryker_open_incident_room", "Open incident room", "room", url)
+        )
+      ]
   end
 
   def confirmed_task_offer(offer, %{"incident_room" => _room} = presentation),
-    do: [
-      section(
-        offer_outcome(offer, presentation, "◷ Incident room requested · creating the channel")
-      )
-    ]
+    do: offer_outcome(offer, presentation, "◷ Incident room requested · creating the channel")
 
   def confirmed_task_offer(offer, presentation),
-    do: [section(offer_outcome(offer, presentation, "✓ Investigating in this thread."))]
+    do: offer_outcome(offer, presentation, "✓ Investigating in this thread.")
 
   defp offer_outcome(offer, presentation, outcome),
-    do: offer_summary(offer, presentation["repository"]) <> "\n\n" <> outcome
+    do: offer_sections(offer, presentation["repository"]) ++ [section(outcome)]
 
   @doc """
   What the host adds to a task offer it shows: the incident room the offer

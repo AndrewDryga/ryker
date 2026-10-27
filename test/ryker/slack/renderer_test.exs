@@ -803,7 +803,7 @@ defmodule Ryker.Slack.RendererTest do
     assert {:ok, rendered} = Renderer.render(document)
     assert rendered["text"] == "I can prepare that repository change."
 
-    assert [reply, offer, controls] = rendered["blocks"]
+    assert [reply, offer, _checks, _limits, controls] = rendered["blocks"]
 
     assert reply == %{
              "text" => "I can prepare that repository change.",
@@ -863,7 +863,7 @@ defmodule Ryker.Slack.RendererTest do
                ]
              })
 
-    assert [_reply, offer, controls] = rendered["blocks"]
+    assert [_reply, offer, _checks, _limits, controls] = rendered["blocks"]
     assert offer["text"]["text"] =~ "Repository: <https://github.com/acme/ryker|acme/ryker>"
     refute offer["text"]["text"] =~ "acme-ryker"
 
@@ -1118,6 +1118,43 @@ defmodule Ryker.Slack.RendererTest do
     assert Enum.any?(blocks, &(text_of(&1) == ":warning: *PR creation failed.*"))
   end
 
+  # An existing PR was called a failed creation after a later safety scan
+  # blocked its update. Keep the scan failure without denying the saved PR.
+  test "a blocked update to an existing pull request never claims creation failed" do
+    task =
+      publication_task_card(%{
+        "automatic_fix" => nil,
+        "blocked_reason" => "the safety scan flagged 1 issue in the change.",
+        "branch" => nil,
+        "controls" => ["update", "discard"],
+        "discarded_reason" => nil,
+        "publication_ref" => "publication:def456",
+        "pull_request_number" => 42,
+        "pull_request_state" => nil,
+        "pull_request_url" => "https://example.invalid/pull/42",
+        "recovery_generation" => 1,
+        "status" => "blocked",
+        "unverified" => nil
+      })
+
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => task})
+    text = Enum.map_join(rendered["blocks"], "\n", &text_of/1)
+    assert text =~ "PR update blocked:"
+    assert text =~ "the safety scan flagged 1 issue"
+    assert text =~ "https://example.invalid/pull/42|Open PR #42"
+    refute text =~ "PR creation failed"
+
+    unexplained = put_in(task, ["publication", "blocked_reason"], nil)
+    assert {:ok, rendered} = Renderer.render(%{"task_card" => unexplained})
+    assert Enum.any?(rendered["blocks"], &(text_of(&1) =~ "PR update blocked."))
+
+    stage = %{"stage" => "draft_pr", "state" => "failed", "reason" => nil}
+    progress = Ryker.ControlPlane.TaskProgress.draft_reason(stage, task["publication"])
+
+    assert progress["reason"] ==
+             "PR update blocked: the safety scan flagged 1 issue in the change."
+  end
+
   # Andrew, 2026-09-28: "Progress should be always fully visible", and of the
   # request: "Yes it will be collapsed but when its open I want to see all of
   # it." Progress is never folded; the request is folded by Slack but whole.
@@ -1231,7 +1268,7 @@ defmodule Ryker.Slack.RendererTest do
              "The pull request was merged. · <https://github.com/acme/ryker/pull/90|PR #90>"
 
     assert rendered.(%{publication | "pull_request_state" => nil}) =~
-             "Draft PR created. Open it to review the changes. · <https://github.com/acme/ryker/pull/90|Open draft PR #90>"
+             "Draft PR created. Open it to review the changes. · <https://github.com/acme/ryker/pull/90|Open PR #90>"
 
     stale = %{publication | "pull_request_state" => "stale"}
 
@@ -1643,7 +1680,7 @@ defmodule Ryker.Slack.RendererTest do
 
     # One offer identity owns both paths; Open incident room is a link only
     # once the room exists, never a button that hides room creation.
-    assert [_, _, actions] = incident["blocks"]
+    assert [_, _, _checks, _limits, actions] = incident["blocks"]
     assert [investigate, create] = actions["elements"]
     assert investigate["action_id"] == "ryker_investigate_incident"
     assert investigate["text"]["text"] == "Investigate"
@@ -1756,8 +1793,8 @@ defmodule Ryker.Slack.RendererTest do
           "Prevent the next Traefik OOM",
           "tenant-infra",
           "branch",
-          "*Done when:*\\n• Traefik stays under its limit\\n• Five replicas remain",
-          "*Limits:*\\n• Never deploy\\n• No production writes"
+          "*Done when*\\n• Traefik stays under its limit\\n• Five replicas remain",
+          "*Limits*\\n• Never deploy\\n• No production writes"
         ] do
       assert inspect(open) =~ kept
       assert inspect(confirmed) =~ kept
@@ -1806,6 +1843,18 @@ defmodule Ryker.Slack.RendererTest do
     end
 
     assert inspect(incident_confirmed) =~ "✓ Investigating in this thread."
+
+    # One shared section put both lists behind one native Show more. Each
+    # purpose must own its own fold, before and after authorization is spent.
+    for rendered <- [open, confirmed, incident_open, incident_confirmed] do
+      blocks = rendered["blocks"]
+      checks = Enum.find(blocks, &(text_of(&1) =~ "*Done when"))
+      limits = Enum.find(blocks, &(text_of(&1) =~ "*Limits"))
+      assert checks != limits
+      refute text_of(checks) =~ "*Limits"
+      refute Map.get(checks, "expand", false)
+      refute Map.get(limits, "expand", false)
+    end
   end
 
   # The brief escaped each check and limit before cutting it to length, so a
@@ -1832,10 +1881,10 @@ defmodule Ryker.Slack.RendererTest do
     }
 
     assert {:ok, rendered} = Renderer.render(%{"message" => "Want me to?", "records" => [offer]})
-    [_message, summary, _actions] = rendered["blocks"]
+    [_message, _summary, _checks, limits, _actions] = rendered["blocks"]
 
-    assert summary["text"]["text"] =~
-             "*Limits:*\n• #{String.duplicate("a", 197)}&amp;x…"
+    assert limits["text"]["text"] =~
+             "*Limits*\n• #{String.duplicate("a", 197)}&amp;x…"
   end
 
   test "renders an inert publication offer with a host-owned review control" do
