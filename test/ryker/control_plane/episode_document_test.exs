@@ -321,7 +321,9 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
              LazyHTML.query(document, ".tool-run-step[data-service=slack] .tool-run-badge")
            ) == 1
 
-    assert LazyHTML.query(document, ".tool-run-title") |> LazyHTML.text() == "Set working status"
+    assert LazyHTML.query(document, ".tool-run-title") |> LazyHTML.text() ==
+             "Slack acknowledged the status update"
+
     assert Enum.count(LazyHTML.query(document, ".tool-run .tool-run-line")) == 1
 
     assert LazyHTML.query(document, ".tool-run > .case-card-heading h3") |> LazyHTML.text() ==
@@ -329,6 +331,20 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert Enum.empty?(LazyHTML.query(document, ".case-card-heading-detail, .ui-activity-note"))
     assert LazyHTML.text(document) =~ "is queued…"
+
+    assert LazyHTML.query(document, ".tool-run-text") |> LazyHTML.text() ==
+             "Requested “is queued…”; Slack controls the displayed wording."
+
+    cleared =
+      snapshot
+      |> put_in([:trace, :steps], [%{step | summary: nil}])
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(cleared, ".tool-run-title") |> LazyHTML.text() ==
+             "Slack acknowledged the clear request"
+
+    assert Enum.empty?(LazyHTML.query(cleared, ".tool-run-text"))
 
     failed = %{
       step
@@ -344,6 +360,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> LazyHTML.from_fragment()
 
     assert Enum.empty?(LazyHTML.query(document, ".tool-run-detail"))
+
+    assert LazyHTML.query(document, ".tool-run-title") |> LazyHTML.text() ==
+             "Working indicator update failed"
+
+    refute LazyHTML.text(document) =~ "acknowledged"
     assert Enum.count(LazyHTML.query(document, ".tool-run-error")) == 1
 
     assert LazyHTML.query(document, ".tool-run-line .tool-run-error") |> LazyHTML.text() ==

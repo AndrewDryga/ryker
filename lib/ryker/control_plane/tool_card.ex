@@ -207,7 +207,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     %{
       service: :slack,
       title: status_title(step),
-      detail: if(step.state != "failed", do: step.summary),
+      detail: status_detail(step),
       duration: nil,
       warning: nil,
       approval_url: nil,
@@ -254,9 +254,18 @@ defmodule Ryker.ControlPlane.ToolCard do
     """
   end
 
-  defp status_title(%{state: "failed"}), do: "Update working status"
-  defp status_title(%{summary: nil}), do: "Clear working status"
-  defp status_title(_step), do: "Set working status"
+  defp status_title(%{state: "failed"}), do: "Working indicator update failed"
+  defp status_title(%{summary: nil}), do: "Slack acknowledged the clear request"
+  defp status_title(_step), do: "Slack acknowledged the status update"
+
+  defp status_detail(%{state: "failed"}), do: nil
+  defp status_detail(%{summary: nil}), do: nil
+
+  # The legacy API acknowledges the requested text. Slack's agent-messaging
+  # bridge maps nonempty text to Processing; an API receipt is not proof that
+  # the client displayed our custom wording. Preserve what was requested.
+  defp status_detail(%{summary: text}),
+    do: "Requested “#{text}”; Slack controls the displayed wording."
 
   defp service(%{tool: tool}) when tool in @emisar_tools, do: :emisar
   defp service(%{tool: tool}) when tool in @slack_tools, do: :slack
