@@ -195,6 +195,16 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   @doc """
+  Queues an input while worker capacity is unavailable, without spending an attempt.
+  `:wait_execution` advances keys only after a confirmed terminal creation refusal;
+  `:wait` reconciles the same operation. Returns the deferred entry or a custody error.
+  """
+  def wait_for_capacity(input_ref, lease_ref, now, delay_ms, error_code, error_detail, generation)
+      when generation in [:wait, :wait_execution] do
+    defer(input_ref, lease_ref, now, delay_ms, error_code, error_detail, generation)
+  end
+
+  @doc """
   Releases a claim after a confirmed terminal Coop result and advances its operation keys.
 
   Ambiguous transport failures must use `defer/6` so they reconcile the same keys.
@@ -583,7 +593,8 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
-  defp next_generations(entry, :execution), do: {entry.execution_generation + 1, 1}
+  defp next_generations(entry, generation) when generation in [:execution, :wait_execution],
+    do: {entry.execution_generation + 1, 1}
 
   defp next_generations(entry, :validation),
     do: {entry.execution_generation, entry.validation_generation + 1}
@@ -592,10 +603,13 @@ defmodule Ryker.Ingress.Inbox do
     do: {entry.execution_generation, entry.validation_generation}
 
   # The claim counted an attempt when it took the lease; a wait gives it back.
-  defp spent_attempts(entry, :wait), do: entry.attempt_count - 1
+  defp spent_attempts(entry, generation) when generation in [:wait, :wait_execution],
+    do: entry.attempt_count - 1
+
   defp spent_attempts(entry, _generation), do: entry.attempt_count
 
-  defp maybe_clear_context(attributes, :execution) do
+  defp maybe_clear_context(attributes, generation)
+       when generation in [:execution, :wait_execution] do
     Map.merge(attributes, %{admission_context: nil, admission_context_fingerprint: nil})
   end
 

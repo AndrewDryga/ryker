@@ -1273,6 +1273,77 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).validations == []
   end
 
+  # October 27: queueing a disk refusal on the same terminal command would
+  # strand a completed answer forever, even after the worker regained space.
+  test "a terminal storage refusal resumes checkpointing with the saved answer after capacity returns" do
+    {claim, fake} = completed_runner_wait!("checkpoint-capacity")
+    refusal = {:coop_error, 503, "storage_unavailable", "refusing a new workspace"}
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, refusal))
+
+    assert {:ok, {:deferred, _reason}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "checkpoint-capacity",
+               executor_options: options(fake),
+               max_attempts: 1
+             )
+
+    waiting = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert waiting.status == :pending
+    assert waiting.checkpoint_retry_generation == claim.turn.checkpoint_retry_generation + 1
+    assert waiting.work_attempt_count == claim.turn.work_attempt_count - 1
+    assert waiting.candidate == claim.turn.candidate
+    assert waiting.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+    old_key = OperationKeys.checkpoint(claim.turn)
+    assert FakeAPI.state(fake).checkpoint_results[old_key] == {:error, refusal}
+
+    waiting
+    |> Ecto.Changeset.change(next_attempt_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    |> Repo.update!()
+
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, nil))
+    assert {:ok, resumed} = Custody.claim_next("checkpoint-capacity-resume", 60, :work)
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Dispatcher.run_claim(resumed,
+               worker_ref: "checkpoint-capacity-resume",
+               executor_options: options(fake),
+               max_attempts: 1
+             )
+
+    state = FakeAPI.state(fake)
+    assert state.checkpoint_keys == [old_key, OperationKeys.checkpoint(waiting)]
+    assert state.checkpoint_results[old_key] == {:error, refusal}
+    assert state.submit_count == 0
+    assert state.create_count == 0
+    assert state.validations == []
+  end
+
+  test "an unproven checkpoint outcome retains its key and its completed answer" do
+    {claim, fake} = completed_runner_wait!("checkpoint-uncertain-capacity")
+    key = OperationKeys.checkpoint(claim.turn)
+
+    FakeAPI.update(fake, fn state ->
+      state
+      |> Map.put(:checkpoint_error, {:coop_error, 503, "storage_unavailable", "no space"})
+      |> put_in([:known_operations, key], %{
+        "method" => "CheckpointWorkspace",
+        "state" => "uncertain",
+        "error_code" => "storage_unavailable"
+      })
+    end)
+
+    assert {:ok, {:deferred, _reason}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "checkpoint-uncertain-capacity",
+               executor_options: options(fake)
+             )
+
+    waiting = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert OperationKeys.checkpoint(waiting) == key
+    assert waiting.candidate == claim.turn.candidate
+    assert waiting.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+  end
+
   test "a completed checkpoint failure preserves the answer and retries finalization without model replay" do
     # The generic stop path closed the completed runner session and stranded its
     # patch. Finalization recovery must retain the exact turn, answer and worker.

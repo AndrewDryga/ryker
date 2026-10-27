@@ -71,6 +71,75 @@ defmodule Ryker.Admission.DispatcherTest do
     assert String.valid?(deferred.last_error_detail)
   end
 
+  # A full worker spent eight routing attempts in two minutes on 2026-10-27,
+  # then required a human retry even though no model had run.
+  test "worker capacity waits preserve the input and its failure budget until capacity returns" do
+    entry = record_input!("Ev-capacity-wait")
+    input_ref = Inbox.ref(entry)
+    reason = {:coop_worker_capacity_unavailable, "session:queued"}
+    {:ok, stub} = ExecutorStub.start_link({:fail, reason})
+
+    for attempt <- 0..9 do
+      at = DateTime.add(@now, attempt * 61, :second)
+
+      assert {:ok, {:deferred, ^input_ref, ^reason}} =
+               Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+      assert {:ok, waiting} = Inbox.fetch(input_ref)
+      assert waiting.status == :pending
+      assert waiting.attempt_count == 0
+      assert waiting.execution_generation == 1
+      assert waiting.lease_ref == nil
+      assert waiting.last_error_code == "coop_worker_capacity_unavailable"
+      assert DateTime.diff(waiting.next_attempt_at, at) == 60
+    end
+
+    ExecutorStub.succeed(stub)
+    at = DateTime.add(@now, 610, :second)
+
+    assert {:ok, {:decided, execution}} =
+             Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+    assert execution.result.entry.id == entry.id
+    assert execution.result.entry.attempt_count == 1
+  end
+
+  test "a confirmed storage refusal advances creation keys without spending routing attempts" do
+    entry = record_input!("Ev-storage-wait")
+    input_ref = Inbox.ref(entry)
+    reason = {:coop_operation_failed, "storage_unavailable", "refusing a new workspace"}
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+    for attempt <- 0..9 do
+      at = DateTime.add(@now, attempt * 61, :second)
+
+      assert {:ok, {:deferred, ^input_ref, ^reason}} =
+               Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+      assert {:ok, waiting} = Inbox.fetch(input_ref)
+      assert waiting.status == :pending
+      assert waiting.attempt_count == 0
+      assert waiting.execution_generation == attempt + 2
+      assert waiting.last_error_code == "coop_worker_capacity_unavailable"
+      assert waiting.last_error_detail =~ "storage_unavailable"
+    end
+  end
+
+  test "an immediate storage refusal stays visibly queued with its original diagnostic" do
+    entry = record_input!("Ev-storage-not-placed")
+    input_ref = Inbox.ref(entry)
+    reason = {:coop_error, 503, "storage_unavailable", "refusing a new workspace"}
+    {:ok, stub} = ExecutorStub.start_link({:fail, reason})
+
+    assert {:ok, {:deferred, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+    assert {:ok, waiting} = Inbox.fetch(input_ref)
+    assert waiting.status == :pending
+    assert waiting.attempt_count == 0
+    assert waiting.execution_generation == 1
+    assert waiting.last_error_code == "coop_worker_capacity_unavailable"
+    assert waiting.last_error_detail =~ "storage_unavailable"
+  end
+
   test "a poisoned input exhausts its retry budget and releases later messages in its channel" do
     # One permanently failing input previously retried forever and muted every
     # later human request in the same channel, without appearing in Failures.

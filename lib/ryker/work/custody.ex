@@ -443,6 +443,9 @@ defmodule Ryker.Work.Custody do
   @doc "Freezes remote completion before fallible host finalization, retaining the lease."
   defdelegate record_completion(episode_id, turn_ref, lease_ref, receipt), to: Turns
 
+  @doc false
+  defdelegate advance_checkpoint(episode_id, turn_ref, lease_ref, expected_generation), to: Turns
+
   @doc "Pauses host finalization of an exactly confirmed completed turn, without closing its workspace."
   defdelegate block_completion(episode_id, turn_ref, lease_ref, receipt, code, detail),
     to: Turns
@@ -648,6 +651,13 @@ defmodule Ryker.Work.Custody do
   @spec yield_progress(Ecto.UUID.t(), String.t(), String.t(), pos_integer()) ::
           {:ok, Turn.t()} | {:error, term()}
   defdelegate yield_progress(episode_id, turn_ref, lease_ref, retry_seconds), to: Claims
+
+  @doc """
+  Queues work for worker capacity without spending its failure budget.
+  Preserves the refusal for the queue display. Returns the waiting turn or a custody error.
+  """
+  defdelegate wait_for_capacity(episode_id, turn_ref, lease_ref, retry_seconds, code, detail),
+    to: Claims
 
   @doc "Read-only recovery eligibility; retry rechecks this under custody locks."
   defdelegate completed_workspace_recoverable(turn), to: Cancellation

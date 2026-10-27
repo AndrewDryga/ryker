@@ -19,6 +19,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
         changes_page_requests: [],
         checkpoint_keys: [],
         checkpoint_error: nil,
+        checkpoint_results: %{},
         # Inspection evidence is optional on the wire. `nil` is a worker whose
         # daemon does not serve it at all; the other values are the ways a
         # capture fails once it does, and none of them may reach the turn.
@@ -303,11 +304,38 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
       }
 
       result =
-        if state.checkpoint_error, do: {:error, state.checkpoint_error}, else: {:ok, receipt}
+        Map.get(state.checkpoint_results, key, checkpoint_result(state.checkpoint_error, receipt))
 
-      {result, %{state | checkpoint_keys: state.checkpoint_keys ++ [key]}}
+      state = %{state | checkpoint_keys: state.checkpoint_keys ++ [key]}
+
+      # Bridge keeps a terminal command under its key after the disk recovers.
+      # A transient transport failure, in contrast, is not a terminal operation.
+      state =
+        case result do
+          {:error, {:coop_error, _status, "storage_unavailable", detail}} ->
+            operation = %{
+              "method" => "CheckpointWorkspace",
+              "state" => "failed",
+              "error_code" => "storage_unavailable",
+              "error_detail" => detail
+            }
+
+            %{
+              state
+              | checkpoint_results: Map.put(state.checkpoint_results, key, result),
+                known_operations: Map.put_new(state.known_operations, key, operation)
+            }
+
+          _other ->
+            state
+        end
+
+      {result, state}
     end)
   end
+
+  defp checkpoint_result(nil, receipt), do: {:ok, receipt}
+  defp checkpoint_result(error, _receipt), do: {:error, error}
 
   @impl true
   def get_changes(agent, _session_id) do

@@ -83,18 +83,43 @@ defmodule Ryker.Admission.Dispatcher do
         wait(claim, input_ref, reason, settings, settings.now.())
 
       {:error, reason} ->
-        # A run the worker cancelled, interrupted or ran out of budget for
-        # spent its generation too, so the next claim reads the message again
-        # with a fresh run instead of asking anyone to send it again.
-        if claim.entry.attempt_count >= @maximum_attempts do
-          # A pending predecessor prevents every later input in its conversation
-          # from running. Preserve reconciliation keys in operator custody rather
-          # than retrying forever or silently discarding the offending input.
-          {reported_reason, generation} = retry_reason(reason)
-          block(claim, input_ref, reported_reason, generation)
-        else
-          defer(claim, input_ref, reason, settings, settings.now.())
-        end
+        dispatch_failure(claim, input_ref, reason, settings)
+    end
+  end
+
+  defp dispatch_failure(
+         claim,
+         input_ref,
+         {:coop_worker_capacity_unavailable, _session_id} = reason,
+         settings
+       ),
+       do: wait_for_capacity(claim, input_ref, reason, :wait, settings)
+
+  defp dispatch_failure(
+         claim,
+         input_ref,
+         {:coop_error, _status, "storage_unavailable", _detail} = reason,
+         settings
+       ),
+       do: wait_for_capacity(claim, input_ref, reason, :wait, settings)
+
+  defp dispatch_failure(
+         claim,
+         input_ref,
+         {:admission_generation_spent,
+          {:coop_operation_failed, "storage_unavailable", _detail} = reason},
+         settings
+       ),
+       do: wait_for_capacity(claim, input_ref, reason, :wait_execution, settings)
+
+  defp dispatch_failure(claim, input_ref, reason, settings) do
+    # A pending predecessor blocks later inputs in the conversation. Genuine
+    # failures stay bounded; capacity waits above never spend this budget.
+    if claim.entry.attempt_count >= @maximum_attempts do
+      {reported_reason, generation} = retry_reason(reason)
+      block(claim, input_ref, reported_reason, generation)
+    else
+      defer(claim, input_ref, reason, settings, settings.now.())
     end
   end
 
@@ -231,6 +256,25 @@ defmodule Ryker.Admission.Dispatcher do
 
       {:error, wait_reason} ->
         {:error, {:admission_dispatch_failed, reason, wait_reason}}
+    end
+  end
+
+  # No model ran: the queue retains the request and returns the claim's attempt.
+  # A confirmed creation failure still needs a fresh idempotency key next time.
+  defp wait_for_capacity(claim, input_ref, reason, generation, settings) do
+    {_error_code, error_detail} = describe_error(reason)
+
+    case Ingress.Inbox.wait_for_capacity(
+           input_ref,
+           claim.lease_ref,
+           settings.now.(),
+           settings.retry_max_ms,
+           "coop_worker_capacity_unavailable",
+           error_detail,
+           generation
+         ) do
+      {:ok, _entry} -> {:ok, {:deferred, input_ref, reason}}
+      {:error, wait_reason} -> {:error, {:admission_dispatch_failed, reason, wait_reason}}
     end
   end
 

@@ -370,13 +370,45 @@ defmodule Ryker.Work.Executor.Turns do
            end) do
       {:ok, %{"transfer_id" => transfer_id}}
     else
-      {:ok, _invalid} -> {:error, {:coop_protocol_error, :workspace_checkpoint}}
-      {:error, reason} -> {:error, reason}
+      {:ok, _invalid} ->
+        {:error, {:coop_protocol_error, :workspace_checkpoint}}
+
+      {:error, {:coop_error, _status, "storage_unavailable", _detail} = reason} ->
+        reconcile_checkpoint_capacity(claim, settings, reason)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp checkpoint_accepted_workspace(_claim, _remote_session, _settings, false),
     do: {:error, {:invalid_work_executor, :workspace_checkpoint_api}}
+
+  # A refused checkpoint is a terminal command. Reusing its key replays the
+  # refusal forever; only a confirmed failure permits another checkpoint of
+  # the saved answer. Uncertain outcomes retain their original identity.
+  defp reconcile_checkpoint_capacity(claim, settings, reason) do
+    case Remote.operation_by_key(settings, OperationKeys.checkpoint(claim.turn)) do
+      {:ok,
+       %{
+         "method" => "CheckpointWorkspace",
+         "state" => "failed",
+         "error_code" => "storage_unavailable"
+       }} ->
+        with {:ok, _turn} <-
+               Custody.advance_checkpoint(
+                 claim.episode.id,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 claim.turn.checkpoint_retry_generation
+               ) do
+          {:error, {:work_generation_spent, :workspace_checkpoint, reason}}
+        end
+
+      _unproven ->
+        {:error, {:coop_mutation_response_unresolved, :workspace_checkpoint, reason}}
+    end
+  end
 
   defp ensure_checkpoint_publication_offer(_claim, nil), do: :ok
 

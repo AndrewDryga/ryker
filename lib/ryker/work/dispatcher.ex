@@ -67,9 +67,11 @@ defmodule Ryker.Work.Dispatcher do
         {:ok, {:executed, execution}}
 
       {:error, reason} ->
-        if worker_away?(reason),
-          do: wait_for_worker(claim, reason),
-          else: execution_failure(claim, reason, settings)
+        cond do
+          capacity_wait?(reason) -> wait_for_capacity(claim, reported_reason(reason), settings)
+          worker_away?(reason) -> wait_for_worker(claim, reason)
+          true -> execution_failure(claim, reason, settings)
+        end
     end
   end
 
@@ -297,6 +299,22 @@ defmodule Ryker.Work.Dispatcher do
   defp yield_progress(claim, reason, settings),
     do: yield_for(claim, reason, settings.retry_base_seconds)
 
+  defp wait_for_capacity(claim, reason, settings) do
+    {_code, detail} = describe_error(reason)
+
+    case Custody.wait_for_capacity(
+           claim.episode.id,
+           claim.turn.turn_ref,
+           claim.lease_ref,
+           settings.retry_max_seconds,
+           "coop_worker_capacity_unavailable",
+           detail
+         ) do
+      {:ok, _turn} -> {:ok, {:deferred, reason}}
+      {:error, wait_reason} -> custody_failed(reason, wait_reason)
+    end
+  end
+
   defp yield_for(claim, reason, retry_seconds) do
     case Custody.yield_progress(
            claim.episode.id,
@@ -372,6 +390,24 @@ defmodule Ryker.Work.Dispatcher do
        else: turn.work_attempt_count
   end
 
+  defp capacity_wait?({:coop_worker_capacity_unavailable, _session_id}), do: true
+  defp capacity_wait?({:coop_error, _status, "storage_unavailable", _detail}), do: true
+
+  defp capacity_wait?(
+         {:work_generation_spent, :workspace_checkpoint,
+          {:coop_error, _status, "storage_unavailable", _detail}}
+       ),
+       do: true
+
+  defp capacity_wait?(
+         {:work_generation_spent, :session_create,
+          {:coop_operation_failed, "storage_unavailable", _detail}}
+       ),
+       do: true
+
+  defp capacity_wait?({:work_completion_blocked, _receipt, reason}), do: capacity_wait?(reason)
+  defp capacity_wait?(_reason), do: false
+
   defp retry_class({:work_generation_spent, _phase, _reason}), do: :transient
   defp retry_class({:work_cancellation_unresolved, _reason}), do: :transient
   defp retry_class({:coop_mutation_response_unresolved, _phase, _reason}), do: :transient
@@ -384,10 +420,6 @@ defmodule Ryker.Work.Dispatcher do
   # A fetch that stalled past its deadline, or a mirror another fetch holds;
   # one GitHub keeps refusing still blocks once the attempts run out.
   defp retry_class(:coop_worker_source_unavailable), do: :transient
-  # Every worker was busy or not yet reporting. That passes, so the task is
-  # tried again and asks a person only once its attempts run out; it stopped
-  # for a person at once (2026-10-04 review).
-  defp retry_class({:coop_worker_capacity_unavailable, _session_id}), do: :transient
   # The worker missed its polls and the session's placement lapsed under a command the turn
   # was waiting on (2026-10-10). The worker's next poll renews it, and the next attempt waits
   # for that or moves a turn Coop does not run yet to a new session
@@ -397,7 +429,8 @@ defmodule Ryker.Work.Dispatcher do
 
   defp retry_class(_reason), do: :blocked
 
-  defp reported_reason({:work_generation_spent, _phase, reason}), do: reason
+  defp reported_reason({:work_generation_spent, _phase, reason}), do: reported_reason(reason)
+  defp reported_reason({:work_completion_blocked, _receipt, reason}), do: reported_reason(reason)
   defp reported_reason(reason), do: reason
 
   defp describe_error(reason), do: ErrorDetail.describe(reason, :work_execution_failed)

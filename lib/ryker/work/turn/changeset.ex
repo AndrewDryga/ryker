@@ -306,6 +306,17 @@ defmodule Ryker.Work.Turn.Changeset do
     |> work_constraints()
   end
 
+  def capacity_wait(%Turn{} = turn, code, detail) do
+    turn
+    |> cast(%{last_error_code: code, last_error_detail: detail}, [
+      :last_error_code,
+      :last_error_detail
+    ])
+    |> validate_required([:last_error_code, :last_error_detail])
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
+  end
+
   @spec block(Turn.t(), map()) :: Ecto.Changeset.t()
   def block(%Turn{} = turn, attributes) do
     turn
@@ -427,6 +438,16 @@ defmodule Ryker.Work.Turn.Changeset do
     )
     |> check_constraint(:completion_retry_base_count,
       name: :episode_work_turn_completion_retry_base_count_valid
+    )
+    |> work_constraints()
+  end
+
+  @spec advance_checkpoint(Turn.t()) :: Ecto.Changeset.t()
+  def advance_checkpoint(%Turn{} = turn) do
+    turn
+    |> change(checkpoint_retry_generation: turn.checkpoint_retry_generation + 1)
+    |> check_constraint(:checkpoint_retry_generation,
+      name: :episode_work_turn_checkpoint_retry_generation_valid
     )
     |> work_constraints()
   end

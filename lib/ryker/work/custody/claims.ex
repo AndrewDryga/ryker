@@ -179,6 +179,28 @@ defmodule Ryker.Work.Custody.Claims do
     UTCDateTime.earliest(turns ++ reviews_due(since, phase))
   end
 
+  def wait_for_capacity(episode_id, turn_ref, lease_ref, retry_seconds, code, detail) do
+    with :ok <- bounded_text(code, 128, :error_code),
+         :ok <- bounded_text(detail, 4_096, :error_detail) do
+      Repo.transaction(fn ->
+        wait_for_capacity_locked(episode_id, turn_ref, lease_ref, retry_seconds, code, detail)
+      end)
+    end
+  end
+
+  defp wait_for_capacity_locked(episode_id, turn_ref, lease_ref, retry_seconds, code, detail) do
+    case yield_progress(episode_id, turn_ref, lease_ref, retry_seconds) do
+      {:ok, turn} ->
+        turn
+        |> Turn.Changeset.capacity_wait(code, detail)
+        |> Repo.update()
+        |> unwrap_or_rollback(:work_capacity_wait)
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
   defp reviews_due(since, :work),
     do: [Repo.peek(Publication.Publication.Query.next_review_expiry_after(since))]
 

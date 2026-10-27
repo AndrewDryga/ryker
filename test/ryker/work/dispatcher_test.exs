@@ -42,6 +42,60 @@ defmodule Ryker.Work.DispatcherTest do
     assert Dispatcher.run_once(options({:error, reason})) == {:ok, :idle}
   end
 
+  # On 2026-10-27 a storage-starved worker exhausted the queue's retry budget
+  # without running a model. Waiting for a slot or disk must not spend it.
+  test "capacity waits outlast the failure budget and resume when the worker can accept work" do
+    command = create_episode!("capacity-wait")
+    reason = {:coop_worker_capacity_unavailable, "session:queued"}
+    storage = {:coop_operation_failed, "storage_unavailable", "refusing a new workspace"}
+
+    for failure <-
+          List.duplicate(reason, 10) ++
+            List.duplicate({:work_generation_spent, :session_create, storage}, 10) ++
+            List.duplicate(
+              {:coop_error, 503, "storage_unavailable", "refusing a new workspace"},
+              10
+            ) do
+      assert {:ok, {:deferred, _reason}} = Dispatcher.run_once(options({:error, failure}))
+      turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+      assert turn.status == :pending
+      assert turn.work_attempt_count == 0
+      assert turn.lease_ref == nil
+
+      assert turn.last_error_code == "coop_worker_capacity_unavailable"
+
+      assert DateTime.diff(turn.next_attempt_at, Ryker.Repo.now!()) in 55..60
+
+      Ryker.Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+        set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]]
+      )
+    end
+
+    assert Dispatcher.run_once(options({:ok, %{resumed: true}})) ==
+             {:ok, {:executed, %{resumed: true}}}
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.work_attempt_count == 1
+  end
+
+  test "capacity waits preserve a completed answer while its workspace cannot be saved" do
+    command = create_episode!("completed-capacity-wait")
+    proof = finished!(command)
+    reason = {:coop_worker_capacity_unavailable, "session:checkpoint"}
+
+    for _attempt <- 1..10 do
+      assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(saving_fails(proof, reason))
+      turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+      assert turn.status == :pending
+      assert turn.work_attempt_count == 1
+      assert turn.completion_receipt == proof
+
+      Ryker.Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+        set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]]
+      )
+    end
+  end
+
   # Coop's answer can quote the request it failed, credentials and all, and the turn kept it as
   # its error detail and the worker logged it as it came (2026-10-04 review).
   test "a turn keeps what went wrong without the credentials the failure quotes" do

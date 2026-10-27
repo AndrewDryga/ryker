@@ -423,6 +423,38 @@ defmodule Ryker.Work.Custody.Turns do
   end
 
   @doc false
+  def advance_checkpoint(episode_id, turn_ref, lease_ref, expected_generation) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- non_negative_integer(expected_generation, :checkpoint_retry_generation) do
+      Repo.transaction(fn ->
+        advance_checkpoint_locked(episode_id, turn_ref, lease_ref, expected_generation)
+      end)
+    end
+  end
+
+  defp advance_checkpoint_locked(episode_id, turn_ref, lease_ref, expected_generation) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    cond do
+      turn.checkpoint_retry_generation != expected_generation ->
+        Repo.rollback({:work_checkpoint_generation_conflict, turn.checkpoint_retry_generation})
+
+      not completion_matches?(turn, turn.completion_receipt) or turn.status != :pending or
+        not is_nil(turn.cancellation_intent) or not is_nil(turn.result_ref) or
+          not is_nil(turn.delivery_ref) ->
+        Repo.rollback(:work_completion_receipt_mismatch)
+
+      true ->
+        turn
+        |> Turn.Changeset.advance_checkpoint()
+        |> Repo.update()
+        |> unwrap_or_rollback(:work_checkpoint_generation)
+    end
+  end
+
+  @doc false
   def block_completion(episode_id, turn_ref, lease_ref, receipt, code, detail) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
