@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.BrowserGuard do
 
   def call(conn, options) do
     conn = headers(conn)
-    {access, published_host, cloudflare_access} = boundary(options)
+    {access, published_host, cloudflare_access, local_host} = boundary(options)
 
     cond do
       not local_host?(conn.host, published_host) ->
@@ -35,6 +35,9 @@ defmodule Ryker.ControlPlane.BrowserGuard do
 
       not peer_allowed?(conn.remote_ip, access) ->
         refuse(conn, 403, "Loopback access only")
+
+      local_browser_page?(conn) ->
+        canonical_local_page(conn, local_host)
 
       true ->
         sign_in(conn, published_host, cloudflare_access)
@@ -70,6 +73,37 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def peer_allowed?(address, {:network, published}) when is_tuple(published),
     do: loopback?(address) or address == published
 
+  # localhost and 127.0.0.1 have separate host-only cookies. Normalize document
+  # navigation before sign-in, not writes (which must never be replayed at a
+  # different origin), probes or published hosts. No cookie or token is copied.
+  defp local_browser_page?(%Plug.Conn{path_info: [path]})
+       when path in ["healthz", "readyz", "metrics"],
+       do: false
+
+  defp local_browser_page?(%Plug.Conn{path_info: ["assets" | _rest]}), do: false
+
+  defp local_browser_page?(%Plug.Conn{host: "localhost", scheme: :http, method: method} = conn)
+       when method in ["GET", "HEAD"] do
+    Enum.any?(get_req_header(conn, "accept"), &String.contains?(&1, "text/html"))
+  end
+
+  defp local_browser_page?(_conn), do: false
+
+  defp canonical_local_page(conn, local_host) do
+    destination = %URI{
+      scheme: "http",
+      host: local_host,
+      port: conn.port,
+      path: conn.request_path,
+      query: if(conn.query_string != "", do: conn.query_string)
+    }
+
+    conn
+    |> put_resp_header("location", URI.to_string(destination))
+    |> send_resp(302, "")
+    |> halt()
+  end
+
   # Under Access, a token Access signed names a person at the published host.
   # The person it names stays on the request (`CloudflareAccess.viewer/2`), so
   # no later step checks the signature again: the router's own guard, the
@@ -91,10 +125,12 @@ defmodule Ryker.ControlPlane.BrowserGuard do
         control_plane = Endpoint.config(:control_plane)
 
         {Map.get(control_plane, :access, :loopback), Map.get(control_plane, :public_host),
-         Map.get(control_plane, :cloudflare_access)}
+         Map.get(control_plane, :cloudflare_access),
+         Map.get(control_plane, :local_host, "127.0.0.1")}
 
       access when access == :loopback or (is_tuple(access) and elem(access, 0) == :network) ->
-        {access, Keyword.get(options, :public_host), Keyword.get(options, :cloudflare_access)}
+        {access, Keyword.get(options, :public_host), Keyword.get(options, :cloudflare_access),
+         Keyword.get(options, :local_host, "127.0.0.1")}
     end
   end
 

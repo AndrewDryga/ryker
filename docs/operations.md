@@ -399,6 +399,13 @@ console is in use, so quitting the browser doesn't sign anyone out. The cookie i
 derived from `RYKER_CREDENTIAL_KEY`, so signing in lasts through restarts, deploys and upgrades. A
 new credential key signs every browser out.
 
+For local browser access, use `http://127.0.0.1:4321` (or the configured control port).
+HTTP page requests at `localhost` open the same path and query at `127.0.0.1` before
+sign-in: those hostnames have separate cookies, which otherwise makes switching addresses
+look like a lost session. Health checks, API requests and form posts are not redirected,
+and published HTTPS addresses keep their own host and sign-in. An IPv6-only listener
+uses `[::1]` instead of `127.0.0.1`.
+
 Styles and browser scripts share a content-addressed asset directory. A deploy
 that changes those files cannot reuse a CDN's older bundle. A tab still running
 the previous bundle stays disconnected instead of receiving incompatible page

@@ -27,8 +27,17 @@ defmodule Ryker.ControlPlane.ServerTest do
            } = Server.child_spec(configuration())
 
     assert endpoint_options[:http] == [ip: {127, 0, 0, 1}, port: 4_090]
+    assert endpoint_options[:url] == [host: "127.0.0.1", port: 4_090]
+    assert endpoint_options[:control_plane].local_host == "127.0.0.1"
     assert "//localhost:4090" in endpoint_options[:check_origin]
     refute endpoint_options[:check_origin] == false
+  end
+
+  test "an IPv6-only listener keeps its canonical browser address reachable" do
+    spec = Server.child_spec(ip: {0, 0, 0, 0, 0, 0, 0, 1}, port: 4_090)
+    {_endpoint, :start_link, [options]} = spec.start
+    assert options[:url] == [host: "::1", port: 4_090]
+    assert options[:control_plane].local_host == "::1"
   end
 
   # Each Chat conversation picks its environment, so the console keeps the

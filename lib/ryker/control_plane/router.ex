@@ -99,6 +99,7 @@ defmodule Ryker.ControlPlane.Router do
   def call(conn, options) do
     case BrowserGuard.call(conn,
            access: Map.get(options, :access, :loopback),
+           local_host: Map.get(options, :local_host, "127.0.0.1"),
            public_host: Map.get(options, :public_host),
            cloudflare_access: Map.get(options, :cloudflare_access)
          ) do

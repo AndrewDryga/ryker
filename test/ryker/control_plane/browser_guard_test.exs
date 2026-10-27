@@ -7,11 +7,73 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
   path produced it.
   """
   use ExUnit.Case, async: true
-  import Plug.Conn, only: [get_resp_header: 2]
+  import Plug.Conn, only: [get_resp_header: 2, put_req_header: 3]
   alias Ryker.ControlPlane.{BrowserGuard, Router}
   alias Ryker.Fixtures.ControlPlaneOptions
 
   @security_headers ~w(cache-control content-security-policy cross-origin-resource-policy referrer-policy x-content-type-options x-ryker-version)
+
+  # October 27: localhost showed a sign-in page while 127.0.0.1 still had a
+  # valid session, making each deploy look like it had signed the operator out.
+  test "local browser pages use the same cookie host before sign-in, retaining the requested page" do
+    for path <- ["/working-copies", "/activity?q=deploy%20status", "/sign-in/one-use-link"] do
+      request =
+        conn(path, "localhost", {127, 0, 0, 1})
+        |> Map.put(:port, 4321)
+        |> put_req_header("accept", "text/html,application/xhtml+xml")
+
+      response = BrowserGuard.call(request, [])
+      assert response.status == 302
+      assert response.halted
+      assert get_resp_header(response, "location") == ["http://127.0.0.1:4321" <> path]
+      assert get_resp_header(response, "set-cookie") == []
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+    end
+  end
+
+  test "local address normalization never replays a write or redirects probes or published hosts" do
+    for {method, host, path, accept} <- [
+          {"POST", "localhost", "/actions/retention/copy/discard", "text/html"},
+          {"GET", "localhost", "/healthz", "text/html"},
+          {"GET", "localhost", "/readyz", "text/html"},
+          {"GET", "localhost", "/metrics", "text/html"},
+          {"GET", "localhost", "/assets/control-plane.js", "*/*"},
+          {"GET", "localhost", "/activity", "application/json"},
+          {"GET", "127.0.0.1", "/activity", "text/html"},
+          {"GET", "ryker.example.com", "/activity", "text/html"}
+        ] do
+      request =
+        conn(path, host, {127, 0, 0, 1})
+        |> Map.put(:method, method)
+        |> put_req_header("accept", accept)
+
+      response = BrowserGuard.call(request, public_host: "ryker.example.com")
+      refute response.halted
+      assert get_resp_header(response, "location") == []
+    end
+  end
+
+  test "host and peer refusals run before local browser normalization" do
+    for {host, peer, status} <- [
+          {"localhost", {10, 0, 0, 2}, 403},
+          {"localhost.evil.example", {127, 0, 0, 1}, 421}
+        ] do
+      request = conn("/activity", host, peer) |> put_req_header("accept", "text/html")
+      response = BrowserGuard.call(request, [])
+      assert response.status == status
+      assert get_resp_header(response, "location") == []
+    end
+  end
+
+  test "localhost uses the configured numeric address of an IPv6-only listener" do
+    request =
+      conn("/working-copies", "localhost", {0, 0, 0, 0, 0, 0, 0, 1})
+      |> Map.put(:port, 4321)
+      |> put_req_header("accept", "text/html")
+
+    response = BrowserGuard.call(request, local_host: "::1")
+    assert get_resp_header(response, "location") == ["http://[::1]:4321/working-copies"]
+  end
 
   test "refuses foreign hosts before foreign peers, and both before anything else" do
     assert %{status: 421, halted: true} = guard("evil.example", {127, 0, 0, 1})

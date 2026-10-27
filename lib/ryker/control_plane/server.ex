@@ -39,15 +39,17 @@ defmodule Ryker.ControlPlane.Server do
   def child_spec(configuration) do
     options = options!(configuration)
     :ok = Actions.put_current(actions(options))
+    local_host = if options.ip == @loopback_v6, do: "::1", else: "127.0.0.1"
 
     Endpoint.child_spec(
       server: true,
       http: [ip: options.ip, port: options.port],
-      url: [host: "localhost", port: options.port],
+      url: [host: local_host, port: options.port],
       check_origin: origins(options.port, options.public_url),
       secret_key_base: Base.encode64(options.session_secret),
       control_plane: %{
         access: options.access,
+        local_host: local_host,
         cloudflare_access: options.cloudflare_access,
         public_host: public_host(options.public_url),
         public_https: public_https?(options.public_url),

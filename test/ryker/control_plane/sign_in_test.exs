@@ -58,6 +58,28 @@ defmodule Ryker.ControlPlane.SignInTest do
     assert {:error, {:redirect, %{to: "/sign-in"}}} = live(local(), "/settings/access")
   end
 
+  test "a localhost page goes to the signed-in cookie host before asking anyone to sign in" do
+    response =
+      local()
+      |> Map.put(:port, 4321)
+      |> put_req_header("accept", "text/html")
+      |> get("/working-copies?q=kept")
+
+    assert response.status == 302
+
+    assert get_resp_header(response, "location") == [
+             "http://127.0.0.1:4321/working-copies?q=kept"
+           ]
+
+    assert response.resp_cookies == %{}
+
+    # The browser selects this host's existing cookie on the redirected GET;
+    # neither the redirect nor the new page revokes or replaces its session.
+    opened = signed_in_conn() |> Map.put(:host, "127.0.0.1") |> get("/working-copies?q=kept")
+    assert opened.status == 200
+    assert get_resp_header(opened, "location") == []
+  end
+
   # The deploy script, the watchdog and Compose's healthcheck read these without anyone signed
   # in. Metrics stay with this machine: through a tunnel they need a person.
   test "health, readiness and the stylesheets need no sign-in; metrics only at a loopback name" do
