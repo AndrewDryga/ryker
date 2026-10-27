@@ -59,6 +59,43 @@ defmodule Ryker.ControlPlane.ObservationsCardTest do
     assert row_bodies(html) |> List.last() =~ "Not recorded"
   end
 
+  test "consecutive observations with one saved subject share a heading without losing their facts" do
+    # Ten live observations repeated the same long subject. Group only
+    # adjacent rows; keep their text, order and exact evidence destinations.
+    work = claimed!()
+    subject = "Infrastructure health October 27 around 15:00 UTC"
+
+    first =
+      evidence!(work, "readiness", %{
+        "target" => subject,
+        "observation" => "Both endpoints pass readiness."
+      })
+
+    second =
+      evidence!(work, "backups", %{
+        "target" => subject,
+        "observation" => "The latest backup completed."
+      })
+
+    third = evidence!(work, "cpu", %{"target" => "VM CPU"})
+    fourth = evidence!(work, "later-readiness", %{"target" => subject})
+
+    {_detail, html} = rendered(work.episode)
+    document = LazyHTML.from_document(html)
+
+    assert LazyHTML.query(document, ".observation-group > h4") |> Enum.map(&LazyHTML.text/1) == [
+             subject,
+             "VM CPU",
+             subject
+           ]
+
+    assert LazyHTML.query(document, ".observation-row") |> LazyHTML.attribute("id") ==
+             Enum.map([first, second, third, fourth], &"event-record-#{&1.id}")
+
+    assert html =~ first.payload["observation"]
+    assert html =~ second.payload["observation"]
+  end
+
   test "a limit on what a check covers stays on the row before it is opened" do
     work = claimed!()
 

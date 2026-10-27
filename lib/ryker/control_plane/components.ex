@@ -493,6 +493,7 @@ defmodule Ryker.ControlPlane.Components do
   )
 
   attr(:context, :string, default: nil)
+  attr(:location, :string, default: nil)
   attr(:class, :any, default: nil)
   attr(:rest, :global)
   slot(:meta, doc: "Message timestamp or delivery state, separate from its content")
@@ -511,6 +512,7 @@ defmodule Ryker.ControlPlane.Components do
     <article class={["ui-message", @class]} data-author={@author} {@rest}>
       <h3 :if={@title} class="ui-message-title">{@title}</h3>
       <div class="ui-message-frame">
+        <p :if={@location} class="ui-message-location">{@location}</p>
         <header :if={@sender || @person || @context || @meta != []} class="ui-message-header">
           <strong :if={@person}><Kit.person person={@person} /></strong>
           <strong :if={@sender && !@person}>{@sender}</strong>

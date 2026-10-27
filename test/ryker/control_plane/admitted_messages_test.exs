@@ -68,6 +68,22 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
     # spaces on the live page. It is the footer's, and exactly its words.
     assert Enum.map(links, &LazyHTML.text/1) |> Enum.uniq() == ["Open in GitHub ↗"]
     assert Enum.empty?(LazyHTML.query(document, ".ui-message-body a.message-source"))
+
+    # A full file path filled the card heading and the source link lost its
+    # bubble inset. Keep the kind in the heading and the location with the message.
+    github =
+      LazyHTML.query(
+        document,
+        ".ui-message.case-message:has(a.message-source[href^='https://github.com/'])"
+      )
+
+    assert Enum.count(github) == 4
+
+    assert Enum.map(LazyHTML.query(github, ".ui-message-title"), &LazyHTML.text/1) ==
+             List.duplicate("New GitHub message", 4)
+
+    assert LazyHTML.text(LazyHTML.query(github, ".ui-message-location")) =~
+             "Comment on README.md in PR #2"
   end
 
   # Andrew, 2026-09-29, of this task's page: its two sessions' cleanups, at

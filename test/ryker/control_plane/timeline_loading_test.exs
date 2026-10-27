@@ -478,19 +478,21 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
              |> LazyHTML.query("article.case-entry")
              |> Enum.filter(&(LazyHTML.text(&1) =~ "Checking the deploy script"))
 
-    # Diagnostic narration is an optional read, not a second competing card
-    # heading. Keep the original text without presenting it as a finding.
+    # The note card is already the place to read the note. Folding its body
+    # forced another click for the only content (Andrew, 2026-10-27).
     assert LazyHTML.query(note, ".ui-activity-note h3") |> LazyHTML.text() == "Model's note"
     assert Enum.empty?(LazyHTML.query(note, ".case-card-heading-label"))
 
-    assert LazyHTML.query(note, ".ui-activity-note details > summary")
+    assert LazyHTML.query(note, ".activity-note-topic")
            |> LazyHTML.text()
            |> String.trim() ==
              "Checking the deploy script"
 
-    assert Enum.empty?(LazyHTML.query(note, ".ui-activity-note details[open]"))
+    assert Enum.empty?(
+             LazyHTML.query(note, ".activity-narrative details, details.activity-narrative")
+           )
 
-    assert LazyHTML.query(note, ".ui-disclosure-body") |> LazyHTML.text() =~
+    assert LazyHTML.query(note, ".activity-narrative .markdown-preview") |> LazyHTML.text() =~
              "The readiness probe starts before the migration."
   end
 

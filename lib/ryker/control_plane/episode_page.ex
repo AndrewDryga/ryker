@@ -1139,9 +1139,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       id={@entry.id}
       class={[
         "case-entry case-#{@entry.kind}",
-        compact_entry?(@entry) && "case-checkpoint",
-        message_container?(@entry) && "message-container",
-        minor_entry?(@entry) && "case-minor"
+        message_container?(@entry) && "message-container"
       ]}
       data-entry-kind={@entry.kind}
       data-direction={message_direction(@entry)}
@@ -1306,18 +1304,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp message_direction(%{kind: :message}), do: "in"
   defp message_direction(_entry), do: nil
 
-  # Plumbing that went as expected is one line, not a card.
-  defp minor_entry?(%{kind: :event, step: %{tone: tone}}) when tone in [:bad, :warn], do: false
-
-  defp minor_entry?(%{kind: :event, step: %{stage: stage}})
-       when stage in ["Queue", "Tool call", "Maintenance"],
-       do: false
-
-  defp minor_entry?(%{kind: :event, step: step} = entry),
-    do: compact_entry?(entry) and is_nil(step[:candidate_response])
-
-  defp minor_entry?(_entry), do: false
-
   attr(:recovery, :map, required: true)
 
   # A message routing stopped on, with the way to retry it.
@@ -1433,68 +1419,114 @@ defmodule Ryker.ControlPlane.EpisodePage do
   attr(:changes, :map, required: true)
   attr(:current, :boolean, default: false)
   attr(:compact, :boolean, default: false)
+  attr(:collapse_completed, :boolean, default: false)
 
   defp plan_steps(assigns) do
+    groups =
+      assigns.plan.steps
+      |> Enum.chunk_by(fn goal ->
+        assigns.collapse_completed && goal.state == "completed" &&
+          !Map.has_key?(assigns.changes, goal.goal_id)
+      end)
+      |> Enum.map(fn rows ->
+        %{
+          rows: rows,
+          folded:
+            assigns.collapse_completed && hd(rows).state == "completed" &&
+              !Map.has_key?(assigns.changes, hd(rows).goal_id)
+        }
+      end)
+
+    assigns = assign(assigns, :groups, Enum.with_index(groups))
+
     ~H"""
     <ol class="plan-steps">
-      <li
-        :for={goal <- @plan.steps}
-        id={@prefix <> "-" <> goal.id}
-        class="plan-step"
-        data-state={goal.state}
-        data-depth={goal.depth}
-        data-changed={Map.has_key?(@changes, goal.goal_id)}
-      >
-        <div class="plan-step-head">
-          <.dynamic_tag
-            tag_name={if @current && goal.state != "working", do: "span", else: "strong"}
-            class="plan-step-title"
+      <%= for {group, index} <- @groups do %>
+        <li
+          :if={group.folded}
+          class="plan-completed-group"
+          style={"--completed-count:#{length(group.rows)}"}
+        >
+          <.disclosure
+            id={@prefix <> "-completed-#{index}"}
+            label={Wording.count(length(group.rows), "completed step") <> " unchanged"}
+            class="plan-completed"
           >
-            <a :if={@current} href={"#event-" <> goal.change_id}>{goal.title}</a>
-            <span :if={!@current}>{goal.title}</span>
-          </.dynamic_tag>
-          <span class="plan-step-status" data-tone={goal.tone}>{goal.status}</span>
-        </div>
-        <p :if={goal.optional || goal.attempt > 1} class="plan-step-flags">
-          <span :if={goal.optional}>Optional</span>
-          <span :if={goal.attempt > 1}>Attempt {goal.attempt}</span>
-        </p>
-        <p
-          :if={plan_line(goal, @compact) && !Map.has_key?(@changes, goal.goal_id)}
-          class="plan-step-line"
-        >
-          <span :if={elem(plan_line(goal, @compact), 0)} class="plan-step-label">
-            {elem(plan_line(goal, @compact), 0)}
-          </span>
-          {elem(plan_line(goal, @compact), 1)}
-        </p>
-        <div
-          :for={entry <- Map.get(@changes, goal.goal_id, [])}
-          id={entry.id}
-          class="plan-step-change"
-        >
-          <p class="plan-change-meta">
-            <time datetime={DateTime.to_iso8601(entry.at)}>{clock_time(entry.at)} UTC</time>
-            <span :if={entry.step.plan_change.kind == "goal"}>Added to plan</span>
-            <span :if={entry.step.plan_change.kind != "goal"}>
-              {entry.step.plan_change.previous_status || "Not recorded"} → {entry.step.plan_change.status}
-            </span>
-          </p>
-          <p :if={entry.step.plan_change.kind == "goal" && goal.contract} class="plan-step-line">
-            <span class="plan-step-label">Done when</span> {goal.contract}
-          </p>
-          <p :if={entry.step.plan_change.detail} class="plan-step-line">
-            {entry.step.plan_change.detail}
-          </p>
-          <.plan_evidence id={entry.id <> "-evidence"} items={entry.step.plan_change.evidence} />
-        </div>
-        <.plan_evidence
-          :if={!Map.has_key?(@changes, goal.goal_id)}
-          id={@prefix <> "-evidence-" <> goal.id}
-          items={goal.evidence}
+            <.plan_steps plan={%{steps: group.rows}} prefix={@prefix} changes={@changes} />
+          </.disclosure>
+        </li>
+        <.plan_step_rows
+          :if={!group.folded}
+          plan={%{steps: group.rows}}
+          prefix={@prefix}
+          changes={@changes}
+          current={@current}
+          compact={@compact}
         />
-      </li>
+      <% end %>
     </ol>
+    """
+  end
+
+  defp plan_step_rows(assigns) do
+    ~H"""
+    <li
+      :for={goal <- @plan.steps}
+      id={@prefix <> "-" <> goal.id}
+      class="plan-step"
+      data-state={goal.state}
+      data-depth={goal.depth}
+      data-changed={Map.has_key?(@changes, goal.goal_id)}
+    >
+      <div class="plan-step-head">
+        <.dynamic_tag
+          tag_name={if @current && goal.state != "working", do: "span", else: "strong"}
+          class="plan-step-title"
+        >
+          <a :if={@current} href={"#event-" <> goal.change_id}>{goal.title}</a>
+          <span :if={!@current}>{goal.title}</span>
+        </.dynamic_tag>
+        <span class="plan-step-status" data-tone={goal.tone}>{goal.status}</span>
+      </div>
+      <p :if={goal.optional || goal.attempt > 1} class="plan-step-flags">
+        <span :if={goal.optional}>Optional</span>
+        <span :if={goal.attempt > 1}>Attempt {goal.attempt}</span>
+      </p>
+      <p
+        :if={plan_line(goal, @compact) && !Map.has_key?(@changes, goal.goal_id)}
+        class="plan-step-line"
+      >
+        <span :if={elem(plan_line(goal, @compact), 0)} class="plan-step-label">
+          {elem(plan_line(goal, @compact), 0)}
+        </span>
+        {elem(plan_line(goal, @compact), 1)}
+      </p>
+      <div
+        :for={entry <- Map.get(@changes, goal.goal_id, [])}
+        id={entry.id}
+        class="plan-step-change"
+      >
+        <p class="plan-change-meta">
+          <time datetime={DateTime.to_iso8601(entry.at)}>{clock_time(entry.at)} UTC</time>
+          <span :if={entry.step.plan_change.kind == "goal"}>Added to plan</span>
+          <span :if={entry.step.plan_change.kind != "goal"}>
+            {entry.step.plan_change.previous_status || "Not recorded"} → {entry.step.plan_change.status}
+          </span>
+        </p>
+        <p :if={entry.step.plan_change.kind == "goal" && goal.contract} class="plan-step-line">
+          <span class="plan-step-label">Done when</span> {goal.contract}
+        </p>
+        <p :if={entry.step.plan_change.detail} class="plan-step-line">
+          {entry.step.plan_change.detail}
+        </p>
+        <.plan_evidence id={entry.id <> "-evidence"} items={entry.step.plan_change.evidence} />
+      </div>
+      <.plan_evidence
+        :if={!Map.has_key?(@changes, goal.goal_id)}
+        id={@prefix <> "-evidence-" <> goal.id}
+        items={goal.evidence}
+      />
+    </li>
     """
   end
 
@@ -1527,7 +1559,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
           )}
         </:meta>
       </.card_heading>
-      <.plan_steps plan={@plan} prefix={@run.id} changes={@changes} />
+      <.plan_steps
+        plan={@plan}
+        prefix={@run.id}
+        changes={@changes}
+        collapse_completed={@kind != "goal" && length(@plan.steps) > 3}
+      />
     </div>
     """
   end
@@ -1630,40 +1667,44 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # observed, where it came from and when it was measured, and any limit on
   # what it covers. Opening a row shows the whole observation and its record.
   defp observations(assigns) do
+    assigns = assign(assigns, :groups, Enum.chunk_by(assigns.step.observations, & &1.area))
+
     ~H"""
     <div class="case-event-content observations">
       <.card_heading title="Observations" />
       <div class="observation-rows">
-        <details :for={row <- @step.observations} id={"event-" <> row.id} class="observation-row">
-          <summary>
-            <.icon name={:chevron} />
-            <span class="observation-summary">
-              <span class="observation-head">
-                <span class="observation-area">{row.area}</span>
-                <Kit.state :if={row.effect} tone={elem(row.effect, 0)} word={elem(row.effect, 1)} />
-                <span :if={row.contradicts} class="observation-flag">Contradicts its claim</span>
+        <section :for={rows <- @groups} class="observation-group">
+          <h4 class="observation-area">{hd(rows).area}</h4>
+          <details :for={row <- rows} id={"event-" <> row.id} class="observation-row">
+            <summary>
+              <.icon name={:chevron} />
+              <span class="observation-summary">
+                <span :if={row.effect || row.contradicts} class="observation-head">
+                  <Kit.state :if={row.effect} tone={elem(row.effect, 0)} word={elem(row.effect, 1)} />
+                  <span :if={row.contradicts} class="observation-flag">Contradicts its claim</span>
+                </span>
+                <span class="observation-text">{row.text}</span>
+                <span
+                  :if={observation_meta(row)}
+                  class="observation-meta"
+                  data-source-name={row[:source_name]}
+                >
+                  {observation_meta(row)}
+                </span>
+                <span :if={row.scope_note} class="observation-scope">
+                  <span class="observation-scope-label">Scope</span> {row.scope_note}
+                </span>
               </span>
-              <span class="observation-text">{row.text}</span>
-              <span
-                :if={observation_meta(row)}
-                class="observation-meta"
-                data-source-name={row[:source_name]}
-              >
-                {observation_meta(row)}
-              </span>
-              <span :if={row.scope_note} class="observation-scope">
-                <span class="observation-scope-label">Scope</span> {row.scope_note}
-              </span>
-            </span>
-          </summary>
-          <div class="observation-body">
-            <p :if={row.replaces != []} class="plan-step-evidence">
-              <span class="plan-step-label">Replaces</span>
-              <.record_links items={row.replaces} />
-            </p>
-            <.fact_list facts={row.details} />
-          </div>
-        </details>
+            </summary>
+            <div class="observation-body">
+              <p :if={row.replaces != []} class="plan-step-evidence">
+                <span class="plan-step-label">Replaces</span>
+                <.record_links items={row.replaces} />
+              </p>
+              <.fact_list facts={row.details} />
+            </div>
+          </details>
+        </section>
       </div>
     </div>
     """
@@ -1956,6 +1997,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     <.message_block
       :if={!@message[:provider]}
       title={message_title(@message)}
+      location={if(@message[:transport] == "github", do: @message[:title])}
       sender={@message[:display_actor] || @message.actor}
       person={@message[:person]}
       class="case-message"
@@ -2021,6 +2063,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
+  defp message_title(%{transport: "github"}), do: "New GitHub message"
   defp message_title(%{title: title}) when is_binary(title), do: title
   defp message_title(%{actor: "Ryker"}), do: "Sent response"
   defp message_title(%{event_kind: :edit}), do: "Message edited"
@@ -2344,7 +2387,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         summary: summary,
         note_topic:
           if(label,
-            do: title || if(summary, do: "Read note", else: "Note text was not recorded.")
+            do: title || if(!summary, do: "Note text was not recorded.")
           )
       )
 
@@ -2359,16 +2402,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@step.duration_ms}>{Units.duration(@step.duration_ms)}</span>
       </:meta>
       <:body :if={@summary || @note_topic}>
-        <.disclosure
-          :if={@note_topic && @summary}
-          id={"model-narrative-#{@step.id}"}
-          label={@note_topic}
-          class="activity-narrative"
-        >
-          <div class="markdown-preview">{SlackMarkdown.html(@summary)}</div>
-        </.disclosure>
-        <p :if={@note_topic && !@summary}>{@note_topic}</p>
-        <div :if={!@note_topic} class="markdown-preview">{SlackMarkdown.html(@summary)}</div>
+        <div class="activity-narrative">
+          <p :if={@note_topic} class="activity-note-topic">{@note_topic}</p>
+          <div :if={@summary} class="markdown-preview">{SlackMarkdown.html(@summary)}</div>
+        </div>
       </:body>
       <:evidence :if={@step.artifacts != []}>
         <.evidence_body
@@ -2466,23 +2503,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     <.fact_list :if={@step.details != []} facts={@step.details} />
     """
   end
-
-  defp bookkeeping?(step) do
-    step.tone not in [:bad, :warn] and
-      not silent_result?(step) and
-      step.stage in [
-        "Preparation",
-        "Routing",
-        "Input",
-        "Execution",
-        "Result",
-        "Delivery",
-        "Validation"
-      ]
-  end
-
-  defp compact_entry?(%{kind: :event, step: step}), do: bookkeeping?(step)
-  defp compact_entry?(_), do: false
 
   defp show_event_state?(%{stage: "Validation", state: state}) when state in ["accept", "reject"],
     do: false

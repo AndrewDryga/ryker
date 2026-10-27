@@ -344,6 +344,41 @@ defmodule Ryker.ControlPlane.WorkPlanCardTest do
     end
   end
 
+  test "large plan updates fold only unchanged completed steps and retain their order" do
+    # Long tasks repeated every completed step on each update, hiding the change.
+    work = claimed!()
+
+    for number <- 1..4 do
+      goal!(work, "check-#{number}", "Check #{number}")
+      if number <= 2, do: state!(work, "check-#{number}", "completed")
+    end
+
+    evidence!(work, "separate-update", %{})
+    changed = state!(work, "check-3", "completed")
+    {_detail, html} = rendered(work.episode)
+    document = LazyHTML.from_document(html)
+    card = LazyHTML.query(document, ".plan-change:has(#event-record-#{changed.id})")
+    folded = LazyHTML.query(card, "details.plan-completed")
+    assert Enum.count(folded) == 1
+    assert LazyHTML.query(folded, "summary") |> LazyHTML.text() =~ "2 completed steps unchanged"
+    assert LazyHTML.attribute(folded, "open") == []
+
+    assert LazyHTML.query(folded, ".plan-step-title")
+           |> Enum.map(&(LazyHTML.text(&1) |> String.trim())) == ["Check 1", "Check 2"]
+
+    assert Enum.empty?(LazyHTML.query(folded, "#event-record-#{changed.id}"))
+
+    assert LazyHTML.query(card, ".plan-step-title")
+           |> Enum.map(&(LazyHTML.text(&1) |> String.trim())) == [
+             "Check 1",
+             "Check 2",
+             "Check 3",
+             "Check 4"
+           ]
+
+    assert Enum.empty?(LazyHTML.query(document, ".work-plan-summary .plan-completed"))
+  end
+
   test "plan events show criteria and progress without displaying bookkeeping IDs" do
     work = claimed!()
     goal = goal!(work, "check-health", "Check infrastructure health")

@@ -31,6 +31,37 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     }
   ]
 
+  test "joined evidence uses the same card heading and inset as other timeline events" do
+    # The compact bookkeeping treatment shrank and shifted this card's heading.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    step =
+      Ryker.ControlPlane.EpisodeTrace.Step.step(
+        "origins-test",
+        :ready,
+        snapshot.trace.received_at,
+        %{
+          actor: "Ryker",
+          stage: "Routing",
+          title: "Evidence joined from 2 conversations",
+          summary: "Each message is answered where it was written.",
+          details: []
+        }
+      )
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], [step])
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    card = LazyHTML.query(document, "#event-origins-test")
+    assert LazyHTML.text(LazyHTML.query(card, ".case-card-heading h3")) == step.title
+    refute LazyHTML.attribute(card, "class") |> hd() =~ "case-minor"
+    refute LazyHTML.attribute(card, "class") |> hd() =~ "case-checkpoint"
+  end
+
   # A production finding hid its conclusion in the title's subtitle and its
   # explanation behind Details; readers could not distinguish either.
   test "a finding keeps its assessment conclusion and explanation in the content" do
