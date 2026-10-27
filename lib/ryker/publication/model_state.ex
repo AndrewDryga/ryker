@@ -6,7 +6,10 @@ defmodule Ryker.Publication.ModelState do
   alias Ryker.Repo
   alias Ryker.Work
 
-  @review_fields ~w(candidate_head candidate_tree gate publishable session_revision)
+  # A count without the saved diagnostics made a blocked task ask a person to
+  # relay its own review. These bounded Coop fields explain the refusal; they
+  # do not grant approval or expose the patch, task body or delivery credentials.
+  @review_fields ~w(candidate_head candidate_tree gate gate_error not_publishable_reasons policy_findings publishable rebase session_revision)
   @receipt_fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
 
   @spec snapshot(Ecto.UUID.t(), String.t() | nil) :: map() | nil

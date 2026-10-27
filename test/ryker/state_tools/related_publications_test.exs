@@ -74,6 +74,53 @@ defmodule Ryker.StateTools.RelatedPublicationsTest do
     assert state["records"] == []
   end
 
+  # The same diagnostic omission made a task ask a person to relay its own
+  # refusal. A linked followup must be able to explain the saved refusal too,
+  # without gaining publication authority or reading outside its frozen scope.
+  test "a followup can read the refusal within its repository scope without approving it",
+       %{claim: claim, published: published} do
+    diagnostics =
+      Map.take(
+        PublicationFixture.harvested_refusal(),
+        ~w(gate gate_error not_publishable_reasons policy_findings publishable rebase)
+      )
+
+    review = Map.merge(published.publication.review_document, diagnostics)
+
+    change!(published.publication,
+      status: :blocked,
+      approval_ref: nil,
+      approved_at: nil,
+      approved_by_actor_ref: nil,
+      publication_receipt: nil,
+      publication_receipt_fingerprint: nil,
+      published_at: nil,
+      published_delivery_receipt: nil,
+      published_delivery_receipt_fingerprint: nil,
+      review_document: review,
+      review_fingerprint: Publication.Review.fingerprint(review)
+    )
+
+    assert {:ok, %{"related_publications" => [related]}} = work_state(claim)
+    assert Map.take(related["review"], Map.keys(diagnostics)) == diagnostics
+    assert related["status"] == "blocked"
+    assert related["context_only"] == true
+    refute related["review"]["publishable"]
+    refute Map.has_key?(related, "approval_ref")
+    refute Jason.encode!(related) =~ "PRIVATE-"
+
+    change!(published.publication, review_fingerprint: String.duplicate("0", 64))
+    assert {:ok, %{"related_publications" => [unverified]}} = work_state(claim)
+    assert unverified["review"] == nil
+
+    change!(published.publication,
+      review_fingerprint: Publication.Review.fingerprint(review),
+      repository: "outside-frozen-scope"
+    )
+
+    assert_empty_related(claim)
+  end
+
   # QA130's new thread retained an older request as contextual history. That
   # link must not hide the new request's own confirmed task and publication.
   test "a request linked to older context still sees its own confirmed task receipt",

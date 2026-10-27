@@ -865,6 +865,12 @@ something a card resolves for itself.
 A confirmed task's completed turn arms its trusted review (`Publication.Custody`); Coop rebases the
 committed change onto the latest base, runs the repository's gate in its trusted box, scans it, and
 returns `publishable`, `gate`, `rebase`, `policy_findings` and `not_publishable_reasons`.
+`get_work_state` exposes those saved findings and reasons, plus `gate_error` when recorded,
+with the reviewed candidate and time. Both the task's own publication and authorized related-task
+receipts use the same fingerprint-checked projection. The diagnostic text does not grant approval,
+broaden repository access or prove the current state of a pull request. A task can read why its
+publication was refused without asking a person to copy the review back to it.
+
 `Publication.Review.remedy/1` sorts a refusal, and `Publication.FixLoop` acts on it without a person
 (Andrew, 2026-09-28: "it should be automatic feedback loop, agent needs to get errors from CI, fix
 them without me doing a man in the middle"):

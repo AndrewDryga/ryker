@@ -15,6 +15,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -1393,6 +1394,63 @@ defmodule Ryker.StateTools.RouterTest do
              "unknown"
 
     refute Jason.encode!(state) =~ "PRIVATE-"
+
+    # On 2026-10-27 a task read its blocked publication, received only a finding
+    # count, and asked the person to copy Ryker's own diagnostic back to it.
+    # Keep the observed passed-gate/policy-refusal shape and the scanner's
+    # existing CI-file finding, plus the harvested failed-gate counterpart.
+    for diagnostics <- [
+          %{
+            "gate" => "passed",
+            "not_publishable_reasons" => ["policy_findings"],
+            "policy_findings" => [
+              ".github/workflows/deploy.yml — Runs on the project's CI runners."
+            ],
+            "publishable" => false,
+            "rebase" => "clean"
+          },
+          Map.take(
+            PublicationFixture.harvested_refusal(),
+            ~w(gate gate_error not_publishable_reasons policy_findings publishable rebase)
+          ),
+          # The recorded hosted-runner refusal covered by ReviewTest.
+          %{
+            "gate" => "startup_error",
+            "gate_error" => "docker: command not found",
+            "not_publishable_reasons" => ["The gate could not start."],
+            "policy_findings" => [],
+            "publishable" => false,
+            "rebase" => "clean"
+          }
+        ] do
+      review = Map.merge(publication.review_document, diagnostics)
+
+      publication
+      |> Ecto.Changeset.change(
+        status: :blocked,
+        approval_ref: nil,
+        approved_at: nil,
+        approved_by_actor_ref: nil,
+        publication_receipt: nil,
+        publication_receipt_fingerprint: nil,
+        published_at: nil,
+        published_delivery_receipt: nil,
+        published_delivery_receipt_fingerprint: nil,
+        review_document: review,
+        review_fingerprint: Publication.Review.fingerprint(review)
+      )
+      |> Repo.update!()
+
+      assert {:ok, blocked} = Tools.call("get_work_state", %{"limit" => 1}, bound_options(claim))
+      assert blocked["publication"]["status"] == "blocked"
+      assert Map.take(blocked["publication"]["review"], Map.keys(diagnostics)) == diagnostics
+
+      assert blocked["publication"]["review"]["policy_findings_count"] ==
+               length(diagnostics["policy_findings"])
+
+      refute Map.has_key?(blocked["publication"], "approval_ref")
+      refute Jason.encode!(blocked) =~ "PRIVATE-"
+    end
 
     for checks <- [:none, :passing] do
       Repo.update_all(
