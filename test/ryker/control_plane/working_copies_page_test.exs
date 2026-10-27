@@ -52,6 +52,16 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   }
   @removed %{@blocked | action: nil, ref: "workspace:removed", status: :discarded}
 
+  # A confirmed cleanup removes its action. October 27: returning focus to the
+  # row keeps the next Tab here instead of jumping to the sidebar and page top.
+  test "a working copy remains a focus destination after its action disappears" do
+    document = render([@kept])
+
+    assert document
+           |> LazyHTML.query("article[id='copy-workspace:kept']")
+           |> LazyHTML.attribute("tabindex") == ["-1"]
+  end
+
   @storage %{
     budget: %{disposable_bytes_limit: 10_737_418_240, reclaim_target_seconds: 3_600},
     preview: [

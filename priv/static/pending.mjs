@@ -12,6 +12,32 @@
 // back/forward cache shows its forms as they were before the submit.
 
 const SUBMITTERS = "button:not([type]), button[type=submit], input[type=submit]"
+const POSITION_KEY = "ryker:confirmation-position"
+
+// A modal is in-place, but its protected POST returns through a new document.
+// Keep only that tab's position, for one return to the same page, never form
+// values or authority. Static refusals/sign-in pages do not run this module;
+// returning from them can keep the reader's place too. Any other live page
+// consumes the saved position without scrolling, and old positions expire.
+function restorePosition(win, doc) {
+  try {
+    const value = win.sessionStorage.getItem(POSITION_KEY)
+    win.sessionStorage.removeItem(POSITION_KEY)
+    const saved = JSON.parse(value)
+    if (!saved || saved.page !== win.location.pathname + win.location.search ||
+        !Number.isFinite(saved.at) || Date.now() - saved.at < 0 || Date.now() - saved.at > 300_000 ||
+        !Number.isFinite(saved.top) || saved.top < 0 || !Number.isFinite(saved.left) || saved.left < 0) return
+    const opener = [...doc.querySelectorAll(".action-control")].find(form => form.getAttribute("action") === saved.action)
+    const rows = [...doc.querySelectorAll(".entity-row")]
+    const row = (saved.row && rows.find(node => node.id === saved.row)) ||
+      (Number.isInteger(saved.rowIndex) && saved.rowIndex >= 0 ? rows[Math.min(saved.rowIndex, rows.length - 1)] : null)
+    // Cleanup can remove its action or its row. Keep the keyboard in this part
+    // of the list, without focusing a different destructive action.
+    const destination = opener?.querySelector(SUBMITTERS) || row
+    destination?.focus({preventScroll: true})
+    win.scrollTo({left: saved.left, top: saved.top, behavior: "instant"})
+  } catch (_) { /* Storage can be unavailable or contain an old, malformed value. */ }
+}
 
 export function markPending(form, submitter) {
   form.dataset.pending = "true"
@@ -47,10 +73,18 @@ export function restorePending(form) {
 export function createPendingForms(environment = {}) {
   const win = environment.window || window
   const doc = environment.document || document
+  let openingAction = null
+  let openingRow = null
 
   const onSubmit = event => {
     const form = event.target
     if (!form || form.tagName !== "FORM") return
+    // LiveView has already handled opening the question, but the same form's
+    // action identifies its original control on the document we return to.
+    if (form.matches?.(".action-control")) {
+      openingAction = form.getAttribute("action")
+      openingRow = form.closest?.(".entity-row")
+    }
     if (form.dataset.pending === "true") {
       event.preventDefault()
       return
@@ -58,6 +92,15 @@ export function createPendingForms(environment = {}) {
     if (event.defaultPrevented) return
     const target = form.getAttribute("target")
     if (target && target !== "_self") return
+    if (form.matches?.(".kit-modal-form")) {
+      try {
+        win.sessionStorage.setItem(POSITION_KEY, JSON.stringify({
+          page: win.location.pathname + win.location.search, action: openingAction,
+          row: openingRow?.id, rowIndex: [...doc.querySelectorAll(".entity-row")].indexOf(openingRow),
+          top: win.scrollY, left: win.scrollX, at: Date.now()
+        }))
+      } catch (_) { /* Saving a position must never stop the confirmed action. */ }
+    }
     markPending(form, event.submitter)
   }
 
@@ -70,6 +113,7 @@ export function createPendingForms(environment = {}) {
     onSubmit,
     onPageShow,
     start() {
+      restorePosition(win, doc)
       win.addEventListener("submit", onSubmit)
       win.addEventListener("pageshow", onPageShow)
     },

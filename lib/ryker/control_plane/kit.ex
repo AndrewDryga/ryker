@@ -132,6 +132,7 @@ defmodule Ryker.ControlPlane.Kit do
         @class
       ]}
       role="listitem"
+      tabindex="-1"
     >
       <p :if={@group} class="entity-group" role="heading" aria-level="2">{@group}</p>
       <.link
