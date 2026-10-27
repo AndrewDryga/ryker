@@ -96,17 +96,17 @@ defmodule Ryker.Records.Record.Changeset do
     |> check_constraint(:status, name: :episode_state_record_confirmation_valid)
   end
 
-  @spec answer(Record.t()) :: Ecto.Changeset.t()
-  def answer(%Record{} = record) do
+  @spec answer(Record.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def answer(%Record{} = record, %DateTime{} = now) do
     record
-    |> change(status: :answered)
+    |> change(status: :answered, updated_at: now)
     |> check_constraint(:status, name: :episode_state_record_identity_valid)
     |> check_constraint(:status, name: :episode_state_record_confirmation_valid)
   end
 
   @doc "Answers a wait that resumed, dropping the mark of an earlier failure to resume it."
-  def answer_wait(%Record{wait_error: "resume_failed"} = record),
-    do: record |> answer() |> put_change(:wait_error, nil)
+  def answer_wait(%Record{wait_error: "resume_failed"} = record, now),
+    do: record |> answer(now) |> put_change(:wait_error, nil)
 
-  def answer_wait(%Record{} = record), do: answer(record)
+  def answer_wait(%Record{} = record, now), do: answer(record, now)
 end

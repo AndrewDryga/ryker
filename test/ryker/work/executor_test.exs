@@ -2110,6 +2110,125 @@ defmodule Ryker.Work.ExecutorTest do
              )
   end
 
+  for resolve_at <- [:before_validation, :during_validation] do
+    test "an approval resolved #{resolve_at} refreshes custody without rejecting the model" do
+      # Approval arrived during completion review. Its now-answered record was
+      # reported as nonexistent and spent an otherwise valid answer's attempts.
+      claim = bound_turn!("approval-arrived-during-review")
+
+      run =
+        "testdata/emisar/run_action_pending_approval.json"
+        |> File.read!()
+        |> Jason.decode!()
+        |> Map.fetch!("runs")
+        |> hd()
+
+      payload =
+        run
+        |> Map.take(~w(action_id operation_id pack_ref run_id runner_ref status))
+        |> Map.merge(%{
+          "approval_url" => run["approval"]["url"],
+          "request_id" => run["approval"]["request_id"],
+          "expires_at" => DateTime.to_iso8601(DateTime.add(Repo.now!(), 1, :day))
+        })
+
+      ref = "record:emisar_approval:" <> String.replace(Ecto.UUID.generate(), "-", "")
+      assert {:ok, prepared} = Ryker.Emisar.ApprovalContract.prepare(payload, ref)
+
+      approval =
+        %{
+          id: Ecto.UUID.generate(),
+          episode_id: claim.episode.id,
+          turn_id: claim.turn.id,
+          ref: ref,
+          kind: "emisar_approval",
+          operation_id: "approval-race",
+          status: :open,
+          payload: prepared.payload,
+          continuation: prepared.continuation,
+          payload_fingerprint: CanonicalJSON.digest(prepared.payload)
+        }
+        |> Record.Changeset.insert()
+        |> Repo.insert!()
+
+      captured =
+        "test/ryker/emisar/fixtures/approval_finished_before_result.json"
+        |> File.read!()
+        |> Jason.decode!()
+
+      candidate =
+        captured["recorded_result"]
+        |> Jason.decode!()
+        |> put_in(["outcome", "record_refs"], [approval.ref])
+        |> Jason.encode!()
+
+      assert {:ok, turn} =
+               Custody.stage_candidate(
+                 claim.episode.id,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 nil,
+                 nil,
+                 candidate,
+                 digest(candidate),
+                 1
+               )
+
+      # Match production's database clock; Ecto's host clock can lag the
+      # candidate receipt and invert these two events even on one machine.
+      if unquote(resolve_at) == :before_validation,
+        do: approval |> Record.Changeset.answer(Repo.now!()) |> Repo.update!()
+
+      settings = %{
+        validation_context: fn current ->
+          if unquote(resolve_at) == :during_validation,
+            do: approval |> Record.Changeset.answer(Repo.now!()) |> Repo.update!()
+
+          Ryker.Work.ValidationContext.build(current.episode, current.turn)
+        end
+      }
+
+      assert Ryker.Work.Executor.Validation.ensure_validation_intent(
+               %{claim | turn: turn},
+               candidate,
+               digest(candidate),
+               1,
+               [],
+               settings
+             ) == {:error, :work_wait_state_changed}
+
+      assert Repo.get!(Ryker.Work.Turn, turn.id).validation_intent == nil
+      assert Repo.get!(Ryker.Work.Turn, turn.id).validation_history == []
+      assert Repo.get!(Record, approval.id).status == :answered
+
+      settings = %{
+        validation_context: fn current ->
+          Ryker.Work.ValidationContext.build(current.episode, current.turn)
+        end
+      }
+
+      # An already-answered reference is not this race. It must not let an
+      # invalid candidate buy itself fresh model turns indefinitely.
+      response = Repo.one!(Ryker.Work.CandidateResponse.Query.current_attempt(turn))
+
+      Repo.get!(Record, approval.id)
+      |> Ecto.Changeset.change(updated_at: DateTime.add(response.recorded_at, -1, :second))
+      |> Repo.update!()
+
+      assert {:ok, checked} =
+               Ryker.Work.Executor.Validation.ensure_validation_intent(
+                 %{claim | turn: turn},
+                 candidate,
+                 digest(candidate),
+                 1,
+                 [],
+                 settings
+               )
+
+      assert checked.turn.validation_intent["verdict"] == "reject"
+    end
+  end
+
   test "a semantic rejection repairs in the same Coop turn and keeps one accepted result" do
     # Production had 98 correction events across 41 recent episodes; the host
     # must return useful violations without starting another model session.

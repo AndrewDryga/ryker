@@ -535,7 +535,7 @@ defmodule Ryker.Records do
 
   defp answer_waits(records, resolution_kind) do
     Enum.reduce_while(records, :ok, fn record, :ok ->
-      with {:ok, answered} <- Repo.update(Record.Changeset.answer_wait(record)),
+      with {:ok, answered} <- Repo.update(Record.Changeset.answer_wait(record, Repo.now!())),
            :ok <-
              Waits.EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
         broadcast_record_updated(answered)

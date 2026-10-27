@@ -169,6 +169,35 @@ defmodule Ryker.Work.DispatcherTest do
   # attempt of a turn Coop already had found a fact its briefing used
   # withdrawn, and the turn stopped for a person instead of being answered
   # again from what is current.
+  test "a wait resolved during review refreshes the run with a recorded reason instead of a model rejection" do
+    # Approval arrived during review and a false missing-record rejection
+    # exhausted the candidate budget. This is changed host state, not bad output.
+    command = create_episode!("wait-resolved-during-review")
+
+    assert Dispatcher.run_once(options({:error, :work_wait_state_changed})) ==
+             {:ok, {:deferred, {:work_rerun_pending, :work_wait_state_changed}}}
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    assert turn.validation_history == []
+    assert turn.cancellation_intent["transfer_ref"] == "transfer:wait-state-changed:#{turn.id}"
+
+    # Real state changes do not authorize an unbounded sequence of fresh runs.
+    spent = create_episode!("wait-refresh-budget", "turn:rerun:2:#{Ecto.UUID.generate()}")
+    assert {:ok, claim} = Custody.claim_next("wait-refresh-budget", 60, :work)
+    assert claim.episode.id == command.episode_id
+    # The earlier cancellation still owns the queue; use the exact new owner.
+    assert {:ok, next} = Custody.claim_next("wait-refresh-budget-next", 60, :work)
+    assert next.episode.id == spent.episode_id
+
+    assert Dispatcher.run_claim(
+             next,
+             Keyword.put(options({:error, :work_wait_state_changed}), :max_attempts, 2)
+           ) ==
+             {:ok,
+              {:deferred, {:work_stop_pending, {:work_retry_exhausted, :work_wait_state_changed}}}}
+  end
+
   test "a briefing found withdrawn on a later attempt is answered again from what is current" do
     command = create_episode!("withdrawn-on-retry")
 

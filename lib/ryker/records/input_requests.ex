@@ -151,7 +151,7 @@ defmodule Ryker.Records.InputRequests do
          {:ok, input} <- input(record, choice, attributes),
          {:ok, inbox_receipt} <- Ingress.Inbox.record(input),
          {:ok, response} <- persist_response(record, inbox_receipt.entry, choice, attributes),
-         {:ok, record} <- Repo.update(Record.Changeset.answer(record)),
+         {:ok, record} <- Repo.update(Record.Changeset.answer(record, Repo.now!())),
          :ok <-
            Slack.InteractionAudits.record_answer_in_transaction(
              inbox_receipt.entry,

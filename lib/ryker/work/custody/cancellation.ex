@@ -55,9 +55,10 @@ defmodule Ryker.Work.Custody.Cancellation do
           String.t(),
           Ecto.UUID.t(),
           String.t(),
-          pos_integer()
+          pos_integer(),
+          :wait_state_changed | nil
         ) :: {:ok, map()} | {:error, term()}
-  def request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref, run \\ 1) do
+  def request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref, run \\ 1, cause \\ nil) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          {:ok, turn_id} <- uuid(turn_id, :turn_id),
          :ok <- reference(episode_key, :episode_key),
@@ -65,10 +66,18 @@ defmodule Ryker.Work.Custody.Cancellation do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(run, :run),
          {:ok, intent} <-
-           WorkCancellation.new_transfer(rerun_ref(run, turn_id), "transfer:rerun:#{turn_id}") do
+           WorkCancellation.new_transfer(
+             rerun_ref(run, turn_id),
+             rerun_transfer_ref(turn_id, cause)
+           ) do
       request_cancellation(episode_id, episode_key, turn_ref, intent, lease_ref)
     end
   end
+
+  defp rerun_transfer_ref(turn_id, nil), do: "transfer:rerun:#{turn_id}"
+
+  defp rerun_transfer_ref(turn_id, :wait_state_changed),
+    do: "transfer:wait-state-changed:#{turn_id}"
 
   # The first rerun keeps the reference it always had; a later one carries its number, so the
   # turn says how many reruns came before it without reading any other.

@@ -982,8 +982,30 @@ defmodule Ryker.Work.Custody.Turns do
         Repo.rollback({:work_validation_intent_conflict, turn.validation_intent_fingerprint})
 
       true ->
+        unchanged_waits!(episode_id, turn)
         authorize_completion!(episode_id, session, turn, intent)
         persist_validation_intent(turn, intent, fingerprint)
+    end
+  end
+
+  # Answer transitions take the same episode lock. Fence both verdicts here,
+  # after the reviewer returns: checking before it ran still spent correction
+  # attempts when a person answered during validation itself.
+  defp unchanged_waits!(episode_id, turn) do
+    with {:ok, %{"outcome" => %{"record_refs" => refs}}} when is_list(refs) <-
+           Jason.decode(turn.candidate),
+         {:ok, response} <- Repo.fetch(CandidateResponse.Query.current_attempt(turn)),
+         {:ok, records} <- Records.fetch_for_episode(episode_id, refs) do
+      changed? =
+        Enum.any?(records, fn record ->
+          record.kind in ~w(emisar_approval input_request event_wait) and
+            record.status == :answered and
+            DateTime.compare(record.updated_at, response.recorded_at) == :gt
+        end)
+
+      if changed?, do: Repo.rollback(:work_wait_state_changed), else: :ok
+    else
+      _not_a_resolved_wait -> :ok
     end
   end
 

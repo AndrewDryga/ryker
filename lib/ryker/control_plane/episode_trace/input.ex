@@ -376,6 +376,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp lifecycle_summary(:owner_transferred, %{"transfer_ref" => "transfer:resume-blocked:" <> _}),
        do: "The run had stopped, and a retry started it again as a new run."
 
+  defp lifecycle_summary(:owner_transferred, %{
+         "transfer_ref" => "transfer:wait-state-changed:" <> _
+       }) do
+    "An approval or wait finished while the answer was being checked. Ryker started a fresh run with that result; the earlier answer was not rejected as a model error."
+  end
+
   defp lifecycle_summary(:owner_transferred, _payload),
     do: "The run that stopped was started again as a new run."
 

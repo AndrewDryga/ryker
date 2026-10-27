@@ -399,10 +399,19 @@ defmodule Ryker.Work.Custody do
           String.t(),
           Ecto.UUID.t(),
           String.t(),
-          pos_integer()
+          pos_integer(),
+          :wait_state_changed | nil
         ) :: {:ok, map()} | {:error, term()}
-  defdelegate request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref, run \\ 1),
-    to: Cancellation
+  defdelegate request_rerun(
+                episode_id,
+                episode_key,
+                turn_ref,
+                turn_id,
+                lease_ref,
+                run \\ 1,
+                cause \\ nil
+              ),
+              to: Cancellation
 
   @doc "Whether turn `turn_ref` is a new run `request_rerun/6` made."
   @spec rerun?(String.t()) :: boolean()

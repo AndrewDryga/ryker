@@ -137,7 +137,8 @@ defmodule Ryker.Waits.EventWaits do
          {:ok, [_admitted, resumed]} <-
            Episodes.apply_batch_in_transaction([admit, resume]),
          {:ok, %Records.Record{status: :open} = locked_record} <- fetch_and_lock_record(record.id),
-         {:ok, record} <- Repo.update(Records.Record.Changeset.answer_wait(locked_record)),
+         {:ok, record} <-
+           Repo.update(Records.Record.Changeset.answer_wait(locked_record, Repo.now!())),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
       Records.broadcast_record_updated(record)
       %{episode: resumed.episode, record: record}

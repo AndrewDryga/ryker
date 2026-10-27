@@ -125,6 +125,9 @@ defmodule Ryker.Work.Dispatcher do
   defp execution_failure(claim, :work_knowledge_context_stale = reason, settings),
     do: rerun_stale_context(claim, reason, settings)
 
+  defp execution_failure(claim, :work_wait_state_changed = reason, settings),
+    do: rerun_stale_context(claim, reason, settings)
+
   # A worker restart cancels the agent under a running turn, and Coop fails the turn as
   # acp_cancelled. Such a turn stopped for a person at once, though a new run answered it
   # (2026-10-10, the bundled Coop worker restarted under a Chat turn). Coop fails a turn as
@@ -233,7 +236,8 @@ defmodule Ryker.Work.Dispatcher do
            claim.turn.turn_ref,
            claim.turn.id,
            claim.lease_ref,
-           run
+           run,
+           if(reason == :work_wait_state_changed, do: :wait_state_changed)
          ) do
       {:ok, _request} -> {:ok, {:deferred, {:work_rerun_pending, reason}}}
       {:error, rerun_reason} -> custody_failed(reason, rerun_reason)

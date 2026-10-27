@@ -509,7 +509,8 @@ defmodule Ryker.Emisar.Approvals do
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
          :ok <- exact_run(locked_approval, state),
          :ok <- exact_wait_record(locked_record, locked_approval, record.ref),
-         {:ok, answered_record} <- Repo.update(Records.Record.Changeset.answer(locked_record)),
+         {:ok, answered_record} <-
+           Repo.update(Records.Record.Changeset.answer(locked_record, Repo.now!())),
          approval <-
            update!(locked_approval, %{
              failure_count: 0,
