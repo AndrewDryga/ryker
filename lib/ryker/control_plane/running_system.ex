@@ -51,9 +51,8 @@ defmodule Ryker.ControlPlane.RunningSystem do
         <h3>{worker.id}</h3>
         <Kit.facts facts={worker_facts(worker, @now)} />
         <p :if={refused?(worker)} class="settings-problem">
-          New work is stopped: {refusal(worker.storage)} It starts again once cleanup frees space;
-          <a href="/working-copies">Working copies</a>
-          shows what can be freed.
+          New work is stopped: {refusal(worker.storage)}
+          <a href="/working-copies">Working copies</a> shows what can be freed.
         </p>
       </div>
     </Kit.section_card>
@@ -65,13 +64,13 @@ defmodule Ryker.ControlPlane.RunningSystem do
       {"State", state(worker, now)},
       {"Coop", worker.build_version},
       {"Work slots", slots(worker.capacity)},
-      {"Disk", disk(worker.storage)}
+      {"Worker disk", disk(worker.storage)}
     ]
   end
 
   defp state(%CoopFleet.Worker{last_seen_at: nil}, _now), do: word(:off, "Never connected")
 
-  defp state(%CoopFleet.Worker{state: state, last_seen_at: seen}, now) do
+  defp state(%CoopFleet.Worker{last_seen_at: seen} = worker, now) do
     if DateTime.diff(now, seen) > CoopFleet.worker_heartbeat_seconds() do
       assigns = %{__changed__: nil, seen: seen, now: now}
 
@@ -80,7 +79,9 @@ defmodule Ryker.ControlPlane.RunningSystem do
       <ShortTime.time at={@seen} now={@now} prefix=" · last seen " />
       """
     else
-      state_word(state)
+      if refused?(worker) and worker.state in [:eligible, :busy],
+        do: word(:warn, storage_wait(worker.storage)),
+        else: state_word(worker.state)
     end
   end
 
@@ -102,20 +103,33 @@ defmodule Ryker.ControlPlane.RunningSystem do
   defp slots(_capacity), do: nil
 
   # The worker's own volume and the line where it stops taking new work.
-  defp disk(%{"free_bytes" => free, "capacity_bytes" => capacity, "high_watermark_bytes" => stop})
-       when is_integer(free) and is_integer(capacity) and is_integer(stop),
-       do: "#{Units.bytes(free)} free · new work stops below #{Units.bytes(capacity - stop)} free"
+  defp disk(%{
+         "free_bytes" => free,
+         "capacity_bytes" => capacity,
+         "high_watermark_bytes" => stop,
+         "low_watermark_bytes" => resume
+       })
+       when is_integer(free) and is_integer(capacity) and is_integer(stop) and is_integer(resume) do
+    "#{Units.bytes(free)} free of #{Units.bytes(capacity)} · new work stops below " <>
+      "#{Units.bytes(capacity - stop)} free · free-space recovery threshold " <>
+      Units.bytes(capacity - resume)
+  end
 
   defp disk(_storage), do: "Not reported yet"
 
   defp refused?(%CoopFleet.Worker{storage: %{"allocation" => "refused"}}), do: true
   defp refused?(_worker), do: false
 
+  defp storage_wait(%{"refusal_reason" => "protected_storage_exceeds_budget"}),
+    do: "Waiting for storage allowance"
+
+  defp storage_wait(_storage), do: "Waiting for disk space"
+
   defp refusal(%{"refusal_reason" => "reserve_exhausted"}),
     do: "its disk reached the space it keeps free for cleanup."
 
   defp refusal(%{"refusal_reason" => "protected_storage_exceeds_budget"}),
-    do: "working copies Ryker must keep fill its disk."
+    do: "retained working copies exceed their configured storage allowance."
 
-  defp refusal(_storage), do: "its disk is full."
+  defp refusal(_storage), do: "the worker is refusing new storage allocations."
 end

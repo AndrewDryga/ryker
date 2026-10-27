@@ -358,7 +358,10 @@ defmodule Ryker.ControlPlane.PageHelp do
          "Resume cleanup retries the step that stopped. Discard unmerged throws away commits that were never merged and keeps uncommitted changes. Discard changes throws away uncommitted changes too, and any such commits with them."
        ]},
       {"Storage",
-       ["A worker that reaches its allowed space takes no new copies until space frees up."]}
+       [
+         "The storage line shows data in use and what can be freed. The cleanup budget limits disposable data; it is not the worker's disk capacity.",
+         "New copies wait when the worker's filesystem reaches its free-space reserve. Settings → Advanced shows its capacity and the space needed to resume. A container or virtual machine may have a smaller disk than its host."
+       ]}
     ])
   end
 

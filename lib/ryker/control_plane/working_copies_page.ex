@@ -273,9 +273,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         <%= if worker.measurement == :unknown do %>
           has not reported storage yet.
         <% else %>
-          {size(worker.bytes["protected_bytes"])} in use, {size(worker.bytes["disposable_bytes"])} can be freed {limit(
-            @limit
-          )}<span :if={worker.measured_at}> · <ShortTime.time
+          {size(worker.bytes["protected_bytes"])} in use, {size(worker.bytes["disposable_bytes"])} can be freed<span :if={
+            worker.measured_at
+          }> · <ShortTime.time
             at={worker.measured_at}
             now={@now}
             prefix="measured "
@@ -287,6 +287,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
             worker.allocation == "refused"
           }> · not taking new copies ({refusal(worker.refusal_reason)})</span>
         <% end %>
+      </p>
+      <p :if={@limit} class="storage-note">
+        Cleanup budget: {size(@limit)} of disposable data. This is separate from the worker's disk capacity.
       </p>
       <p :if={not @copies? and space_in_use?(@storage.workers)} class="storage-note">
         No working copy holds this space: it is the workers' shared checkouts, conversations and
@@ -302,11 +305,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp worker_tone(%{allocation: "refused"}), do: "warn"
   defp worker_tone(%{measurement: :fresh}), do: "on"
   defp worker_tone(_unknown_or_stale), do: "off"
-
-  # What the worker uses counts its shared checkouts and its own data as well
-  # as the copies listed below, so it is never called copies kept.
-  defp limit(nil), do: "(no limit set)"
-  defp limit(bytes), do: "of " <> size(bytes) <> " allowed"
 
   defp refusal(nil), do: "reason not reported"
   defp refusal(reason), do: Wording.words(reason)

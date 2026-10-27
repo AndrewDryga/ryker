@@ -25,7 +25,9 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
     assert card =~ "Taking work"
     assert card =~ "Coop v9.0.0-506-gaaf66dd9"
     assert card =~ "Work slots 3 of 4 free"
-    assert card =~ "Disk 23 GiB free · new work stops below 4.1 GiB free"
+    assert card =~ "Worker disk 23 GiB free of 82.8 GiB"
+    assert card =~ "new work stops below 4.1 GiB free"
+    assert card =~ "free-space recovery threshold 8.3 GiB"
     refute card =~ "New work is stopped"
   end
 
@@ -41,6 +43,10 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
 
     assert card =~ "New work is stopped: its disk reached the space it keeps free for cleanup."
     assert card =~ "Working copies"
+    # A worker with four free slots still showed Taking work while disk
+    # refused all new copies, making a virtual disk limit look like a bug.
+    assert card =~ "Waiting for disk space"
+    refute card =~ "Taking work"
   end
 
   test "a worker quiet for minutes reads as not connected, and one never seen says so" do
@@ -50,9 +56,28 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
     never = %{worker() | last_seen_at: nil, storage: nil, capacity: %{}}
     card = render(true, [never]) |> text()
     assert card =~ "Never connected"
-    assert card =~ "Disk Not reported yet"
+    assert card =~ "Worker disk Not reported yet"
 
     assert render(true, []) |> text() =~ "No worker has connected yet"
+  end
+
+  # The protected-data allowance can refuse allocation with plenty of disk
+  # free. Reporting a full disk sends the operator to the wrong remedy.
+  test "a protected-data refusal does not claim the filesystem is full" do
+    storage = %{
+      worker().storage
+      | "allocation" => "refused",
+        "refusal_reason" => "protected_storage_exceeds_budget",
+        "free_bytes" => 42_949_672_960
+    }
+
+    card = render(true, [%{worker() | storage: storage}]) |> text()
+    assert card =~ "40 GiB free"
+    assert card =~ "retained working copies exceed their configured storage allowance"
+    assert card =~ "Waiting for storage allowance"
+    refute card =~ "fill its disk"
+    refute card =~ "resumes at"
+    refute card =~ "It resumes when the worker has enough space"
   end
 
   # Placement stops giving a worker work after a minute without a poll, while
@@ -86,6 +111,7 @@ defmodule Ryker.ControlPlane.RunningSystemTest do
         "capacity_bytes" => 88_852_135_936,
         "free_bytes" => 24_741_605_376,
         "high_watermark_bytes" => 84_409_529_140,
+        "low_watermark_bytes" => 79_966_922_344,
         "refusal_reason" => nil
       }
     }

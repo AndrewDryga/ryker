@@ -312,7 +312,12 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     storage = render([]) |> LazyHTML.query("section.working-copies-storage")
 
     assert storage |> LazyHTML.query("#storage-worker-a") |> LazyHTML.text() |> squeeze() ==
-             "worker-a 20 GiB in use, 9 GiB can be freed of 10 GiB allowed · measured 2 min ago · 1 GiB freed so far · not taking new copies (reserve exhausted)"
+             "worker-a 20 GiB in use, 9 GiB can be freed · measured 2 min ago · 1 GiB freed so far · not taking new copies (reserve exhausted)"
+
+    # October 27: this cleanup budget read like a cap on the worker's whole
+    # disk, despite protected copies already using more than the budget.
+    assert LazyHTML.text(storage) =~ "Cleanup budget: 10 GiB of disposable data."
+    refute LazyHTML.text(storage) =~ "allowed"
 
     assert LazyHTML.text(storage) =~ "Ryker cleans up copies that are ready within 1 hour."
 
@@ -333,7 +338,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              "worker-a has not reported storage yet."
 
     stale_line = document |> LazyHTML.query("#storage-worker-b") |> LazyHTML.text() |> squeeze()
-    assert stale_line =~ "unknown in use, 0 bytes can be freed of 10 GiB allowed"
+    assert stale_line =~ "unknown in use, 0 bytes can be freed"
     assert stale_line =~ "this report is out of date"
     refute stale_line =~ "not taking new copies"
 
@@ -362,10 +367,11 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
     line = render([]) |> LazyHTML.query("#storage-worker-a") |> LazyHTML.text() |> squeeze()
 
-    for words <- ["in use", "can be freed", "allowed"], do: assert(line =~ words)
+    for words <- ["in use", "can be freed"], do: assert(line =~ words)
 
     # The help speaks of the limit, and in the line's own word for it.
-    assert storage =~ "allowed"
+    assert storage =~ "disposable data"
+    assert storage =~ "worker's filesystem"
     refute storage =~ "kept"
   end
 
