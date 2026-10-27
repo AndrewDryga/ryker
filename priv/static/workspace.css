@@ -998,7 +998,7 @@
 .episode-request .request-context-line { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0 0 16px; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 .episode-request .review-decision { margin:0 0 16px; font-size:15px; line-height:24px; }
 .finding-content { display:grid; gap:16px; min-width:0; }
-.finding-content .finding-status { color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
+.finding-content > * { margin:0; }
 .finding-conclusion { color:var(--ryker-text); font-size:15px; line-height:24px; }
 .finding-reason h4 { margin:0 0 6px; color:var(--ryker-text); font-size:13px; line-height:20px; font-weight:600; }
 .finding-reason .markdown-preview { color:var(--ryker-text-secondary); font-size:14px; line-height:23px; }
@@ -1373,6 +1373,9 @@
    card_heading. Only the narrative measure is bounded, never the card. */
 .ui-activity-note { min-width:0; overflow-wrap:anywhere; }
 .ui-activity-note-text { max-width:80ch; color:var(--ryker-text-secondary); font-size:14px; line-height:22px; }
+.ui-activity-note-text .activity-narrative { margin:0; }
+.activity-narrative .markdown-preview > :first-child { margin-top:0; }
+.activity-narrative .markdown-preview > :last-child { margin-bottom:0; }
 .ui-activity-note-evidence { margin-top:12px; }
 .ui-activity-note-compact { margin:0; border:0; }
 .ui-activity-note-compact > summary { min-height:44px; padding:0; grid-template-columns:16px minmax(0,1fr) auto; }

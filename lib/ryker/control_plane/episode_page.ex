@@ -2297,9 +2297,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     <div class="case-event-content finding-card">
       <.card_heading title="Finding" />
       <div class="finding-content">
-        <p class="finding-status">
-          <span class="plan-step-label">Assessment</span> {@step.finding.status}
-        </p>
         <div class="finding-conclusion markdown-preview">
           {SlackMarkdown.html(@step.finding.conclusion)}
         </div>
@@ -2307,9 +2304,18 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <h4>Why</h4>
           <div class="markdown-preview">{SlackMarkdown.html(@step.finding.reason)}</div>
         </section>
-        <p :if={@step.finding.scope}>
-          <span class="plan-step-label">Scope</span> {@step.finding.scope}
-        </p>
+        <.fact_list
+          class="finding-metadata"
+          facts={
+            Enum.reject(
+              [
+                %{label: "Assessment", value: @step.finding.status},
+                %{label: "Scope", value: @step.finding.scope}
+              ],
+              &is_nil(&1.value)
+            )
+          }
+        />
         <.plan_evidence id={"finding-#{@step.id}-evidence"} items={@step.finding.evidence} />
       </div>
     </div>
@@ -2330,11 +2336,20 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp worker_activity(assigns) do
     {label, title} = activity_heading(assigns.step)
-    assigns = assign(assigns, label: label, title: title)
+    summary = if assigns.step.summary not in [nil, ""], do: assigns.step.summary
+
+    assigns =
+      assign(assigns,
+        title: label || title,
+        summary: summary,
+        note_topic:
+          if(label,
+            do: title || if(summary, do: "Read note", else: "Note text was not recorded.")
+          )
+      )
 
     ~H"""
     <.activity_note
-      label={@label}
       title={@title}
       tone={@step.tone}
       details_id={"event-detail-#{@step.id}"}
@@ -2343,8 +2358,17 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={show_event_state?(@step)}>{Episodes.label(@step.state)}</span>
         <span :if={@step.duration_ms}>{Units.duration(@step.duration_ms)}</span>
       </:meta>
-      <:body :if={@step.summary}>
-        <div class="markdown-preview">{SlackMarkdown.html(@step.summary)}</div>
+      <:body :if={@summary || @note_topic}>
+        <.disclosure
+          :if={@note_topic && @summary}
+          id={"model-narrative-#{@step.id}"}
+          label={@note_topic}
+          class="activity-narrative"
+        >
+          <div class="markdown-preview">{SlackMarkdown.html(@summary)}</div>
+        </.disclosure>
+        <p :if={@note_topic && !@summary}>{@note_topic}</p>
+        <div :if={!@note_topic} class="markdown-preview">{SlackMarkdown.html(@summary)}</div>
       </:body>
       <:evidence :if={@step.artifacts != []}>
         <.evidence_body

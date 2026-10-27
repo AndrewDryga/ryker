@@ -395,11 +395,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     details = Map.new(card.details)
 
     %{
-      status: card.title,
+      status: if(card.title == "Expected", do: "Normal behavior", else: card.title),
       conclusion: summary,
       reason: details["Why"],
       scope: details["Scope"],
-      evidence: goal_evidence(record, anchors)
+      evidence: record_evidence(record.payload["cause_evidence"], anchors)
     }
   end
 
@@ -791,8 +791,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp goal_evidence(nil, _anchors), do: []
 
   defp goal_evidence(%Records.Record{payload: payload}, anchors) do
+    record_evidence(payload["evidence_refs"], anchors)
+  end
+
+  defp record_evidence(refs, anchors) do
     Enum.map(
-      payload["evidence_refs"] || [],
+      refs || [],
       &Map.get(anchors, &1, %{href: nil, title: "Evidence not on this page"})
     )
   end

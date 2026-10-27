@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert result.sort_at == at
     html = render_component(&EpisodeRequest.render/1, request: result)
     assert html =~ "Answer needs correction"
-    assert html =~ "Work briefing"
+    refute html =~ "Work briefing ↑"
   end
 
   test "a later briefing cannot rewrite the earlier call's inputs or rendered evidence" do

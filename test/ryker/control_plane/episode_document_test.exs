@@ -69,6 +69,59 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute Enum.any?(LazyHTML.query(card, "details"))
   end
 
+  # A live finding retained ten cause_evidence references but rendered none:
+  # the page mistakenly read the goal-only evidence_refs field. Identity is
+  # pseudonymized; the finding/evidence relationship is the recorded shape.
+  test "findings link their own causal evidence and identify references outside the page" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    evidence = %Ryker.Records.Record{
+      id: Ecto.UUID.generate(),
+      ref: "record:evidence:readiness",
+      kind: "evidence",
+      sequence: 1,
+      inserted_at: snapshot.trace.received_at,
+      payload: %{"area" => "Readiness", "summary" => "Both endpoints passed."}
+    }
+
+    finding = %Ryker.Records.Record{
+      id: Ecto.UUID.generate(),
+      kind: "finding",
+      sequence: 2,
+      inserted_at: snapshot.trace.received_at,
+      payload: %{
+        "status" => "expected",
+        "what" => "The service is passing readiness checks.",
+        "reason" => "Both endpoints passed the latest probes.",
+        "scope" => "Application readiness",
+        "cause_evidence" => [evidence.ref, "record:evidence:outside-page"]
+      }
+    }
+
+    document =
+      snapshot
+      |> put_in(
+        [:trace, :steps],
+        Ryker.ControlPlane.EpisodeTrace.Work.record_steps([evidence, finding])
+      )
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    card = LazyHTML.query(document, ".finding-card")
+
+    assert LazyHTML.attribute(LazyHTML.query(card, ".record-links a"), "href") ==
+             ["#event-record-#{evidence.id}"]
+
+    assert LazyHTML.text(card) =~ "1 evidence record not on this page."
+    assert LazyHTML.text(LazyHTML.query(card, ".finding-metadata")) =~ "Normal behavior"
+
+    assert Enum.count(LazyHTML.query(card, ".finding-content > .finding-conclusion:first-child")) ==
+             1
+
+    refute Enum.any?(LazyHTML.query(card, ".finding-metadata a"))
+  end
+
   test "a queued message shows its text but does not claim delivery" do
     {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
     {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
@@ -2126,6 +2179,11 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert checks(first) == "Passed first time"
     assert first |> LazyHTML.query(".call-run a") |> Enum.empty?()
+    # The validation card needs neither a redundant briefing link nor the
+    # separator it introduced above the measurements.
+    refute LazyHTML.text(first) =~ "Work briefing ↑"
+    assert Enum.empty?(LazyHTML.query(first, ".request-context-line"))
+    assert Enum.count(LazyHTML.query(first, ".case-card-heading + .call-run")) == 1
 
     corrected =
       render_component(&EpisodeRequest.render/1,

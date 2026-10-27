@@ -478,10 +478,20 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
              |> LazyHTML.query("article.case-entry")
              |> Enum.filter(&(LazyHTML.text(&1) =~ "Checking the deploy script"))
 
-    assert LazyHTML.query(note, ".case-card-heading-label") |> LazyHTML.text() == "Model's note"
+    # Diagnostic narration is an optional read, not a second competing card
+    # heading. Keep the original text without presenting it as a finding.
+    assert LazyHTML.query(note, ".ui-activity-note h3") |> LazyHTML.text() == "Model's note"
+    assert Enum.empty?(LazyHTML.query(note, ".case-card-heading-label"))
 
-    assert LazyHTML.query(note, ".ui-activity-note h3") |> LazyHTML.text() ==
+    assert LazyHTML.query(note, ".ui-activity-note details > summary")
+           |> LazyHTML.text()
+           |> String.trim() ==
              "Checking the deploy script"
+
+    assert Enum.empty?(LazyHTML.query(note, ".ui-activity-note details[open]"))
+
+    assert LazyHTML.query(note, ".ui-disclosure-body") |> LazyHTML.text() =~
+             "The readiness probe starts before the migration."
   end
 
   test "every worker update uses the shared card header without losing its evidence or warning" do
@@ -504,7 +514,8 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
       {"activity.elided", %{"dropped" => 12}},
       {"custom.notice", %{}},
       {"provider.alive", %{"bytes" => "12575", "frames" => -1}},
-      {"provider.alive", %{"bytes" => 0, "frames" => 0}}
+      {"provider.alive", %{"bytes" => 0, "frames" => 0}},
+      {"model.thought", %{}}
     ]
 
     for {{kind, payload}, sequence} <- Enum.with_index(events, 2) do
@@ -548,6 +559,12 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
 
     assert LazyHTML.query(zero, ".ui-activity-note-text") |> LazyHTML.text() =~
              "0 bytes · 0 frames"
+
+    # A historical time-only thought must not invite opening a nonexistent note.
+    empty_note = LazyHTML.query(document, "#event-activity-#{event_id(work, 15)}")
+    assert LazyHTML.text(empty_note) =~ "Note text was not recorded."
+    refute LazyHTML.text(empty_note) =~ "Read note"
+    assert Enum.empty?(LazyHTML.query(empty_note, "details"))
 
     backoff = LazyHTML.query(document, "#event-activity-#{event_id(work, 8)}")
     assert Enum.count(LazyHTML.query(backoff, ".ui-activity-note[data-tone=warn]")) == 1

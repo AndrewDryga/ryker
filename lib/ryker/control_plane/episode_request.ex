@@ -74,10 +74,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         <:description :if={!@result? && @explanation}>{@explanation}</:description>
         <:meta :if={@run && @run.total_ms}>took {Units.duration(@run.total_ms)}</:meta>
       </Components.card_heading>
-      <p :if={@attempt || (@result? && @request.source_kind == :work)} class="request-context-line">
-        <span :if={@attempt}>{@attempt}</span>
-        <a :if={@result? && @request.source_kind == :work} href={@request.href}>Work briefing ↑</a>
-      </p>
+      <p :if={@attempt} class="request-context-line"><span>{@attempt}</span></p>
       <p :if={@result? && @request.source_kind == :completion_review} class="review-decision">
         <span class="plan-step-label">Outcome</span> <strong>{@request.background.headline}</strong>
       </p>
