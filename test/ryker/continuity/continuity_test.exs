@@ -1007,6 +1007,9 @@ defmodule Ryker.Continuity.ContinuityTest do
 
   for boundary <- [:count, :bytes] do
     # Overflow proofs, not per-commit checks: sixteen seconds of the serial suite.
+    # Two October 27 CI runs exhausted the real 15-second acceptance transaction
+    # while repeatedly normalizing these same raw receipts. Keep the normal
+    # custody deadline: optimize repeated work, never extend it to pass this test.
     @tag :slow
     test "#{boundary} source overflow cannot publish a summary without its expiry receipts" do
       # Reproduce an already-running historical oversized transcript. New

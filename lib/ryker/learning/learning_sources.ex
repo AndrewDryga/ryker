@@ -50,12 +50,20 @@ defmodule Ryker.Learning.LearningSources do
          sources = List.flatten(groups),
          true <- Enum.all?(sources, &(valid_shape?(&1) or reference?(&1))),
          {references, raw} = Enum.split_with(sources, &reference?/1),
+         raw = earliest_receipts(raw),
          sources =
-           Enum.sort_by(Enum.uniq(references) ++ earliest_receipts(raw), &CanonicalJSON.encode!/1),
+           if(references == [],
+             do: raw,
+             else: Enum.sort_by(Enum.uniq(references) ++ raw, &CanonicalJSON.encode!/1)
+           ),
          true <-
            length(sources) <= @maximum_sources and
              byte_size(CanonicalJSON.encode!(sources)) <= @maximum_bytes,
-         expanded when is_list(expanded) <- expand(sources) do
+         # Raw receipts are already validated, normalized, ordered and bounded.
+         # Re-expanding them repeated that work three times inside custody;
+         # historical oversized transcripts exhausted the transaction timeout.
+         expanded when is_list(expanded) <-
+           if(references == [], do: sources, else: expand(sources)) do
       {sources, expanded}
     else
       _ -> nil
@@ -666,8 +674,8 @@ defmodule Ryker.Learning.LearningSources do
   """
   def validated_disclosures(inputs, memories, scope) when is_list(inputs) and is_list(memories) do
     with true <- Enum.all?(inputs, &valid_shape?/1),
-         {_normalized, memory_roots} <- resolve([memories]),
-         {sources, roots} <- resolve([inputs, memories]) do
+         {_normalized, memory_roots} = memory <- resolve([memories]),
+         {sources, roots} <- if(inputs == [], do: memory, else: resolve([inputs, memories])) do
       input_keys = source_keys(inputs)
       memory_keys = source_keys(memory_roots)
       input_only = MapSet.difference(input_keys, memory_keys)
