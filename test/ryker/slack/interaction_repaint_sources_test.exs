@@ -414,7 +414,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       owner_kind: :event,
       owner_ref: next_wait.ref,
       active_input_refs: [],
-      owner_deadline_at: ~U[2026-10-27 00:30:00.000000Z],
+      owner_deadline_at: DateTime.from_iso8601(next_wait.payload["deadline_at"]) |> elem(1),
       next_sequence: episode.next_sequence + length(events)
     )
     |> Repo.update!()
@@ -514,7 +514,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       state: :waiting_for_event,
       owner_kind: :event,
       owner_ref: next_wait.ref,
-      owner_deadline_at: ~U[2026-10-27 00:30:00.000000Z]
+      owner_deadline_at: DateTime.from_iso8601(next_wait.payload["deadline_at"]) |> elem(1)
     )
     |> Repo.update!()
 
@@ -593,7 +593,9 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       if monitoring? do
         payload = %{
           "kind" => "backup_progress",
-          "deadline_at" => "2026-10-27T00:30:00.000000Z",
+          # The retained check times are evidence; this newly created wait is
+          # test setup and must not expire as the wall clock passes the capture.
+          "deadline_at" => Repo.now!() |> DateTime.add(1, :day) |> DateTime.to_iso8601(),
           "event_matcher" => %{
             "type" => "after",
             "delay" => "30m",
