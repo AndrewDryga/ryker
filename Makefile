@@ -39,7 +39,14 @@ retention-simulation:
 
 # Format, compile warnings, compile-time cycles, Credo and Sobelow: no
 # database, about half a minute.
-elixir-static:
+# The browser connection tests exercise the locked Phoenix client itself.
+# Prepare its dependency before static checks fan out; otherwise a cold CI
+# cache races the JavaScript test against the Elixir dependency fetch.
+.PHONY: elixir-deps-ready
+elixir-deps-ready:
+	MIX_ENV=test scripts/elixir-mix.sh deps >/dev/null
+
+elixir-static: elixir-deps-ready
 	scripts/elixir-test.sh --static
 
 # The suite but its `slow` capacity tests, each partition in a fresh database.
@@ -166,7 +173,7 @@ customer-check: product-e2e eval-replay
 eval-trend:
 	scripts/eval-trend.sh "$(EVAL_HISTORY)"
 
-control-plane-js-check:
+control-plane-js-check: elixir-deps-ready
 	node --test test/js/*_test.mjs
 
 # Every tracked shell file, the container entrypoints, install.sh and the Git

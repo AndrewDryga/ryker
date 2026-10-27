@@ -61,6 +61,10 @@ const PrivateKeyFile = {
 
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
+  // A retained multi-day timeline took 12 seconds to join. Phoenix's default
+  // 10 seconds discarded the successful reply and reloaded forever. Bound
+  // joins and action acknowledgements without dropping historical evidence.
+  timeout: 30_000,
   params: () => ({_csrf_token: csrfToken, asset_bundle: new URL(import.meta.url).pathname, draft: composerDraft(document)}),
   hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime, ScheduleCountdown}
 })
