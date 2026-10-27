@@ -50,22 +50,6 @@ defmodule Ryker.Work.Turn.Query do
     if after_id, do: where(query, [episode_work_turns: t], t.id > ^after_id), else: query
   end
 
-  @doc "The authorized same-session input briefings a completion reviewer needs for refinements."
-  def review_inputs(queryable \\ all(), episode_id, session_id) do
-    from(t in queryable,
-      where:
-        t.episode_id == ^episode_id and t.session_id == ^session_id and not is_nil(t.submission),
-      order_by: [desc: t.inserted_at, desc: t.id],
-      limit: 100,
-      select:
-        fragment(
-          "jsonb_build_object('inputs', (?::jsonb)->'context'->'inputs', 'current_inputs', (?::jsonb)->'context'->'current_inputs')",
-          t.submission,
-          t.submission
-        )
-    )
-  end
-
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_work_turns: t], t.id == ^id)
 
   def by_episode_id(queryable \\ all(), episode_id),
@@ -76,17 +60,6 @@ defmodule Ryker.Work.Turn.Query do
 
   def by_session_ids(queryable \\ all(), session_ids),
     do: where(queryable, [episode_work_turns: t], t.session_id in ^session_ids)
-
-  @doc "A stopped predecessor whose settled transfer named this exact successor."
-  def transferred_to(queryable \\ all(), turn_ref) do
-    where(
-      queryable,
-      [episode_work_turns: t],
-      t.status == :superseded and not is_nil(t.cancellation_receipt) and
-        fragment("?::jsonb->>'action' = 'transfer'", t.cancellation_intent) and
-        fragment("?::jsonb->>'new_turn_ref' = ?", t.cancellation_intent, ^turn_ref)
-    )
-  end
 
   @doc "Turns that reached Coop or produced anything: a candidate or a result."
   def begun(queryable) do

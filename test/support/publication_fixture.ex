@@ -83,8 +83,6 @@ defmodule Ryker.Fixtures.Publication do
 
     {:ok, result} = Result.new(:reply, final)
 
-    Ryker.Fixtures.CompletionReview.approve!(claim, final)
-
     {:ok, _intent} =
       Custody.prepare_validation(
         claim.episode.id,
@@ -311,7 +309,7 @@ defmodule Ryker.Fixtures.Publication do
     end
 
     {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     bind_remote!(claim)
   end
 

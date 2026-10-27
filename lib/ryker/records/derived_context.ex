@@ -247,7 +247,7 @@ defmodule Ryker.Records.DerivedContext do
     with true <- Maps.exact_keys?(document, ~w(review_ref judgment)),
          %Work.CompletionReview.Run{status: :applied, pruned_at: nil} = run <-
            get_uuid(&Work.CompletionReview.Run.Query.by_id/1, document["review_ref"]),
-         {:ok, judgment} <- Work.CompletionReview.Prompt.parse(run.result),
+         {:ok, judgment} <- Work.CompletionReview.Result.parse(run.result),
          true <- judgment == document["judgment"],
          %Work.Turn{operational_pruned_at: nil} = turn <-
            get_uuid(&Work.Turn.Query.by_id/1, run.turn_id),

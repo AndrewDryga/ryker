@@ -149,6 +149,8 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert submission["prompt"] =~ "ORIGINAL_REQUEST_MARKER"
     refute submission["prompt"] =~ ~s("response_schema")
     refute submission["prompt"] =~ ~s("$schema")
+    refute Map.has_key?(submission["context"], "completion_review_required")
+    refute Map.has_key?(submission["context"], "completion_review_feedback")
   end
 
   test "the host compiles live and shadow work into different contracts before generation" do

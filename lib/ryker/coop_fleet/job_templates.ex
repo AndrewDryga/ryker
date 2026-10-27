@@ -136,11 +136,8 @@ defmodule Ryker.CoopFleet.JobTemplates do
   # nothing else. Coop runs a filtered job only on a worker `coop net setup`
   # qualified, never on the open network instead
   # (deploy/compose/coop/entrypoint.sh).
-  @doc "Provider authentication and inference only; no workload destinations or export."
-  def provider_only_egress,
+  defp egress(:knowledge),
     do: %{"mode" => "filtered", "rules" => [], "export_destinations" => false}
-
-  defp egress(:knowledge), do: provider_only_egress()
 
   defp egress(_purpose), do: %{"mode" => "open", "rules" => [], "export_destinations" => false}
 

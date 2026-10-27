@@ -41,7 +41,9 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
       "progress_sha256" => "progress"
     }
 
-    prompt = Ryker.Work.CompletionReview.Prompt.build(snapshot)
+    prompt =
+      Jason.encode!(%{"instructions" => "Retained review instructions.", "snapshot" => snapshot})
+
     document = prompt_document(prompt)
     fragments = LazyHTML.query(document, ".prompt-fragment")
     paths = LazyHTML.attribute(fragments, "data-source")

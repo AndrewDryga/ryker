@@ -1,5 +1,5 @@
 defmodule Ryker.Work.CompletionReview.Run do
-  @moduledoc "One frozen, isolated review of a Work candidate and its evidence."
+  @moduledoc "Historical completion-review receipts, retained for inspection, accounting and cleanup. No new reviews are created."
   use Ryker, :schema
 
   schema "work_completion_reviews" do

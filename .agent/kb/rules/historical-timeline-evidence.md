@@ -24,7 +24,7 @@ knows now. Keep current summaries explicitly separate from historical events.
 
 Regressions: `episode_causality_test.exs`, `model_requests_test.exs`,
 `prompt_document_test.exs`, `request_context_html_test.exs`, `source_text_test.exs`
-and `work/completion_review_test.exs`. Run their focused checks, then the gate.
+and `work/completion_review_history_test.exs`. Run their focused checks, then the gate.
 
 Recorded 2026-10-26 after a multi-input resume was filed above the human message
 it contained, while failed independent reviews showed only timings.

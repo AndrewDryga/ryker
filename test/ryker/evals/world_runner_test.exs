@@ -1059,8 +1059,10 @@ defmodule Ryker.Evals.WorldRunnerTest do
   end
 
   # Replay custody initialization must not reject a warm transcript before
-  # Executor can rotate it after source withdrawal between timer checkpoints.
-  test "a stale world continuation reaches durable executor recovery" do
+  # Executor rotates it after source withdrawal between timer checkpoints.
+  # The retired reviewer used to reject the replay's pre-submit records after
+  # that safe rotation; requiring its later transfer masked successful recovery.
+  test "a stale world continuation submits only a fresh authorized transcript" do
     harvested =
       "test/ryker/evals/fixtures/airflow_completes_after_timer.json"
       |> File.read!()
@@ -1108,21 +1110,28 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     assert {:error, {:world_eval_assertions, report}} = result
 
-    assert {:world_eval_failed,
-            {:work_not_accepted,
-             %{status: :transferred, turn_status: :superseded, turn_id: turn_id}}} =
-             report.execution_error
+    refute Map.has_key?(report, :execution_error)
+    [initial, resumed] = report.runtime.turns
+    refute initial.session_id == resumed.session_id
+    original = Repo.get!(Ryker.Work.Session, initial.session_id)
+    replacement = Repo.get!(Ryker.Work.Session, resumed.session_id)
+    episode = Repo.get!(Ryker.Episodes.Episode, report.episode_id)
+    turn = Repo.get!(Turn, resumed.turn_id)
 
-    stale = Repo.get!(Turn, turn_id)
-    rerun_ref = "turn:rerun:#{stale.id}"
-    assert stale.cancellation_intent["new_turn_ref"] == rerun_ref
-    assert report.deliveries == []
-    assert {:ok, resumed} = Custody.claim_next("world-source-recovery", 300, :work)
-    assert resumed.episode.id == report.episode_id
-    assert resumed.episode.owner_kind == :turn
-    assert resumed.episode.owner_ref == rerun_ref
-    assert resumed.turn.status == :pending
-    assert resumed.turn.turn_ref == rerun_ref
+    assert replacement.generation == original.generation + 1
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(episode, original) ==
+             {:error, :work_knowledge_context_stale}
+
+    assert Ryker.Knowledge.KnowledgeSnapshot.authorize_session(episode, replacement) == :ok
+    assert turn.submission["context"]["mode"] == "full"
+    refute turn.submission["prompt"] =~ "draft-ai-suggestions"
+    assert turn.status == :settled
+    assert turn.cancellation_intent == nil
+    assert length(report.deliveries) == 1
+    assert FakeWorkCoopAPI.state(fake).create_count == 2
+    assert FakeWorkCoopAPI.state(fake).submit_count == 2
+    assert Custody.claim_next("world-source-recovery", 300, :work) == {:ok, nil}
   end
 
   test "a settled harvested completion skips remaining wake checkpoints without another model turn" do

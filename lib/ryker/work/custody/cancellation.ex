@@ -56,7 +56,7 @@ defmodule Ryker.Work.Custody.Cancellation do
           Ecto.UUID.t(),
           String.t(),
           pos_integer(),
-          :wait_state_changed | :completion_review | nil
+          :wait_state_changed | nil
         ) :: {:ok, map()} | {:error, term()}
   def request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref, run \\ 1, cause \\ nil) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
@@ -78,9 +78,6 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   defp rerun_transfer_ref(turn_id, :wait_state_changed),
     do: "transfer:wait-state-changed:#{turn_id}"
-
-  defp rerun_transfer_ref(turn_id, :completion_review),
-    do: "transfer:completion-review:#{turn_id}"
 
   # The first rerun keeps the reference it always had; a later one carries its number, so the
   # turn says how many reruns came before it without reading any other.
@@ -507,9 +504,6 @@ defmodule Ryker.Work.Custody.Cancellation do
         not turn_owner?(episode, turn) ->
           Repo.rollback(:work_episode_owner_lost)
 
-        operator_supersedes_review_continuation?(turn, intent) ->
-          prepare_cancellation(turn, episode, intent, fingerprint)
-
         operator_supersedes_pending_block?(turn, intent) ->
           prepare_cancellation(turn, episode, intent, fingerprint)
 
@@ -575,22 +569,6 @@ defmodule Ryker.Work.Custody.Cancellation do
        do: true
 
   defp operator_supersedes_pending_block?(_turn, _intent), do: false
-
-  # A host-requested continuation is not a person's transfer decision. Stop
-  # and Cancel retain priority until the stopped predecessor is reconciled.
-  defp operator_supersedes_review_continuation?(
-         %Turn{
-           status: :cancel_pending,
-           cancellation_intent: %{
-             "action" => "transfer",
-             "transfer_ref" => "transfer:completion-review:" <> _
-           }
-         },
-         %{"action" => action, "cancel_ref" => ref}
-       )
-       when action in ~w(block cancel) and is_binary(ref), do: true
-
-  defp operator_supersedes_review_continuation?(_turn, _intent), do: false
 
   defp operator_supersedes_settled_block?(
          %Turn{

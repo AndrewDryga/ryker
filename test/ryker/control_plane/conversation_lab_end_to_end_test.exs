@@ -58,7 +58,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                AdmissionDispatcher.run_once(admission_options(admission, @now))
 
       assert {:ok, claim} = Custody.claim_next("lab-retained-wait", 60, :work)
-      Ryker.Fixtures.CompletionReview.attest!(claim)
+      :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
 
       assert {:ok, record} =
                Records.create(Records.token(claim.turn), "lab-wait", "event_wait", %{
@@ -190,9 +190,6 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     # this single-session fake exercises the conversation's follow-up window.
     assert {:ok, %{session: %{execution_kind: :admission}}} =
              Ryker.Retention.Custody.claim_next("conversation-lab-routing-cleanup", 300)
-
-    assert {:ok, %{session: %{execution_kind: :completion_review}}} =
-             Ryker.Retention.Custody.claim_next("conversation-lab-review-cleanup", 300)
 
     assert {:ok, {:executed, %{phase: :grace}}} =
              RetentionDispatcher.run_once(retention_options(work, "between-turns"))
@@ -684,7 +681,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              AdmissionDispatcher.run_once(admission_options(admission, @now))
 
     assert {:ok, claim} = Custody.claim_next("conversation-lab-capabilities", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     assert claim.episode.id == admitted.result.episode.id
 
     binding = %{
@@ -778,8 +775,6 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                1
              )
 
-    Ryker.Fixtures.CompletionReview.approve!(claim, document)
-
     assert {:ok, result} = Result.new(:reply, document)
 
     assert {:ok, _turn} =
@@ -852,7 +847,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              AdmissionDispatcher.run_once(admission_options(admission, @now))
 
     assert {:ok, claim} = Custody.claim_next("conversation-lab-updates", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     assert claim.episode.id == admitted.result.episode.id
 
     binding = %{
@@ -965,7 +960,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              AdmissionDispatcher.run_once(admission_options(admission, @now))
 
     assert {:ok, claim} = Custody.claim_next("conversation-lab-reactions", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     assert claim.episode.id == admitted.result.episode.id
 
     binding = %{
@@ -1180,7 +1175,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              AdmissionDispatcher.run_once(admission_options(admission, @now))
 
     {:ok, claim} = Custody.claim_next("stopped-before-edit", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
 
     assert {:ok, _stopped} =
              Custody.request_block(
@@ -1696,8 +1691,6 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                sha256,
                1
              )
-
-    Ryker.Fixtures.CompletionReview.approve!(claim, document)
 
     assert {:ok, result} = Result.new(:reply, Map.delete(document, "title"))
 

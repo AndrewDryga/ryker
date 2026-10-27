@@ -67,64 +67,6 @@ defmodule Ryker.Work.CancellationWorkerTest do
            }
   end
 
-  # A submitted review used the generic 24-hour expiry even after permanent
-  # worker removal, holding Stop and every successor behind the child.
-  test "a submitted review on a removed worker cannot hold its parent's stop" do
-    worker = enroll!("review-removed")
-    work = bound_turn!("review-removed", worker)
-    claim = Map.put(work, :lease_ref, work.turn.lease_ref)
-    review_custody = Ryker.Work.CompletionReview.Custody
-    fleet = Ryker.Work.CompletionReview.FleetSession
-
-    {:ok, final} =
-      Ryker.Work.Final.parse(%{
-        "delivery" => "reply",
-        "decision_reason" => nil,
-        "message" => "Ready.",
-        "outcome" => %{"state" => "complete", "record_refs" => [], "artifact_refs" => []}
-      })
-
-    {:ok, snapshot} =
-      review_custody.with_lease(claim, fn ->
-        Ryker.Work.CompletionReview.Evidence.snapshot(claim, final)
-      end)
-
-    {:ok, run} = review_custody.prepare(claim, snapshot)
-    {:ok, child} = fleet.fetch_for_run(run)
-    {:ok, _placement} = ControlPlane.place_session(child.id, @requirements, 60)
-    {:ok, child} = fleet.bind(run, "review-session:#{run.id}")
-    {:ok, run} = review_custody.freeze_submit(claim, run.id, 1)
-
-    {:ok, run} =
-      review_custody.bind_turn(claim, run.id, child.coop_session_id, "review-turn:#{run.id}")
-
-    assert {:ok, %{status: :pending}} =
-             Custody.request_cancel(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               "cancel:#{run.id}",
-               "Stopped."
-             )
-
-    assert {:ok, %{status: :revoked}} = WorkerLifecycle.revoke(worker, "operator:test")
-    assert {:ok, claim} = Custody.claim_next("worker:review-stop", 60, :work)
-
-    assert {:ok, {:executed, %{status: :cancelled}}} =
-             Dispatcher.run_claim(claim, dispatcher(worker))
-
-    stopped = review_custody.current(run.id)
-
-    assert stopped.stop_receipt == %{
-             "kind" => "worker_removed",
-             "remote_session_id" => child.coop_session_id,
-             "remote_turn_id" => run.coop_turn_id,
-             "worker_id" => worker
-           }
-
-    assert stopped.remote_stopped_at
-  end
-
   # The same stop, when the worker is still there but was moved to a newer
   # version of the run's policy (a model change in Settings): placement refused
   # every command for the run, so its cancel could never be sent and the stop
@@ -337,7 +279,7 @@ defmodule Ryker.Work.CancellationWorkerTest do
     assert {:ok, placement} = ControlPlane.place_session(pinned.id, @requirements, 60)
     assert placement.worker_id == worker
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
 
     assert {:ok, submission} =
              Submission.new(

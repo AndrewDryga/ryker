@@ -242,7 +242,7 @@ defmodule Ryker.ControlPlane.CompletionReviews do
 
   # Read the redacted artifact, never unredacted model text into visible facts.
   defp decision(%{state: :retained, text: text}) do
-    case Work.CompletionReview.Prompt.parse(text) do
+    case Work.CompletionReview.Result.parse(text) do
       {:ok,
        %{
          "decision" => choice,

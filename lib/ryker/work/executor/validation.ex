@@ -14,7 +14,7 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Delivery
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{CompletionReview, Custody, FinalPreflight, OperationKeys}
+  alias Ryker.Work.{Custody, FinalPreflight, OperationKeys}
   alias Ryker.Work.Executor.Remote
   alias Ryker.Work.{StateBinding, Validator}
 
@@ -47,8 +47,7 @@ defmodule Ryker.Work.Executor.Validation do
             attempt,
             artifacts,
             final,
-            result,
-            settings
+            result
           )
 
         {:reject, violations} ->
@@ -67,8 +66,7 @@ defmodule Ryker.Work.Executor.Validation do
          attempt,
          artifacts,
          final,
-         result,
-         settings
+         result
        ) do
     case Delivery.Presentation.validate(claim.episode, claim.turn, final) do
       :ok ->
@@ -78,9 +76,7 @@ defmodule Ryker.Work.Executor.Validation do
           sha256,
           attempt,
           artifacts,
-          final,
-          result,
-          settings
+          result
         )
 
       {:error, {:invalid_delivery_presentation, reason}} ->
@@ -106,9 +102,7 @@ defmodule Ryker.Work.Executor.Validation do
          sha256,
          attempt,
          artifacts,
-         final,
-         result,
-         settings
+         result
        )
        when is_binary(endpoint) do
     with {:ok, candidate} <- decode_candidate(message),
@@ -121,7 +115,7 @@ defmodule Ryker.Work.Executor.Validation do
              candidate_sha256,
              Artifacts.Outputs.refs(artifacts)
            ) do
-      review_completion(claim, sha256, attempt, final, result, settings)
+      prepare_validation(claim, sha256, attempt, :accept, result)
     else
       {:error, :work_final_preflight_required} ->
         prepare_validation(
@@ -146,30 +140,9 @@ defmodule Ryker.Work.Executor.Validation do
          sha256,
          attempt,
          _artifacts,
-         final,
-         result,
-         settings
+         result
        ),
-       do: review_completion(claim, sha256, attempt, final, result, settings)
-
-  defp review_completion(claim, sha256, attempt, final, result, settings) do
-    case CompletionReview.review(claim, final, settings) do
-      :ok ->
-        case prepare_validation(claim, sha256, attempt, :accept, result) do
-          {:error, :completion_review_required} ->
-            {:error, {:work_poll_window_elapsed, :completion_review}}
-
-          result ->
-            result
-        end
-
-      {:reject, violations} ->
-        prepare_validation(claim, sha256, attempt, {:reject, violations}, nil)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+       do: prepare_validation(claim, sha256, attempt, :accept, result)
 
   defp decode_candidate(message) do
     case Jason.decode(message) do

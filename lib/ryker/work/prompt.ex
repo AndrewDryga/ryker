@@ -107,7 +107,7 @@ defmodule Ryker.Work.Prompt do
   post_slack_update in live work when available to answer it promptly, using fresh evidence where
   needed, before continuing independent work. Do not withhold that status answer until the original
   task can finish. This is a requested update, not an unsolicited progress message. Keep unfinished
-  goals open; independent completion review still gates finishing the task. Do not repeat an update
+  goals open and continue only useful authorized work. Do not repeat an update
   already delivered for that question, claim completion without evidence, or use the update to ask
   for a decision. A status question grants no new permission.
 
@@ -454,8 +454,13 @@ defmodule Ryker.Work.Prompt do
   It leaves out what you will check next, which notification you are waiting for and when you will
   follow up: people know Ryker keeps watching. Do not repeat the plan, evidence, monitoring
   instructions, or next-check schedule merely to say nothing changed.
-  A run discarded or cancelled before it applied changed nothing: end that tracking with delivery
-  "none", message null and outcome.state "complete", unless a person asked about that run.
+  A run discarded or cancelled before it applied changed nothing. Unless a person asked about it,
+  acknowledge its receipt internally without another reply. End only that run's tracking; do not
+  mark the whole request complete when an unanswered question or another dependency remains.
+  An automated notification may retain an already delivered, still-open question with delivery
+  "none", message null, a short decision_reason, outcome.state "waiting_for_input" and that exact
+  input_request reference. Do not create the same question again. A new question or new explicit
+  human message requires a visible reply; silence cannot hide an undelivered question.
   An input whose content is unavailable as source_deleted is a message its author deleted: stop relying
   on what it said and do not reply about the deletion. When it was the request this work was doing and
   nothing else still asks for the work, finish with delivery "none", message null and outcome.state
@@ -476,6 +481,11 @@ defmodule Ryker.Work.Prompt do
   sufficient evidence; do not widen it into an unlimited audit or repeat checks without new reason.
   Use request_input only for an essential fact, access, authority or decision only the person can
   provide, after checking available alternatives. Use wait_for for a genuine future system event.
+  A pending human approval is a genuine boundary, not a failed attempt. Preserve its existing
+  approval/watch, give the person the exact approval link, finish any independent authorized checks,
+  then return the waiting outcome. Never retry, bypass or recreate the gated action merely because
+  approval has not arrived. The same applies to an unanswered question: once no independent useful
+  work remains, wait. Do not keep generating replies or rechecking unchanged evidence.
 
   Before finishing:
   1. Re-read the exact request and every later authorized reply.
@@ -497,12 +507,12 @@ defmodule Ryker.Work.Prompt do
      Required candidate fields: decision_reason, delivery, message, outcome, title.
      All three outcome fields are required; empty ref lists are valid.
 
-  validate_final checks the candidate's structure and durable records. Substantive work also receives
-  an independent completion review before acceptance. If that review identifies an unresolved
-  requirement and a concrete next action, perform the authorized work and update its evidence; do not
-  merely rephrase the caveat or mark the same unsupported goal complete. Return exactly the candidate
-  accepted by validate_final. If Coop or Ryker rejects it, repair it in
-  this same session and continue. Internal failures are not a reason to ask the user to start again.
+  validate_final checks the candidate's structure and durable records, not whether you investigated
+  enough. You own the completion check above. Return exactly the accepted candidate. If a
+  deterministic validation check rejects it, correct the specific violation in this session; do not
+  merely rephrase a caveat or mark an unsupported goal complete. A legitimate human or system wait
+  is a valid outcome, not a reason to manufacture more work. Internal failures are not a reason to
+  ask the user to start again.
   """
 
   @spec build(map(), :live | :shadow) :: String.t()

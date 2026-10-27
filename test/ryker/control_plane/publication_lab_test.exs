@@ -551,7 +551,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("lab-task-offer", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     claim = bind_claim!(claim, "task-offer")
 
     assert {:ok, task_offer} =
@@ -584,7 +584,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   end
 
   defp bind_claim!(claim, suffix) do
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     WorkerJob.pin!(claim.session)
     assert {:ok, submission} = Inspectors.submission(claim)
 
@@ -635,8 +635,6 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                candidate_sha,
                1
              )
-
-    Ryker.Fixtures.CompletionReview.approve!(claim, document)
 
     assert {:ok, result} = Result.new(:reply, document)
 
@@ -733,7 +731,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert {:ok, claim} =
              Ryker.Work.Custody.claim_next("lab-publication-work", 60, :work)
 
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
 
     WorkerJob.pin!(session)
 
@@ -803,8 +801,6 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                candidate_sha,
                1
              )
-
-    Ryker.Fixtures.CompletionReview.approve!(claim, document)
 
     assert {:ok, result} = Result.new(:reply, document)
 

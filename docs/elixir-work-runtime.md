@@ -10,7 +10,6 @@ The episode kernel remains the lifecycle authority. The Work module stores only 
 bytes needed to safely execute that episode through Coop:
 
 - one immutable Coop session generation with its admission-pinned policy;
-- isolated completion reviews bound to the proposed answer and its evidence;
 - one episode-scoped logical turn row;
 - the exact frozen prompt, context, output schema, and contract version;
 - the exact unpublished candidate and candidate attempt;
@@ -36,8 +35,8 @@ tools own durable records. The generic Delivery module owns external message cus
 4. Coop creates the session and turn under stable operation keys derived from immutable local rows.
 5. Ryker stores each candidate's exact bytes, SHA-256, and attempt before validation.
 6. The universal validator returns every hard, actionable violation at once. Rejection continues in
-   the same Coop turn and session. Substantive live work then receives the completion review
-   described below; an actionable gap continues through the same correction path.
+   the same Coop turn and session. Domain completion is the working model's responsibility, not
+   a second model's approval gate.
 7. Ryker freezes the exact accept or reject mutation before calling Coop. Lost responses are
    reconciled by operation key and current turn state.
 8. A validated accept atomically stores the result and advances the episode. A visible result becomes
@@ -557,39 +556,29 @@ deterministically judge prose quality, root cause, or domain completeness.
 
 ## Evidence before completion
 
-Substantive live Work receives an independent completion review after deterministic validation
-and final preflight, before the host accepts its answer. The reviewer sees the exact proposed
-answer, the authorized request context, goal contracts, current evidence records and observed tool
-outcomes. It checks the requested outcomes even when the working model marked its goals complete.
-Bounded excerpts explicitly identify omitted evidence; a missing excerpt is not proof of a missing check.
+The working model owns completion: it checks the finite requested outcomes against evidence,
+uses available authorized tools while material work remains, and finishes independent work before
+waiting. A real human approval or missing human fact is a valid waiting outcome, not a failure or
+permission to retry a gated action. The normal Work prompt says this directly; there is no second
+model judging the answer and no completion-review continuation loop.
 
-A judgment is `complete`, `continue`, `wait_for_event` or `request_input`. Unfinished requirements
-must have concrete next actions supported by available capabilities. Those corrections return to
-the same Work turn. The worker continues independent useful work, tries alternate sources when
-appropriate, and asks a person only for an essential dependency it cannot resolve. The review
-cannot grant authority or turn a proposal into permission to execute it.
-An exact accepted `continue` judgment may dismiss only the candidate's unnecessary current-turn
-questions or event waits, preserving their history and other dependencies. Approval records and
-earlier waits cannot be dismissed this way. If an automated investigation needs a person but no
-person has participated, the host keeps it blocked with the review's reason available to the
-operator; it never retries an impossible question or labels the work complete.
+Deterministic validation still enforces record ownership, permissions, unresolved required goals,
+delivery receipts, current wait state, source custody and final preflight. It does not judge domain
+completeness. Model-world evaluation measures whether the working model completes the requested
+checks and stops at genuine human boundaries.
 
-Each review owns a fresh read-only Coop session with the parent's model targets, no repository,
-connector tools, project environment or egress grant. PostgreSQL binds its frozen prompt and
-judgment to the candidate and evidence fingerprints. Retry resumes keyed operations; changed
-evidence invalidates approval and schedules another review. The fresh reviewer requires strictly
-authorized, attested source custody. The active request retains its authenticated-input permission
-after learning is forgotten; recalled memory and historical records keep their stricter disclosure
-rules. Source withdrawal is checked again before submission. Cancellation stops the reviewer before releasing
-the parent; permanent worker removal is recorded as the same explicit proof used by parent Work.
-Three attempts without changed evidence or twelve reviews in one turn stop unfinished work;
-limits and malformed results never count as approval. Short conversational answers, shadow
-observations and silent observations without goals or a workspace task do not incur this review.
+Automated receipts can quietly retain an open input request only after an accepted visible answer
+referencing that exact question has a confirmed delivery receipt in the same episode. A newly
+created or undelivered question must be sent; a new explicit human message still requires a visible
+response. Quiet waiting settles the turn without another delivery and clears the native working
+status. Queued events are still processed; they are never discarded merely to clear the indicator.
 
-The request timeline retains each review's exact prompt, response and cost. Review text expires
-with its parent turn after child cleanup; content-free receipts survive until the audit horizon.
-Deterministic tests prove this custody and correction behavior. Model-world evaluation separately
-measures whether the reviewer and worker recognize real gaps and complete the required checks.
+Completion reviews created before their retirement on 2026-10-27 remain historical evidence: their
+frozen prompts, decisions, retry reasons and costs stay readable, and their stopped child sessions
+remain eligible for ordinary cleanup. Content expires under the original retention policy. Upgrade
+migration 20261027070000 refuses to run while any reviewer lacks a confirmed remote stop or its
+parent is still pending/cancel-pending. Drain those runs on the previous release before retrying;
+never forge a stop receipt or delete history to pass this guard. No review is created after upgrade.
 
 ## What the fast tests prove
 

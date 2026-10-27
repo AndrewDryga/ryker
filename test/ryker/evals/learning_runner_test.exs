@@ -111,28 +111,6 @@ defmodule Ryker.Evals.LearningRunnerTest do
       )
     end
 
-    def submit_frozen_turn(
-          client,
-          sid,
-          key,
-          revision,
-          %{"contract_version" => "work-completion-review-v1"} = submission,
-          nil,
-          []
-        ) do
-      body = Ryker.Fixtures.CompletionReview.judgment("complete")
-      Agent.update(client, &%{&1 | candidates: [body], turn: nil})
-
-      Fake.submit_turn(
-        client,
-        sid,
-        key,
-        revision,
-        submission["prompt"],
-        submission["output_schema"]
-      )
-    end
-
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do
       prompt = Jason.decode!(submission["prompt"])
       [input] = prompt["inputs"]

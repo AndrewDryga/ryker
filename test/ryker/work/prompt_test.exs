@@ -2,6 +2,17 @@ defmodule Ryker.Work.PromptTest do
   use ExUnit.Case, async: true
   alias Ryker.Work.{Final, Prompt}
 
+  test "the working model owns completion but respects human waits without repeated replies" do
+    instructions = normalized_instructions()
+    assert instructions =~ "Keep a finite account of the requested outcomes"
+    assert instructions =~ "Finish independent useful work before waiting"
+    assert instructions =~ "A pending human approval is a genuine boundary, not a failed attempt"
+    assert instructions =~ "Never retry, bypass or recreate the gated action"
+    assert instructions =~ "Do not create the same question again"
+    assert instructions =~ "A new question or new explicit human message requires a visible reply"
+    refute instructions =~ "independent completion review"
+  end
+
   test "finishing instructions name exactly the provider's required candidate fields" do
     # Every Work turn still said four fields after title became a fifth required
     # field. A valid example must not contradict the final-call checklist.
@@ -477,8 +488,8 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "the turn that arms its wait tells them in one short line"
     assert instructions =~ "Call validate_final"
     assert instructions =~ "exact JSON"
-    assert instructions =~ "repair it in"
-    assert instructions =~ "same session"
+    assert instructions =~ "correct the specific violation in this session"
+    assert instructions =~ "this session"
     refute instructions =~ "state_token"
     refute instructions =~ "operation_id"
   end
@@ -587,7 +598,8 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "before continuing independent work"
     assert instructions =~ "Do not withhold that status answer until the original task can finish"
     assert instructions =~ "Keep unfinished goals open"
-    assert instructions =~ "independent completion review still gates finishing the task"
+    assert instructions =~ "goals open and continue only useful authorized work"
+    refute instructions =~ "independent completion review"
     assert instructions =~ "Do not repeat an update already delivered for that question"
     assert instructions =~ "A status question grants no new permission"
   end

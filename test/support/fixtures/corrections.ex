@@ -81,7 +81,7 @@ defmodule Ryker.Fixtures.Corrections do
 
     {:ok, _} = WorkSessions.pin_episode(id, "correction", String.duplicate("a", 64))
     {:ok, claim} = Work.Custody.claim_next("correction:#{id}", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(claim)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
     {:ok, submission} = Inspectors.submission(claim)
 
     {:ok, turn} =
@@ -197,7 +197,7 @@ defmodule Ryker.Fixtures.Corrections do
 
     {:ok, _} = WorkSessions.pin_episode(id, "correction", String.duplicate("a", 64))
     {:ok, later} = Work.Custody.claim_next("later:#{id}", 60, :work)
-    Ryker.Fixtures.CompletionReview.attest!(later)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(later, [])
     {:ok, submission} = Inspectors.submission(later)
 
     {:ok, turn} =
@@ -285,7 +285,6 @@ defmodule Ryker.Fixtures.Corrections do
     candidate = Jason.encode!(document)
     digest = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
     {:ok, _} = Work.Custody.stage_candidate(id, ref, lease, nil, nil, candidate, digest, 1)
-    Ryker.Fixtures.CompletionReview.approve!(binding, document)
     {:ok, result} = Work.Result.new(:reply, document)
     {:ok, _} = Work.Custody.prepare_validation(id, ref, lease, digest, 1, :accept, result)
 

@@ -229,12 +229,6 @@ defmodule Ryker.Records.DerivedContextTest do
     assert KnowledgeSnapshot.authorize_session(producer.episode, producer.session) ==
              {:error, :work_knowledge_context_stale}
 
-    assert {:ok, final} = Final.parse(captured()["candidate"])
-
-    assert Repo.transaction(fn ->
-             Ryker.Work.CompletionReview.Evidence.snapshot(producer, final)
-           end) == {:error, :work_knowledge_context_stale}
-
     assert Records.model_records(producer.episode, producer.session) == []
     document = record |> Records.Record.document() |> DerivedContext.record()
 
@@ -291,9 +285,9 @@ defmodule Ryker.Records.DerivedContextTest do
              captured()["arguments"]["observation"]
   end
 
-  # An operator's goal projection bypassed the record disclosure boundary in
-  # the first completion-review implementation, redisclosing withdrawn prose.
-  test "completion review excludes goals derived from a withdrawn older source" do
+  # Operator goal projections must never bypass the model disclosure boundary,
+  # including after the independent completion reviewer was removed.
+  test "the work briefing excludes goals derived from a withdrawn older source" do
     {producer, source, _record} = cited_source!()
     secret = captured()["arguments"]["observation"]
 
@@ -320,19 +314,7 @@ defmodule Ryker.Records.DerivedContextTest do
              | turn: %{recipient.turn | submission: submission}
            }) == :ok
 
-    recipient = %{
-      recipient
-      | turn: %{recipient.turn | submission: submission, coop_turn_id: "review-fixture"}
-    }
-
-    assert {:ok, final} = Final.parse(captured()["candidate"])
-
-    assert {:ok, {:ok, snapshot}} =
-             Repo.transaction(fn ->
-               Ryker.Work.CompletionReview.Evidence.snapshot(recipient, final)
-             end)
-
-    refute Ryker.Work.CompletionReview.Prompt.build(snapshot) =~ secret
+    refute submission["prompt"] =~ secret
   end
 
   test "an accepted historical answer cannot reintroduce its withdrawn source through outcomes" do
