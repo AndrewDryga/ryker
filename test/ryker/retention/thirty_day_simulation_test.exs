@@ -148,12 +148,14 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
     %{state | day_rows: state.day_rows ++ [row]}
   end
 
-  test "a delayed publication releases its job-bound session for cleanup" do
+  test "a delayed publication needs no reviewer and releases its session only after delivery" do
     {:ok, api} = FakeAPI.start_link(sessions: [])
     install_clock!()
     Enum.each(@workers, &create_worker!/1)
     [session] = publication_delayed!(api)
-    assert [review] = review_sessions(session.episode_id)
+    # Publication used to create a second model session. Retirement must not
+    # recreate it or weaken the delivery receipt that protects the work session.
+    assert review_sessions(session.episode_id) == []
     state = %{api: api, worker_ref: "cleanup:publication"}
 
     {:ok, _pass} = run_pass(state)
@@ -171,10 +173,7 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
     assert stored.cleanup_status == :discarded,
            inspect({stored.cleanup_last_error_code, stored.cleanup_last_error_detail})
 
-    review = Repo.get!(Session, review.id)
-
-    assert review.cleanup_status == :discarded,
-           inspect({review.cleanup_last_error_code, review.cleanup_last_error_detail})
+    assert review_sessions(session.episode_id) == []
   end
 
   # One burst window: cleanup passes while there is work, then the clock jumps
@@ -796,22 +795,18 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
           ]
         )
 
-      # Publication acceptance also ran an isolated reviewer. The month must
-      # model that remote resource too; omitting it fabricated a permanent 404.
-      for owned <- [session | review_sessions(episode.id)] do
-        FakeAPI.add_session(
-          api,
-          %{
-            "external_ref" => Session.coop_task_ref(owned),
-            "id" => owned.coop_session_id,
-            "job_ref" => owned.worker_job_document["job_ref"],
-            "job_digest" => owned.worker_job_digest,
-            "revision" => 7,
-            "state" => "open"
-          },
-          workspace(%{})
-        )
-      end
+      FakeAPI.add_session(
+        api,
+        %{
+          "external_ref" => Session.coop_task_ref(session),
+          "id" => session.coop_session_id,
+          "job_ref" => session.worker_job_document["job_ref"],
+          "job_digest" => session.worker_job_digest,
+          "revision" => 7,
+          "state" => "open"
+        },
+        workspace(%{})
+      )
 
       session
     end)
