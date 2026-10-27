@@ -169,7 +169,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         |> request_events(
           {:turn, turn.id},
           "request-#{turn.id}",
-          turn.remote_finished_at,
+          work_result_at(turn),
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
           Paths.request(episode.id) <> "#request-#{turn.id}",
           %{kind: :work, run: CallRun.from_turn(turn), title_update: title_updates[turn.id]}
@@ -591,6 +591,19 @@ defmodule Ryker.ControlPlane.ModelRequests do
   end
 
   defp admission_completed_at(_), do: nil
+
+  # A rejected answer has no accepted/remote-finished receipt. Its check is
+  # still dated evidence, not an undated result to append after later runs.
+  defp work_result_at(turn) do
+    checks =
+      for %{"recorded_at" => value} <- turn.validation_history || [],
+          {:ok, at} <- [UTCDateTime.parse(value)],
+          do: at
+
+    [turn.remote_finished_at, turn.accepted_at | checks]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(DateTime, fn -> nil end)
+  end
 
   defp request_events(
          request,

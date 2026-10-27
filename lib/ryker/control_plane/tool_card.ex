@@ -132,7 +132,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       {"Read an Emisar action", "Emisar action read",
        "Reads one action's arguments, risk and runners."},
     "run_action" =>
-      {"Ask Emisar to run an action", "Emisar run requested",
+      {"Emisar run", "Emisar run",
        "Emisar's policy decides whether it runs now or waits for a person's approval."},
     "wait_for_run" =>
       {"Wait for an Emisar run", "Emisar run checked",
@@ -199,6 +199,7 @@ defmodule Ryker.ControlPlane.ToolCard do
           detail: String.t() | nil,
           duration: String.t() | nil,
           warning: String.t() | nil,
+          approval_url: String.t() | nil,
           error: String.t() | nil,
           failed: boolean()
         }
@@ -209,6 +210,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       detail: if(step.state != "failed", do: step.summary),
       duration: nil,
       warning: nil,
+      approval_url: nil,
       error: if(step.state == "failed", do: step.summary),
       failed: step.state == "failed"
     }
@@ -224,6 +226,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       detail: line_detail(action),
       duration: step.duration_ms && Units.duration(step.duration_ms),
       warning: if(warnings != [], do: Enum.join(warnings, " · ")),
+      approval_url: get_in(step, [:approval, "approval_url"]),
       error: failure_summary(step),
       failed: step.state in ["failed", "cancelled"]
     }
@@ -240,6 +243,13 @@ defmodule Ryker.ControlPlane.ToolCard do
     <span :if={@line.detail} class="tool-run-text">{@line.detail}</span>
     <span class="tool-run-duration"><span :if={@line.failed}>{if @state == "cancelled", do: "Cancelled", else: "Failed"} </span>{@line.duration}</span>
     <span :if={@line.warning} class="tool-run-warning">⚠ {@line.warning}</span>
+    <a
+      :if={@line.approval_url}
+      class="tool-run-approval"
+      href={@line.approval_url}
+      target="_blank"
+      rel="noopener noreferrer"
+    >Open approval ↗</a>
     <span :if={@line.error} class="tool-run-error">{@line.error}</span>
     """
   end
@@ -344,7 +354,17 @@ defmodule Ryker.ControlPlane.ToolCard do
         do: Enum.reject(assigns.action.paths, &(&1 == detail)),
         else: assigns.action.paths
 
-    assigns = assigns |> assign(:facts, facts) |> assign(:paths, paths)
+    {outputs, artifacts} =
+      Enum.split_with(Enum.with_index(assigns.step.artifacts), fn {artifact, _index} ->
+        assigns.action.kind == "command" && artifact.label in ["Output", "Response", "Error"]
+      end)
+
+    assigns =
+      assigns
+      |> assign(:facts, facts)
+      |> assign(:paths, paths)
+      |> assign(:outputs, outputs)
+      |> assign(:artifacts, artifacts)
 
     ~H"""
     <div class={["action-card action-#{@action.kind} action-event-#{@step.state}", @class]}>
@@ -361,7 +381,28 @@ defmodule Ryker.ControlPlane.ToolCard do
           <span :if={@step.duration_ms} class="action-duration">{Units.duration(@step.duration_ms)}</span>
         </:meta>
       </Components.card_heading>
-      <pre :if={@action.kind == "command" && @action.description} class="action-command-line"><code>{@action.description}</code></pre>
+      <section :if={@action.kind == "command"} class="action-console" aria-label="Command and output">
+        <pre :if={@action.description} class="action-command-line"><code>{@action.description}</code></pre>
+        <div
+          :for={{output, index} <- @outputs}
+          id={"tool-#{@step.id}-artifact-#{index}"}
+          class="action-command-output"
+          data-inline-artifact={if output.artifact.state == :collapsed, do: output[:artifact_id]}
+          data-revoked={if output.artifact.state in [:expired, :not_recorded], do: "true"}
+        >
+          <p :if={output.artifact.state == :collapsed} class="artifact-loading" role="status">
+            Loading output…
+          </p>
+          <p :if={output.artifact.state in [:expired, :not_recorded]} class="artifact-unavailable">
+            Output is no longer retained.
+          </p>
+          <Components.inspection_text
+            :if={output.artifact.state == :retained}
+            text={output.artifact.text}
+          />
+          <p :if={output.artifact.truncated} class="muted">Partial output</p>
+        </div>
+      </section>
       <p
         :if={
           @action.kind == "search" ||
@@ -382,6 +423,12 @@ defmodule Ryker.ControlPlane.ToolCard do
       </p>
       <p :for={note <- @action.withheld || []} :if={!@grouped} class="action-warning">{note}</p>
       <p :if={@action.warning && !@grouped} class="action-warning">⚠ {@action.warning}</p>
+      <a
+        :if={!@grouped && @step[:approval]}
+        href={@step.approval["approval_url"]}
+        target="_blank"
+        rel="noopener noreferrer"
+      >Open approval ↗</a>
       <code :for={path <- @paths} class="action-path">{path}</code>
       <p :if={!@grouped && @step.state in ["failed", "cancelled"]} class="action-error">
         {failure_summary(@step)}
@@ -405,7 +452,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       </section>
       <pre :if={@action.diff && @step.state != "started"} class="action-diff">{@action.diff}</pre>
       <Components.disclosure
-        :for={{artifact, index} <- Enum.with_index(@step.artifacts)}
+        :for={{artifact, index} <- @artifacts}
         id={"tool-#{@step.id}-artifact-#{index}"}
         label={if artifact.label == "Arguments", do: "Raw arguments", else: artifact.label}
         class="action-raw"
@@ -431,6 +478,27 @@ defmodule Ryker.ControlPlane.ToolCard do
       </Components.disclosure>
     </div>
     """
+  end
+
+  def project(%{approval: %{} = approval}) do
+    %{
+      tool: "run_action",
+      title: "Emisar run",
+      description: nil,
+      description_detail: nil,
+      kind: "ryker",
+      symbol: nil,
+      paths: [],
+      warning: "Created · waiting for approval",
+      text: nil,
+      facts: [
+        {"Action", approval["action_id"]},
+        {"Runner", Emisar.runner_name(approval["runner_ref"])}
+      ],
+      withheld: nil,
+      groups: [],
+      diff: nil
+    }
   end
 
   def project(step) do

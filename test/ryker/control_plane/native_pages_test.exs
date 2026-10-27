@@ -284,6 +284,26 @@ defmodule Ryker.ControlPlane.NativePagesTest do
   # QA, 2026-09-25, at 390px: Learning's outcome views scrolled "Sources
   # changed" out of sight as "Sources c…", with nothing saying more was
   # there. On a phone a toolbar's views wrap onto another line instead.
+  test "embedded plans use the card width on narrow screens and metric values do not inherit table padding" do
+    # Visual QA at 320px left only 125px for plan text, and a metric split
+    # "measured" mid-word after inheriting the generic definition-list style.
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+
+    assert css =~
+             ~r/\.ryker-app \.episode-metrics dd\s*\{[^}]*padding:\s*0[^}]*overflow-wrap:\s*normal/
+
+    assert css =~
+             ~r/@media\s*\(max-width:\s*580px\)\s*\{[^}]*\.task-stage-content\s*\{[^}]*display:\s*contents/
+  end
+
+  test "stage goals are compact list rows rather than nested bordered cards" do
+    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+    assert css =~ ~r/\.task-progress \.plan-step\s*\{[^}]*padding:\s*0 0 0 26px[^}]*border:\s*0/
+    assert css =~ ~r/\.task-progress \.plan-step::before\s*\{[^}]*border:\s*0/
+    assert css =~ ~r/\.task-progress \.plan-step-head\s*\{[^}]*justify-content:\s*flex-start/
+    refute css =~ ~r/\.task-stage-content > \.plan-steps\s*\{[^}]*border-left:\s*1px/
+  end
+
   test "a toolbar's views wrap on a phone instead of scrolling out of sight" do
     css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
 
@@ -455,9 +475,11 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     refute html =~ "phx-click=\"inspect-step\""
 
     for {state, expected} <- [{:cancelled, "Stopped"}, {:complete, "No further reply was sent"}] do
-      terminal = put_in(snapshot, [:episode, :state], state)
+      terminal = snapshot |> put_in([:episode, :state], state) |> put_in([:trace, :stopped], nil)
       assert episode_html(terminal) =~ expected
     end
+
+    assert Enum.empty?(LazyHTML.query(document, "#latest-outcome .story-wait"))
 
     following = put_in(snapshot, [:trace, :stopped], nil)
     assert episode_html(following) =~ "Follow-up in progress"

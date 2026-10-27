@@ -31,6 +31,112 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     }
   ]
 
+  # A production finding hid its conclusion in the title's subtitle and its
+  # explanation behind Details; readers could not distinguish either.
+  test "a finding keeps its assessment conclusion and explanation in the content" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    record = %Ryker.Records.Record{
+      id: Ecto.UUID.generate(),
+      kind: "finding",
+      sequence: 1,
+      inserted_at: snapshot.trace.received_at,
+      payload: %{
+        "status" => "unexplained",
+        "what" => "The replacement backup remains unfinished after six hours on storage101.",
+        "reason" =>
+          "Medusa remains active and consumes CPU, but no new journal progress establishes a concerning delay rather than proven completion or a confirmed deadlock.",
+        "scope" => "Replacement backup"
+      }
+    }
+
+    steps = Ryker.ControlPlane.EpisodeTrace.Work.record_steps([record])
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], steps)
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    card = LazyHTML.query(document, ".finding-card")
+    assert LazyHTML.text(LazyHTML.query(card, ".case-card-heading")) |> words() == "Finding"
+    content = LazyHTML.text(LazyHTML.query(card, ".finding-content"))
+    assert content =~ "Assessment"
+    assert content =~ "Unexplained"
+    assert content =~ record.payload["what"]
+    assert content =~ record.payload["reason"]
+    refute Enum.any?(LazyHTML.query(card, "details"))
+  end
+
+  test "a queued message shows its text but does not claim delivery" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    action = %Ryker.Delivery.PlatformAction{
+      id: Ecto.UUID.generate(),
+      action_ref: "platform-action:preview",
+      kind: :message,
+      tool: :post_slack_update,
+      transport: "slack",
+      status: :pending,
+      inserted_at: snapshot.trace.received_at,
+      document: %{"message" => "The check is still running."}
+    }
+
+    steps = Ryker.ControlPlane.EpisodeTrace.Outcome.platform_action_steps([action])
+
+    document =
+      snapshot
+      |> put_in([:trace, :steps], steps)
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    card = LazyHTML.query(document, ".delivery-message")
+    assert LazyHTML.text(LazyHTML.query(card, "h3")) == "Message queued for Slack"
+    assert LazyHTML.text(LazyHTML.query(card, ".ui-message")) =~ "The check is still running."
+    refute LazyHTML.text(card) =~ "Message sent"
+    refute Enum.any?(LazyHTML.query(card, "details"))
+  end
+
+  test "review attempts and decisions are body content under a stable review heading" do
+    request =
+      request(:completion_review, :result, [])
+      |> Map.merge(%{generation: 2, background: %{headline: "Keep working"}})
+
+    document =
+      render_component(&EpisodeRequest.render/1, request: request) |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(LazyHTML.query(document, ".case-card-heading")) |> words() ==
+             "Completion review"
+
+    assert LazyHTML.text(LazyHTML.query(document, ".request-context-line")) =~ "Attempt 2"
+    assert LazyHTML.text(LazyHTML.query(document, ".review-decision")) =~ "Keep working"
+  end
+
+  test "a stopped request explains recovery once at the top not again beneath its history" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    stopped = %{
+      headline: "The worker could not continue",
+      reason: "The command failed.",
+      action: "Resolve the command failure before retrying.",
+      href: nil,
+      attempted: []
+    }
+
+    document =
+      snapshot
+      |> put_in([:trace, :stopped], stopped)
+      |> put_in([:trace, :case_file, :awaiting_reply], true)
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(LazyHTML.query(document, ".story-stop")) =~ stopped.action
+    assert Enum.empty?(LazyHTML.query(document, "#latest-outcome .story-wait"))
+  end
+
   test "source highlight controls target their own retained submitted prompt" do
     # Briefing rows and submitted artifacts have distinct ID prefixes. A link
     # to the right source name is useless if it opens no actual document.
@@ -617,11 +723,24 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         })
       ])
 
-    assert html =~ "Model response"
+    assert html =~ "Answer passed validation"
     assert html =~ "<strong>partial</strong>"
     assert html =~ "Supporting records"
     refute html =~ "Validated response"
     refute html =~ "Validation history"
+  end
+
+  test "paging earlier corrections does not change the recorded final validation outcome" do
+    document =
+      render_request(:work, :result, [
+        section("validation", "Validation", %{
+          "verdict" => %{"verdict" => "accept"},
+          "history" => [%{"verdict" => "reject", "candidate_attempt" => 1}]
+        })
+      ])
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(LazyHTML.query(document, "h3")) == "Answer passed validation"
   end
 
   # Andrew, 2026-09-27, of a card that read "Request title Hello": "what is

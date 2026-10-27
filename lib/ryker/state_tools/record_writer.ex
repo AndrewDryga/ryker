@@ -26,7 +26,8 @@ defmodule Ryker.StateTools.RecordWriter do
   @written_kinds %{
     "record_finding" => "finding",
     "plan_goal" => "goal",
-    "update_goal" => "goal_state"
+    "update_goal" => "goal_state",
+    "record_emisar_approval" => "emisar_approval"
   }
 
   @doc "Whether `record` is the one `tool` wrote for `arguments` in `turn`."

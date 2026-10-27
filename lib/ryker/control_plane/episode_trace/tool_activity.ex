@@ -400,6 +400,45 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp failure_detail(%{"status" => "failed", "error" => error}) when is_binary(error),
     do: InspectionRedactor.artifact(error, max_bytes: 1_024).text
 
+  defp failure_detail(%{"status" => "failed", "output" => %{"error" => error}} = payload)
+       when is_binary(error) do
+    if get_in(payload, ["withheld", "output"]),
+      do: nil,
+      else: InspectionRedactor.artifact(error, max_bytes: 1_024).text
+  end
+
+  defp failure_detail(
+         %{"status" => "failed", "output" => %{"formatted_output" => printed}} = payload
+       )
+       when is_binary(printed) do
+    if get_in(payload, ["withheld", "output"]) do
+      nil
+    else
+      # Command output often starts with successful file reads. The retained
+      # terminal diagnostic is at its tail, not the first line of its JSON envelope.
+      # Redact before slicing: a tail can sever a Bearer prefix or private-key
+      # boundary, turning a recognizable credential into unredacted text.
+      tail =
+        printed
+        |> InspectionRedactor.artifact(max_bytes: 2 * 1_024 * 1_024)
+        |> Map.fetch!(:text)
+        |> String.slice(-4_096, 4_096)
+
+      line =
+        tail
+        |> String.split("\n", trim: true)
+        |> List.last()
+        |> InspectionRedactor.artifact(max_bytes: 300)
+        |> Map.fetch!(:text)
+
+      case {line, exit_code(payload)} do
+        {nil, code} when is_integer(code) -> "Command failed · Exit code #{code}"
+        {line, code} when is_integer(code) -> "#{line} · Exit code #{code}"
+        {line, _code} -> line
+      end
+    end
+  end
+
   defp failure_detail(_payload), do: nil
 
   defp activity_step(%Work.ActivityEvent{kind: "model.progress"} = event, _disclosed) do
@@ -694,12 +733,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp tool_outcome(%{"ryker_summary" => summary}, "failed"), do: summary
 
-  # Coop keeps a tool's error output on the worker, so a failure it narrates
+  # Coop can retain a tool's error output on the worker, so a failure it narrates
   # without a body has none to show, however recent it is.
   defp tool_outcome(payload, "failed") do
-    case payload["error"] || payload["output"] || payload["content"] do
-      nil -> "The tool failed. The worker does not send tool error details to Ryker."
-      value -> value |> InspectionRedactor.artifact(max_bytes: 300) |> Map.fetch!(:text)
+    case failure_detail(payload) do
+      text when is_binary(text) -> text
+      nil -> "The tool failed. No error detail was retained."
     end
   end
 

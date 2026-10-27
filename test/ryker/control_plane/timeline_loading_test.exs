@@ -120,6 +120,31 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
     assert Enum.empty?(LazyHTML.query(row, ".action-raw[data-artifact] pre"))
   end
 
+  test "a failed command previews the retained error and exit code instead of a JSON brace" do
+    # The October 26 production command printed several file excerpts before
+    # this exact final error. Its structured envelope hid the cause as '{'.
+    # Keep the retained failure bytes; omit the unrelated tenant file contents.
+    work = episode_with_tool!("command-error-preview", "small")
+
+    activity!(work, 2, "tool.completed", %{
+      "kind" => "execute",
+      "title" => "Run command",
+      "status" => "failed",
+      "output" => %{
+        "exit_code" => 127,
+        "formatted_output" => "\n/bin/bash: line 4: coop: command not found\n"
+      }
+    })
+
+    document = work |> rendered() |> LazyHTML.from_document()
+    row = LazyHTML.query(document, "#event-activity-#{event_id(work, 2)}")
+    error = LazyHTML.query(row, ".tool-run-detail > summary .tool-run-error")
+    assert LazyHTML.text(error) == "/bin/bash: line 4: coop: command not found · Exit code 127"
+    assert Enum.empty?(LazyHTML.query(row, ".tool-run-detail[open], .action-raw pre"))
+    assert Enum.count(LazyHTML.query(row, ".action-console [data-inline-artifact]")) == 1
+    assert Enum.empty?(LazyHTML.query(row, ".action-console details"))
+  end
+
   test "compact path and failure evidence respects withholding, redaction and bounded display" do
     work = episode_with_tool!("safe-compact-evidence", "small")
     secret = "ghp_" <> String.duplicate("a", 28)
@@ -348,7 +373,7 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
              {"Code", "Run command", "rg --files"},
              {"Emisar", "Emisar actions looked up", "gcp compute instances list"},
              # Which action ran where; why is the opened card's (2026-09-28).
-             {"Emisar", "Emisar run requested", "cloud-init.log_tail · emisar-3hgr"},
+             {"Emisar", "Emisar run", "cloud-init.log_tail · emisar-3hgr"},
              {"Ryker", "Work state read", ""},
              {"Emisar", "List Emisar packs", ""}
            ]

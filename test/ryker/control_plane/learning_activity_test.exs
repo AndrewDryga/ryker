@@ -505,7 +505,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
 
     # The Timeline numbers the attempts the way this page does.
     for attempt <- view.selected.attempts do
-      assert text(timeline_card(attempt.path), ".case-card-heading-detail") ==
+      assert text(timeline_card(attempt.path), ".request-context-line > span") ==
                "Attempt #{attempt.number}"
     end
   end

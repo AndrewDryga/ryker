@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.SavedRecords do
   alias Ryker.StateTools
 
   # The calls whose records are told by their own cards.
-  @writers ~w(cite_source record_finding plan_goal update_goal)
+  @writers ~w(cite_source record_finding plan_goal update_goal record_emisar_approval)
 
   def fold(steps, events, turns, records) do
     turns = Enum.group_by(turns, &{&1.episode_id, &1.session_id, &1.coop_turn_id})

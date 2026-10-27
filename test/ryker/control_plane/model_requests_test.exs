@@ -16,6 +16,35 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.Settings
   alias Ryker.Work.{Custody, Session, Submission, Turn}
 
+  test "a rejected work result stays at its recorded validation time even without a remote finish" do
+    # Two production turns with three rejections each were rendered together
+    # at the page end as undated Model responses, detached from their work.
+    {episode, turn, _original} = frozen_turn!()
+    at = DateTime.add(turn.inserted_at, 90, :second)
+
+    Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+      set: [
+        remote_finished_at: nil,
+        candidate: Jason.encode!(%{"message" => "A retained status response."}),
+        validation_history: [
+          %{
+            "candidate_attempt" => 3,
+            "verdict" => "reject",
+            "recorded_at" => DateTime.to_iso8601(at)
+          }
+        ]
+      ]
+    )
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
+    assert result.at == at
+    assert result.sort_at == at
+    html = render_component(&EpisodeRequest.render/1, request: result)
+    assert html =~ "Answer needs correction"
+    assert html =~ "Work briefing"
+  end
+
   test "a later briefing cannot rewrite the earlier call's inputs or rendered evidence" do
     {episode, turn, _original} = frozen_turn!()
     before = timeline_request(episode, turn)

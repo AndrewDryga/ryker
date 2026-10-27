@@ -42,6 +42,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           action.inserted_at,
           %{
             actor: platform,
+            owner: action_owner(action),
             details:
               compact_details([
                 {"Action", action.action_ref, identifier: true},
@@ -52,7 +53,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
             stage: "Platform action",
             state: nil,
             summary: "Asked #{platform} to #{platform_action_request(action)}.",
-            title: platform_action_title(action.tool),
+            title: request_title(action, platform),
+            message: message(action),
             tone: nil
           }
         )
@@ -62,11 +64,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
           asked,
           step("platform-action-#{action.id}-confirmed", :outcome, action.delivered_at, %{
             actor: platform,
+            owner: action_owner(action),
             delivery_ref: action.action_ref,
             details: [],
             stage: "Platform action",
             state: "confirmed",
-            title: platform_action_title(action.tool) <> " confirmed",
+            title: confirmation_title(action, platform),
+            message: message(action),
             summary: "#{platform} #{platform_action_done(action)}.",
             tone: :good
           })
@@ -77,6 +81,30 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
     end)
   end
 
+  defp action_owner(%Delivery.PlatformAction{turn_id: nil}), do: :episode
+  defp action_owner(%Delivery.PlatformAction{turn_id: id}), do: {:turn, id}
+
+  defp message(%Delivery.PlatformAction{kind: :message, document: document})
+       when is_map(document) do
+    artifact =
+      InspectionRedactor.artifact(document["message"] || document["text"], max_bytes: 12_000)
+
+    if artifact.text, do: %{text: artifact.text}
+  end
+
+  defp message(_action), do: nil
+
+  defp request_title(%Delivery.PlatformAction{kind: :message}, platform),
+    do: "Message queued for #{platform}"
+
+  defp request_title(action, _platform), do: platform_action_title(action.tool)
+
+  defp confirmation_title(%Delivery.PlatformAction{kind: :message}, platform),
+    do: "Message sent to #{platform}"
+
+  defp confirmation_title(action, _platform),
+    do: platform_action_title(action.tool) <> " confirmed"
+
   defp platform_action_request(%Delivery.PlatformAction{kind: :reaction, document: document}) do
     case reaction(document) do
       {"remove", emoji} -> "remove #{emoji} from the message"
@@ -85,12 +113,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   end
 
   defp platform_action_request(_action), do: "post the message"
-
-  # Where an action went, as people call it: "Asked Control_plane to post the
-  # message." (2026-10-04 review).
-  defp platform("control_plane"), do: "Chat"
-  defp platform("github"), do: "GitHub"
-  defp platform(transport), do: capitalize(transport)
 
   defp platform_action_done(%Delivery.PlatformAction{kind: :reaction, document: document}) do
     case reaction(document) do

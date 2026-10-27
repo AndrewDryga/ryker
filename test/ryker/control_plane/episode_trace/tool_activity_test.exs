@@ -21,6 +21,52 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivityTest do
            ] = steps(events)
   end
 
+  test "a failed command preview redacts secrets and does not recover withheld output" do
+    payload = %{
+      "kind" => "execute",
+      "tool_call_id" => "failure",
+      "status" => "failed",
+      "output" => %{
+        "formatted_output" => "Earlier output\nfailed password=hidden-value",
+        "exit_code" => 127
+      }
+    }
+
+    [shown] = steps([started("failure", 0), event("tool.completed", 1, payload)])
+    assert shown.failure_detail =~ "Exit code 127"
+    refute shown.failure_detail =~ "hidden-value"
+    withheld = Map.put(payload, "withheld", %{"output" => "Sensitive output"})
+    [hidden] = steps([started("failure", 0), event("tool.completed", 1, withheld)])
+    assert hidden.failure_detail == nil
+    refute hidden.summary =~ "hidden-value"
+
+    withheld = put_in(withheld["output"], %{"error" => "Private diagnostic"})
+    [hidden] = steps([started("failure", 0), event("tool.completed", 1, withheld)])
+    assert hidden.failure_detail == nil
+    refute hidden.summary =~ "Private diagnostic"
+  end
+
+  test "failure excerpts redact the complete credential before selecting a terminal line" do
+    # Cutting the tail first removed the credential prefix and exposed bytes
+    # in a collapsed timeline row even though full-output inspection hid them.
+    for printed <- [
+          "Bearer " <> String.duplicate("sensitive-token", 500),
+          "-----BEGIN PRIVATE KEY-----\nsensitive-token\n-----END PRIVATE KEY-----"
+        ] do
+      payload = %{
+        "kind" => "execute",
+        "tool_call_id" => "failure",
+        "status" => "failed",
+        "output" => %{"formatted_output" => printed, "exit_code" => 1}
+      }
+
+      [shown] = steps([started("failure", 0), event("tool.completed", 1, payload)])
+      refute shown.failure_detail =~ "sensitive-token"
+      assert shown.failure_detail =~ "[redacted]"
+      assert shown.failure_detail =~ "Exit code 1"
+    end
+  end
+
   # Each completion searched every step folded so far for the start it
   # replaced, so a run's timeline took time in the square of its tool calls
   # and a long task's page grew slower to open with every call it made

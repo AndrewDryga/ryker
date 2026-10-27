@@ -323,15 +323,15 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     # One card tells the session's cleanup: the close, then the removal.
     assert [_card] = chapter |> LazyHTML.query("article") |> Enum.to_list()
     card = LazyHTML.query(chapter, "#event-maintenance-#{session.id}")
-    summary = text(card, ".case-event-summary")
+    summary = text(card, ".cleanup-event-content > p")
     assert summary =~ "closed"
     assert summary =~ "no uncommitted changes"
     assert summary =~ "no unmerged commits"
     refute summary =~ "no unpublished commits"
-    assert text(card, ".case-event-details") =~ "Closed at revision 7"
-    assert text(card, ".case-event-details") =~ "Branch coop/session"
+    assert text(card, "details") =~ "Closed at revision 7"
+    assert text(card, "details") =~ "Branch coop/session"
     # An identifier shows shortened and carries its exact value to hover and copy.
-    details = html(card, ".case-event-details")
+    details = html(card, "details")
 
     for exact <- ["worker-forensic", "remote-forensic", "ryker:retention:close:#{session.id}:g1"],
         do: assert(details =~ exact)
@@ -346,7 +346,11 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
         do: assert(details =~ exact)
 
     # Exact identifiers only inside Details; the lines on the face are words.
-    face = text(chapter, ".case-card-heading, .case-event-summary")
+    face =
+      text(
+        chapter,
+        ".case-card-heading, .cleanup-event-content > strong, .cleanup-event-content > p"
+      )
 
     for exact <- [session.coop_session_id, "worker-forensic", stored.cleanup_receipt_fingerprint],
         do: refute(face =~ exact)

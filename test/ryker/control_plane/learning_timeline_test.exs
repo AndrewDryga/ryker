@@ -288,6 +288,43 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
     assert text(result, ".request-rationale") =~ "Nothing durable here."
   end
 
+  test "a message-only timeline interleaves delayed intake with learning at their recorded times" do
+    # The October chronology audit found that message-only pages still put all
+    # intake before learning, even when a delayed receipt arrived during it.
+    ignored = ignored_input!()
+    run = learn!([ignored], "{\"reason\":\"Nothing durable here.\",\"updates\":[]}")
+    {:ok, view} = ModelRequests.project_input(ignored.id, %{})
+    at = view.message.at
+
+    learning =
+      Enum.map(view.learning, fn entry ->
+        time = DateTime.add(at, if(entry.phase == :result, do: 30, else: 10))
+        entry |> Map.put(:at, time) |> Map.put(:sort_at, time)
+      end)
+
+    receipt =
+      Ryker.ControlPlane.EpisodeTrace.Step.step("delayed-intake", :ready, DateTime.add(at, 20), %{
+        actor: "Ryker",
+        stage: "Intake",
+        title: "Delayed intake",
+        summary: "The receipt arrived later.",
+        details: []
+      })
+
+    page =
+      render_component(&EpisodePage.message_page/1,
+        view: %{view | learning: learning, preparation: [receipt], timeline: [], answer: []}
+      )
+      |> LazyHTML.from_fragment()
+
+    assert page |> LazyHTML.query(".phase-entries > article") |> LazyHTML.attribute("id") == [
+             "story-message-#{ignored.id}",
+             "learning-#{run.id}",
+             "event-delayed-intake",
+             "learning-#{run.id}-result"
+           ]
+  end
+
   # Carried from the retired receipt page (2026-09-26): a learning attempt is
   # read as it was sent. Settings changed afterwards must not rewrite what the
   # card says the model was told.

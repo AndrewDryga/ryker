@@ -119,7 +119,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
         owner: {:turn, action.turn_id},
         at: action.delivered_at,
         actor: "Ryker",
-        title: "Update",
+        title: "Message sent to #{EpisodeTrace.Step.platform(action.transport)}",
         update: true,
         delivery_ref: action.action_ref,
         delivered: true,

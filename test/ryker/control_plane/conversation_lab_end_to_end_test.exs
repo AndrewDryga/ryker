@@ -926,10 +926,26 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     sent =
       html
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query("article.ui-message[data-author=ryker] .ui-message-body")
+      |> LazyHTML.query(
+        ".message-container article.ui-message[data-author=ryker] .ui-message-body"
+      )
       |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
 
     assert sent == updates ++ [answer]
+
+    # A queued action previews its requested message without claiming that it
+    # reached Chat. Its separate delivered message remains the delivery proof.
+    queued = html |> LazyHTML.from_fragment() |> LazyHTML.query(".delivery-message")
+
+    assert Enum.map(
+             queued,
+             &(&1 |> LazyHTML.query(".ui-message-body") |> LazyHTML.text() |> String.trim())
+           ) == updates
+
+    assert Enum.all?(
+             queued,
+             &(&1 |> LazyHTML.query("h3") |> LazyHTML.text() == "Message queued for Chat")
+           )
   end
 
   # Andrew, 2026-09-26: "allow even quick model to send multiple reply

@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.CoopFleet
   alias Ryker.Delivery
+  alias Ryker.Emisar
   alias Ryker.InspectionRedactor
   alias Ryker.Records
   alias Ryker.Repo
@@ -240,17 +241,34 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   def record_steps(records) do
     anchors = record_anchors(records)
 
-    goals =
-      for record <- records, record.kind == "goal", into: %{}, do: {record.subject_ref, record}
+    {steps, _history} =
+      records
+      |> Enum.sort_by(& &1.sequence)
+      |> Enum.with_index(1)
+      |> Enum.map_reduce([], &historical_step(&1, &2, anchors))
 
-    records
-    |> Enum.with_index(1)
-    |> Enum.map(fn {record, index} ->
-      if record.kind in ~w(goal goal_state),
-        do: plan_record_step(record, goals, anchors),
-        else: record_step(record, index, anchors)
-    end)
+    steps
   end
+
+  defp historical_step({%{kind: kind} = record, _index}, history, anchors)
+       when kind in ~w(goal goal_state) do
+    retained = history ++ [record]
+    goals = for goal <- retained, goal.kind == "goal", into: %{}, do: {goal.subject_ref, goal}
+    previous = current_plan(history, anchors)
+    snapshot = current_plan(retained, anchors)
+    step = plan_record_step(record, goals, anchors)
+    prior = previous && Enum.find(previous.steps, &(&1.goal_id == record.subject_ref))
+
+    change =
+      step.plan_change
+      |> Map.put(:snapshot, snapshot)
+      |> Map.put(:previous_status, prior && prior.status)
+
+    {%{step | plan_change: change}, retained}
+  end
+
+  defp historical_step({record, index}, history, anchors),
+    do: {record_step(record, index, anchors), history}
 
   defp plan_record_step(record, goals, anchors) do
     change =
@@ -271,6 +289,32 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       title: change.title,
       plan_change: Map.put(change, :kind, record.kind),
       tone: nil
+    })
+  end
+
+  defp record_step(%Records.Record{kind: "emisar_approval"} = record, index, _anchors) do
+    # This is the original hold, not the approval watcher's current outcome.
+    # The same immutable receipt supplies the action, runner and safe exact link.
+    approval =
+      case Emisar.ApprovalContract.prepare(record.payload, record.ref) do
+        {:ok, %{payload: payload}} -> payload
+        {:error, _reason} -> nil
+      end
+
+    step("record-#{record.id || index}", :work, record.inserted_at, %{
+      actor: "Emisar",
+      owner: record_owner(record),
+      record_ref: record.ref,
+      stage: "Tool call",
+      state: "completed",
+      title: "Emisar run",
+      summary:
+        if(approval,
+          do: "Created · waiting for approval",
+          else: "Approval details were not retained."
+        ),
+      approval: approval,
+      details: []
     })
   end
 
@@ -305,6 +349,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         title: record_title(record, card),
         current_warning: Delivery.ChatCard.wait_warning(record),
         observation: observation(record, anchors),
+        finding: finding(record, card, anchors),
         wait: wait_details(record),
         tone: nil
       }
@@ -340,6 +385,20 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp wait_details(_record), do: nil
+
+  defp finding(%Records.Record{kind: "finding"} = record, %{summary: summary} = card, anchors) do
+    details = Map.new(card.details)
+
+    %{
+      status: card.title,
+      conclusion: summary,
+      reason: details["Why"],
+      scope: details["Scope"],
+      evidence: goal_evidence(record, anchors)
+    }
+  end
+
+  defp finding(_record, _card, _anchors), do: nil
 
   defp wait_trigger(%{"type" => "source_event", "source_kind" => kind}) when is_binary(kind),
     do: capitalize(kind) <> " event"
@@ -623,6 +682,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       id: "record-#{goal.id}",
       change_id: "record-#{if(latest, do: latest.id, else: goal.id)}",
       goal_id: goal.subject_ref,
+      stage: payload["stage"],
       title: payload["requested_outcome"],
       state: state,
       status: status,
@@ -653,6 +713,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       id: "record-#{latest.id}",
       change_id: "record-#{latest.id}",
       goal_id: goal_id,
+      stage: nil,
       title: "Goal details not on this page",
       state: latest.payload["state"],
       status: status,

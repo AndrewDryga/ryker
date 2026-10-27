@@ -71,10 +71,16 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     ~H"""
     <div class="episode-request">
       <Components.card_heading title={@headline}>
-        <:detail :if={@attempt}>{@attempt}</:detail>
         <:description :if={!@result? && @explanation}>{@explanation}</:description>
         <:meta :if={@run && @run.total_ms}>took {Units.duration(@run.total_ms)}</:meta>
       </Components.card_heading>
+      <p :if={@attempt || (@result? && @request.source_kind == :work)} class="request-context-line">
+        <span :if={@attempt}>{@attempt}</span>
+        <a :if={@result? && @request.source_kind == :work} href={@request.href}>Work briefing ↑</a>
+      </p>
+      <p :if={@result? && @request.source_kind == :completion_review} class="review-decision">
+        <span class="plan-step-label">Outcome</span> <strong>{@request.background.headline}</strong>
+      </p>
       <p :if={@retried_after} class="request-retry">
         {@retried_after[:lead] || "Retried after"} attempt {@retried_after.generation} {@retried_after[
           :transition
@@ -542,6 +548,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp headline(%{phase: :submission}), do: "Work briefing"
 
+  defp headline(%{source_kind: :completion_review}), do: "Completion review"
+
   defp headline(%{source_kind: :admission} = request) do
     case {document(request, "candidate"), document(request, "response")} do
       {nil, %{"state" => "failed"}} -> "Routing failed"
@@ -554,10 +562,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
        do: headline
 
   defp headline(request) do
-    case {document(request, "candidate"), document(request, "validation")} do
-      {%{}, _} -> "Model response"
-      {_, %{"verdict" => %{"verdict" => "reject"}}} -> "Answer needs correction"
-      {_, %{"verdict" => %{"verdict" => "accept"}}} -> "Answer passed validation"
+    validation = document(request, "validation") || %{}
+    history = if is_list(validation["history"]), do: validation["history"], else: []
+    latest = validation["verdict"] || List.last(history)
+
+    case {latest, document(request, "candidate")} do
+      {%{"verdict" => "reject"}, _} -> "Answer needs correction"
+      {%{"verdict" => "accept"}, _} -> "Answer passed validation"
+      {_, %{}} -> "Model response"
       _ -> "Model result"
     end
   end

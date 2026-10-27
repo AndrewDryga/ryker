@@ -2293,7 +2293,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert worker_detail.identifier
     refute Enum.any?(worker_step.details, &(&1.label in ["Event", "Payload"]))
 
-    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Additional message"))
+    assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Message added"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "Slack reaction"))
     assert Enum.any?(episode_detail.trace.steps, &(&1.title == "GitHub reaction"))
     refute inspect(episode_detail.trace) =~ "private-incident-marker"

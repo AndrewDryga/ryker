@@ -175,8 +175,81 @@ defmodule Ryker.ControlPlane.AdmittedMessagesTest do
              ]
   end
 
+  test "feedback stays at its recorded time, even when older work completes later" do
+    first = conversation(1, ~U[2026-10-26 10:00:00Z])
+    late = conversation(1, ~U[2026-10-26 10:02:00Z])
+
+    feedback = [
+      %{
+        description: "Feedback",
+        phases: [
+          %{steps: [%{id: "feedback-test", at: ~U[2026-10-26 10:01:00Z], kind: :feedback}]}
+        ]
+      }
+    ]
+
+    groups = EpisodePage.timeline_groups([first, late], nil, feedback)
+    assert Enum.map(groups, & &1.kind) == [:conversation, :feedback, :conversation]
+    assert List.last(groups).title == "Message 1 · continued"
+  end
+
   defp conversation(turn, at) do
     chapter(:ready, turn, [%{id: "message-#{turn}", kind: :message, band: :ready, at: at}])
+  end
+
+  test "later intake, overlapping work and cleanup never rewind the visible timeline" do
+    # October 26: approval receipts at 23:42 and 23:51 appeared above the
+    # 23:37 investigation because every Intake card was collected first.
+    at = ~U[2026-10-26 23:36:49Z]
+    event = fn id, seconds -> %{id: id, kind: :event, at: DateTime.add(at, seconds)} end
+
+    groups =
+      EpisodePage.timeline_groups([
+        conversation(1, at),
+        chapter(:work, 1, [event.("work-before", 10)]),
+        conversation(2, DateTime.add(at, 20)),
+        chapter(:work, 1, [event.("late-original-work", 30)]),
+        chapter(:maintenance, nil, [event.("cleanup", 40)]),
+        chapter(:ready, 1, [event.("later-approval", 50)])
+      ])
+
+    entries = Enum.flat_map(groups, fn group -> Enum.flat_map(group.phases, & &1.steps) end)
+    times = Enum.map(entries, & &1.at)
+    assert times == Enum.sort(times, DateTime)
+
+    original =
+      Enum.find(
+        groups,
+        &Enum.any?(&1.phases, fn phase ->
+          Enum.any?(phase.steps, fn item -> item.id == "late-original-work" end)
+        end)
+      )
+
+    assert original.conversation_turn == 1
+    assert original.title == "Message 1 · continued"
+  end
+
+  test "adjacent cleanups share one section without crossing an intervening message" do
+    # One production episode ended with B4 Cleanup then B5 Cleanup, each
+    # containing a single session. Keep their times without repeating headers.
+    cleanup = fn id, at ->
+      chapter(:maintenance, nil, [%{id: id, kind: :event, band: :maintenance, at: at}])
+    end
+
+    groups =
+      EpisodePage.timeline_groups([
+        cleanup.("first", ~U[2026-10-26 22:32:25Z]),
+        cleanup.("second", ~U[2026-10-26 23:18:21Z]),
+        conversation(1, ~U[2026-10-26 23:20:00Z]),
+        cleanup.("third", ~U[2026-10-26 23:30:00Z])
+      ])
+
+    assert Enum.map(groups, & &1.title) == ["Cleanup", "Message 1", "Cleanup"]
+
+    assert Enum.map(hd(groups).phases |> hd() |> Map.fetch!(:steps), & &1.id) == [
+             "first",
+             "second"
+           ]
   end
 
   defp learning(batch, run, at) do

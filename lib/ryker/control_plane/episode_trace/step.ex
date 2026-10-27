@@ -6,6 +6,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   """
   alias Ryker.Text
 
+  def platform("control_plane"), do: "Chat"
+  def platform("github"), do: "GitHub"
+  def platform(transport), do: capitalize(transport)
+
   def step(id, band, at, attributes) do
     %{
       actor: human(Map.fetch!(attributes, :actor)),
@@ -21,6 +25,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
       # One recorded plan change, an Observations card's rows, and
       # the row one piece of evidence gives its card (`EpisodeTrace.Work`).
       plan_change: Map.get(attributes, :plan_change),
+      finding: Map.get(attributes, :finding),
+      message: Map.get(attributes, :message),
+      approval: Map.get(attributes, :approval),
       observations: Map.get(attributes, :observations),
       observation: Map.get(attributes, :observation),
       record_ref: Map.get(attributes, :record_ref),

@@ -10,7 +10,19 @@ import {captureReadingAnchor, restoreReadingAnchor} from "./history.mjs"
 // Any other body arrives with the page's next render.
 function fillDisclosed(node, reply) {
   const loading = node.querySelector(".artifact-loading")
-  if (loading && typeof reply?.html === "string") loading.outerHTML = reply.html
+  if (loading && !node.dataset?.revoked && !node.closest?.("details")?.dataset?.revoked && typeof reply?.html === "string") loading.outerHTML = reply.html
+}
+
+function loadInlineOutputs(node, pushEvent) {
+  for (const output of node.querySelectorAll?.("[data-inline-artifact]") || []) {
+    if (output.closest("details") !== node || output.dataset.revoked || output.dataset.loading) continue
+    if (!output.querySelector(".artifact-loading")) continue
+    output.dataset.loading = "true"
+    pushEvent("disclose", {artifact: output.dataset.inlineArtifact}, reply => {
+      delete output.dataset.loading
+      fillDisclosed(output, reply)
+    })
+  }
 }
 
 // The shell hook: what a reader had open, typed, focused and scrolled to
@@ -40,7 +52,7 @@ export function createReadingStateHook(environment = {}) {
       try { pruneDrafts(storage()) } catch (_) { /* Storage can be disabled. */ }
       this.restoreDrafts()
       this.relearnPicker = createRelearnPicker(this.el, storage)
-      const pushEvent = (name, params) => this.pushEvent(name, params)
+      const pushEvent = (name, params, reply) => this.pushEvent(name, params, reply)
       this.conversation = createConversationControls(this.el, {storage, pushEvent})
       this.conversation.restore()
       this.handleEvent?.("lab-action-accepted", detail => this.conversation.accept(detail))
@@ -80,6 +92,7 @@ export function createReadingStateHook(environment = {}) {
         if (node?.tagName !== "DETAILS" || !node.open) return
         const artifact = node.dataset?.artifact
         if (artifact && !node.dataset.revoked) this.pushEvent("disclose", {artifact}, reply => fillDisclosed(node, reply))
+        if (!node.dataset.revoked) loadInlineOutputs(node, pushEvent)
       }
       this.el.addEventListener("toggle", this.onToggle, true)
       doc.removeEventListener?.("toggle", onEarlyToggle, true)
@@ -115,6 +128,7 @@ export function createReadingStateHook(environment = {}) {
         // and no earlier open state reopens it.
         if (node.dataset?.revoked) { node.open = false; return }
         if (expanded.has(key)) node.open = expanded.get(key)
+        if (node.open) loadInlineOutputs(node, (name, params, reply) => this.pushEvent(name, params, reply))
       })
       this.restoreDrafts()
       this.relearnPicker.refresh()
@@ -163,6 +177,15 @@ export function createReadingStateHook(environment = {}) {
     // A save or reaction sent before the socket dropped never hears back.
     reconnected() {
       this.conversation.reconnected()
+      // A dropped disclosure reply must not leave an output permanently loading.
+      this.el.querySelectorAll("details").forEach(node => {
+        for (const output of node.querySelectorAll?.("[data-inline-artifact]") || []) {
+          delete output.dataset.loading
+        }
+        if (node.open && !node.dataset.revoked) {
+          loadInlineOutputs(node, (name, params, reply) => this.pushEvent(name, params, reply))
+        }
+      })
     },
     destroyed() {
       this.active = false

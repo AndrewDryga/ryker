@@ -268,9 +268,9 @@ defmodule Ryker.ControlPlane.ToolCardTest do
     }
 
     assert render_component(&ToolCard.render/1, step: %{step(payload) | state: "started"}) =~
-             "Ask Emisar to run an action"
+             "Started: Emisar run"
 
-    assert render_component(&ToolCard.render/1, step: step(payload)) =~ "Emisar run requested"
+    assert ToolCard.line(step(payload)).title == "Emisar run"
   end
 
   test "a finding tool shows the conclusion and reason with a meaningful action name" do

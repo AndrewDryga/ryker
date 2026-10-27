@@ -129,10 +129,9 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
     assert Enum.all?(third_chapters, &(&1.conversation_turn == 3))
   end
 
-  test "rapid messages render as one causal chapter per message" do
-    # The operator must be able to scan one message and everything it caused.
-    # Alternating top-level Routing / Work / Answer chapters turned five quick
-    # messages into 35 headings and visually mixed concurrent turns together.
+  test "interleaved messages retain their owners without rewinding time" do
+    # Grouping whole conversations put late approval inputs above earlier work
+    # in production. Continued sections must retain ownership and chronology.
     %{episode: episode, turn: turn, session: session} = started_work()
     admit!(episode, "Ev2", DateTime.add(@now, 30, :second))
 
@@ -144,20 +143,21 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
 
     admit!(episode, "Ev3", DateTime.add(@now, 90, :second))
 
-    groups =
+    document =
       episode
       |> rendered()
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query(".conversation-chapter")
 
-    assert LazyHTML.attribute(groups, "data-conversation-turn") == ["1", "2", "3"]
-    assert Enum.count(groups) == 3
+    for {owner, text} <- [{1, "Read file"}, {2, "Investigate Ev2"}, {3, "Investigate Ev3"}] do
+      assert document
+             |> LazyHTML.query(".conversation-chapter[data-conversation-turn='#{owner}']")
+             |> LazyHTML.text() =~ text
+    end
 
-    [first, second, third] = Enum.to_list(groups)
-    assert LazyHTML.text(first) =~ "Read file"
-    assert LazyHTML.text(second) =~ "Investigate Ev2"
-    assert LazyHTML.text(third) =~ "Investigate Ev3"
-    assert Enum.count(LazyHTML.query(groups, ".conversation-phase")) <= 12
+    times = document |> LazyHTML.query(".case-entry-time time") |> LazyHTML.attribute("datetime")
+    assert times == Enum.sort(times)
+    ids = document |> LazyHTML.query("[id]") |> LazyHTML.attribute("id")
+    assert ids == Enum.uniq(ids)
   end
 
   test "a turn built from two inputs names both of them" do
@@ -182,7 +182,8 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
     assert html =~ "Inputs: Message 1 + Message 2"
 
     document = LazyHTML.from_fragment(html)
-    [first, second] = Enum.to_list(LazyHTML.query(document, ".conversation-chapter"))
+    first = LazyHTML.query(document, ".conversation-chapter[data-conversation-turn='1']")
+    second = LazyHTML.query(document, ".conversation-chapter[data-conversation-turn='2']")
     assert Enum.empty?(LazyHTML.query(first, "#request-#{turn.id}"))
     assert Enum.count(LazyHTML.query(second, "#request-#{turn.id}")) == 1
   end

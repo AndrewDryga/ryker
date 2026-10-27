@@ -168,8 +168,7 @@ defmodule Ryker.StateTools.CallLogTest do
              ])
 
     assert failed_summaries(work) == %{
-             "exec-read" =>
-               "The tool failed. The worker does not send tool error details to Ryker.",
+             "exec-read" => "The tool failed. No error detail was retained.",
              "exec-proposal" =>
                "The tool failed, and Ryker has no record of receiving the call, so there is no error response to show."
            }

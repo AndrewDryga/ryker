@@ -1,7 +1,10 @@
 defmodule Ryker.ControlPlane.SavedRecordsTest do
-  use ExUnit.Case, async: true
+  use Ryker.DataCase, async: true
+  alias Ryker.ControlPlane.EpisodeTrace.Work, as: TraceWork
   alias Ryker.ControlPlane.SavedRecords
+  alias Ryker.ControlPlane.ToolCard
   alias Ryker.Records.Record
+  alias Ryker.StateTools.RecordWriter
   alias Ryker.Work.{ActivityEvent, Turn}
 
   setup do
@@ -15,6 +18,79 @@ defmodule Ryker.ControlPlane.SavedRecordsTest do
       turn: load(Turn, fixture["turn"]),
       record: load(Record, fixture["record"])
     }
+  end
+
+  test "a recorded approval is one Emisar tool row with its exact approval link", %{turn: turn} do
+    # Production showed a blank Governed action card beside the call that
+    # recorded it; the operator still had to hunt for the actual approval.
+    [run] =
+      File.read!("testdata/emisar/run_action_pending_approval.json")
+      |> Jason.decode!()
+      |> Map.fetch!("runs")
+
+    args =
+      run
+      |> Map.take(~w(action_id operation_id pack_ref run_id runner_ref status))
+      |> Map.merge(%{
+        "approval_url" => run["approval"]["url"],
+        "request_id" => run["approval"]["request_id"],
+        "expires_at" => run["approval"]["expires_at"]
+      })
+
+    at = ~U[2026-09-11 08:07:24.000000Z]
+
+    record = %Record{
+      id: Ecto.UUID.generate(),
+      ref: "record:emisar_approval:test",
+      sequence: 1,
+      episode_id: turn.episode_id,
+      turn_id: turn.id,
+      kind: "emisar_approval",
+      status: :answered,
+      payload: args,
+      inserted_at: at,
+      updated_at: DateTime.add(at, 60, :second),
+      operation_id:
+        RecordWriter.operation_id(
+          %{episode: %{id: turn.episode_id}, turn: turn},
+          "record_emisar_approval",
+          args
+        )
+    }
+
+    [step] = TraceWork.record_steps([record])
+    assert step.stage == "Tool call"
+    assert step.at == at
+    assert ToolCard.line(step).title == "Emisar run"
+    assert ToolCard.line(step).warning == "Created · waiting for approval"
+    assert ToolCard.line(step).approval_url == args["approval_url"]
+
+    events =
+      for {kind, offset} <- [{"tool.started", -1}, {"tool.completed", 1}],
+          do: %ActivityEvent{
+            id: Ecto.UUID.generate(),
+            episode_id: turn.episode_id,
+            session_id: turn.session_id,
+            coop_turn_id: turn.coop_turn_id,
+            occurred_at: DateTime.add(at, offset, :second),
+            kind: kind,
+            payload: %{
+              "status" => "completed",
+              "tool_call_id" => "approval-call",
+              "input" => %{
+                "server" => "controller-tools",
+                "tool" => "record_emisar_approval",
+                "arguments" => args
+              }
+            }
+          }
+
+    completed = List.last(events)
+    call = %{id: "activity-" <> completed.id}
+    assert SavedRecords.fold([call], events, [turn], [record]) == []
+
+    assert SavedRecords.fold([call], events, [turn], [%{record | operation_id: "host:other"}]) ==
+             [call]
   end
 
   test "a saved citation is told by its observation's card alone, matched by turn and full call identity",

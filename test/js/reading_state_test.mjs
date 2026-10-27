@@ -109,6 +109,26 @@ test("a body the server sends back with its reply replaces the loading line at o
   assert.equal(other.outerHTML, '<p class="artifact-loading" role="status">Loading…</p>')
 })
 
+test("opening a command reveals its inline output without opening another disclosure", () => {
+  // October 26: opening a command still hid its result behind a second click.
+  const f = fixture()
+  const loading = {outerHTML: "Loading…"}
+  const output = {dataset: {inlineArtifact: "activity-command-output"},
+    closest: () => f.outer, querySelector: () => loading}
+  const nested = {dataset: {inlineArtifact: "activity-unopened-output"}, closest: () => f.response}
+  f.outer.querySelectorAll = () => [output, nested]
+  f.hook.mounted()
+  f.outer.open = true
+  f.rootListeners.get("toggle")({target: f.outer})
+  assert.equal(f.pushed.length, 1)
+  assert.equal(f.pushed[0][1].artifact, "activity-command-output")
+  f.pushed[0][2]({html: "<pre>command not found</pre>"})
+  assert.equal(loading.outerHTML, "<pre>command not found</pre>")
+  f.outer.open = false
+  f.rootListeners.get("toggle")({target: f.outer})
+  assert.equal(f.pushed.length, 1)
+})
+
 test("a body opened before the page connects is opened again and loaded once it does", () => {
   // 2026-09-30: a heavy timeline takes seconds to connect. A fold opened meanwhile was closed by
   // the page's first live render, and nothing asked for its body.
@@ -126,6 +146,39 @@ test("a body opened before the page connects is opened again and loaded once it 
   assert.equal(f.pushed.length, 1)
   assert.equal(f.pushed[0][1].artifact, "activity-1-output")
   assert.equal(f.documentListeners.has("toggle"), false)
+})
+
+test("reconnecting retries an open command whose output reply was lost", () => {
+  const f = fixture()
+  let pending = {outerHTML: "Loading…"}
+  const output = {dataset: {inlineArtifact: "activity-command-output"},
+    closest: () => f.outer, querySelector: () => pending}
+  f.outer.querySelectorAll = () => [output]
+  f.hook.mounted()
+  f.outer.open = true
+  f.rootListeners.get("toggle")({target: f.outer})
+  assert.equal(f.pushed.length, 1)
+  // No response arrives before the connection drops.
+  f.hook.reconnected()
+  assert.equal(f.pushed.length, 2)
+  f.pushed[1][2]({html: "<pre>command not found</pre>"})
+  assert.equal(pending.outerHTML, "<pre>command not found</pre>")
+  pending = null
+  f.hook.reconnected()
+  assert.equal(f.pushed.length, 2)
+})
+
+test("a late output reply never restores a body revoked while loading", () => {
+  const f = fixture()
+  const loading = {outerHTML: "Loading…"}
+  f.response.querySelector = () => loading
+  f.response.dataset.artifact = "activity-command-output"
+  f.hook.mounted()
+  f.response.open = true
+  f.rootListeners.get("toggle")({target: f.response})
+  f.response.dataset.revoked = "true"
+  f.pushed[0][2]({html: "<pre>revoked body</pre>"})
+  assert.equal(loading.outerHTML, "Loading…")
 })
 
 test("a revoked body is closed and never reopened by the reader's earlier state", () => {

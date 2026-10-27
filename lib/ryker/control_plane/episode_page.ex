@@ -9,8 +9,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   alias Ryker.Slack
   alias Ryker.Wording
 
-  @conversation_bands [:ready, :routing, :work, :answer]
-
   def render(assigns) do
     assigns = assign_new(assigns, :timeline, fn -> %{items: [], truncated: false} end)
     assigns = assign(assigns, :startup, assigns.snapshot.trace[:startup])
@@ -35,11 +33,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
       assign(
         assigns,
         :timeline_groups,
-        timeline_groups(chapters, if(assigns.snapshot[:task], do: "The task")) ++
+        timeline_groups(
+          chapters,
+          if(assigns.snapshot[:task], do: "The task"),
           feedback_groups(
             assigns.snapshot[:feedback] || [],
             assigns.snapshot[:self_analysis] || []
           )
+        )
       )
 
     assigns =
@@ -145,29 +146,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
           </dl>
         </div>
       </section>
-      <section :if={!@startup && @task} class="task-progress" aria-labelledby="task-progress-heading">
-        <h2 id="task-progress-heading">Progress</h2>
-        <ol>
-          <li
-            :for={stage <- @task.stages}
-            data-state={stage["state"]}
-            class={stage["current"] && "task-progress-current"}
-          >
-            <span class="task-progress-glyph" aria-hidden="true">
-              <.icon :if={stage["state"] == "completed"} name={:check} />
-              <span :if={stage["state"] != "completed"}>{Slack.task_state_glyph(stage["state"])}</span>
-            </span>
-            <span class="task-progress-row">
-              <a :if={stage["url"]} href={stage["url"]} target="_blank" rel="noopener noreferrer">{stage_text(
-                stage
-              )}</a>
-              <span :if={!stage["url"]}>{stage_text(stage)}</span>
-              <span :if={stage["your_turn"]} class="task-progress-turn">← your turn</span>
-            </span>
-            <p :if={stage["reason"]} class="task-progress-reason">{stage["reason"]}</p>
-          </li>
-        </ol>
-      </section>
+      <.progress_plan :if={!@startup && @task} task={@task} plan={@snapshot.trace[:work_plan]} />
+      <.work_plan
+        :if={!@startup && !@task && @snapshot.trace[:work_plan]}
+        plan={@snapshot.trace.work_plan}
+        final={@snapshot.episode.state in [:complete, :cancelled]}
+      />
       <section :if={!@startup && !@task} class="episode-metrics" aria-label="Execution summary">
         <div class="metric-group metric-group-timing">
           <p class="metric-group-label">Timing</p>
@@ -288,18 +272,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
         groups={@timeline_groups}
         params={@params}
       />
-      <.work_plan
-        :if={!@startup && @snapshot.trace[:work_plan]}
-        plan={@snapshot.trace.work_plan}
-        final={@snapshot.episode.state in [:complete, :cancelled]}
-      />
     </div>
     """
   end
 
   # Andrew, 2026-09-27: every answer records the feedback it gets. What people
-  # said about this request's answers is a chapter of its own, after the
-  # background chapters, and how people rated it is part of it (2026-09-29):
+  # said about this request's answers keeps its own chapter identity, ordered
+  # among the other events by time, including ratings (2026-09-29):
   # one card per signal, oldest first, each saying how they felt and why. Ryker's own
   # analysis of what went wrong follows the feedback that started it, as the
   # model-request cards every other call has (2026-09-28). A request nobody
@@ -351,7 +330,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   Message band in the request page's order. Intake is the message as it was
   sent and why Ryker read it; Routing is the queue, the search for earlier
   work, the briefing and the decision; Answer is what Ryker sent. Background
-  learning that read the message follows as its own chapter. The header links
+  learning keeps its own chapter identity in chronological order. The header links
   to every message of its thread (Andrew, 2026-09-28: "drop this, just add
   link here to show all messages in thread too").
 
@@ -373,24 +352,35 @@ defmodule Ryker.ControlPlane.EpisodePage do
       message: view.message
     }
 
-    phases =
-      [ready: [message | intake], routing: routing, answer: view.answer]
-      |> Enum.reject(fn {_band, steps} -> steps == [] end)
-      |> Enum.map(fn {band, steps} -> %{band: band, steps: steps, turn: nil} end)
-
-    band = %{
-      band: :conversation,
-      conversation_turn: 1,
-      kind: :conversation,
-      marker: "M",
-      phases: phases,
-      title: "Message"
-    }
-
     groups =
-      [band] ++
-        learning_groups(view[:learning] || []) ++
-        feedback_groups(view[:feedback] || [], view[:self_analysis] || [])
+      [
+        ready: [message | intake],
+        routing: routing,
+        answer: view.answer,
+        learning: view[:learning] || []
+      ]
+      |> Enum.map(fn {band, steps} ->
+        %{
+          band: band,
+          steps: steps,
+          turn: nil,
+          owners: [],
+          starts_conversation: false,
+          conversation_turn: if(band == :learning, do: nil, else: 1)
+        }
+      end)
+      |> timeline_groups(nil, feedback_groups(view[:feedback] || [], view[:self_analysis] || []))
+      |> Enum.map(fn
+        %{kind: :conversation} = group ->
+          %{
+            group
+            | marker: "M",
+              title: if(group.part > 1, do: "Message · continued", else: "Message")
+          }
+
+        group ->
+          group
+      end)
 
     source = view.heading.source
 
@@ -496,29 +486,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
     end
   end
 
-  # Learning over a message with no request is read here, as a request's page
-  # reads learning over its messages.
-  # A message's page shows each learning pass that read it as a section of its
-  # own, in the order they ran, as a request's page does.
-  defp learning_groups(learning) do
-    learning
-    |> Enum.group_by(&occurrence/1)
-    |> Map.values()
-    |> Enum.sort_by(&first_step_time([%{steps: &1}]), DateTime)
-    |> Enum.with_index(1)
-    |> Enum.map(fn {steps, index} ->
-      %{
-        band: :learning,
-        conversation_turn: nil,
-        description: chapter_description(:learning),
-        kind: :background,
-        marker: "B#{index}",
-        phases: [%{band: :learning, steps: steps, turn: nil}],
-        title: chapter_title(%{band: :learning})
-      }
-    end)
-  end
-
   defp thread_link(%{transport: "slack", conversation_ref: conversation, thread_ref: thread})
        when is_binary(conversation) and is_binary(thread),
        do: ThreadContext.thread_link("slack", conversation, thread)
@@ -544,83 +511,102 @@ defmodule Ryker.ControlPlane.EpisodePage do
   message is `first` ("Before the first message"; a task's page names it "The
   task", since a task starts from its confirmation, not a message).
   """
-  def timeline_groups(chapters, first \\ nil) do
-    {background, foreground} = Enum.split_with(chapters, &background_band?(&1.band))
-
-    conversations =
-      foreground
-      |> Enum.group_by(& &1.conversation_turn)
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map(fn {conversation_turn, owned} ->
+  def timeline_groups(chapters, first \\ nil, feedback \\ []) do
+    feedback =
+      for group <- feedback, phase <- group.phases do
         %{
-          band: :conversation,
-          conversation_turn: conversation_turn,
-          kind: :conversation,
-          marker: if(conversation_turn > 0, do: "M#{conversation_turn}", else: "—"),
-          phases: grouped_phases(owned),
-          title:
-            if(conversation_turn > 0,
-              do: "Message #{conversation_turn}",
-              else: first || "Before the first message"
-            )
+          band: :feedback,
+          conversation_turn: nil,
+          turn: nil,
+          owners: [],
+          starts_conversation: false,
+          steps: phase.steps,
+          description: group.description
         }
-      end)
+      end
 
-    interleave(conversations, background_groups(background))
+    # Keep chronological order even when older work finishes after a new input.
+    # A continued section retains that work's real owner, never the newer message.
+    (chapters ++ feedback)
+    |> Enum.flat_map(fn chapter -> Enum.map(chapter.steps, &%{chapter | steps: [&1]}) end)
+    |> Enum.sort_by(&{entry_time(hd(&1.steps)), &1.conversation_turn || 0})
+    |> Enum.chunk_by(&group_identity/1)
+    |> Enum.map(&timeline_group(&1, first))
+    |> Enum.map_reduce(%{}, &continued_group/2)
+    |> elem(0)
+    |> Enum.map_reduce(0, &number_background/2)
+    |> elem(0)
   end
 
-  # Andrew, 2026-09-29, of a task's single Cleanup section holding both its
-  # sessions' cleanups: "we should not show cleanup as one section showing all
-  # cleanups but show such section/divider in a timeline, so it doesn't show 2
-  # here but shows when they actually occured (same for learning)". Each
-  # learning pass (its attempts together) and each session's cleanup is a
-  # section of its own, numbered B1, B2… in the order they happened.
-  defp background_groups([]), do: []
+  defp group_identity(%{band: :maintenance}), do: :maintenance
+  defp group_identity(%{band: :feedback}), do: :feedback
 
-  defp background_groups(chapters) do
-    templates = chapters |> Enum.reverse() |> Map.new(&{&1.band, &1})
+  defp group_identity(chapter) do
+    if background_band?(chapter.band),
+      do: {chapter.band, occurrence(hd(chapter.steps))},
+      else: {:conversation, chapter.conversation_turn}
+  end
 
-    chapters
-    |> Enum.flat_map(fn chapter -> Enum.map(chapter.steps, &{chapter.band, &1}) end)
-    |> Enum.group_by(fn {band, step} -> {band, occurrence(step)} end, &elem(&1, 1))
-    |> Enum.map(fn {{band, _occurrence}, steps} -> %{templates[band] | steps: steps} end)
-    |> Enum.sort_by(&first_step_time([&1]), DateTime)
-    |> Enum.with_index(1)
-    |> Enum.map(fn {chapter, index} ->
+  defp timeline_group([%{band: :feedback} = chapter | _] = chapters, _first) do
+    %{
+      anchor: "feedback",
+      band: :feedback,
+      conversation_turn: nil,
+      description: chapter.description,
+      kind: :feedback,
+      marker: "F",
+      phases: [merge_phase(chapters)],
+      title: "Feedback"
+    }
+  end
+
+  defp timeline_group([chapter | _] = chapters, first) do
+    if background_band?(chapter.band) do
       %{
         band: chapter.band,
         conversation_turn: nil,
         description: chapter_description(chapter.band),
         kind: :background,
-        marker: "B#{index}",
-        phases: [merge_phase([chapter])],
+        marker: nil,
+        phases: [merge_phase(chapters)],
         title: chapter_title(chapter)
       }
-    end)
+    else
+      turn = chapter.conversation_turn
+
+      %{
+        band: :conversation,
+        conversation_turn: turn,
+        kind: :conversation,
+        marker: if(turn > 0, do: "M#{turn}", else: "—"),
+        phases: grouped_phases(chapters),
+        title: if(turn > 0, do: "Message #{turn}", else: first || "Before the first message")
+      }
+    end
   end
+
+  defp continued_group(%{kind: :conversation, conversation_turn: turn} = group, seen) do
+    part = Map.get(seen, turn, 0) + 1
+    title = group.title <> if(part > 1, do: " · continued", else: "")
+    {Map.merge(group, %{part: part, title: title}), Map.put(seen, turn, part)}
+  end
+
+  defp continued_group(%{kind: :feedback} = group, seen) do
+    part = Map.get(seen, :feedback, 0) + 1
+    {Map.put(group, :anchor, "feedback" <> part_suffix(part)), Map.put(seen, :feedback, part)}
+  end
+
+  defp continued_group(group, seen), do: {group, seen}
+
+  defp number_background(%{kind: :background} = group, index),
+    do: {%{group | marker: "B#{index + 1}"}, index + 1}
+
+  defp number_background(group, index), do: {group, index}
 
   # A learning pass's attempts share their batch; a learning card and its
   # result share their id's stem; a cleanup is one session's.
   defp occurrence(%{occurrence: key}) when not is_nil(key), do: key
   defp occurrence(%{id: id}), do: String.replace_suffix(id, "-result", "")
-
-  # Background sections sit among the messages where they happened: after the
-  # last message section that started before them.
-  defp interleave(conversations, []), do: conversations
-
-  defp interleave(conversations, backgrounds) do
-    {placed, later} =
-      Enum.reduce(conversations, {[], backgrounds}, fn conversation, {placed, pending} ->
-        start = first_step_time(conversation.phases)
-
-        {before, rest} =
-          Enum.split_while(pending, &DateTime.before?(first_step_time(&1.phases), start))
-
-        {placed ++ before ++ [conversation], rest}
-      end)
-
-    placed ++ later
-  end
 
   defp execution_timeline(assigns) do
     ~H"""
@@ -658,7 +644,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <.rate :if={@snapshot.trace.rating.awaiting} rating={@snapshot.trace.rating} />
       <div id="latest-outcome" class="case-outcome">
         <div
-          :if={@snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup]}
+          :if={
+            @snapshot.trace.case_file.awaiting_reply && !@snapshot.trace[:startup] &&
+              !@snapshot.trace.stopped
+          }
           class="story-wait"
           data-state={wait_state(@snapshot)}
           role="status"
@@ -675,10 +664,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   attr(:groups, :list, required: true)
   attr(:started_at, :any, required: true, doc: "The first message's time, where spans count from")
 
-  # The Jump to line and the chapters: each message's band with its stages,
-  # then the background chapters, then what closes the page, such as the
-  # feedback on it or the thread a message is part of. The request
-  # page and a message's own page draw them the same way.
+  # Both request and message pages use the same chronological chapters.
+  # Adjacent events share a band; interleaved owners continue in a later band
+  # instead of moving background work or feedback after the conversation.
   defp timeline_bands(assigns) do
     ~H"""
     <nav :if={@groups != []} class="timeline-index" aria-label="Jump to chapter">
@@ -736,7 +724,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           />
         </div>
         <div class="phase-entries">
-          <.entry :for={entry <- tool_runs(phase.steps)} entry={entry} />
+          <.entry :for={entry <- card_runs(phase.steps)} entry={entry} />
         </div>
       </section>
     </section>
@@ -760,12 +748,19 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  defp message_anchor(group), do: "timeline-message-#{group.conversation_turn}"
-  defp phase_anchor(group, phase), do: "#{message_anchor(group)}-#{phase.band}"
+  defp message_anchor(group),
+    do: "timeline-message-#{group.conversation_turn}" <> part_suffix(group[:part])
 
-  defp message_jumps(groups, %{kind: :conversation, conversation_turn: turn}) when turn > 0 do
+  defp phase_anchor(group, phase),
+    do: "#{message_anchor(group)}-#{phase.band}" <> part_suffix(phase[:part])
+
+  defp part_suffix(part) when is_integer(part) and part > 1, do: "-continued-#{part}"
+  defp part_suffix(_part), do: ""
+
+  defp message_jumps(groups, %{kind: :conversation, conversation_turn: turn} = group)
+       when turn > 0 do
     messages = Enum.filter(groups, &(&1.kind == :conversation and &1.conversation_turn > 0))
-    index = Enum.find_index(messages, &(&1.conversation_turn == turn))
+    index = Enum.find_index(messages, &(&1 == group))
     adjacent_jumps(messages, index, "message", &message_anchor/1, & &1.title)
   end
 
@@ -836,12 +831,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   end
 
   defp grouped_phases(chapters) do
-    Enum.flat_map(@conversation_bands, fn band ->
-      case Enum.filter(chapters, &(&1.band == band)) do
-        [] -> []
-        owned -> [merge_phase(owned)]
-      end
+    chapters
+    |> Enum.chunk_by(& &1.band)
+    |> Enum.map(&merge_phase/1)
+    |> Enum.map_reduce(%{}, fn phase, seen ->
+      part = Map.get(seen, phase.band, 0) + 1
+      {Map.put(phase, :part, part), Map.put(seen, phase.band, part)}
     end)
+    |> elem(0)
   end
 
   defp merge_phase([first | _rest] = chapters) do
@@ -938,13 +935,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     %{previous | step: %{previous.step | queue: queue, tone: entry.step.tone}}
   end
 
-  defp first_step_time(chapters) do
-    chapters
-    |> Enum.flat_map(& &1.steps)
-    |> Enum.map(& &1.at)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.min(DateTime, fn -> ~U[9999-12-31 23:59:59.999999Z] end)
-  end
+  defp entry_time(entry), do: EpisodeTrace.Step.time_key(entry[:sort_at] || entry.at)
 
   defp calls_path(snapshot, params, page) do
     query =
@@ -1006,7 +997,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp phase_summary(_phase), do: nil
 
   # Background sections remain separate from message-caused work. Their cards
-  # retain exact timestamps even though they follow the conversation groups.
+  # retain exact timestamps and interleave with conversation events by time.
   defp background_band?(band), do: band in [:learning, :maintenance]
 
   # Andrew, 2026-09-28: "nice design for every kind, branded cards for Emisar
@@ -1027,6 +1018,33 @@ defmodule Ryker.ControlPlane.EpisodePage do
         entry
     end)
   end
+
+  defp card_runs(entries) do
+    entries
+    |> tool_runs()
+    |> Enum.chunk_by(&card_run_key/1)
+    |> Enum.map(fn
+      [%{kind: :event, step: %{stage: "Plan change"}} = first | _] = entries ->
+        %{
+          kind: :plan_run,
+          id: "plan-run-" <> first.id,
+          at: List.last(entries).at,
+          entries: entries
+        }
+
+      [%{kind: :event, step: %{stage: "Maintenance"}} = first | _] = entries ->
+        %{kind: :cleanup_run, id: "cleanup-run-" <> first.id, at: first.at, entries: entries}
+
+      [entry] ->
+        entry
+    end)
+  end
+
+  defp card_run_key(%{kind: :event, step: %{stage: "Plan change", plan_change: change}} = entry),
+    do: {:plan, entry.owner, change.kind}
+
+  defp card_run_key(%{kind: :event, step: %{stage: "Maintenance"}}), do: :cleanup
+  defp card_run_key(entry), do: entry.id
 
   defp add_to_run(entry, [%{kind: :tool_run} = run | rest], true),
     do: [%{run | entries: run.entries ++ [entry]} | rest]
@@ -1143,6 +1161,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
       <div class="case-entry-body">
         <.message :if={@entry.kind == :message} message={@entry.message} />
         <.tool_run :if={@entry.kind == :tool_run} run={@entry} />
+        <.plan_change :if={@entry.kind == :plan_run} run={@entry} />
+        <.cleanup_run :if={@entry.kind == :cleanup_run} run={@entry} />
         <Ryker.ControlPlane.ToolCard.render
           :if={@entry.kind == :event && @entry.step.stage == "Tool call"}
           step={@entry.step}
@@ -1163,10 +1183,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Work setup"}
           step={@entry.step}
         />
-        <.plan_change
-          :if={@entry.kind == :event && @entry.step.stage == "Plan change"}
-          step={@entry.step}
-        />
         <.observations
           :if={@entry.kind == :event && @entry.step.stage == "Observations"}
           step={@entry.step}
@@ -1176,8 +1192,13 @@ defmodule Ryker.ControlPlane.EpisodePage do
           step={@entry.step}
         />
         <.event_wait :if={@entry.kind == :event && @entry.step[:wait]} step={@entry.step} />
+        <.finding :if={@entry.kind == :event && @entry.step[:finding]} step={@entry.step} />
+        <.delivery_message :if={@entry.kind == :event && @entry.step[:message]} step={@entry.step} />
         <.event
-          :if={@entry.kind == :event && !card_stage?(@entry.step.stage) && !@entry.step[:wait]}
+          :if={
+            @entry.kind == :event && !card_stage?(@entry.step.stage) && !@entry.step[:wait] &&
+              !@entry.step[:finding] && !@entry.step[:message]
+          }
           step={@entry.step}
         />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
@@ -1338,6 +1359,63 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   # A current/final checklist is not a historical event. Each title goes back
   # to the event that supplied this status, outside this untimed summary.
+  defp progress_plan(assigns) do
+    steps = if assigns.plan, do: assigns.plan.steps, else: []
+    stages = MapSet.new(assigns.task.stages, & &1["stage"])
+
+    assigns =
+      assign(assigns, :unassigned, %{steps: Enum.reject(steps, &MapSet.member?(stages, &1.stage))})
+
+    ~H"""
+    <Kit.section_card
+      id="work-plan-summary"
+      title={if(@plan, do: "Progress and plan", else: "Progress")}
+      class="task-progress work-plan-summary"
+    >
+      <ol class="task-stage-list">
+        <li
+          :for={stage <- @task.stages}
+          data-state={stage["state"]}
+          data-stage={stage["stage"]}
+          class={["task-stage", stage["current"] && "task-progress-current"]}
+        >
+          <span class="task-progress-glyph" aria-hidden="true">
+            <.icon :if={stage["state"] == "completed"} name={:check} />
+            <span :if={stage["state"] != "completed"}>{Slack.task_state_glyph(stage["state"])}</span>
+          </span>
+          <div class="task-stage-content">
+            <div class="task-progress-row">
+              <a :if={stage["url"]} href={stage["url"]} target="_blank" rel="noopener noreferrer">{stage_text(
+                stage
+              )}</a>
+              <span :if={!stage["url"]}>{stage_text(stage)}</span>
+              <span :if={stage["your_turn"]} class="task-progress-turn">← your turn</span>
+            </div>
+            <p :if={stage["reason"]} class="task-progress-reason">{stage["reason"]}</p>
+            <.plan_steps
+              :if={
+                @plan && stage["state"] != "completed" &&
+                  stage_plan(@plan, stage["stage"]).steps != []
+              }
+              plan={stage_plan(@plan, stage["stage"])}
+              prefix="plan-summary"
+              changes={%{}}
+              current
+              compact
+            />
+          </div>
+        </li>
+      </ol>
+      <div :if={@unassigned.steps != []} class="task-stage-unassigned">
+        <h3>Steps without a recorded stage</h3>
+        <.plan_steps plan={@unassigned} prefix="plan-summary" changes={%{}} current compact />
+      </div>
+    </Kit.section_card>
+    """
+  end
+
+  defp stage_plan(plan, stage), do: %{steps: Enum.filter(plan.steps, &(&1.stage == stage))}
+
   defp work_plan(assigns) do
     ~H"""
     <Kit.section_card
@@ -1345,59 +1423,140 @@ defmodule Ryker.ControlPlane.EpisodePage do
       title={if(@final, do: "Final work plan", else: "Current work plan")}
       class="work-plan-summary"
     >
-      <ol class="plan-steps">
-        <li
-          :for={goal <- @plan.steps}
-          id={"plan-summary-" <> goal.id}
-          class="plan-step"
-          data-state={goal.state}
-          data-depth={goal.depth}
-        >
-          <div class="plan-step-head">
-            <strong class="plan-step-title">
-              <a href={"#event-" <> goal.change_id}>{goal.title}</a>
-            </strong>
-            <Kit.state tone={goal.tone} word={goal.status} />
-          </div>
-          <p :if={goal.optional || goal.attempt > 1} class="plan-step-flags">
-            <span :if={goal.optional}>Optional</span>
-            <span :if={goal.attempt > 1}>Attempt {goal.attempt}</span>
-          </p>
-          <p :if={plan_line(goal)} class="plan-step-line">
-            <span :if={elem(plan_line(goal), 0)} class="plan-step-label">
-              {elem(plan_line(goal), 0)}
-            </span>
-            {elem(plan_line(goal), 1)}
-          </p>
-          <.plan_evidence id={"plan-summary-evidence-#{goal.id}"} items={goal.evidence} />
-        </li>
-      </ol>
+      <.plan_steps plan={@plan} prefix="plan-summary" changes={%{}} current />
     </Kit.section_card>
+    """
+  end
+
+  attr(:plan, :map, required: true)
+  attr(:prefix, :string, required: true)
+  attr(:changes, :map, required: true)
+  attr(:current, :boolean, default: false)
+  attr(:compact, :boolean, default: false)
+
+  defp plan_steps(assigns) do
+    ~H"""
+    <ol class="plan-steps">
+      <li
+        :for={goal <- @plan.steps}
+        id={@prefix <> "-" <> goal.id}
+        class="plan-step"
+        data-state={goal.state}
+        data-depth={goal.depth}
+        data-changed={Map.has_key?(@changes, goal.goal_id)}
+      >
+        <div class="plan-step-head">
+          <.dynamic_tag
+            tag_name={if @current && goal.state != "working", do: "span", else: "strong"}
+            class="plan-step-title"
+          >
+            <a :if={@current} href={"#event-" <> goal.change_id}>{goal.title}</a>
+            <span :if={!@current}>{goal.title}</span>
+          </.dynamic_tag>
+          <span class="plan-step-status" data-tone={goal.tone}>{goal.status}</span>
+        </div>
+        <p :if={goal.optional || goal.attempt > 1} class="plan-step-flags">
+          <span :if={goal.optional}>Optional</span>
+          <span :if={goal.attempt > 1}>Attempt {goal.attempt}</span>
+        </p>
+        <p
+          :if={plan_line(goal, @compact) && !Map.has_key?(@changes, goal.goal_id)}
+          class="plan-step-line"
+        >
+          <span :if={elem(plan_line(goal, @compact), 0)} class="plan-step-label">
+            {elem(plan_line(goal, @compact), 0)}
+          </span>
+          {elem(plan_line(goal, @compact), 1)}
+        </p>
+        <div
+          :for={entry <- Map.get(@changes, goal.goal_id, [])}
+          id={entry.id}
+          class="plan-step-change"
+        >
+          <p class="plan-change-meta">
+            <time datetime={DateTime.to_iso8601(entry.at)}>{clock_time(entry.at)} UTC</time>
+            <span :if={entry.step.plan_change.kind == "goal"}>Added to plan</span>
+            <span :if={entry.step.plan_change.kind != "goal"}>
+              {entry.step.plan_change.previous_status || "Not recorded"} → {entry.step.plan_change.status}
+            </span>
+          </p>
+          <p :if={entry.step.plan_change.kind == "goal" && goal.contract} class="plan-step-line">
+            <span class="plan-step-label">Done when</span> {goal.contract}
+          </p>
+          <p :if={entry.step.plan_change.detail} class="plan-step-line">
+            {entry.step.plan_change.detail}
+          </p>
+          <.plan_evidence id={entry.id <> "-evidence"} items={entry.step.plan_change.evidence} />
+        </div>
+        <.plan_evidence
+          :if={!Map.has_key?(@changes, goal.goal_id)}
+          id={@prefix <> "-evidence-" <> goal.id}
+          items={goal.evidence}
+        />
+      </li>
+    </ol>
     """
   end
 
   # One reusable card for both kinds of recorded change. It carries no later
   # status or result; the surrounding timeline supplies the record's time.
   defp plan_change(assigns) do
-    assigns = assign(assigns, :change, assigns.step.plan_change)
+    latest = List.last(assigns.run.entries).step.plan_change
+    changes = Enum.group_by(assigns.run.entries, & &1.step.plan_change.goal_id)
+    current_ids = MapSet.new(latest.snapshot.steps, & &1.goal_id)
+
+    # A bounded page may put an old plan beside its replacement. Keep the old
+    # record's anchor and changes without counting it in the current checklist.
+    replaced =
+      assigns.run.entries
+      |> Enum.map(& &1.step.plan_change)
+      |> Enum.uniq_by(& &1.goal_id)
+      |> Enum.reject(&MapSet.member?(current_ids, &1.goal_id))
+      |> Enum.map(&Map.merge(&1, %{state: "replaced", status: "Replaced", tone: nil, depth: 0}))
+
+    plan = %{latest.snapshot | steps: replaced ++ latest.snapshot.steps}
+    assigns = assign(assigns, plan: plan, changes: changes, kind: latest.kind)
 
     ~H"""
-    <div class="case-event-content plan-change" data-state={@change.state}>
-      <.card_heading
-        title={@change.title}
-        label={if(@change.kind == "goal", do: "Step planned", else: "Step updated")}
-      >
-        <:meta :if={@change.kind != "goal"}>
-          <Kit.state tone={@change.tone} word={@change.status} />
+    <div class="case-event-content plan-change">
+      <.card_heading title={if(@kind == "goal", do: "Work plan created", else: "Work plan updated")}>
+        <:meta>
+          {Wording.count(map_size(@changes), "step")} {if(@kind == "goal",
+            do: "added",
+            else: "changed"
+          )}
         </:meta>
       </.card_heading>
-      <p :if={@change.optional || @change.attempt > 1} class="plan-step-flags">
-        <span :if={@change.optional}>Optional</span>
-        <span :if={@change.attempt > 1}>Attempt {@change.attempt}</span>
-      </p>
-      <.fact_list :if={@change.kind == "goal" && @change.facts != []} facts={@change.facts} />
-      <p :if={@change.detail} class="case-event-summary">{@change.detail}</p>
-      <.plan_evidence id={"plan-change-evidence-#{@step.id}"} items={@change.evidence} />
+      <.plan_steps plan={@plan} prefix={@run.id} changes={@changes} />
+    </div>
+    """
+  end
+
+  defp cleanup_run(assigns) do
+    ~H"""
+    <div class="case-event-content cleanup-run">
+      <.card_heading title="Worker cleanup">
+        <:meta>{Wording.count(length(@run.entries), "session")}</:meta>
+      </.card_heading>
+      <ol class="cleanup-events">
+        <li :for={entry <- @run.entries} id={entry.id}>
+          <time datetime={if(entry.at, do: DateTime.to_iso8601(entry.at))}>{message_timestamp(
+            entry.at
+          )}</time>
+          <div class="cleanup-event-content">
+            <strong>{entry.step.title}</strong>
+            <p>{entry.step.summary}</p>
+            <a :if={entry.step.href} href={entry.step.href}>Review working copy →</a>
+            <.disclosure
+              :if={entry.step.details != []}
+              id={"event-detail-#{entry.step.id}"}
+              label="Cleanup details"
+            >
+              <.fact_list facts={entry.step.details} />
+            </.disclosure>
+          </div>
+        </li>
+      </ol>
     </div>
     """
   end
@@ -1434,18 +1593,23 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # What a step says under its title: before it is done, what finishes it,
   # labelled so it never reads as work already done; once it waits, stops
   # or ends, what it recorded, and nothing when it recorded nothing.
-  defp plan_line(%{state: state, contract: contract})
+  defp plan_line(%{detail: detail}, true) when is_binary(detail) and detail != "",
+    do: {nil, detail}
+
+  defp plan_line(_goal, true), do: nil
+
+  defp plan_line(%{state: state, contract: contract}, false)
        when state in ["ready", "working"] and is_binary(contract),
        do: {"Done when", contract}
 
-  defp plan_line(%{detail: detail}) when is_binary(detail) and detail != "",
+  defp plan_line(%{detail: detail}, false) when is_binary(detail) and detail != "",
     do: {nil, detail}
 
-  defp plan_line(%{state: state, contract: contract})
+  defp plan_line(%{state: state, contract: contract}, false)
        when state in ["waiting", "blocked"] and is_binary(contract),
        do: {"Done when", contract}
 
-  defp plan_line(_goal), do: nil
+  defp plan_line(_goal, false), do: nil
 
   attr(:items, :list, required: true)
 
@@ -2128,6 +2292,42 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
+  defp finding(assigns) do
+    ~H"""
+    <div class="case-event-content finding-card">
+      <.card_heading title="Finding" />
+      <div class="finding-content">
+        <p class="finding-status">
+          <span class="plan-step-label">Assessment</span> {@step.finding.status}
+        </p>
+        <div class="finding-conclusion markdown-preview">
+          {SlackMarkdown.html(@step.finding.conclusion)}
+        </div>
+        <section :if={@step.finding.reason} class="finding-reason">
+          <h4>Why</h4>
+          <div class="markdown-preview">{SlackMarkdown.html(@step.finding.reason)}</div>
+        </section>
+        <p :if={@step.finding.scope}>
+          <span class="plan-step-label">Scope</span> {@step.finding.scope}
+        </p>
+        <.plan_evidence id={"finding-#{@step.id}-evidence"} items={@step.finding.evidence} />
+      </div>
+    </div>
+    """
+  end
+
+  defp delivery_message(assigns) do
+    ~H"""
+    <div class="case-event-content delivery-message">
+      <.card_heading title={@step.title} />
+      <.message_block sender="Ryker">
+        {SlackMarkdown.html(@step.message.text)}
+      </.message_block>
+      <p class="delivery-message-note">{@step.summary}</p>
+    </div>
+    """
+  end
+
   defp worker_activity(assigns) do
     {label, title} = activity_heading(assigns.step)
     assigns = assign(assigns, label: label, title: title)
@@ -2562,7 +2762,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # (Andrew, 2026-10-01: it read "No visible answer yet · continue work").
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
   defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
-  defp pending_answer_label(%{trace: %{stopped: %{headline: headline}}}), do: headline
 
   defp pending_answer_label(%{episode: %{state: :waiting_for_input}}),
     do: "Waiting for your answer"
@@ -2574,7 +2773,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp pending_answer_label(_), do: "Follow-up in progress"
 
   defp wait_state(%{episode: %{state: state}}) when state in [:cancelled, :complete], do: "done"
-  defp wait_state(%{trace: %{stopped: %{headline: _}}}), do: "stopped"
 
   defp wait_state(%{episode: %{state: state}})
        when state in [:waiting_for_input, :waiting_for_event],
@@ -2587,7 +2785,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       {"working", _state} -> "New steps appear here as they happen."
       {"waiting", :waiting_for_input} -> "Answer Ryker's question in the conversation to go on."
       {"waiting", _state} -> "The work goes on when it arrives."
-      {"stopped", _state} -> "Next action at the top says what it needs."
       {"done", _state} -> nil
     end
   end

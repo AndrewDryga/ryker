@@ -263,8 +263,12 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
 
     for {id, label} <- [{"1", "Attempt 1"}, {"1-result", "Attempt 1"}, {"2", "Attempt 2"}] do
       assert document
-             |> LazyHTML.query("#admission-#{entry.id}-#{id} .case-card-heading-detail")
+             |> LazyHTML.query("#admission-#{entry.id}-#{id} .request-context-line > span")
              |> LazyHTML.text() == label
+
+      refute document
+             |> LazyHTML.query("#admission-#{entry.id}-#{id} .case-card-heading")
+             |> LazyHTML.text() =~ label
     end
 
     stopped = LazyHTML.query(document, "#event-queue-#{entry.id}-#{sequence.(:blocked)}")
