@@ -1890,7 +1890,7 @@ defmodule Ryker.Slack.RendererTest do
     assert {:ok, rendered} = Renderer.render(document)
     [_message | blocks] = rendered["blocks"]
 
-    assert headings(blocks) == ["Emisar review", "Action", "Runner", "Status"]
+    assert headings(blocks) == ["Emisar run needs your review", "Action", "Runner", "Status"]
     assert status_text(blocks) =~ "◷ Waiting for review."
 
     # Review happens in Emisar, and while a decision is open its link is the
@@ -1932,7 +1932,7 @@ defmodule Ryker.Slack.RendererTest do
              })
 
     [_message | blocks] = rendered["blocks"]
-    assert headings(blocks) == ["Emisar review", "Action"]
+    assert headings(blocks) == ["Emisar runs need your review", "Action"]
 
     assert [["*Runner*\n`web-1`", status], ["*Runner*\n`web-2`", status]] =
              for(%{"fields" => fields} <- blocks, do: Enum.map(fields, & &1["text"]))
@@ -1953,7 +1953,7 @@ defmodule Ryker.Slack.RendererTest do
     # Operator-facing dispatch metadata first, in one fixed order, then what
     # will actually run, then who runs it.
     assert headings(blocks) == [
-             "Emisar review",
+             "Emisar run needs your review",
              "Reason",
              "Evidence",
              "Expected outcome",
@@ -2004,7 +2004,7 @@ defmodule Ryker.Slack.RendererTest do
     blocks = rendered["blocks"]
 
     assert headings(blocks) == [
-             "Emisar review",
+             "Emisar run needs your review",
              "Reason",
              "Evidence",
              "Expected outcome",
@@ -2135,6 +2135,12 @@ defmodule Ryker.Slack.RendererTest do
 
       assert hd(buttons)["text"]["text"] == expected_label, "#{name} control"
       assert Map.get(hd(buttons), "style") == if(open?, do: "primary"), "#{name} control style"
+
+      # A decided review must stop asking the human to review it again.
+      assert hd(headings(blocks)) ==
+               if(open?, do: "Emisar run needs your review", else: "Emisar run review")
+
+      assert String.contains?(rendered["text"], "needs your review") == open?
     end
   end
 
@@ -2181,7 +2187,13 @@ defmodule Ryker.Slack.RendererTest do
     blocks = rendered["blocks"]
 
     assert headings(blocks) ==
-             ["Emisar review", "Reason", "Evidence", "Expected outcome", "Command to run"]
+             [
+               "Emisar runs need your review",
+               "Reason",
+               "Evidence",
+               "Expected outcome",
+               "Command to run"
+             ]
 
     assert [
              [%{"type" => "divider"}, web_1, web_1_actions],
@@ -2206,7 +2218,7 @@ defmodule Ryker.Slack.RendererTest do
     assert Enum.map(web_2_actions["elements"], & &1["text"]["text"]) ==
              ["Open approval", "Open run"]
 
-    assert rendered["text"] == "Emisar review · nomad.alloc_restart · 2 runners"
+    assert rendered["text"] == "Emisar runs need your review · nomad.alloc_restart · 2 runners"
   end
 
   # The review card named each runner by Emisar's whole reference, `emisar-p02r~63f5…` (manual
@@ -2258,7 +2270,7 @@ defmodule Ryker.Slack.RendererTest do
              })
 
     assert headings(rendered["blocks"]) ==
-             ["Emisar review", "Reason", "Evidence", "Expected outcome", "Command"]
+             ["Emisar runs need your review", "Reason", "Evidence", "Expected outcome", "Command"]
   end
 
   test "approvals asking different things stay separate cards" do
@@ -2273,10 +2285,10 @@ defmodule Ryker.Slack.RendererTest do
              })
 
     blocks = rendered["blocks"]
-    assert Enum.count(headings(blocks), &(&1 == "Emisar review")) == 2
+    assert Enum.count(headings(blocks), &(&1 == "Emisar run needs your review")) == 2
     assert Enum.count(headings(blocks), &(&1 == "Runner")) == 2
     assert Enum.count(blocks, &(&1["type"] == "divider")) == 1
-    assert rendered["text"] == "Emisar review · 2 approvals"
+    assert rendered["text"] == "Emisar runs need your review · 2 approvals"
   end
 
   test "approvals past a message's fifty blocks are counted, not cut off mid-card" do

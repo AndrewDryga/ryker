@@ -85,7 +85,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
     kinds =
       group |> Enum.map(fn {status, _review, _ref} -> command_kind(status) end) |> Enum.uniq()
 
-    shared_blocks(status, kinds) ++ Enum.flat_map(group, &runner_row/1)
+    shared_blocks(status, kinds, review_heading(group)) ++ Enum.flat_map(group, &runner_row/1)
   end
 
   defp command_kind(status), do: get_in(status, ["review", "command", "kind"])
@@ -112,10 +112,10 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   defp cards_text([{status, _review, _ref} | _more] = cards) do
     case Enum.uniq_by(cards, &shared_key/1) do
       [_one] ->
-        "Emisar review · #{escape(status["action_id"])} · #{length(cards)} runners"
+        "#{review_heading(cards)} · #{escape(status["action_id"])} · #{length(cards)} runners"
 
       _several ->
-        "Emisar review · " <> Wording.count(length(cards), "approval")
+        review_heading(cards) <> " · " <> Wording.count(length(cards), "approval")
     end
   end
 
@@ -125,7 +125,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   # The immutable refs stay one authorized link away: this card leads with the
   # human decision, not with machine provenance.
   defp review_blocks(status, review, block_ref) do
-    shared_blocks(status, [command_kind(status)]) ++
+    shared_blocks(status, [command_kind(status)], review_heading([{status, review, block_ref}])) ++
       [
         section("*Runner*\n`#{escape(Emisar.ApprovalStatus.runner_name(status["runner_ref"]))}`"),
         status_block(status, review),
@@ -134,12 +134,12 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   end
 
   # `kinds` are the command kinds of every runner the part is shared by.
-  defp shared_blocks(status, kinds) do
+  defp shared_blocks(status, kinds, heading) do
     review_facts = status["review"] || %{}
 
     Enum.reject(
       [
-        section("*Emisar review*"),
+        section("*#{heading}*"),
         rationale("Reason", cut(review_facts, "reason")),
         rationale("Evidence", cut(review_facts, "evidence")),
         rationale("Expected outcome", cut(review_facts, "expected"))
@@ -238,10 +238,19 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   defp pending_review?(%{"review" => %{"status" => status}}), do: status == "pending"
   defp pending_review?(%{"status" => status}), do: status == "pending_approval"
 
-  defp review_text(status, nil) do
-    "Emisar review · #{escape(status["action_id"])} · #{Emisar.ApprovalStatus.label(status["status"])}"
+  defp review_heading(cards) do
+    count = length(cards)
+
+    if Enum.any?(cards, fn {status, _review, _ref} -> pending_review?(status) end),
+      do: "Emisar #{Wording.word(count, "run needs", "runs need")} your review",
+      else: "Emisar #{Wording.word(count, "run review", "run reviews")}"
   end
 
-  defp review_text(status, %{summary: summary}),
-    do: "Emisar review · #{escape(status["action_id"])} · #{escape(summary)}"
+  defp review_text(status, nil) do
+    "#{review_heading([{status, nil, nil}])} · #{escape(status["action_id"])} · #{Emisar.ApprovalStatus.label(status["status"])}"
+  end
+
+  defp review_text(status, %{summary: summary}) do
+    "#{review_heading([{status, nil, nil}])} · #{escape(status["action_id"])} · #{escape(summary)}"
+  end
 end

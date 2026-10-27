@@ -170,7 +170,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
       assert request.thread_ref == claim.episode.destination_thread_ref
       assert request.conversation_ref == claim.episode.destination_conversation_ref
       assert Jason.encode!(rendered["blocks"]) =~ record.payload["approval_url"]
-      assert rendered["text"] =~ "Emisar review"
+      assert rendered["text"] =~ "Emisar run"
       current = Inspectors.episode(claim.episode.key)
       assert {current.owner_kind, current.owner_ref} == before_owner
       refute_receive {:approval_message, _request, _rendered}, 100
