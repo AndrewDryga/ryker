@@ -712,6 +712,19 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
     assert LazyHTML.text(retry) =~ "Retried after attempt 1 failed: acp protocol error."
     assert LazyHTML.query(retry, "a") |> LazyHTML.attribute("href") == [href]
+
+    # A failed allocation has custody evidence, but no model briefing to link
+    # back to. Hiding its empty card must not leave a broken retry anchor.
+    entry.id
+    |> Attempt.Query.by_generation(1)
+    |> Repo.update_all(
+      set: [submission: nil, response: nil, phase: "execution_requested", milestones: %{}]
+    )
+
+    {:ok, queued} = ModelRequests.timeline(episode.key, %{})
+    refute Enum.any?(queued.items, &(&1.id == "admission-#{entry.id}-1"))
+    second = Enum.find(queued.items, &(&1.id == "admission-#{entry.id}-2-result"))
+    assert second.retried_after == nil
   end
 
   test "a truncated context remains readable inline instead of becoming an empty document" do

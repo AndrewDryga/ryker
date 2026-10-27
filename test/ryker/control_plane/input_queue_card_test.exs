@@ -86,6 +86,37 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert Enum.map(retry.queue.events, & &1.label) == ["Retry scheduled", "Current"]
   end
 
+  # October 27: eight failed allocations became empty Routing briefings and
+  # a human retry prompt, although the model had never received a request.
+  test "waiting for capacity shows a queued input without an invented model briefing" do
+    {entry, _input} = pending!()
+    at = DateTime.add(entry.inserted_at, 1, :second)
+    transition!(entry, :claimed, at, attempt: 1, owner_ref: "routing:waiting")
+
+    transition!(entry, :retry_scheduled, DateTime.add(at, 1, :second),
+      attempt: 1,
+      eligible_at: DateTime.add(at, 61, :second),
+      error_code: "coop_worker_capacity_unavailable"
+    )
+
+    Repo.insert!(%Attempt{
+      input_id: entry.id,
+      generation: 1,
+      policy: "inspection-test",
+      policy_digest: String.duplicate("a", 64),
+      phase: "execution_requested",
+      milestones: %{"execution_requested" => DateTime.to_iso8601(at)}
+    })
+
+    [_picked_up, waiting] = queue_steps(entry)
+    assert waiting.queue.kind == :waiting
+    assert waiting.queue.qualifier == "Waiting for worker capacity"
+    html = standalone(entry)
+    assert html =~ "Checks again automatically"
+    refute html =~ "Routing briefing"
+    refute html =~ "Retry 1"
+  end
+
   test "a transport timeout reattaches the same routing attempt instead of inventing a retry" do
     {entry, _input} = pending!()
     claimed_at = DateTime.add(entry.inserted_at, 290, :millisecond)
@@ -225,6 +256,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       generation: 2,
       policy: "admission",
       policy_digest: String.duplicate("b", 64),
+      submission: %{"prompt" => "Route the retained input."},
       phase: "context_prepared",
       milestones: %{"context_prepared" => DateTime.to_iso8601(second)},
       inserted_at: second,
@@ -561,6 +593,7 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
       generation: 1,
       policy: "admission",
       policy_digest: String.duplicate("b", 64),
+      submission: %{"prompt" => "Route the retained input."},
       phase: "context_prepared",
       milestones: %{"context_prepared" => DateTime.to_iso8601(at)},
       inserted_at: at,

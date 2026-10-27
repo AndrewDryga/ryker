@@ -155,14 +155,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ended_at = if current, do: nil, else: last.occurred_at
 
     %{
-      kind: queue_kind(last.kind, current),
+      kind:
+        if(capacity_wait?(last) and current, do: :waiting, else: queue_kind(last.kind, current)),
       qualifier: qualifier,
       current: current,
       events: events,
       started_at: first.occurred_at,
       ended_at: ended_at,
       duration_ms: nonnegative_diff(ended_at, first.occurred_at),
-      tone: queue_tone(last.kind)
+      tone: if(capacity_wait?(last), do: nil, else: queue_tone(last.kind))
     }
   end
 
@@ -206,6 +207,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp queue_qualifier(_first, 0, _previous), do: nil
 
   defp queue_qualifier(
+         %{kind: :retry_scheduled, error_code: "coop_worker_capacity_unavailable"},
+         _index,
+         _previous
+       ),
+       do: "Waiting for worker capacity"
+
+  defp queue_qualifier(
          %{kind: :retry_scheduled, attempt: attempt, error_code: error_code},
          _index,
          previous
@@ -232,6 +240,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp queue_tone(:blocked), do: :bad
   defp queue_tone(:retry_scheduled), do: :warn
   defp queue_tone(_kind), do: nil
+
+  defp capacity_wait?(%{kind: :retry_scheduled, error_code: "coop_worker_capacity_unavailable"}),
+    do: true
+
+  defp capacity_wait?(_transition), do: false
 
   defp queue_event(%{kind: :saved} = transition) do
     queue_event(transition, "Saved", "The input entered the routing queue.")
@@ -274,6 +287,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
         else: "A routing worker claimed the input."
 
     queue_event(transition, "Picked up", reason)
+  end
+
+  defp queue_event(
+         %{kind: :retry_scheduled, error_code: "coop_worker_capacity_unavailable"} = transition
+       ) do
+    queue_event(
+      transition,
+      "Waiting for worker capacity",
+      "The input stays queued. Checks again automatically at #{retry_time(transition.eligible_at)}."
+    )
   end
 
   defp queue_event(%{kind: :retry_scheduled} = transition) do

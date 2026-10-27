@@ -307,8 +307,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
     if host_answer?(entry), do: [], else: recorded_admission_events(entry, nil, reading)
   end
 
-  defp admission_events(entry, attempt, reading),
-    do: recorded_admission_events(entry, attempt, reading)
+  defp admission_events(entry, attempt, reading) do
+    if briefed?(attempt),
+      do: recorded_admission_events(entry, attempt, reading),
+      else: search_event(entry, attempt)
+  end
 
   # The deterministic question-card answer path never submitted a model call.
   # Only its exact durable marker suppresses a missing-attempt placeholder;
@@ -370,7 +373,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
                 actor: "Ryker",
                 owner: {:input, entry.id},
                 input_id: entry.id,
-                search: Map.put(search, :briefing_href, "#admission-#{entry.id}-#{generation}"),
+                search:
+                  Map.put(
+                    search,
+                    :briefing_href,
+                    if(briefed?(attempt), do: "#admission-#{entry.id}-#{generation}")
+                  ),
                 details: [],
                 stage: "Search",
                 summary: nil,
@@ -390,6 +398,21 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # showed a card whose every part read "Not recorded" (Andrew, 2026-10-15).
   # A run whose briefing retention pruned after it reached the worker keeps
   # its card.
+  # Allocating a worker records an attempt before any prompt exists. Its
+  # custody transitions explain the wait; it is not a model-call briefing.
+  defp briefed?(%Admission.Attempt{
+         submission: nil,
+         submission_fingerprint: nil,
+         turn_ref: nil,
+         response: nil,
+         operational_pruned_at: nil,
+         phase: phase
+       })
+       when phase in ["context_prepared", "execution_requested"],
+       do: false
+
+  defp briefed?(%Admission.Attempt{}), do: true
+
   defp briefed?(%Work.Turn{
          submission: nil,
          submission_fingerprint: nil,
@@ -546,6 +569,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
       for attempt <- attempts,
           %Admission.Attempt{} = previous_attempt <- [by_generation[attempt.generation - 1]],
+          briefed?(previous_attempt),
           %{} = failure <- [failures[previous_attempt.id]] do
         {attempt.id,
          Map.merge(failure, %{
