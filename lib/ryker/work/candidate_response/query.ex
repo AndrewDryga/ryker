@@ -19,18 +19,9 @@ defmodule Ryker.Work.CandidateResponse.Query do
   candidate_attempts}`, of turns that keep their bodies.
   """
   def latest_of_attempts(attempts, limit) do
-    chosen =
-      Enum.reduce(attempts, dynamic(false), fn {turn_id, numbers}, chosen ->
-        dynamic(
-          [work_candidate_responses: r],
-          ^chosen or (r.turn_id == ^turn_id and r.candidate_attempt in ^numbers)
-        )
-      end)
-
-    from(response in all(),
+    from(response in by_attempts(attempts),
       join: owner in Turn,
       on: owner.id == response.turn_id,
-      where: ^chosen,
       where: is_nil(owner.operational_pruned_at),
       order_by: [
         desc: response.recorded_at,
@@ -40,6 +31,27 @@ defmodule Ryker.Work.CandidateResponse.Query do
       limit: ^limit,
       select: response
     )
+  end
+
+  @doc "Receipt times without bodies, independent of the response disclosure page."
+  def select_recorded_at_of_attempts(queryable \\ all(), attempts) do
+    select(
+      by_attempts(queryable, attempts),
+      [work_candidate_responses: r],
+      {r.turn_id, r.candidate_attempt, r.sha256, r.recorded_at}
+    )
+  end
+
+  defp by_attempts(queryable \\ all(), attempts) do
+    chosen =
+      Enum.reduce(attempts, dynamic(false), fn {turn_id, numbers}, chosen ->
+        dynamic(
+          [work_candidate_responses: r],
+          ^chosen or (r.turn_id == ^turn_id and r.candidate_attempt in ^numbers)
+        )
+      end)
+
+    where(queryable, ^chosen)
   end
 
   @doc "The result of `turn`'s current attempt."

@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
                   sent_prompts: %{},
                   response_windows: %{},
                   responses: %{},
+                  response_times: %{},
                   responses_limited: false,
                   expired: false
                 ]
@@ -169,7 +170,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         |> request_events(
           {:turn, turn.id},
           "request-#{turn.id}",
-          work_result_at(turn),
+          work_result_at(turn, reading),
           turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
           Paths.request(episode.id) <> "#request-#{turn.id}",
           %{kind: :work, run: CallRun.from_turn(turn), title_update: title_updates[turn.id]}
@@ -594,13 +595,17 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   # A rejected answer has no accepted/remote-finished receipt. Its check is
   # still dated evidence, not an undated result to append after later runs.
-  defp work_result_at(turn) do
+  defp work_result_at(turn, reading) do
     checks =
       for %{"recorded_at" => value} <- turn.validation_history || [],
           {:ok, at} <- [UTCDateTime.parse(value)],
           do: at
 
-    [turn.remote_finished_at, turn.accepted_at | checks]
+    # A staged answer already has its own receipt while validation is pending.
+    # Never file it at the briefing's start or a previous candidate's rejection.
+    received = reading.response_times[{turn.id, turn.candidate_attempt, turn.candidate_sha256}]
+
+    [received, turn.remote_finished_at, turn.accepted_at | checks]
     |> Enum.reject(&is_nil/1)
     |> Enum.max(DateTime, fn -> nil end)
   end
@@ -1154,10 +1159,19 @@ defmodule Ryker.ControlPlane.ModelRequests do
       |> Work.CandidateResponse.Query.latest_of_attempts(@response_page_size)
       |> Repo.all()
 
+    times =
+      turns
+      |> Enum.filter(&is_integer(&1.candidate_attempt))
+      |> Enum.map(&{&1.id, [&1.candidate_attempt]})
+      |> Work.CandidateResponse.Query.select_recorded_at_of_attempts()
+      |> Repo.all()
+      |> Map.new(fn {id, attempt, digest, at} -> {{id, attempt, digest}, at} end)
+
     %{
       reading
       | response_windows: windows,
         responses: Map.new(rows, &{{&1.turn_id, &1.candidate_attempt}, &1}),
+        response_times: times,
         responses_limited: length(rows) == @response_page_size
     }
   end

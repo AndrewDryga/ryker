@@ -14,7 +14,76 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
   alias Ryker.InspectionRedactor
   alias Ryker.Settings
-  alias Ryker.Work.{Custody, Session, Submission, Turn}
+  alias Ryker.Work.{CandidateResponse, Custody, Session, Submission, Turn}
+
+  test "a pending response follows its own receipt, never the briefing or an older rejection" do
+    # A live follow-up showed its silent answer before all the tools it had
+    # just run, while completion review was still checking that answer.
+    {episode, turn, _original} = frozen_turn!()
+    received = DateTime.add(turn.inserted_at, 28, :second)
+
+    candidate =
+      Jason.encode!(%{
+        "decision_reason" =>
+          "Backup continues progressing six minutes after the last update; no material outcome change. Existing scheduled check remains open.",
+        "delivery" => "none",
+        "message" => nil,
+        "outcome" => %{
+          "artifact_refs" => [],
+          "record_refs" => ["record:evidence:backup-progress", "record:event_wait:next-check"],
+          "state" => "waiting_for_event"
+        },
+        "title" => nil
+      })
+
+    Repo.insert!(%CandidateResponse{
+      turn_id: turn.id,
+      candidate_attempt: 2,
+      body: candidate,
+      sha256: digest(candidate),
+      byte_size: byte_size(candidate),
+      recorded_at: received
+    })
+
+    for history <- [
+          [],
+          [
+            %{
+              "candidate_attempt" => 1,
+              "verdict" => "reject",
+              "recorded_at" => DateTime.to_iso8601(DateTime.add(received, -10, :second))
+            }
+          ]
+        ] do
+      turn
+      |> Ecto.Changeset.change(
+        candidate: candidate,
+        candidate_sha256: digest(candidate),
+        candidate_attempt: 2,
+        validation_history: history
+      )
+      |> Repo.update!()
+
+      {:ok, timeline} = ModelRequests.timeline(episode.key, %{"responses_page" => "1"})
+      result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
+      assert result.at == received
+      assert result.sort_at == received
+    end
+
+    Turn
+    |> Repo.get!(turn.id)
+    |> Ecto.Changeset.change(
+      candidate: candidate,
+      candidate_attempt: 2,
+      candidate_sha256: String.duplicate("0", 64),
+      validation_history: []
+    )
+    |> Repo.update!()
+
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    result = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}-result"))
+    assert result.at == nil
+  end
 
   test "a rejected work result stays at its recorded validation time even without a remote finish" do
     # Two production turns with three rejections each were rendered together

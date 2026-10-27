@@ -153,7 +153,7 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
            |> Enum.count(&(LazyHTML.text(&1) =~ "Inspect response for attempt")) == 2
   end
 
-  test "one bulk response query serves the bounded timeline and never loads a different episode" do
+  test "bounded bulk reads keep response bodies paged and receipt times scoped to displayed turns" do
     {episode, turn, _bodies} = recorded_turn!(12)
     another_turn = copy_turn!(turn)
     {_other, other_turn, _} = recorded_turn!(1)
@@ -165,6 +165,11 @@ defmodule Ryker.ControlPlane.CandidateResponseProjectionTest do
     try do
       assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
       assert_receive {:response_query, query, 10}
+      # Receipt metadata for the current candidates must survive body paging,
+      # including a candidate that has not reached validation history yet.
+      assert_receive {:response_query, receipt_query, 2}
+      assert receipt_query =~ "recorded_at"
+      refute receipt_query =~ "\"body\""
       refute_receive {:response_query, _, _}, 0
       assert query =~ "candidate_attempt"
 
