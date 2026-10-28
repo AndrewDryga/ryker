@@ -197,6 +197,7 @@ deploy-check:
 
 backup-schedule-check:
 	scripts/scheduled-backup_test.sh
+	scripts/install-backup-schedule_test.sh
 
 keep-awake-check:
 	scripts/install-keep-awake_test.sh

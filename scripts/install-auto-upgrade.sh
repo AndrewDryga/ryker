@@ -12,6 +12,9 @@ label="ai.emisar.ryker.upgrade"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 here=$(cd "$(dirname "$0")" && pwd)
 state="$HOME/.local/state/ryker-upgrade"
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$here/compose-lifecycle.sh"
+docker_environment=$(launch_agent_docker_environment)
 
 mkdir -p "$(dirname "$plist")" "$state"
 cat >"$plist" <<PLIST
@@ -20,6 +23,7 @@ cat >"$plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>Label</key><string>$label</string>
+  $docker_environment
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
@@ -32,6 +36,6 @@ cat >"$plist" <<PLIST
 </plist>
 PLIST
 
-/usr/bin/plutil -lint "$plist" >/dev/null
+plutil -lint "$plist" >/dev/null
 "$here/launch-agent.sh" load "$label" "$plist"
 echo "upgrades: checked every five minutes; set RYKER_UPGRADE_REF in .ryker/compose.env to follow a branch; log in $state/upgrades.log"

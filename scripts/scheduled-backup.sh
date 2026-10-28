@@ -21,8 +21,21 @@ if [[ ! $keep =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 echo "backup: started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-# The backup prints the archive it wrote as its last line.
-taken=$("$compose" backup | tail -n 1)
+# Only lifecycle contention is temporary. A failed dump must stay a failure,
+# and an upgrade must not make the day's only scheduled attempt disappear.
+for attempt in 1 2 3 4 5; do
+  if taken=$("$compose" backup --controller-only | tail -n 1); then
+    break
+  else
+    status=$?
+    if [[ $status -ne 75 || $attempt -eq 5 ]]; then
+      echo "backup: failed (exit $status)" >&2
+      exit "$status"
+    fi
+    echo "backup: deployment busy; retrying in 60 seconds ($attempt/5)" >&2
+    sleep 60
+  fi
+done
 if [[ ! -f $taken || $(basename "$taken") != ryker-*.tar.gz ]]; then
   echo "backup: the backup reported no archive: '$taken'" >&2
   exit 1

@@ -327,13 +327,26 @@ Take one every day on its own:
 scripts/install-backup-schedule.sh 03:30
 ```
 
+The backup, watchdog and upgrade installers pin the selected Docker context in their launch
+agents. Reinstall an agent with the intended `DOCKER_CONTEXT` when moving the installation to
+another daemon; changing the desktop's default context does not move its scheduled work.
+
 It installs a launch agent on this Mac that runs `scripts/scheduled-backup.sh` at that time of
-day, in the Mac's time zone, 03:30 unless you give another. Each run takes the backup above,
-pausing Ryker for under a minute, names it `scheduled-YYYYMMDDTHHMMSSZ.tar.gz`, and keeps the
+day, in the Mac's time zone, 03:30 unless you give another. Each run takes a controller-only
+backup: database, already saved encrypted checkpoint bodies and environment keys. The controller
+pauses during its snapshot. The worker and its Docker daemon keep running; worker journals, model
+sign-ins and workspace changes not captured in a saved checkpoint are not in this archive. It names the archive
+`scheduled-YYYYMMDDTHHMMSSZ.tar.gz` and keeps the
 newest 14 scheduled backups (`RYKER_KEEP_SCHEDULED_BACKUPS`). Backups you take yourself and
-pre-deploy backups are never touched. The log is `~/.local/state/ryker-backup/backup.log`. Run the
-install again to change the time. The archives stay on this disk, so copy one elsewhere now and
-then: they are what a lost disk is restored from.
+pre-deploy backups are never touched. A busy lifecycle lock retries up to five times, one minute
+apart; other failures stop immediately. `scripts/status.sh` separately reports the latest daily
+backup and marks it overdue after 36 hours, even when a deployment backup is newer.
+The log is `~/.local/state/ryker-backup/backup.log`. Run the
+install again to change the time. Copy archives to another disk for recovery. A daily archive
+recovers controller custody and captured checkpoints, not every current worker file. For complete
+worker disaster recovery, plan a maintenance window and run `scripts/compose.sh backup`: it pauses
+all writers while archiving the worker's working copies and repository bases, which can exceed
+100 GB. Do not schedule that pause as part of the ordinary daily backup.
 
 Restore with:
 

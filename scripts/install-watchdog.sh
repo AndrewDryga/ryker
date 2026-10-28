@@ -27,6 +27,9 @@ plist="$HOME/Library/LaunchAgents/$label.plist"
 here=$(cd "$(dirname "$0")" && pwd)
 script="$here/watchdog.sh"
 state="$HOME/.local/state/ryker-watchdog"
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$here/compose-lifecycle.sh"
+docker_environment=$(launch_agent_docker_environment)
 
 mkdir -p "$(dirname "$plist")" "$state"
 cat >"$plist" <<PLIST
@@ -35,6 +38,7 @@ cat >"$plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>Label</key><string>$label</string>
+  $docker_environment
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
@@ -47,7 +51,7 @@ cat >"$plist" <<PLIST
 </plist>
 PLIST
 
-/usr/bin/plutil -lint "$plist" >/dev/null
+plutil -lint "$plist" >/dev/null
 # Registered, not merely accepted. The distinction is the whole reason this
 # script exists.
 "$here/launch-agent.sh" load "$label" "$plist"

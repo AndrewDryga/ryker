@@ -5,7 +5,7 @@
 #   scripts/install-backup-schedule.sh [HH:MM]
 #
 # The backup runs at HH:MM in this Mac's time zone, 03:30 unless given. It pauses Ryker while it
-# dumps the database, under a minute, so pick an hour nobody uses it. Each run keeps the newest 14
+# captures the database and encrypted controller state; the worker keeps running. Each run keeps the newest 14
 # scheduled backups in .ryker/backups (scripts/scheduled-backup.sh); a backup taken by hand stays
 # until it is deleted. Like the watchdog's, the agent is checked to be registered, not merely
 # accepted (scripts/launch-agent.sh).
@@ -27,6 +27,9 @@ plist="$HOME/Library/LaunchAgents/$label.plist"
 here=$(cd "$(dirname "$0")" && pwd)
 script="$here/scheduled-backup.sh"
 state="$HOME/.local/state/ryker-backup"
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$here/compose-lifecycle.sh"
+docker_environment=$(launch_agent_docker_environment)
 
 mkdir -p "$(dirname "$plist")" "$state"
 cat >"$plist" <<PLIST
@@ -35,6 +38,7 @@ cat >"$plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>Label</key><string>$label</string>
+  $docker_environment
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
@@ -51,6 +55,6 @@ cat >"$plist" <<PLIST
 </plist>
 PLIST
 
-/usr/bin/plutil -lint "$plist" >/dev/null
+plutil -lint "$plist" >/dev/null
 "$here/launch-agent.sh" load "$label" "$plist"
 echo "backups: scheduled daily at $at this Mac's time; the newest 14 stay in .ryker/backups; log in $state/backup.log"

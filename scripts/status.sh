@@ -143,6 +143,18 @@ if [[ -f $env_file ]]; then
   fi
   printf '%-8s %s\n' "" "$backup"
 
+  # Deployment archives are frequent; their freshness hid a week of failures
+  # in the independent daily schedule. Report that cadence on its own.
+  daily=$(find "$state_dir/backups" -maxdepth 1 -type f -name 'scheduled-*.tar.gz' 2>/dev/null | sort -r | head -n 1)
+  if [[ -z $daily ]]; then
+    printf '%-8s %s\n' "" "NO DAILY BACKUP in $state_dir/backups"
+  else
+    daily_at=$(stat -f %m "$daily" 2>/dev/null || stat -c %Y "$daily")
+    daily_state="daily backup"
+    (($(date +%s) - daily_at > 129600)) && daily_state="DAILY BACKUP OVERDUE"
+    printf '%-8s %s %s (%s)\n' "" "$daily_state" "$(basename "$daily")" "$(ago "$daily_at")"
+  fi
+
   heartbeat=$HOME/.local/state/ryker-watchdog/heartbeat
   if [[ -f $heartbeat ]]; then
     beat=$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$(cat "$heartbeat")" +%s 2>/dev/null ||

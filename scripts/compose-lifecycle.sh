@@ -44,7 +44,7 @@ take_lifecycle_lock() {
 
     if [ -n "$holder_pid" ] && kill -0 "$holder_pid" 2>/dev/null; then
       echo "Another Ryker lifecycle command is running (process $holder). Wait for it to finish; if nothing is running, remove $lifecycle_lock." >&2
-      exit 1
+      exit 75
     fi
 
     rm -rf -- "$lifecycle_lock"
@@ -91,6 +91,19 @@ pin_release() {
 compose_env_value() {
   sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$1=//p" "$2" 2>/dev/null | tail -n 1 |
     sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
+# A launch agent does not inherit the installing shell's Docker context. Pin
+# that context so a later desktop switch cannot move backups to another daemon.
+launch_agent_docker_environment() {
+  if [ -n "${DOCKER_HOST:-}" ] && [ -z "${DOCKER_CONTEXT:-}" ]; then
+    echo "Select DOCKER_CONTEXT before installing a Docker launch agent; DOCKER_HOST alone is not a named installation." >&2
+    return 1
+  fi
+  agent_context=$(docker context show) || return 1
+  [ -n "$agent_context" ] || return 1
+  agent_context=$(printf '%s' "$agent_context" | sed 's/\&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
+  printf '<key>EnvironmentVariables</key><dict><key>DOCKER_CONTEXT</key><string>%s</string></dict>\n' "$agent_context"
 }
 
 # The models Compose runs beside Ryker (compose.yml): voice, search by meaning
