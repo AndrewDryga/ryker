@@ -210,9 +210,8 @@ defmodule Ryker.Improvement.PromptTest do
              "did not match the output contract"
   end
 
-  # The Work instructions alone are about 35 KB of the 64 KB request. They
-  # are cut from their end before a turn's calls go, a failed call keeps its
-  # error while results go first, and the request still fits.
+  # The Work instructions alone are about 35 KB of the 64 KB request.
+  # Keep both boundaries so later custom rules survive a length cut.
   test "long Work instructions are cut before the calls that show what failed" do
     calls =
       for index <- 1..30 do
@@ -229,7 +228,10 @@ defmodule Ryker.Improvement.PromptTest do
       fixture!()
       |> evidence()
       |> Map.put(:instructions, [
-        %{"id" => "instructions-1", "text" => String.duplicate("Rule. ", 6_000)}
+        %{
+          "id" => "instructions-1",
+          "text" => "Opening rule. " <> String.duplicate("Rule. ", 6_000) <> " Final rule."
+        }
       ])
       |> Map.update!(:work, fn [turn | rest] -> [Map.put(turn, "calls", calls) | rest] end)
 
@@ -239,11 +241,38 @@ defmodule Ryker.Improvement.PromptTest do
     assert byte_size(Prompt.render(request)) <= Prompt.maximum_bytes()
     assert [%{"text" => text}] = context["work_instructions"]
     assert byte_size(text) < 36_000
-    assert "The end of the Work instructions, cut for length." in context["omitted"]
+    assert String.starts_with?(text, "Opening rule.")
+    assert String.ends_with?(text, "Final rule.")
+    assert "The middle of the Work instructions, cut for length." in context["omitted"]
 
     [turn | _] = context["work"]
     failed = List.last(turn["calls"])
     assert failed["error"] =~ "/limit (required)"
+  end
+
+  # A production diagnosis received no calls after old turns exhausted the
+  # budget. It could only guess at the cause despite retained failure evidence.
+  test "old history gives way before the newest failure evidence and answer" do
+    base = evidence(fixture!())
+    newest = List.last(base.work)
+
+    history =
+      for index <- 1..150 do
+        Map.put(
+          newest,
+          "answer",
+          "Earlier turn #{index}: " <> String.duplicate("history ", 500)
+        )
+      end
+
+    request = Prompt.build(%{base | work: history ++ [newest]})
+    kept = List.last(request["context"]["work"])
+
+    assert byte_size(Prompt.render(request)) <= Prompt.maximum_bytes()
+    assert kept["calls"] == newest["calls"]
+    assert kept["answer"] == newest["answer"]
+    assert kept["corrections"] == newest["corrections"]
+    assert "The oldest Work turns, left out for length." in request["context"]["omitted"]
   end
 
   defp fixture!, do: @fixture |> File.read!() |> Jason.decode!()

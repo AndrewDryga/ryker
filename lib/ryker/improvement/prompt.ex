@@ -16,6 +16,7 @@ defmodule Ryker.Improvement.Prompt do
   alias Ryker.Maps
   alias Ryker.PromptDocument
   alias Ryker.Reference
+  alias Ryker.Text
 
   @contract_version "improvement-analysis-v1"
   @max_encoded_bytes 65_536
@@ -207,27 +208,24 @@ defmodule Ryker.Improvement.Prompt do
 
   # -- Fitting --------------------------------------------------------------------
 
-  # Older routing prompts give way first: the newest one is the decision the
-  # feedback is most likely about. Then long texts are shortened, what calls
-  # that worked returned goes before what failed, the Work instructions are
-  # cut from their end, then the calls themselves, the oldest messages, the
-  # oldest Work turns and the oldest feedback go, until the request fits.
-  # Turns and feedback were never left out, so a request of a few hundred
-  # turns could never be analyzed (2026-10-04 review). The Work instructions
-  # alone are about 35 KB, so they are cut before a turn's calls are lost.
+  # Older history gives way before the calls explaining the latest answer.
+  # Stripping every turn's calls first produced diagnoses with no evidence of
+  # what actually failed. Keep a few recent turns, then shorten instructions
+  # at their middle before sacrificing the newest turn's results.
   defp fit(instructions, context) do
     PromptDocument.fit(instructions, context, @max_encoded_bytes, [
       &drop_routing_prompt/1,
       &shorten(&1, 4_000),
-      &drop_results(&1, :worked),
+      &drop_oldest_work(&1, 3),
       &shorten_instructions(&1, 16_000),
+      &drop_oldest_work(&1, 1),
+      &drop_results(&1, :worked),
       &shorten(&1, 1_000),
       &drop_results(&1, :all),
       &drop_calls/1,
       &drop_oldest_message/1,
       &shorten(&1, 200),
       &shorten_instructions(&1, 4_000),
-      &drop_oldest(&1, "work", "The oldest Work turns, left out for length."),
       &drop_oldest(&1, "feedback", "The oldest feedback, left out for length."),
       &drop_instructions/1
     ])
@@ -315,13 +313,29 @@ defmodule Ryker.Improvement.Prompt do
   defp shorten_instructions(context, bytes) do
     shortened =
       Map.update(context, "work_instructions", [], fn entries ->
-        Enum.map(entries, &cut(&1, "text", bytes))
+        Enum.map(entries, &cut_instruction(&1, bytes))
       end)
 
     if shortened == context,
       do: context,
-      else: PromptDocument.omit(shortened, "The end of the Work instructions, cut for length.")
+      else: PromptDocument.omit(shortened, "The middle of the Work instructions, cut for length.")
   end
+
+  defp cut_instruction(%{"text" => text} = entry, bytes)
+       when is_binary(text) and byte_size(text) > bytes do
+    marker = "\n…[middle cut for length]…\n"
+    half = div(bytes - byte_size(marker), 2)
+    head = Text.bytes(text, half)
+    tail = text |> String.reverse() |> Text.bytes(half) |> String.reverse()
+    Map.put(entry, "text", head <> marker <> tail)
+  end
+
+  defp cut_instruction(entry, _bytes), do: entry
+
+  defp drop_oldest_work(%{"work" => turns} = context, minimum) when length(turns) > minimum,
+    do: drop_oldest(context, "work", "The oldest Work turns, left out for length.")
+
+  defp drop_oldest_work(context, _minimum), do: context
 
   defp drop_instructions(%{"work_instructions" => [_ | _]} = context) do
     context
