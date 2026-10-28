@@ -531,7 +531,69 @@ defmodule Ryker.Work.ValidatorTest do
              )
   end
 
-  test "a timer Ryker arms on its own stays silent, and one a person asked for is confirmed" do
+  # Four changed deployments produced real health reports on 2026-10-28;
+  # all four were suppressed solely because a later health-check timer existed.
+  test "a measured deployment update can be delivered while its follow-up timer stays armed" do
+    fixture =
+      Path.join(__DIR__, "fixtures/autonomous_deployment_timer_reply.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    continuation = fixture["wait"]["continuation"]
+    timer_ref = fixture["wait"]["record_ref"]
+
+    records =
+      Map.new(fixture["candidate"]["outcome"]["record_refs"], fn ref ->
+        kind = if String.starts_with?(ref, "record:finding:"), do: "finding", else: "evidence"
+
+        value =
+          if ref == timer_ref,
+            do: record("event_wait", continuation) |> Map.put("wait_mode", "timer"),
+            else: record(kind)
+
+        {ref, value}
+      end)
+
+    {:ok, now, 0} = DateTime.from_iso8601(fixture["now"])
+    candidate = Jason.encode!(fixture["candidate"])
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               candidate,
+               context(records: records, visible_reply_required: false),
+               now
+             )
+
+    assert accepted.result.delivery == :reply
+
+    assert Map.delete(accepted.result.continuation, "deadline_at") ==
+             Map.delete(continuation, "deadline_at")
+
+    {:ok, expected_deadline, 0} = DateTime.from_iso8601(continuation["deadline_at"])
+
+    {:ok, actual_deadline, 0} =
+      DateTime.from_iso8601(accepted.result.continuation["deadline_at"])
+
+    assert DateTime.compare(actual_deadline, expected_deadline) == :eq
+    assert accepted.result.delivery_document["message"] == fixture["candidate"]["message"]
+
+    # Reporting current health does not silently finish or discard the future check.
+    finished = put_in(fixture["candidate"], ["outcome", "state"], "complete") |> Jason.encode!()
+
+    assert {:reject, violations} =
+             Validator.validate(
+               finished,
+               context(records: records, visible_reply_required: false),
+               now
+             )
+
+    assert Enum.any?(
+             violations,
+             &String.contains?(&1, "complete cannot reference a pending durable wait")
+           )
+  end
+
+  test "timer replies and quiet waits both preserve the scheduled continuation" do
     continuation = %{
       "deadline_at" => "2099-08-29T12:00:00.000000Z",
       "kind" => "wait",
@@ -545,7 +607,7 @@ defmodule Ryker.Work.ValidatorTest do
         |> Map.put("wait_mode", "timer")
     }
 
-    premature_reply =
+    timer_reply =
       candidate(
         %{
           "artifact_refs" => [],
@@ -555,15 +617,15 @@ defmodule Ryker.Work.ValidatorTest do
         "The 30-second durable wait is armed."
       )
 
-    assert {:reject, violations} =
+    assert {:accept, accepted} =
              Validator.validate(
-               premature_reply,
+               timer_reply,
                context(records: records, visible_reply_required: false),
                @now
              )
 
-    assert Enum.any?(violations, &String.contains?(&1, "timer wait"))
-    assert Enum.any?(violations, &String.contains?(&1, "delivery to none"))
+    assert accepted.result.delivery == :reply
+    assert accepted.result.continuation == continuation
 
     # A person who asks for something later is told when it will happen. "In 3 minutes, tell me
     # what time it is in Berlin" was answered on time, but its arming turn's "I'll tell you the

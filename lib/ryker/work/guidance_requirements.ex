@@ -88,8 +88,7 @@ defmodule Ryker.Work.GuidanceRequirements do
     output ++ Enum.flat_map(requirements, &requirement_violations(&1, final))
   end
 
-  @doc "Whether applicable correction outputs require a substantive report, including blocked results."
-  def reply_required?(requirements),
+  defp reply_required?(requirements),
     do: Enum.any?(requirements, &(get_in(&1, ["result", "status"]) != "not_applicable"))
 
   defp requirement_violations(

@@ -86,7 +86,6 @@ defmodule Ryker.Work.Validator do
     []
     |> shadow_violations(final, context)
     |> mention_violations(final, context)
-    |> timer_wait_delivery_violations(final, context)
     |> visibility_violations(final, context)
     |> question_delivery_violations(final, context)
     |> platform_action_violations(context)
@@ -253,27 +252,6 @@ defmodule Ryker.Work.Validator do
   end
 
   defp question_delivery_violations(violations, _final, _context), do: violations
-
-  # A timer Ryker arms on its own, such as the next check of a watch, says nothing until it fires.
-  # One a person asked for is confirmed in the reply that arms it: "I'll tell you the Berlin time
-  # here in three minutes" was refused, and nothing was said until the answer (2026-10-10).
-  defp timer_wait_delivery_violations(
-         violations,
-         %{delivery: :reply} = final,
-         context
-       ) do
-    if referenced_timer_wait?(final, context) and context[:visible_reply_required] != true and
-         not Work.GuidanceRequirements.reply_required?(context.guidance_requirements) do
-      [
-        "A timer wait must not acknowledge completion before it fires. Set delivery to none and keep the timer record in outcome.record_refs; the resumed turn can reply after the wait finishes."
-        | violations
-      ]
-    else
-      violations
-    end
-  end
-
-  defp timer_wait_delivery_violations(violations, _final, _context), do: violations
 
   defp referenced_timer_wait?(final, context),
     do: Enum.any?(final.record_refs, &timer_wait?(context.records[&1]))

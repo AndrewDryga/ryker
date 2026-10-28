@@ -1,0 +1,31 @@
+{
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "[run-23cdf9238d39eff3](https://app.terraform.io/app/example-org/website-services/runs/run-23cdf9238d39eff3) applied the website reduction from five replicas to four. The [four remaining replicas](https://emisar.dev/app/example-org/runs/74e49efd-82a0-70a3-8bf5-18f01d5f3b10) are healthy with no task restarts and the same image; their [HTTP checks pass](https://emisar.dev/app/example-org/runs/21f6c329-9c47-7759-83c9-6b64626d866b), and [ingress has four available backends](https://emisar.dev/app/example-org/runs/c722dd10-9861-77ce-8ed0-b46f8bb8210b).",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:evidence:0ed27f82092d0f38ecc3d144bc8b97fd",
+        "record:evidence:451b2d0792aa76f6bc84e51ff727aa5e",
+        "record:evidence:c7d19644740df88fbdca0e728ae8da39",
+        "record:evidence:1dfb77542dc1d673b8c819077d294291",
+        "record:finding:d949603809fd70fbcabf87058aa8179d",
+        "record:event_wait:de760938d034d43c3b1ecfd8ea4a90f6"
+      ],
+      "state": "waiting_for_event"
+    },
+    "title": null
+  },
+  "wait": {
+    "continuation": {
+      "deadline_at": "2026-10-28T21:44:05Z",
+      "kind": "wait",
+      "wait_kind": "event",
+      "wait_ref": "record:event_wait:de760938d034d43c3b1ecfd8ea4a90f6"
+    },
+    "kind": "event_wait",
+    "record_ref": "record:event_wait:de760938d034d43c3b1ecfd8ea4a90f6"
+  },
+  "now": "2026-10-28T20:44:40.000000Z"
+}
