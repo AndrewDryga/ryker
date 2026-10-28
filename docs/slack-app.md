@@ -1,12 +1,7 @@
 # Ryker Slack app
 
-The Ryker service powers the self-hosted **Ryker** Slack app over Socket Mode. Slack users see
-the app and bot as `Ryker` and mention it as `@Ryker`; the `/ryker` command remains the
-deterministic recovery surface for the few settings that must work when nothing else does. The
-shipped manifest is complete for the features the runtime implements: app presentation, bot
-identity, App Home state, bot scopes, event subscriptions, interactive controls, hosting mode,
-organization deployment, Slack MCP, incoming webhooks, and token rotation. Emisar is the
-infrastructure product Ryker works through; it is named in the manifest only in that role.
+Ryker connects to Slack through Socket Mode. Use the steps below to create the app and connect
+it to your installation. People can then mention `@Ryker` or send it a direct message.
 
 ## Create the app
 
@@ -208,7 +203,7 @@ unlisted pilot. Its public support facts are:
 | --- | --- |
 | App name | Ryker |
 | Bot display name | Ryker |
-| Short description | A proactive AI teammate in Slack and GitHub that shows its work and keeps you in control |
+| Short description | AI teammate for alerts, code, and on-call work |
 | Support | https://emisar.dev/support |
 | Support email | support@emisar.dev |
 | Privacy policy | https://emisar.dev/privacy |

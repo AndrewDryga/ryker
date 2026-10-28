@@ -3,56 +3,24 @@
 [![CI](https://github.com/AndrewDryga/ryker/actions/workflows/ci.yml/badge.svg)](https://github.com/AndrewDryga/ryker/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AndrewDryga/ryker?sort=semver)](https://github.com/AndrewDryga/ryker/releases/latest)
 
-Ryker is a persistent engineering and operations teammate backed by isolated
-[Coop](https://github.com/AndrewDryga/coop) sessions and governed Emisar access. Its core is
-platform-neutral: Slack, GitHub comments and pull-request reviews, and authenticated webhooks are
-adapters over the same ingress, episode, Work, and Delivery contracts. It can answer, investigate,
-change code, and prepare reviewed work without turning every request into an incident.
+Ryker is a self-hosted AI teammate for engineering and on-call work. Ask a question in Slack or
+GitHub, share an alert, or give it a coding task. It investigates, shows what it found, and keeps
+working as you follow up.
 
+It can:
 
-It runs on one trusted host and:
+- answer questions and investigate alerts in the thread where you asked;
+- write and test code in separate [co:op](https://github.com/AndrewDryga/coop) sessions, prepare
+  draft pull requests, and follow CI and review feedback;
+- pick up alerts from Slack, Grafana, and other tools through webhooks;
+- keep evidence, incident history, and open work available in Slack and the web console;
+- carry out requested fixes through [Emisar](https://emisar.dev), following your team's access
+  rules and approvals.
 
-- accepts arbitrary authenticated JSON through configured universal webhook routes without granting
-  the payload authority over policy or destination;
-- translates Grafana alert lifecycles and configured bounded mapped-JSON alerts into the same
-  source-neutral ingress without provider rules in admission;
-- handles GitHub issue comments, pull-request reviews, inline review comments, and GitHub's native
-  reaction set through a repository-scoped App adapter;
-- triages human and monitoring-app messages in configured Slack alert feeds, answering human
-  questions in place and opening incident rooms only from operator-confirmed offers or, where a
-  channel is set to, credible app alerts;
-- correlates related signals and deduplicates webhook delivery;
-- records source-attributed evidence, health-layer coverage, and an incident timeline separately
-  from agent prose;
-- creates one Slack channel and one pinned investigation card per incident occurrence;
-- creates one Coop session and isolated fork under a frozen, Ryker-supplied job;
-- lets active full workspace members start and collaborate on contributor tasks in their channel's
-  environment;
-- keeps operator-capability tasks, incident steering, the publication and destructive controls, and
-  saved behavior restricted to operators (the people chosen for it and, unless turned off, the
-  workspace's admins and owners), and leaves every change to running systems to Emisar's own policy
-  and approvals;
-- parks between turns, resumes the same agent conversation, and survives process restarts;
-- tracks every accepted investigation or engineering promise as durable work, and exposes it in
-  the App Home and the web control plane;
-- exposes an App Home, Agent Messages tab, message shortcut, semantic progress, lightweight
-  acknowledgements, and
-  deterministic controls for status, evidence, handoff, changes, review, draft PR publication,
-  retained-work disposal, stop, and close;
-- can return bounded generated images and evidence-backed charts in the same Slack conversation,
-  when the configured agent has an appropriate image or chart tool;
-- investigates live infrastructure through Emisar and, when someone in the conversation asks for
-  an exact change, submits it to Emisar, whose policy decides whether it runs and who approves it.
+You choose the repositories and tools it can use. Opening pull requests is off until you enable
+it in Integrations › GitHub. Ryker cannot merge, deploy, sign commits, or bypass Emisar policy.
 
-Ryker does not merge, deploy, sign commits, or grant infrastructure authority. Coop owns the
-fork and agent boundary. A contributor can prepare and review code in an isolated fork. Publishing
-is off until **Let Ryker open pull requests** is turned on under Integrations › GitHub; then Ryker
-reproduces the exact approved tree, pushes a lease-protected Ryker branch, and creates or updates a
-draft GitHub pull request, either because a configured operator pressed **Create draft PR** or
-because the confirmed task named that repository (its draft grant). Emisar owns infrastructure
-policy, approval, execution, and audit.
-
-The adapter and delivery boundary is documented in
+For integration details, see
 [Elixir platform adapters and delivery](docs/elixir-platform-adapters.md).
 
 For memory-system design work, consult the

@@ -87,4 +87,20 @@ defmodule Ryker.Slack.AppManifestTest do
 
     refute agent["agent_description"] =~ ~r/topology|host-validated/i
   end
+
+  # The app description became a setup and security manual, burying what
+  # Ryker does in hundreds of words (2026-10-28 copy review).
+  test "Slack introductions stay short enough to read at a glance" do
+    {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
+
+    for {path, maximum} <- [
+          {["display_information", "long_description"], 70},
+          {["features", "agent_view", "agent_description"], 30}
+        ] do
+      words = manifest |> get_in(path) |> String.split() |> length()
+
+      assert words <= maximum,
+             "#{Enum.join(path, ".")} has #{words} words; keep it under #{maximum}"
+    end
+  end
 end

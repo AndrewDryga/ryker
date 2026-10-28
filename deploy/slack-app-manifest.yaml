@@ -2,38 +2,18 @@ _metadata:
   major_version: 1
 display_information:
   name: Ryker
-  description: A proactive AI teammate in Slack and GitHub that shows its work and keeps you in control
+  description: AI teammate for alerts, code, and on-call work
   long_description: >-
-    Ryker is a proactive AI teammate for on-call and infrastructure teams. Ask it an operational
-    question, mention it on an alert, or invite it to a channel it should follow. It takes on
-    engineering work, follows through on tasks, picks up alerts, and carries out requested fixes
-    through Emisar, its governed connection to your infrastructure and tools. It reconciles the
-    topology declared in your repositories with fresh evidence and reports what is healthy,
-    degraded, and still unverified.
-    Ryker is not given a generic production shell. It discovers typed infrastructure actions from
-    a trusted Emisar catalog. Policy decides what runs, what waits for a person, and what is
-    denied; an outbound-only runner validates the action, arguments, limits, and trusted pack hash
-    again on the target host before execution. Pending approvals stay owned and audited by Emisar.
-    Normal Slack questions are answered in their existing threads. Credible monitoring alerts can
-    start a dedicated incident room, and explicit engineering requests can start an isolated,
-    writable co:op task in the same thread. Operators can inspect evidence and changes, request
-    review, publish a verified tree as a draft pull request, prepare a shift handoff, or close the
-    work. Ryker cannot merge, deploy, sign commits, or bypass infrastructure policy and approval.
-    Preferences and standing read-only rules need operator confirmation and show their exact scope,
-    expiry, and safety boundary before they are saved.
-    Invite Ryker to a channel and it asks a short series of questions, then shows the listening,
-    repository, alert, and incident-audience settings before an operator confirms them. Operators
-    can also ask for status, incidents, evidence, preferences, rules, and listening changes in
-    conversation. The /ryker command remains a recovery surface for operators.
-    AI-generated investigation results can be incomplete or inaccurate and should be reviewed by
-    an operator before action.
+    Ryker is your AI teammate for on-call work. Ask a question, share an alert, or hand it a
+    coding task. It investigates problems, shows its work, and keeps you updated in Slack and
+    GitHub. It can prepare draft pull requests and carry out requested fixes through Emisar,
+    following your team's rules and approvals. Review its findings before acting.
   background_color: "#111315"
 features:
   agent_view:
     agent_description: >-
-      An AI teammate for engineering and operations work. It answers questions, checks
-      alerts and production with live evidence, and prepares code changes as draft pull
-      requests. Changes to running systems go through your infrastructure policy.
+      Ask a question, share an alert, or work on a fix. Ryker shows what it found and
+      keeps you updated.
     suggested_prompts:
       - title: Production health
         message: How healthy is production right now? Check it live and tell me what needs attention.
@@ -64,7 +44,7 @@ features:
     - name: Investigate message
       type: message
       callback_id: ryker_investigate_message
-      description: Run a read-only, evidence-backed investigation of this message
+      description: Investigate this message without changing running systems
 oauth_config:
   scopes:
     bot:
