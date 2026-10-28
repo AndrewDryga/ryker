@@ -12,6 +12,7 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.CoopFleet.{JobAuthority, Placement, Worker}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Crypto
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.StateTools
   alias Ryker.Work
@@ -905,7 +906,7 @@ defmodule Ryker.CoopFleet.Client do
   @impl true
   def close_session(client, coop_session_id, key, revision) do
     with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
-      execute(
+      execute_cleanup(
         client,
         session,
         "close_session",
@@ -928,7 +929,7 @@ defmodule Ryker.CoopFleet.Client do
         accept_unmerged
       ) do
     with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
-      execute(
+      execute_cleanup(
         client,
         session,
         "plan_discard",
@@ -946,7 +947,7 @@ defmodule Ryker.CoopFleet.Client do
   @impl true
   def discard_session(client, coop_session_id, key, plan_operation_id) do
     with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
-      execute(
+      execute_cleanup(
         client,
         session,
         "discard_session",
@@ -1110,6 +1111,117 @@ defmodule Ryker.CoopFleet.Client do
 
   defp execute(client, session, kind, payload, key),
     do: client.bridge.execute(session, kind, payload, key, client.bridge_options)
+
+  # A worker keeps a transport-uncertain receipt forever. Replaying that
+  # receipt is not a fresh outage: reconcile its exact operation before cleanup
+  # decides whether to wait or spend a new generation. Never rewrite the receipt.
+  defp execute_cleanup(client, session, kind, payload, key) do
+    case execute(client, session, kind, payload, key) do
+      {:error, {:coop_unavailable, detail}} ->
+        case Repo.fetch(Command.Query.by_idempotency_key(key)) do
+          {:ok, %Command{status: :uncertain} = command} ->
+            reconcile_cleanup_command(client, session, command, kind, payload, key)
+
+          _ ->
+            {:error, {:coop_unavailable, detail}}
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp reconcile_cleanup_command(client, session, command, kind, payload, key) do
+    if command.session_id == session.id and command.kind == kind and
+         command.payload == payload and command.operation_key == key do
+      reconcile_cleanup(client, session, command)
+    else
+      {:error, {:coop_worker_command_conflict, key}}
+    end
+  end
+
+  defp reconcile_cleanup(client, session, command) do
+    case execute_read(client, session, "reconcile_operation", %{
+           "operation_key" => command.operation_key
+         }) do
+      {:ok, operation} ->
+        cleanup_operation(client, session, command, operation)
+
+      {:error, {:coop_error, 404, "operation_not_found", _}} ->
+        {:error, {:coop_cleanup_pending, command.id, "not_found"}}
+
+      error ->
+        error
+    end
+  end
+
+  defp cleanup_operation(client, session, command, operation) do
+    {method, resource_type} =
+      case command.kind do
+        "close_session" -> {"CloseSession", "session"}
+        "plan_discard" -> {"PlanDiscard", "discard_plan"}
+        "discard_session" -> {"Discard", "session"}
+      end
+
+    valid =
+      is_map(operation) and Reference.valid?(operation["id"]) and
+        operation["method"] == method and
+        operation["resource_id"] in [nil, "", session.coop_session_id] and
+        operation["resource_type"] in [nil, "", resource_type]
+
+    if valid,
+      do: cleanup_operation_state(client, session, command, operation),
+      else: {:error, {:coop_protocol_error, :cleanup_operation_identity}}
+  end
+
+  defp cleanup_operation_state(_client, _session, command, %{"state" => state} = operation)
+       when state in ["reserved", "running"] do
+    {:error, {:coop_cleanup_pending, command.id, operation["state"]}}
+  end
+
+  defp cleanup_operation_state(_client, _session, command, %{"state" => "uncertain"} = operation),
+    do: {:error, {:coop_cleanup_interrupted, command.id, operation["id"]}}
+
+  defp cleanup_operation_state(
+         _client,
+         _session,
+         command,
+         %{"state" => "failed", "error_code" => "operation_uncertain"} = operation
+       ),
+       do: {:error, {:coop_cleanup_interrupted, command.id, operation["id"]}}
+
+  # The operation read carries no plan body. Re-plan under a fresh key and
+  # revision rather than fabricate a deletion plan from the operation metadata.
+  defp cleanup_operation_state(
+         _client,
+         _session,
+         %Command{kind: "plan_discard"} = command,
+         %{"state" => "succeeded"} = operation
+       ),
+       do: {:error, {:coop_cleanup_interrupted, command.id, operation["id"]}}
+
+  defp cleanup_operation_state(client, session, _command, %{"state" => "succeeded"} = operation) do
+    with {:ok, remote} <- get_session(client, session.coop_session_id) do
+      {:ok, %{"operation" => operation, "session" => remote}}
+    end
+  end
+
+  # Preserve refusals the retention owner already knows how to recover from.
+  # A lost HTTP response must not turn a stale plan into a permanent block.
+  defp cleanup_operation_state(
+         _client,
+         _session,
+         _command,
+         %{"state" => "failed", "error_code" => code} = operation
+       )
+       when code in ["revision_conflict", "invalid_session_state", "discard_plan_stale"],
+       do: {:error, {:coop_error, 409, code, operation["error_detail"] || code}}
+
+  defp cleanup_operation_state(_client, _session, command, %{"state" => "failed"} = operation),
+    do: {:error, {:coop_cleanup_operation_failed, command.id, operation["error_code"]}}
+
+  defp cleanup_operation_state(_client, _session, _command, _operation),
+    do: {:error, {:coop_protocol_error, :cleanup_operation_state}}
 
   defp execute_read(client, session, kind, payload),
     do: execute(client, session, kind, payload, Command.read_key(kind))

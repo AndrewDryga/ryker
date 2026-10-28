@@ -66,6 +66,147 @@ defmodule Ryker.Retention.WorkerChangeTest do
     refute Map.has_key?(holder.requirements, "policy_digest")
   end
 
+  # A terminated discard was read back 228 times; each pass skipped more than
+  # 200 cleanup items behind it and deployments rolled back (2026-10-28).
+  test "an interrupted discard advances once without losing its original custody" do
+    worker = enroll!("interrupted")
+    session = terminal_session!("interrupted", worker)
+    answer = remote_session(session)
+    fleet = fleet_client(worker, @started, answer)
+
+    for phase <- [:grace, :closed, :planned] do
+      assert {:ok, {:executed, %{phase: ^phase}}} = run(fleet, "cleanup:interrupted:#{phase}")
+    end
+
+    interrupted = interrupt_discard!(worker, session, answer)
+    original = Repo.get!(Command, interrupted.id)
+    session = Repo.get!(Session, session.id)
+    session |> Ecto.Changeset.change(cleanup_attempt_count: 228) |> Repo.update!()
+    retry_due!(session)
+
+    recovered =
+      fleet_client(worker, @started, fn command ->
+        if String.starts_with?(command["payload"]["path"], "/v1/operations?"),
+          do: {:ok, interrupted_operation()},
+          else: answer.(command)
+      end)
+
+    assert {:ok, {:executed, %{phase: :discarded}}} =
+             run(recovered, "cleanup:interrupted:recover")
+
+    assert Repo.get!(Session, session.id).discard_generation == 2
+    assert Repo.get!(Command, original.id) == original
+
+    discards =
+      Repo.all(
+        from(c in Command, where: c.session_id == ^session.id and c.kind == "discard_session")
+      )
+
+    assert length(discards) == 2
+    assert Enum.all?(discards, &(&1.payload == original.payload))
+  end
+
+  test "an unresolved cleanup operation preserves its key while siblings on its worker advance" do
+    worker = enroll!("pending-cleanup")
+    session = terminal_session!("pending-cleanup", worker)
+    answer = remote_session(session)
+    fleet = fleet_client(worker, @started, answer)
+
+    for phase <- [:grace, :closed, :planned] do
+      assert {:ok, {:executed, %{phase: ^phase}}} = run(fleet, "cleanup:pending:#{phase}")
+    end
+
+    original = interrupt_discard!(worker, session, answer)
+    sibling = terminal_session!("pending-sibling", worker)
+    sibling_answer = remote_session(sibling)
+    session |> Ecto.Changeset.change(cleanup_attempt_count: 228) |> Repo.update!()
+    retry_due!(session)
+
+    pending =
+      fleet_client(worker, @started, fn command ->
+        cond do
+          String.starts_with?(command["payload"]["path"], "/v1/operations?") ->
+            {:ok, Map.put(interrupted_operation(), "state", "running")}
+
+          command["session_ref"] == sibling.id ->
+            sibling_answer.(command)
+
+          true ->
+            answer.(command)
+        end
+      end)
+
+    assert {:ok, %{deferred: 1, executed: 1, blocked: 0}} =
+             run_pass(pending, "cleanup:pending:pass")
+
+    stored = Repo.get!(Session, session.id)
+    assert stored.cleanup_status == :discard_pending
+    assert stored.discard_generation == 1
+    assert Repo.get!(Command, original.id) == original
+    assert Repo.get!(Session, sibling.id).cleanup_status == :grace
+  end
+
+  test "an interrupted discard with a proven stale plan returns to planning" do
+    worker = enroll!("stale-interrupted")
+    session = terminal_session!("stale-interrupted", worker)
+    answer = remote_session(session)
+    fleet = fleet_client(worker, @started, answer)
+
+    for phase <- [:grace, :closed, :planned] do
+      assert {:ok, {:executed, %{phase: ^phase}}} = run(fleet, "cleanup:stale:#{phase}")
+    end
+
+    original = interrupt_discard!(worker, session, answer)
+    retry_due!(session)
+
+    failed =
+      interrupted_operation()
+      |> Map.merge(%{"state" => "failed", "error_code" => "discard_plan_stale"})
+
+    recovered =
+      fleet_client(worker, @started, fn command ->
+        if String.starts_with?(command["payload"]["path"], "/v1/operations?"),
+          do: {:ok, failed},
+          else: answer.(command)
+      end)
+
+    assert {:ok, {:executed, %{phase: :replan}}} = run(recovered, "cleanup:stale:recover")
+    stored = Repo.get!(Session, session.id)
+    assert stored.cleanup_status == :plan_pending
+    assert stored.discard_plan_operation_id == nil
+    assert Repo.get!(Command, original.id) == original
+    assert commands(session) |> Enum.count(&(&1 == "discard_session")) == 1
+  end
+
+  defp interrupt_discard!(worker, session, answer) do
+    fleet =
+      fleet_client(worker, @started, fn command ->
+        cond do
+          String.ends_with?(command["payload"]["path"], "/discard") ->
+            {:uncertain,
+             %{"code" => "transport_uncertain", "detail" => "terminated signal received"}}
+
+          String.starts_with?(command["payload"]["path"], "/v1/operations?") ->
+            {:ok, Map.put(interrupted_operation(), "state", "running")}
+
+          true ->
+            answer.(command)
+        end
+      end)
+
+    assert {:ok, {:deferred, _}} = run(fleet, "cleanup:interrupt")
+
+    Repo.one!(
+      from(c in Command, where: c.session_id == ^session.id and c.kind == "discard_session")
+    )
+  end
+
+  defp interrupted_operation do
+    Path.join(__DIR__, "../coop_fleet/fixtures/interrupted_discard.json")
+    |> File.read!()
+    |> Jason.decode!()
+  end
+
   # Found live 2026-09-27: 133 of the worker's 136 active placements belonged
   # to sessions retention had already discarded. Nothing retired a placement
   # when its session was discarded, and each worker poll renews every active
@@ -758,14 +899,14 @@ defmodule Ryker.Retention.WorkerChangeTest do
             ]
 
           # The worker refused the command itself: nothing reached its daemon.
-          {:failed, error} ->
+          {state, error} when state in [:failed, :uncertain] ->
             [
               %{
                 "command_id" => command["command_id"],
                 "error" => error,
                 "operation_key" => command["idempotency_key"],
                 "resource" => nil,
-                "state" => "failed"
+                "state" => Atom.to_string(state)
               }
             ]
         end

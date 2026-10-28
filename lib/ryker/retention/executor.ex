@@ -462,6 +462,11 @@ defmodule Ryker.Retention.Executor do
        ),
        do: ask_again.()
 
+  # A fresh operation lookup proved this exact cleanup was interrupted. The
+  # old command stays intact; only this leased phase gets one new attempt.
+  defp ask_again_if_cut_off({:error, {:coop_cleanup_interrupted, _, _}}, ask_again),
+    do: ask_again.()
+
   defp ask_again_if_cut_off(result, _ask_again), do: result
 
   defp discard_from_state("discarded", session, lease_ref, _settings),

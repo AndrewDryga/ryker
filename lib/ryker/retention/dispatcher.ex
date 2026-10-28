@@ -164,6 +164,11 @@ defmodule Ryker.Retention.Dispatcher do
   # An outage is not a verdict about this session. A finite retry allowance
   # turned every worker outage longer than eight attempts into permanently
   # blocked cleanup that only an operator could restart.
+  # Saved uncertainty concerns one command, not worker reachability. Waiting
+  # must preserve its key and must not spend the ordinary failure allowance.
+  defp retryable?({:coop_cleanup_pending, _, _}, _attempt_count, _settings), do: true
+  defp retryable?({:coop_cleanup_interrupted, _, _}, _attempt_count, _settings), do: true
+
   defp retryable?(reason, attempt_count, settings) do
     outage?(reason) or (transient?(reason) and attempt_count < settings.max_attempts)
   end

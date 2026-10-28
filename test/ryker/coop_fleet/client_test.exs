@@ -31,47 +31,67 @@ defmodule Ryker.CoopFleet.ClientTest do
         options
       })
 
-      case kind do
-        "create_session" ->
-          {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 1, "state" => "open"}}}
+      response(kind)
+    end
 
-        "ensure_workspace" ->
-          Process.get(
-            :coop_fleet_ensure_workspace_result,
-            {:ok,
-             %{"session" => %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}}
-          )
+    defp response(kind) when kind in ["close_session", "plan_discard", "discard_session"] do
+      Process.get(
+        :coop_fleet_cleanup_result,
+        {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
+      )
+    end
 
-        "checkpoint_workspace" ->
-          {:ok,
-           %{
-             "checkpoint_ref" => "checkpoint:#{String.duplicate("c", 32)}",
-             "state" => "stored",
-             "transfer_id" => "018f04f4-5555-7000-8000-000000000001"
-           }}
+    defp response("create_session") do
+      {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 1, "state" => "open"}}}
+    end
 
-        "reconcile_operation" ->
-          {:ok,
-           Process.get(
-             :coop_fleet_reconcile_result,
-             %{"id" => "remote-resource", "state" => "succeeded"}
-           )}
+    defp response("ensure_workspace") do
+      Process.get(
+        :coop_fleet_ensure_workspace_result,
+        {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}}
+      )
+    end
 
-        "get_session" ->
-          {:ok,
-           Process.get(
-             :coop_fleet_get_session_result,
-             %{"id" => "remote-resource", "state" => "succeeded"}
-           )}
+    defp response("checkpoint_workspace") do
+      {:ok,
+       %{
+         "checkpoint_ref" => "checkpoint:#{String.duplicate("c", 32)}",
+         "state" => "stored",
+         "transfer_id" => "018f04f4-5555-7000-8000-000000000001"
+       }}
+    end
 
-        "run_review" ->
-          Process.get(:coop_fleet_run_review_result, {:ok, %{"id" => "remote-resource"}})
+    defp response("reconcile_operation") do
+      reconcile_result()
+    end
 
-        "get_output_artifact" ->
-          Process.get(:coop_fleet_binary_result, {:error, :missing_test_body})
+    defp response("get_session") do
+      {:ok,
+       Process.get(
+         :coop_fleet_get_session_result,
+         %{"id" => "remote-resource", "state" => "succeeded"}
+       )}
+    end
 
-        _other ->
-          {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
+    defp response("run_review") do
+      Process.get(:coop_fleet_run_review_result, {:ok, %{"id" => "remote-resource"}})
+    end
+
+    defp response("get_output_artifact") do
+      Process.get(:coop_fleet_binary_result, {:error, :missing_test_body})
+    end
+
+    defp response(_other) do
+      {:ok, %{"id" => "remote-resource", "state" => "succeeded"}}
+    end
+
+    defp reconcile_result do
+      case Process.get(:coop_fleet_reconcile_result, %{
+             "id" => "remote-resource",
+             "state" => "succeeded"
+           }) do
+        {:error, reason} -> {:error, reason}
+        value -> {:ok, value}
       end
     end
 
@@ -109,6 +129,268 @@ defmodule Ryker.CoopFleet.ClientTest do
              )
 
     %{client: client, session: session}
+  end
+
+  # One interrupted discard was replayed 228 times while fresh reads succeeded,
+  # preventing every sibling on that worker from reaching cleanup (2026-10-28).
+  test "interrupted cleanup reconciles its original key without replaying a cached outage", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup")
+    command = interrupted_cleanup!(session)
+    operation = interrupted_discard_fixture()
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    Process.put(:coop_fleet_reconcile_result, operation)
+
+    assert {:error, {:coop_cleanup_interrupted, command_id, operation_id}} =
+             Client.discard_session(
+               client,
+               session.coop_session_id,
+               command.idempotency_key,
+               "plan-cleanup"
+             )
+
+    assert command_id == command.id
+    assert operation_id == operation["id"]
+    assert_receive {:fleet_command, _, "reconcile_operation", %{"operation_key" => key}, _, _}
+    assert key == command.idempotency_key
+    assert Repo.get!(Command, command.id).status == :uncertain
+  end
+
+  test "cleanup waits for an active operation and rejects a crossed operation identity", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup")
+    command = interrupted_cleanup!(session)
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    for state <- ["running", "reserved"] do
+      operation = interrupted_discard_fixture() |> Map.put("state", state)
+      Process.put(:coop_fleet_reconcile_result, operation)
+
+      assert {:error, {:coop_cleanup_pending, _, ^state}} =
+               Client.discard_session(
+                 client,
+                 session.coop_session_id,
+                 command.idempotency_key,
+                 "plan-cleanup"
+               )
+    end
+
+    for changed <- [
+          %{"method" => "PublishReview"},
+          %{"resource_id" => "another-session"},
+          %{"resource_type" => "turn"}
+        ] do
+      operation = interrupted_discard_fixture() |> Map.merge(changed)
+      Process.put(:coop_fleet_reconcile_result, operation)
+
+      assert Client.discard_session(
+               client,
+               session.coop_session_id,
+               command.idempotency_key,
+               "plan-cleanup"
+             ) == {:error, {:coop_protocol_error, :cleanup_operation_identity}}
+    end
+
+    assert Repo.get!(Command, command.id).status == :uncertain
+  end
+
+  test "a reconciled stale discard plan retains the refusal that triggers replanning", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup")
+    command = interrupted_cleanup!(session)
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    operation =
+      interrupted_discard_fixture()
+      |> Map.merge(%{
+        "state" => "failed",
+        "error_code" => "discard_plan_stale",
+        "error_detail" => "workspace changed"
+      })
+
+    Process.put(:coop_fleet_reconcile_result, operation)
+
+    assert Client.discard_session(
+             client,
+             session.coop_session_id,
+             command.idempotency_key,
+             "plan-cleanup"
+           ) ==
+             {:error, {:coop_error, 409, "discard_plan_stale", "workspace changed"}}
+  end
+
+  test "a missing cleanup operation never authorizes a replacement mutation", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup")
+    command = interrupted_cleanup!(session)
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    Process.put(
+      :coop_fleet_reconcile_result,
+      {:error, {:coop_error, 404, "operation_not_found", "not found"}}
+    )
+
+    assert {:error, {:coop_cleanup_pending, _, "not_found"}} =
+             Client.discard_session(
+               client,
+               session.coop_session_id,
+               command.idempotency_key,
+               "plan-cleanup"
+             )
+
+    assert Repo.get!(Command, command.id).status == :uncertain
+  end
+
+  test "a succeeded cleanup returns fresh state without replaying its mutation", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup")
+    command = interrupted_cleanup!(session)
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    operation =
+      Map.merge(interrupted_discard_fixture(), %{
+        "state" => "succeeded",
+        "resource_type" => "session",
+        "resource_id" => session.coop_session_id
+      })
+
+    Process.put(:coop_fleet_reconcile_result, operation)
+    remote = %{"id" => session.coop_session_id, "state" => "discarded"}
+    Process.put(:coop_fleet_get_session_result, remote)
+
+    assert {:ok, %{"operation" => ^operation, "session" => ^remote}} =
+             Client.discard_session(
+               client,
+               session.coop_session_id,
+               command.idempotency_key,
+               "plan-cleanup"
+             )
+
+    assert_receive {:fleet_command, _, "get_session", _, _, _}
+    assert Repo.get!(Command, command.id).status == :uncertain
+  end
+
+  test "a succeeded plan with a lost body is planned again instead of invented", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup-plan")
+
+    payload = %{
+      "coop_session_id" => session.coop_session_id,
+      "expected_revision" => 2,
+      "accept_dirty" => false,
+      "accept_unmerged" => false
+    }
+
+    command =
+      session
+      |> command!("interrupted-plan", kind: "plan_discard", payload: payload)
+      |> complete_command!(:uncertain, nil, %{
+        "code" => "transport_uncertain",
+        "detail" => "terminated signal received"
+      })
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    operation =
+      interrupted_discard_fixture()
+      |> Map.merge(%{
+        "method" => "PlanDiscard",
+        "state" => "succeeded",
+        "resource_type" => "discard_plan",
+        "resource_id" => session.coop_session_id
+      })
+
+    Process.put(:coop_fleet_reconcile_result, operation)
+
+    assert {:error, {:coop_cleanup_interrupted, _, _}} =
+             Client.plan_discard(
+               client,
+               session.coop_session_id,
+               command.idempotency_key,
+               2,
+               false,
+               false
+             )
+
+    assert Repo.get!(Command, command.id).status == :uncertain
+  end
+
+  test "cleanup refuses a changed plan before reconciling an interrupted command", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote-cleanup")
+    command = interrupted_cleanup!(session)
+
+    Process.put(
+      :coop_fleet_cleanup_result,
+      {:error, {:coop_unavailable, "terminated signal received"}}
+    )
+
+    assert {:error, {:coop_worker_command_conflict, _}} =
+             Client.discard_session(
+               client,
+               session.coop_session_id,
+               command.idempotency_key,
+               "different-plan"
+             )
+
+    refute_receive {:fleet_command, _, "reconcile_operation", _, _, _}
+  end
+
+  defp interrupted_cleanup!(session) do
+    session
+    |> command!("interrupted-cleanup",
+      kind: "discard_session",
+      payload: %{
+        "coop_session_id" => session.coop_session_id,
+        "plan_operation_id" => "plan-cleanup"
+      }
+    )
+    |> complete_command!(:uncertain, nil, %{
+      "code" => "transport_uncertain",
+      "detail" => "terminated signal received"
+    })
+  end
+
+  defp interrupted_discard_fixture do
+    Path.join(__DIR__, "fixtures/interrupted_discard.json") |> File.read!() |> Jason.decode!()
   end
 
   test "new requires one bounded workspace and rejects unknown or duplicate options" do
