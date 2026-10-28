@@ -134,7 +134,7 @@ if [[ -f $env_file ]]; then
   # shellcheck disable=SC2012 # backups are named by their time, nothing else
   newest=$(ls -t "$state_dir"/backups/*.tar.gz 2>/dev/null | head -n 1)
   if [[ -n $newest ]]; then
-    backup="newest backup $(basename "$newest") ($(ago "$(stat -f %m "$newest" 2>/dev/null || stat -c %Y "$newest")"))"
+    backup="newest backup $(basename "$newest") ($(ago "$(stat -c %Y "$newest" 2>/dev/null || stat -f %m "$newest")"))"
   else
     backup="NO BACKUP in $state_dir/backups"
   fi
@@ -149,7 +149,7 @@ if [[ -f $env_file ]]; then
   if [[ -z $daily ]]; then
     printf '%-8s %s\n' "" "NO DAILY BACKUP in $state_dir/backups"
   else
-    daily_at=$(stat -f %m "$daily" 2>/dev/null || stat -c %Y "$daily")
+    daily_at=$(stat -c %Y "$daily" 2>/dev/null || stat -f %m "$daily")
     daily_state="daily backup"
     (($(date +%s) - daily_at > 129600)) && daily_state="DAILY BACKUP OVERDUE"
     printf '%-8s %s %s (%s)\n' "" "$daily_state" "$(basename "$daily")" "$(ago "$daily_at")"
