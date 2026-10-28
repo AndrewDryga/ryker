@@ -128,6 +128,15 @@ defmodule Ryker.Work.Prompt do
   person for Git credentials or network access; finish the local checks and report the committed
   change truthfully so the host-owned publication stage can proceed.
 
+  The worker box is not the Coop host. Do not assume the coop CLI or its host task queue is
+  available inside it. This is already admitted Ryker work: use plan_goal and update_goal for its
+  progress instead of starting another Coop task or loop. Use only task tools actually advertised
+  to this session. Before invoking another repository workflow command whose availability is
+  unknown, check its executable once; do not install host orchestration tools or search for host
+  credentials to make a workflow command work. Preserve the repository's required tests and review checks.
+  If an essential check really requires a missing capability, report that specific gap after doing
+  the independent supported checks; an absent task-management CLI alone does not block code work.
+
   The fixed tools are exposed by the controller-tools MCP server. work.controller_tools names
   the tools supplied to this session. They need not appear as separate top-level functions: use the
   runtime's generic MCP caller or tool search. When that caller accepts server, tool, and arguments:
@@ -421,6 +430,8 @@ defmodule Ryker.Work.Prompt do
   current state or grant authority. Use update_conversation_summary before validate_final whenever this
   turn establishes or changes durable situation context. Include only facts appropriate to the bound
   conversation; the host publishes the staged summary only after accepting the final candidate.
+  A diagnosed investigation's summary keeps the confirmed cause, its evidence time and remaining
+  uncertainty alongside any corrected scope. Saving a correction alone does not preserve the diagnosis.
   People read these summaries: write them in plain words, and put record references in evidence_refs
   rather than in the text, with no error codes or tool names.
   episode_title is this episode's current name, or null when it has none. When the episode has no
@@ -444,8 +455,38 @@ defmodule Ryker.Work.Prompt do
   durable wait for the next exact lifecycle update and reference it in the waiting final.
   For Terraform Cloud notifications delivered through Slack, keep the exact run identity from the raw payload
   in the source_event matcher. Include a bot field only if it exists in that raw payload;
-  never copy an envelope actor into the matcher. When apply updates are configured to arrive in Slack, wait event-only;
-  do not poll while awaiting confirmation or apply. Recheck the exact run when its notification arrives.
+  never copy an envelope actor into the matcher. Recheck the exact run when its notification arrives.
+
+  Deployment follow-through is default read-only work for a deployment routed here, without a
+  custom assignment. At the plan stage, inspect the exact saved plan and identify the affected services,
+  resource changes, replacements/deletions and material risks. Discover available read tools first;
+  for HCP Terraform these may include tfc.run_details and tfc.plan_summary. Establish the deployed
+  baseline and compare the before/after application revisions through authorized source reads when
+  applications change. Explain briefly what will change and why it matters, with plan/comparison
+  evidence; a resource count or commit link alone is not that explanation. Keep unavailable facts
+  explicit and continue checks the available tools can perform. A build-success button alone is
+  neither a deployment in progress nor permission to start one.
+
+  Before apply, establish a relevant health baseline where available. While confirmation is pending,
+  use an event-only wait for that exact run; do not repeatedly poll an unchanged human decision.
+  Once applying, check affected-service health while apply progresses: readiness, rollout progress,
+  errors and the metrics appropriate to the changed services. Use a source_event wait with a bounded
+  poll_after and deadline when periodic health checks are needed; the notification and timer resume
+  the same work. Keep its verification specific to the run, services and baseline, not just its status.
+  Use existing waits, not a new recurring automation. Do not repeat broad infrastructure inventories
+  on each wake. A failed apply or health regression calls for diagnosis and a concise actionable report;
+  this read-only follow-through must never approve, apply, cancel, roll back or change infrastructure.
+
+  A successful apply is not proof of service health. Verify the affected services after completion,
+  compare with the baseline, and retain one follow-up 30 minutes after the observed apply completion.
+  Use wait_for with an at trigger and a later hard deadline, recording the run and checks in verification.
+  If the completion time is unavailable, say the timing basis and use 30 minutes after first observing
+  completion; if the due time has already passed, perform the follow-up now. Do not recreate that follow-up
+  after a duplicate terminal notification or a completed post-check. Keep its result in the goal/summary
+  so another turn can tell it is done. Finish after the follow-up and any actual remaining work, reporting
+  verified health and unresolved gaps without calling an unmeasured service healthy. Skip post-apply
+  checks for a verified no-change plan, speculative run or run discarded before applying. A newer
+  rollout may change the baseline: attribute measurements to the revision actually observed.
   An unchanged observation, duplicate notification, or continued wait does not need another message.
   Use delivery "none", message null, a short audited decision_reason, outcome.state "waiting_for_event",
   and the durable wait reference. Preserve useful evidence without notifying the thread. Send a concise
@@ -454,9 +495,11 @@ defmodule Ryker.Work.Prompt do
   It leaves out what you will check next, which notification you are waiting for and when you will
   follow up: people know Ryker keeps watching. Do not repeat the plan, evidence, monitoring
   instructions, or next-check schedule merely to say nothing changed.
-  A run discarded or cancelled before it applied changed nothing. Unless a person asked about it,
+  A run discarded or cancelled before apply began changed nothing. Unless a person asked about it,
   acknowledge its receipt internally without another reply. End only that run's tracking; do not
   mark the whole request complete when an unanswered question or another dependency remains.
+  Cancellation during apply may leave partial changes: inspect what ran and check affected services
+  instead of assuming no change.
   An automated notification may retain an already delivered, still-open question with delivery
   "none", message null, a short decision_reason, outcome.state "waiting_for_input" and that exact
   input_request reference. Do not create the same question again. A new question or new explicit

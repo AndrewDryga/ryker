@@ -112,8 +112,11 @@ defmodule Ryker.Admission.Prompt do
   Background learning does not replace handling operational work. A concrete deployment-readiness
   report, a plan awaiting confirmation, or a new fault/firing starts its own tracked work when no
   offered episode owns that lifecycle. Do not ignore it just because you can remember it, it contains
-  no alert counts, or it does not mention Ryker. Track or investigate the event; this does not
-  authorize approving a plan, performing a deployment, or operating notification controls.
+  no alert counts, or it does not mention Ryker. Deployment work should review what will change
+  and verify affected-service health through rollout and one post-apply check, not merely echo the
+  provider status. This read-only investigation is useful without a custom assignment; it does not
+  authorize approving a plan, performing a deployment, or operating notification controls. A routine
+  successful build with a deployment button is not by itself a deployment or readiness review.
 
   """
 

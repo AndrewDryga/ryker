@@ -206,7 +206,7 @@ defmodule Ryker.StateTools.Catalog do
 
     tool(
       "wait_for",
-      "Create one durable wait. Choose the matcher before the first call: another call with different arguments does not amend the existing wait. For reliable lifecycle notifications use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
+      "Create one durable wait. Choose the matcher before the first call: another call with different arguments does not amend the existing wait. When only lifecycle status is needed and notifications are reliable, use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
       %{
         "deadline" => JSONSchema.nullable(timestamp()),
         "on_timeout" => JSONSchema.nullable(text(2_000)),

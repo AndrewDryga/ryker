@@ -13,6 +13,29 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ "independent completion review"
   end
 
+  test "deployment follow-through is useful by default without bypassing confirmation" do
+    # Two reviewed Terraform lifecycles only repeated source status and stopped at apply.
+    instructions = normalized_instructions()
+    assert instructions =~ "Deployment follow-through is default read-only work"
+    assert instructions =~ "identify the affected services"
+    assert instructions =~ "compare the before/after application revisions"
+    assert instructions =~ "check affected-service health while apply progresses"
+    assert instructions =~ "one follow-up 30 minutes after the observed apply completion"
+    assert instructions =~ "Do not recreate that follow-up"
+    assert instructions =~ "A successful apply is not proof of service health"
+    assert instructions =~ "never approve, apply, cancel, roll back or change infrastructure"
+    refute instructions =~ "do not poll while awaiting confirmation or apply"
+  end
+
+  test "repository task instructions do not assume a host CLI exists inside the worker" do
+    # Both reviewed engineering starts attempted unavailable coop tasks and failed with 127.
+    instructions = normalized_instructions()
+    assert instructions =~ "The worker box is not the Coop host"
+    assert instructions =~ "Do not assume the coop CLI"
+    assert instructions =~ "plan_goal and update_goal"
+    assert instructions =~ "Preserve the repository's required tests and review checks"
+  end
+
   test "finishing instructions name exactly the provider's required candidate fields" do
     # Every Work turn still said four fields after title became a fifth required
     # field. A valid example must not contradict the final-call checklist.
@@ -458,7 +481,7 @@ defmodule Ryker.Work.PromptTest do
     # Five discarded Terraform runs each got a reply that said they were
     # discarded, and plan reviews counted "19 of 22 drift entries" hidden
     # (#infra, 2026-10-07 and 08).
-    assert instructions =~ "A run discarded or cancelled before it applied changed nothing"
+    assert instructions =~ "A run discarded or cancelled before apply began changed nothing"
     assert instructions =~ "without counting what was"
     assert instructions =~ "durable wait for the next exact lifecycle update"
 

@@ -92,9 +92,25 @@ defmodule Ryker.Evals.WorldCaseTest do
     assert Enum.any?(scenario.expect["hard"], &(&1["tool"] == "record_finding"))
   end
 
+  test "proactive plan review uses captured evidence without a human review instruction" do
+    assert {:ok, scenario} =
+             WorldCase.fetch("proactive-deployment-reviews-plan-before-human-approval")
+
+    assert {:ok, source} =
+             WorldCase.fetch("deployment-review-finds-its-baseline-before-reporting-a-gap")
+
+    assert scenario.provenance["kind"] == "synthetic"
+    assert scenario.world == source.world
+    assert [%{"authority" => "source_event"}] = scenario.actors
+    assert [event] = scenario.events
+    refute event["payload"]["text"] =~ "Before I confirm"
+    assert scenario.host_replay["model_events"] == []
+    assert "smoke" in scenario.tags
+  end
+
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 43
+    assert length(scenarios) == 44
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"

@@ -60,6 +60,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "noisy-context-keeps-current-request",
                "one-outage-two-channels-joins-one-episode",
                "ordinary-thread-question-gets-natural-answer",
+               "proactive-deployment-reviews-plan-before-human-approval",
                "rivals-engineering-task-offer",
                "similar-alert-different-environment-stays-separate",
                "terraform-run-update-stays-in-one-session",
