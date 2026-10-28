@@ -160,7 +160,7 @@ defmodule Ryker.ComposeDistributionTest do
     refute read("lib/ryker/bundled_coop.ex") =~ "policy_digests"
     refute worker_image =~ "COOP_REPO="
     assert read("lib/ryker/release.ex") =~ "BundledCoop.prepare_distribution!"
-    assert read("lib/ryker/release.ex") =~ "with_settings_pubsub"
+    assert read("lib/ryker/release.ex") =~ "with_pubsub"
     assert lifecycle =~ "ryker-coop"
     refute installer =~ "ryker.coop_worker enroll"
     refute installer =~ "policy digest"

@@ -77,7 +77,7 @@ defmodule Ryker.Release do
     settings = settings!(options)
 
     with_repo!(settings, fn _repo ->
-      with_settings_pubsub(fn -> Ryker.BundledCoop.prepare_distribution!() end)
+      with_pubsub(fn -> Ryker.BundledCoop.prepare_distribution!() end)
     end)
   end
 
@@ -154,7 +154,7 @@ defmodule Ryker.Release do
     settings = settings!(options)
 
     with_repo!(settings, fn _repo ->
-      with_settings_pubsub(fn ->
+      with_pubsub(fn ->
         enqueue_replay(settings, source_input_ref, request_ref, operator, action_ref)
       end)
     end)
@@ -259,13 +259,13 @@ defmodule Ryker.Release do
     settings = settings!(options)
 
     with_repo!(settings, fn _repo ->
-      case operation do
-        {:request, attributes} -> Operator.Quarantine.request(attributes)
-        {:settle, action_ref} -> Operator.Quarantine.settle(action_ref)
-        _invalid -> {:error, :invalid_quarantine_recovery}
-      end
+      with_pubsub(fn -> quarantine_operation(operation) end)
     end)
   end
+
+  defp quarantine_operation({:request, attributes}), do: Operator.Quarantine.request(attributes)
+  defp quarantine_operation({:settle, action_ref}), do: Operator.Quarantine.settle(action_ref)
+  defp quarantine_operation(_invalid), do: {:error, :invalid_quarantine_recovery}
 
   defp preflight(configuration) do
     Operator.Preflight.run(
@@ -296,10 +296,10 @@ defmodule Ryker.Release do
     end
   end
 
-  # Release `eval` deliberately starts only the repository. Distribution
-  # bootstrap writes settings and therefore needs the event bus long enough to
-  # complete the same transaction path used by the running application.
-  defp with_settings_pubsub(function) do
+  # Release `eval` deliberately starts only the repository. Operator writes
+  # also need the event bus until their committed announcements have run,
+  # without starting a second application runtime.
+  defp with_pubsub(function) do
     case Process.whereis(Ryker.PubSub.Server) do
       nil ->
         {:ok, _started} = Application.ensure_all_started(:phoenix_pubsub)

@@ -142,6 +142,10 @@ defmodule Ryker.Operator.Quarantine do
            CoopFleet.ControlPlane.enqueue_command(placement.id, "api_request", request, key) do
       previous = %{
         "cleanup_status" => Atom.to_string(session.cleanup_status),
+        "cleanup_blocked_from" =>
+          session.cleanup_blocked_from && Atom.to_string(session.cleanup_blocked_from),
+        "cleanup_last_error_code" => session.cleanup_last_error_code,
+        "cleanup_last_error_detail" => session.cleanup_last_error_detail,
         "retained_reason" => session.retained_reason,
         "cleanup_next_attempt_at" => UTCDateTime.iso8601(session.cleanup_next_attempt_at),
         "cleanup_receipt" => session.cleanup_receipt,
@@ -205,6 +209,9 @@ defmodule Ryker.Operator.Quarantine do
     {:ok, cleanup_status} =
       Ecto.Enum.cast_value(Work.Session, :cleanup_status, previous["cleanup_status"])
 
+    {:ok, blocked_from} =
+      Ecto.Enum.cast_value(Work.Session, :cleanup_blocked_from, previous["cleanup_blocked_from"])
+
     next_at =
       case UTCDateTime.parse(previous["cleanup_next_attempt_at"]) do
         {:ok, at} -> at
@@ -213,6 +220,9 @@ defmodule Ryker.Operator.Quarantine do
 
     Retention.Custody.persist(session, %{
       cleanup_status: cleanup_status,
+      cleanup_blocked_from: blocked_from,
+      cleanup_last_error_code: previous["cleanup_last_error_code"],
+      cleanup_last_error_detail: previous["cleanup_last_error_detail"],
       cleanup_next_attempt_at: next_at,
       retained_reason: previous["retained_reason"],
       cleanup_receipt: previous["cleanup_receipt"],
@@ -257,6 +267,9 @@ defmodule Ryker.Operator.Quarantine do
   defp persist_retained(session, reason, receipt) do
     Retention.Custody.persist(session, %{
       cleanup_status: :retained,
+      cleanup_blocked_from: nil,
+      cleanup_last_error_code: nil,
+      cleanup_last_error_detail: nil,
       retained_reason: reason,
       cleanup_next_attempt_at: nil,
       cleanup_receipt: receipt,

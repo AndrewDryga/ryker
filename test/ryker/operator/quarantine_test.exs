@@ -1,5 +1,5 @@
 defmodule Ryker.Operator.QuarantineTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   alias Ryker.CoopFleet.{Command, Placement}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
@@ -7,6 +7,77 @@ defmodule Ryker.Operator.QuarantineTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Operator.Quarantine
   alias Ryker.Work.Session
+
+  # Live release requests committed, but all their after-commit announcements
+  # failed because `eval` starts no application event bus.
+  test "standalone recovery publishes its committed changes without callback errors" do
+    {_session, _placement, request} = parked_session()
+    child_id = Ryker.PubSub.child_spec([]).id
+    :ok = Supervisor.terminate_child(Ryker.Supervisor, child_id)
+
+    try do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, %{status: :recorded}} = Ryker.Release.quarantine({:request, request})
+        end)
+
+      assert log == ""
+    after
+      {:ok, _pid} = Supervisor.restart_child(Ryker.Supervisor, child_id)
+    end
+  end
+
+  # The fourth live retirement hit the blocked-state SQL constraint. Recovery
+  # must leave that phase atomically and restore it on an explicit refusal.
+  test "blocked cleanup can retain a quarantined copy or restore its refused phase" do
+    for result <- [:retired, :refused] do
+      {session, _placement, request} = parked_session()
+
+      session
+      |> Ecto.Changeset.change(
+        cleanup_status: :blocked,
+        cleanup_blocked_from: :plan_pending,
+        cleanup_last_error_code: "invalid_session_state",
+        cleanup_last_error_detail: "workspace is quarantined"
+      )
+      |> Repo.update!()
+
+      assert {:ok, intent} = Quarantine.request(request)
+      saved = Repo.get!(Session, session.id)
+      assert saved.cleanup_status == :retained
+      assert is_nil(saved.cleanup_blocked_from)
+      assert is_nil(saved.cleanup_last_error_code)
+      command = Repo.get!(Command, intent.outcome["command_id"])
+
+      if result == :retired do
+        receipt(command, %{
+          "id" => session.coop_session_id,
+          "state" => "discarded",
+          "revision" => 8
+        })
+
+        assert {:ok, _} = Quarantine.settle(request.action_ref)
+        assert Repo.get!(Session, session.id).retained_reason == "quarantined_copy"
+      else
+        command
+        |> Ecto.Changeset.change(
+          status: :succeeded,
+          operation_key: command.idempotency_key,
+          completed_at: Repo.now!(),
+          result: %{"status" => 409, "body" => %{"error" => %{"code" => "revision_conflict"}}},
+          result_fingerprint: String.duplicate("c", 64)
+        )
+        |> Repo.update!()
+
+        assert {:ok, _} = Quarantine.settle(request.action_ref)
+        saved = Repo.get!(Session, session.id)
+        assert saved.cleanup_status == :blocked
+        assert saved.cleanup_blocked_from == :plan_pending
+        assert saved.cleanup_last_error_code == "invalid_session_state"
+        assert saved.cleanup_last_error_detail == "workspace is quarantined"
+      end
+    end
+  end
 
   # A controller rollback left 28 worker records quarantined. Retiring their
   # records keeps their bytes; ordinary cleanup would falsely say "removed".
