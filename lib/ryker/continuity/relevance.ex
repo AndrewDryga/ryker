@@ -40,12 +40,35 @@ defmodule Ryker.Continuity.Relevance do
   # Split at every mark, so website/haproxy-edge shares haproxy with a question about
   # "haproxy-edge", and OOM-killed shares oom with "OOM".
   defp words(text) do
+    text =
+      text
+      |> String.slice(0, 8_192)
+      |> without_notification_framing()
+      |> String.replace(~r{https?://\S+}u, " ")
+
     ~r/[\p{L}\p{N}]+/u
-    |> Regex.scan(text |> String.slice(0, 8_192) |> String.replace(~r{https?://\S+}u, " "))
+    |> Regex.scan(text)
     |> List.flatten()
     |> Enum.map(&String.downcase/1)
     |> Enum.reject(&(String.length(&1) < 3 or &1 in @filler or Regex.match?(~r/^\d+$/, &1)))
     |> MapSet.new()
+  end
+
+  # The HCP notification template otherwise contributes enough shared words to
+  # recall every recent deployment. Normalize only whole template fragments;
+  # "Terraform state locking" and other authored technical prose keep their words.
+  # Identifiers above are still extracted from the untouched source, including
+  # the run, workspace URL and revision carried by these fragments.
+  defp without_notification_framing(text) do
+    text
+    |> String.replace(~r/^HCP Terraform$/m, "")
+    |> String.replace(~r/^Run notification for /m, "")
+    |> String.replace(~r/^Run run-[A-Za-z0-9]+$/m, "")
+    |> String.replace(
+      ~r/^Run (?:Created|Planning|Planned(?: - Needs Confirmation| and Finished)?|Applying|Applied|Errored|Canceled|Discarded)$/m,
+      ""
+    )
+    |> String.replace(~r/^CI apply — ([0-9a-f]{7,40}) — GitHub [0-9]+\/[0-9]+$/m, "\\1")
   end
 
   @spec score(String.t(), request()) :: non_neg_integer()

@@ -1,6 +1,31 @@
 defmodule Ryker.Continuity.RelevanceTest do
   use ExUnit.Case, async: true
   alias Ryker.Continuity.Relevance
+  alias Ryker.Ingress
+
+  # Eight summaries filled a deployment briefing on 2026-10-28, including
+  # unrelated runs whose only overlap was provider and lifecycle boilerplate.
+  test "deployment boilerplate does not recall unrelated runs but the same revision still does" do
+    fixture =
+      Path.join(__DIR__, "fixtures/deployment_notification_recall.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    source_text = Ingress.RecallText.from(fixture["content"])
+    request = Relevance.request([source_text])
+
+    text = fn state -> state |> Map.values() |> List.flatten() |> Enum.join("\n") end
+    shared = fixture["shared_revision_state"]
+
+    for state <- fixture["unrelated_states"],
+        do: refute(Relevance.related?(text.(state), request), state["goal"])
+
+    assert Relevance.rank(fixture["unrelated_states"] ++ [shared], request, text) == [shared]
+    assert Relevance.related?("run-40db67e30e520eda has completed", request)
+
+    subject = Relevance.request([source_text, "Website replica capacity"])
+    assert Relevance.related?("Review website replica capacity", subject)
+  end
 
   # A routine build briefing carried about 10,000 tokens of unrelated incidents.
   # These lexical boundary cases exercise selection, not fabricated model output.
@@ -29,6 +54,11 @@ defmodule Ryker.Continuity.RelevanceTest do
     assert Relevance.related?(
              "V8 heap exhaustion remains unexplained",
              Relevance.request(["Check heap exhaustion"])
+           )
+
+    assert Relevance.related?(
+             "Terraform state locking needs investigation",
+             Relevance.request(["Explain Terraform state locking"])
            )
 
     refute Relevance.related?(

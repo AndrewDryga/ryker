@@ -1,0 +1,102 @@
+{
+  "content": {
+    "attachments": [
+      {
+        "color": "5c4ee5",
+        "fallback": "Run run-40db67e30e520eda",
+        "footer": "HCP Terraform",
+        "id": 1,
+        "pretext": "Run notification for <https://app.terraform.io/app/Example-Org/region-apps|Example-Org/region-apps>",
+        "text": "CI apply — 5b784a82798a0ed484eaab01a6b10a413c4a392c — GitHub 50706621359/1",
+        "title": "Run run-40db67e30e520eda",
+        "title_link": "https://app.terraform.io/app/Example-Org/region-apps/runs/run-40db67e30e520eda"
+      },
+      {
+        "color": "2eb039",
+        "fallback": "Run run-40db67e30e520eda - Run Applied",
+        "id": 2,
+        "title": "Run Applied"
+      }
+    ],
+    "text": ""
+  },
+  "unrelated_states": [
+    {
+      "active_topics": [
+        "GCP Example apply completed"
+      ],
+      "decisions": [],
+      "evidence_refs": [
+        "record:evidence:f1215bc78e1c4130bd890b7c9458c983"
+      ],
+      "goal": "Track run-ae854918ee180b21 to its outcome",
+      "open_loops": [],
+      "participants": [],
+      "purpose": "Track the GCP Example Terraform run",
+      "situation": "HCP Terraform reported Run Applied for Example-Org/gcp-example run-ae854918ee180b21 at 10:13:48 UTC on 28 October 2026, naming infrastructure revision bf804623553dc0caced204fdc566f19a1443bb4c and GitHub workflow 50669008943/1. Lifecycle tracking is complete; the notification does not establish application health.",
+      "topology": [
+        "Example-Org/gcp-example"
+      ],
+      "unresolved_questions": []
+    },
+    {
+      "active_topics": [
+        "GCP Example Terraform apply"
+      ],
+      "decisions": [],
+      "evidence_refs": [
+        "record:evidence:eca452b954ba70490f090c570128a5ab",
+        "record:event_wait:d97b6dc5a4904924beeacf5721bea52c"
+      ],
+      "goal": "Track run-65b4939ba7f11edf to its outcome",
+      "open_loops": [
+        "Await apply outcome for run-65b4939ba7f11edf."
+      ],
+      "participants": [],
+      "purpose": "Track the GCP Example apply lifecycle",
+      "situation": "At 06:54:55 UTC HCP Terraform reports run-65b4939ba7f11edf in Example-Org/gcp-example Applying. The earlier confirmation requirement is superseded; completion is not reported.",
+      "topology": [
+        "Example-Org/gcp-example"
+      ],
+      "unresolved_questions": []
+    },
+    {
+      "active_topics": [
+        "TrueNAS no-change plan"
+      ],
+      "decisions": [],
+      "evidence_refs": [
+        "record:evidence:74e8aa216599e8e370db2ca8c75fa72b"
+      ],
+      "goal": "Review TrueNAS run run-3d6122b52924ad58",
+      "open_loops": [],
+      "participants": [],
+      "purpose": "Review the TrueNAS Terraform outcome",
+      "situation": "TrueNAS run run-3d6122b52924ad58 finished planning with no changes: zero additions, updates, deletions or imports. No apply is pending. No deployment follow-up is needed for this unchanged plan.",
+      "topology": [
+        "Example-Org/region-storage"
+      ],
+      "unresolved_questions": []
+    }
+  ],
+  "shared_revision_state": {
+    "active_topics": [
+      "BunnyCDN Terraform run"
+    ],
+    "decisions": [],
+    "evidence_refs": [
+      "record:event_wait:51eb6ed6867046f1290ee88b98719ce1"
+    ],
+    "goal": "Track run-349a5f1b65f0243e to its outcome",
+    "open_loops": [
+      "Await the next lifecycle notification for run-349a5f1b65f0243e."
+    ],
+    "participants": [],
+    "purpose": "Track the BunnyCDN Example Terraform run",
+    "situation": "The initial notification reports Run Created for Example-Org/cdn-example run-349a5f1b65f0243e, naming revision 5b784a82798a0ed484eaab01a6b10a413c4a392c. An exact run lifecycle watch is active.",
+    "topology": [
+      "Example-Org/cdn-example"
+    ],
+    "unresolved_questions": []
+  }
+}
