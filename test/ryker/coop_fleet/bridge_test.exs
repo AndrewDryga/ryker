@@ -10,8 +10,217 @@ defmodule Ryker.CoopFleet.BridgeTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
+  alias Ryker.Retention
+  alias Ryker.Work
 
   @policy_digest String.duplicate("b", 64)
+
+  # Twenty create identities reused one placement and kept roughly 96,000
+  # receipt acknowledgements failing. A proven failed create spends both identities.
+  test "a proven absent create retries on a new placement and preserves both receipts" do
+    worker = "worker-create-retry"
+    ready_worker!(worker)
+    session = session!()
+    first_key = "ryker:work:create:#{session.id}:g1"
+    second_key = "ryker:work:create:#{session.id}:g2"
+    started = create_operation("operation-original", "running")
+    failed = put_in(started, ["operation", "state"], "failed")
+
+    assert {:ok, ^started} =
+             bridge_result!(
+               session,
+               worker,
+               "create_session",
+               create_payload(session),
+               first_key,
+               started
+             )
+
+    first = Repo.get_by!(Command, idempotency_key: first_key)
+
+    assert {:ok, ^failed} =
+             bridge_result!(
+               session,
+               worker,
+               "reconcile_operation",
+               %{"operation_key" => first_key},
+               Command.read_key("reconcile_operation"),
+               failed
+             )
+
+    assert Retention.Creation.resolve(session) == {:ok, :absent}
+    session = session |> Work.Session.Changeset.advance_create(2) |> Repo.update!()
+    next = create_operation("operation-next", "running")
+
+    assert {:ok, ^next} =
+             bridge_result!(
+               session,
+               worker,
+               "create_session",
+               create_payload(session),
+               second_key,
+               next
+             )
+
+    second = Repo.get_by!(Command, idempotency_key: second_key)
+    assert second.placement_generation == first.placement_generation + 1
+    refute second.placement_id == first.placement_id
+    assert Repo.get!(Placement, first.placement_id).state == :replaced
+    assert Repo.get!(Placement, second.placement_id).state == :active
+    assert Repo.get!(Command, first.id).result == first.result
+    assert second.payload == first.payload
+
+    for {key, response} <- [{first_key, started}, {second_key, next}] do
+      assert {:ok, ^response} =
+               Bridge.execute(session, "create_session", create_payload(session), key,
+                 capability_names: ["controller-tools"],
+                 workspace_ref: "workspace-main",
+                 wait: fn -> flunk("a saved create was sent again") end
+               )
+    end
+
+    assert length(Repo.all(Placement.Query.by_session_id(session.id))) == 2
+  end
+
+  for state <- ["running", "uncertain", "succeeded"] do
+    @create_state state
+    test "a #{@create_state} create cannot be replaced just because the caller changed its key" do
+      worker = "worker-unresolved-#{@create_state}"
+      ready_worker!(worker)
+      session = session!()
+      old_key = "ryker:work:create:#{session.id}:g1"
+      next_key = "ryker:work:create:#{session.id}:g2"
+      operation = create_operation("operation-unresolved", @create_state)
+
+      assert {:ok, ^operation} =
+               bridge_result!(
+                 session,
+                 worker,
+                 "create_session",
+                 create_payload(session),
+                 old_key,
+                 operation
+               )
+
+      old = Repo.get_by!(Command, idempotency_key: old_key)
+      session = session |> Work.Session.Changeset.advance_create(2) |> Repo.update!()
+
+      assert {:error, {:coop_session_create_unresolved, session_id}} =
+               Bridge.execute(session, "create_session", create_payload(session), next_key,
+                 capability_names: ["controller-tools"],
+                 workspace_ref: "workspace-main",
+                 wait: fn -> flunk("an unresolved create was delivered again") end
+               )
+
+      assert session_id == session.id
+      refute Repo.get_by(Command, idempotency_key: next_key)
+      assert Repo.get!(Placement, old.placement_id).state == :active
+      assert length(Repo.all(Placement.Query.by_session_id(session.id))) == 1
+    end
+  end
+
+  test "a failed create keeps its placement when no worker can take its replacement" do
+    worker = "worker-no-retry-capacity"
+    ready_worker!(worker)
+    session = session!()
+    key = "ryker:work:create:#{session.id}:g1"
+    failed = create_operation("operation-absent", "failed")
+
+    assert {:ok, ^failed} =
+             bridge_result!(
+               session,
+               worker,
+               "create_session",
+               create_payload(session),
+               key,
+               failed
+             )
+
+    first = Repo.get_by!(Command, idempotency_key: key)
+
+    full =
+      Enum.reduce(
+        ~w(session_slots_free turn_slots_free workspace_slots_free),
+        poll(worker, "full"),
+        fn slot, value -> put_in(value, ["worker", "capacity", slot], 0) end
+      )
+
+    assert {:ok, _} = ControlPlane.handle_poll_certificate(worker, full)
+    session = session |> Work.Session.Changeset.advance_create(2) |> Repo.update!()
+    next_key = "ryker:work:create:#{session.id}:g2"
+
+    assert {:error, {:coop_worker_capacity_unavailable, session_id}} =
+             Bridge.execute(session, "create_session", create_payload(session), next_key,
+               capability_names: ["controller-tools"],
+               workspace_ref: "workspace-main",
+               wait: fn -> flunk("no capacity") end
+             )
+
+    assert session_id == session.id
+    refute Repo.get_by(Command, idempotency_key: next_key)
+    assert Repo.get!(Placement, first.placement_id).state == :active
+    assert length(Repo.all(Placement.Query.by_session_id(session.id))) == 1
+  end
+
+  defp ready_worker!(worker) do
+    assert {:ok, _} = CoopWorkers.authorize(worker, "workspace-main", digest(worker))
+    assert {:ok, _} = ControlPlane.handle_poll_certificate(worker, poll(worker, "hello"))
+  end
+
+  defp create_operation(id, "succeeded"),
+    do: %{
+      "operation" => %{
+        "id" => id,
+        "method" => "CreateRemoteSession",
+        "state" => "succeeded",
+        "resource_type" => "session",
+        "resource_id" => "remote-created"
+      }
+    }
+
+  defp create_operation(id, state),
+    do: %{"operation" => %{"id" => id, "method" => "CreateRemoteSession", "state" => state}}
+
+  defp create_payload(session),
+    do: %{
+      "external_ref" => Work.Session.coop_task_ref(session),
+      "job" => session.worker_job_document,
+      "job_digest" => session.worker_job_digest
+    }
+
+  defp bridge_result!(session, worker, kind, payload, key, body) do
+    Bridge.execute(session, kind, payload, key,
+      capability_names: ["controller-tools"],
+      workspace_ref: "workspace-main",
+      max_waits: 2,
+      poll_interval_ms: 1,
+      wait: fn ->
+        suffix = Ecto.UUID.generate()
+
+        assert {:ok, %{"commands" => [command]}} =
+                 ControlPlane.handle_poll_certificate(worker, poll(worker, "deliver-#{suffix}"))
+
+        assert command["idempotency_key"] == key
+
+        result = %{
+          "command_id" => command["command_id"],
+          "error" => nil,
+          "operation_key" => key,
+          "resource" => %{"status" => 200, "body" => body},
+          "state" => "succeeded"
+        }
+
+        assert {:ok, response} =
+                 ControlPlane.handle_poll_certificate(
+                   worker,
+                   poll(worker, "result-#{suffix}", command_results: [result])
+                 )
+
+        assert response["acknowledged_result_command_ids"] == [command["command_id"]]
+        :ok
+      end
+    )
+  end
 
   test "one durable command bridges Work to an authenticated outbound worker exactly once" do
     worker_id = "worker-a"

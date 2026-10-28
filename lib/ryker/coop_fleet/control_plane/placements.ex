@@ -9,10 +9,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   session at all without taking a slot to find out.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, JobAuthority, Placement}
+  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Repo
+  alias Ryker.Retention
   alias Ryker.Work
 
   @creating_seconds 300
@@ -21,12 +22,25 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   @spec place_session(Ecto.UUID.t(), map(), pos_integer()) ::
           {:ok, Placement.t()} | {:error, term()}
-  def place_session(session_id, requirements, lease_seconds) do
+  def place_session(session_id, requirements, lease_seconds),
+    do: place(session_id, requirements, lease_seconds, nil)
+
+  @doc "A different create identity needs a new placement after exact proof of absence."
+  @spec place_create_session(Ecto.UUID.t(), String.t(), map(), pos_integer()) ::
+          {:ok, Placement.t()} | {:error, term()}
+  def place_create_session(session_id, key, requirements, lease_seconds) do
+    with :ok <- Shared.reference(key, 512, :idempotency_key),
+         do: place(session_id, requirements, lease_seconds, key)
+  end
+
+  defp place(session_id, requirements, lease_seconds, create_key) do
     with :ok <- Shared.uuid(session_id, :session_id),
          {:ok, prepared} <- requirements(requirements),
          :ok <- Shared.lease_seconds(lease_seconds) do
       result =
-        Repo.transaction(fn -> place_session_locked(session_id, prepared, lease_seconds) end)
+        Repo.transaction(fn ->
+          place_session_locked(session_id, prepared, lease_seconds, create_key)
+        end)
 
       placement_result(result, session_id)
     end
@@ -173,7 +187,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     )
   end
 
-  defp place_session_locked(session_id, requirements, lease_seconds) do
+  defp place_session_locked(session_id, requirements, lease_seconds, create_key) do
     lock_holding_workers(session_id)
 
     session =
@@ -188,12 +202,53 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     case fetch_and_lock_current_placement(session_id) do
       {:ok, %Placement{} = placement} ->
-        place_current_session(session, placement, requirements, lease_seconds, now)
+        with %Placement{} = current <-
+               place_current_session(session, placement, requirements, lease_seconds, now) do
+          place_create_retry(session, current, requirements, lease_seconds, now, create_key)
+        end
 
       {:error, :not_found} ->
         place_unassigned_session(session, requirements, lease_seconds, now)
     end
   end
+
+  defp place_create_retry(_session, placement, _requirements, _lease_seconds, _now, nil),
+    do: placement
+
+  defp place_create_retry(
+         %Work.Session{cleanup_status: :active, coop_session_id: nil} = session,
+         placement,
+         requirements,
+         lease_seconds,
+         now,
+         key
+       ) do
+    creates =
+      placement.id
+      |> Command.Query.by_placement_id()
+      |> Command.Query.by_kind("create_session")
+      |> Repo.all()
+
+    if creates == [] or Enum.any?(creates, &(&1.idempotency_key == key)) do
+      placement
+    else
+      case Retention.Creation.resolve(session) do
+        {:ok, :absent} ->
+          retired = placement |> Placement.Changeset.replace() |> Repo.update!()
+          Commands.fail_undelivered_commands(retired, now)
+          insert_placement(session, requirements, lease_seconds, now)
+
+        {:error, reason} ->
+          Shared.rollback(reason)
+
+        _unresolved ->
+          Shared.rollback({:coop_session_create_unresolved, session.id})
+      end
+    end
+  end
+
+  defp place_create_retry(_session, _placement, _requirements, _lease_seconds, _now, _key),
+    do: Shared.rollback({:coop_fleet_authority_mismatch, :worker_job})
 
   defp place_current_session(session, placement, requirements, lease_seconds, now) do
     cond do

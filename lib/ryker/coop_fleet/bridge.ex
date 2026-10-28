@@ -65,12 +65,7 @@ defmodule Ryker.CoopFleet.Bridge do
   defp enqueue_locked(nil, current, original, kind, payload, key, settings) do
     validate_new_create(current, original, kind)
 
-    with {:ok, placement} <-
-           ControlPlane.place_session(
-             current.id,
-             requirements(current, settings),
-             settings.lease_seconds
-           ),
+    with {:ok, placement} <- place_command(current, kind, key, settings),
          {:ok, command} <- ControlPlane.enqueue_command(placement.id, kind, payload, key) do
       command
     else
@@ -82,6 +77,23 @@ defmodule Ryker.CoopFleet.Bridge do
       {:error, reason} ->
         Repo.rollback(reason)
     end
+  end
+
+  defp place_command(session, "create_session", key, settings) do
+    ControlPlane.place_create_session(
+      session.id,
+      key,
+      requirements(session, settings),
+      settings.lease_seconds
+    )
+  end
+
+  defp place_command(session, _kind, _key, settings) do
+    ControlPlane.place_session(
+      session.id,
+      requirements(session, settings),
+      settings.lease_seconds
+    )
   end
 
   defp validate_new_create(current, original, "create_session") do

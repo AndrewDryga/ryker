@@ -30,6 +30,10 @@ defmodule Ryker.CoopFleet.ControlPlane do
           {:ok, Placement.t()} | {:error, term()}
   defdelegate place_session(session_id, requirements, lease_seconds), to: Placements
 
+  @spec place_create_session(Ecto.UUID.t(), String.t(), map(), pos_integer()) ::
+          {:ok, Placement.t()} | {:error, term()}
+  defdelegate place_create_session(session_id, key, requirements, lease_seconds), to: Placements
+
   @spec retire_session_placements(Ecto.UUID.t(), DateTime.t()) :: :ok
   defdelegate retire_session_placements(session_id, now), to: Placements
 

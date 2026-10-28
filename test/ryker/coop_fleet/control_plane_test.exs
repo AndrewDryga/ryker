@@ -23,6 +23,49 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
 
+  # The worker's create-origin ledger is keyed by placement, not by retry key.
+  test "one placement accepts only one create identity while identical replay remains valid" do
+    authorize_and_poll!("worker-create-once")
+    session = session!("one-create-identity")
+
+    requirements = %{
+      capability_names: ["controller-tools"],
+      repository_ref: session.repository_ref,
+      workspace_ref: "workspace-main"
+    }
+
+    assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
+
+    payload = %{
+      "external_ref" => Session.coop_task_ref(session),
+      "job" => session.worker_job_document,
+      "job_digest" => session.worker_job_digest
+    }
+
+    first_key = "create:#{session.id}:g1"
+
+    assert {:ok, first} =
+             ControlPlane.enqueue_command(placement.id, "create_session", payload, first_key)
+
+    assert {:ok, replay} =
+             ControlPlane.enqueue_command(placement.id, "create_session", payload, first_key)
+
+    assert replay.id == first.id
+
+    assert {:error, {:coop_session_create_requires_new_placement, session_id, generation}} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "create_session",
+               payload,
+               "create:#{session.id}:g2"
+             )
+
+    assert session_id == session.id
+    assert generation == placement.generation
+    commands = Repo.all(Command.Query.by_placement_id(placement.id))
+    assert Enum.map(commands, & &1.id) == [first.id]
+  end
+
   test "an authenticated heartbeat records identity capabilities and measured capacity" do
     certificate = "worker-a-client-certificate"
 

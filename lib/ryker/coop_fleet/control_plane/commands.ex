@@ -233,6 +233,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         unless Placements.current?(placement, now),
           do: Shared.rollback({:coop_session_placement_not_current, placement_id})
 
+        validate_create_placement(placement, kind)
+
         case placement_request(placement, kind, payload) do
           :ok -> :ok
           {:error, reason} -> Shared.rollback(reason)
@@ -263,6 +265,19 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   defp validate_create_lifecycle(_session, _kind), do: :ok
+
+  defp validate_create_placement(placement, "create_session") do
+    query =
+      placement.id |> Command.Query.by_placement_id() |> Command.Query.by_kind("create_session")
+
+    if Repo.exists?(query) do
+      Shared.rollback(
+        {:coop_session_create_requires_new_placement, placement.session_id, placement.generation}
+      )
+    end
+  end
+
+  defp validate_create_placement(_placement, _kind), do: :ok
 
   defp placement_request(
          %{requirements: %{"purpose" => "stop_or_cleanup"}} = placement,
