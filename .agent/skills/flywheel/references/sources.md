@@ -3,7 +3,10 @@
 Read the actual installation and available tools. Do not assume a connector or historical store
 exists because this document names it. The source list is a coverage checklist, not permission
 to access another customer or send messages. Use source-specific keys when multiple projects or
-installations are deliberately in scope. This ledger belongs to one Ryker installation.
+installations are deliberately in scope. This ledger belongs to one Ryker installation. Its primary subject is Ryker's own behavior.
+A source from a monitored system supplies task evidence; access to it does not make changes
+to that system part of the self-improvement pass. Use the behavioral review in
+[review.md](review.md) to connect source facts to changes in Ryker.
 
 ## Local inventory and detailed traces
 

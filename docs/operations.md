@@ -683,7 +683,13 @@ These compatibility contracts are not product branding and must not be renamed i
 
 Invoke the repository's `/flywheel suggest` to review a period and offer improvements, or
 `/flywheel auto` to select and deliver Ryker improvements within the invocation's authorized
-scope and limits. It covers code, prompts, settings, tools and actions for the operator.
+scope and limits. Its primary subject is Ryker itself: the quality of its answers, decisions,
+evidence retrieval, follow-through, interruptions and cost. It reviews real trajectories, including
+apparently successful work, then proposes changes to Ryker's code, prompts, settings and tools.
+Ryker's own reliability repairs are in scope, but do not substitute for that behavioral review.
+Recommendations to change the infrastructure Ryker monitors belong to a separate operational
+review. A weekly version of that review is not currently scheduled or included in the weekly
+report; the existing report composes saved facts without a model turn.
 The [skill](../.agent/skills/flywheel/SKILL.md) documents the workflow; its
 [operator protocol](../.agent/skills/flywheel/references/commands.md) documents each command.
 

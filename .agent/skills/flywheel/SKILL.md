@@ -1,13 +1,37 @@
 ---
 name: flywheel
-description: Review Ryker evidence over a period, remember source coverage, and propose or autonomously deliver improvements to code, prompts, settings, tools, and operator workflows. Tracks tasks for Ryker, the user, or both, and measures outcomes in later passes.
+description: Improve Ryker itself from its real conversations, decisions, tool use and outcomes. Review a period, find changes to its prompts, tools, settings or code, deliver authorized fixes, and measure whether they help. Infrastructure recommendations for systems Ryker monitors belong to a separate operational review.
 ---
 
 # Ryker improvement flywheel
 
+The goal is to make Ryker a more capable and useful agent: understand requests, retrieve evidence,
+make good decisions, finish authorized work, communicate clearly and learn from corrections.
 Run the approved loop: collect → investigate → correlate → propose or implement → measure.
 Read `AGENTS.md`. The agent reasons and works; the PostgreSQL ledger remembers coverage,
 decisions and outcomes. No background process or model is installed by this skill.
+
+## What this improves
+
+The change target is Ryker itself. An incident in a system Ryker monitors is evidence of how
+Ryker worked, not automatically a flywheel task to change that system. For example, repeated
+requests to paste accessible logs can justify improving Ryker's retrieval tools or instructions;
+tuning that system's alert thresholds belongs to its operational recommendations.
+
+Ryker's own reliability is in scope too: failed delivery, unsafe rollback and stalled workers
+prevent it doing useful work. Report those as reliability findings. Do not let readily counted
+log errors replace the review of its answers, decisions and user effort. Urgent reliability work
+can proceed, but an unfinished behavioral review remains an explicit coverage gap.
+
+Read [review.md](references/review.md) before judging findings. Review actual trajectories,
+including ordinary and apparently successful work, before choosing the pass's improvement set.
+A useful result connects an observed shortcoming to a specific change in Ryker and a way to
+measure whether that behavior improves. Do not invent a behavioral finding to fill a quota.
+
+Recommendations for monitored infrastructure are separate output, with their own scope and
+authorization. When requested for a weekly operational review, retain their evidence and report
+them separately; they do not count as Ryker self-improvement. Neither this skill nor its ledger
+currently schedules that review or adds it to the weekly report.
 
 ## Choose the mode and bound this pass
 
@@ -97,11 +121,15 @@ account without authorization. Internal **For you** items are durable and stay o
 agent's runnable Coop queue. Confirm completion from the user's reply or direct evidence;
 `user_done` releases the Ryker part, without silently changing the original proposal.
 
-Present only the most valuable proposals, normally 3–5, in this shape (an illustration):
+Present only the most valuable proposals, normally 3–5. Lead with changes to how Ryker behaves
+and what the user gains; distinguish its operational reliability repairs. For example:
 
-> **Connect crash reports.** Failed requests lack their stack traces, so Ryker cannot identify
-> the failing code. **You:** grant project read access. **Ryker:** connect it and verify retrieval.
-> **Benefit:** more precise investigations. **Tradeoff:** another integration to maintain.
+> **Retrieve evidence before asking you to paste it.** The review found requests where Ryker
+> had an authorized tool but asked the user to fetch its output. **Ryker:** fix tool selection
+> or the missing retrieval path and replay those cases. **Benefit:** fewer interruptions.
+> **Tradeoff:** extra retrieval calls; compare their cost with avoided user effort.
+
+This is an illustration, not a finding. Use it only when actual traces support it.
 
 Prefer counts with denominators and one real example over scores or jargon. Explain what
 would improve, not internal implementation details. Do not promise savings or quality gains
@@ -156,5 +184,7 @@ healthy process or green test proves neither a user benefit nor causal attributi
 
 Finish every source as complete or with an explicit gap, then `finish` the pass. Report briefly:
 period and coverage gaps; proposals or shipped improvements; **For you**; deferred work; and
-outcomes measured versus still pending. State precisely what is running. Do not fabricate
+outcomes measured versus still pending. Say what Ryker will do better, which behavior dimensions
+were reviewed or remain unknown, and which findings only repair its operation. Keep external
+infrastructure recommendations separate. State precisely what is running. Do not fabricate
 completion to fit the budget.
