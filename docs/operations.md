@@ -479,6 +479,13 @@ A request without one signs in with a link, as anyone else does.
 
 ## Health and recovery
 
+Provider rate limits keep incoming messages and running tasks queued. Ryker releases their leases
+and retries until the provider accepts work. After a provider ends a turn on a limit, the waits
+grow from 1, 2, 4 and 8 minutes to a 10-minute cap. HTTP 429 responses wait a minute by default.
+These waits do not spend the host's failure attempts. A terminal provider turn gets fresh operation
+keys on retry; an HTTP 429 while submitting or saving reconciles the same operation. A completed
+answer stays saved while its checkpoint waits. Sign-in failures still require operator attention.
+
 | Endpoint | Meaning |
 | --- | --- |
 | `/healthz` | the process can use PostgreSQL |

@@ -4544,6 +4544,38 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  # The provider's exhausted HTTP 429 retries stopped a live task on 2026-10-28.
+  test "a provider rate limit keeps its failure time for automatic queue recovery" do
+    work = bound_turn!("provider-throttle")
+    {:ok, fake} = fake_for(work, [])
+
+    detail =
+      "provider rate limited the turn: exceeded retry limit, last status: 429 Too Many Requests"
+
+    FakeAPI.seed_turn(fake, work.session.coop_session_id, work.turn.coop_turn_id, "failed", %{
+      "error_code" => "rate_limited",
+      "error_detail" => detail,
+      "finished_at" => "2026-10-28T06:08:35Z"
+    })
+
+    assert Executor.run(work, options(fake)) ==
+             {:error, {:work_provider_limited, ~U[2026-10-28 06:08:35Z], "rate_limited", detail}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  test "a rate limit without provider timing uses the retained turn time for backoff" do
+    work = bound_turn!("provider-throttle-no-time")
+    {:ok, fake} = fake_for(work, [])
+
+    FakeAPI.seed_turn(fake, work.session.coop_session_id, work.turn.coop_turn_id, "failed", %{
+      "error_code" => "rate_limited"
+    })
+
+    assert Executor.run(work, options(fake)) ==
+             {:error, {:work_provider_limited, work.turn.inserted_at, "rate_limited", nil}}
+  end
+
   test "a queued remote turn has a bounded wait and renews a long-lived local lease" do
     work = bound_turn!("queued-timeout")
     {:ok, fake} = fake_for(work, [])

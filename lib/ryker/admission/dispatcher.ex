@@ -112,6 +112,26 @@ defmodule Ryker.Admission.Dispatcher do
        ),
        do: wait_for_capacity(claim, input_ref, reason, :wait_execution, settings)
 
+  defp dispatch_failure(claim, input_ref, {:coop_error, 429, _code, _detail} = reason, settings) do
+    wait_for_rate_limit(claim, input_ref, reason, :wait, settings.retry_max_ms, settings.now.())
+  end
+
+  defp dispatch_failure(
+         claim,
+         input_ref,
+         {:admission_generation_spent, {:coop_error, 429, _code, _detail} = reason},
+         settings
+       ) do
+    wait_for_rate_limit(
+      claim,
+      input_ref,
+      reason,
+      :wait_execution,
+      settings.retry_max_ms,
+      settings.now.()
+    )
+  end
+
   defp dispatch_failure(claim, input_ref, reason, settings) do
     # A pending predecessor blocks later inputs in the conversation. Genuine
     # failures stay bounded; capacity waits above never spend this budget.
@@ -138,6 +158,26 @@ defmodule Ryker.Admission.Dispatcher do
   end
 
   defp worker_failed(claim, input_ref, {:coop_turn_failed, _, code, detail} = reason, settings) do
+    if Work.FailureCause.rate_limited?(code, detail) do
+      delay_ms =
+        Enum.at(
+          @provider_waits_ms,
+          claim.entry.execution_generation - 1,
+          List.last(@provider_waits_ms)
+        )
+
+      wait_for_rate_limit(claim, input_ref, reason, :wait_execution, delay_ms, settings.now.())
+    else
+      retry_worker_failure(claim, input_ref, reason, settings)
+    end
+  end
+
+  defp retry_worker_failure(
+         claim,
+         input_ref,
+         {:coop_turn_failed, _, code, detail} = reason,
+         settings
+       ) do
     case provider_wait(claim.entry, code, detail) do
       nil ->
         with {:ok, _blocked} = blocked <- block_after_worker_failure(claim, input_ref, reason) do
@@ -271,6 +311,23 @@ defmodule Ryker.Admission.Dispatcher do
            settings.retry_max_ms,
            "coop_worker_capacity_unavailable",
            error_detail,
+           generation
+         ) do
+      {:ok, _entry} -> {:ok, {:deferred, input_ref, reason}}
+      {:error, wait_reason} -> {:error, {:admission_dispatch_failed, reason, wait_reason}}
+    end
+  end
+
+  defp wait_for_rate_limit(claim, input_ref, reason, generation, delay_ms, now) do
+    {code, detail} = describe_error(reason)
+
+    case Ingress.Inbox.wait_for_capacity(
+           input_ref,
+           claim.lease_ref,
+           now,
+           delay_ms,
+           code,
+           detail,
            generation
          ) do
       {:ok, _entry} -> {:ok, {:deferred, input_ref, reason}}

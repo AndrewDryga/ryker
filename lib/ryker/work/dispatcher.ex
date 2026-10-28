@@ -68,9 +68,22 @@ defmodule Ryker.Work.Dispatcher do
 
       {:error, reason} ->
         cond do
-          capacity_wait?(reason) -> wait_for_capacity(claim, reported_reason(reason), settings)
-          worker_away?(reason) -> wait_for_worker(claim, reason)
-          true -> execution_failure(claim, reason, settings)
+          capacity_wait?(reason) ->
+            wait_for_capacity(
+              claim,
+              reported_reason(reason),
+              settings.retry_max_seconds,
+              "coop_worker_capacity_unavailable"
+            )
+
+          rate_limit_wait?(reason) ->
+            wait_for_capacity(claim, reported_reason(reason), settings.retry_max_seconds)
+
+          worker_away?(reason) ->
+            wait_for_worker(claim, reason)
+
+          true ->
+            execution_failure(claim, reason, settings)
         end
     end
   end
@@ -147,6 +160,27 @@ defmodule Ryker.Work.Dispatcher do
       do: stop_or_defer(claim, reason, settings),
       else: rerun(claim, reason)
   end
+
+  # A provider HTTP 429 stopped a task on 2026-10-28. A quota can reset long
+  # after the ordinary outage budget: keep custody and cap the delay, not the
+  # number of fresh runs. A person's cancellation still takes precedence.
+  defp execution_failure(
+         %{turn: %{status: :pending}} = claim,
+         {:work_provider_limited, failed_at, code, detail},
+         _settings
+       ) do
+    reruns = Custody.reruns(claim.turn.turn_ref)
+    wait = Enum.at(@provider_waits, reruns, List.last(@provider_waits))
+    reason = {:work_turn_terminal, "failed", code, detail}
+
+    case remaining_seconds(failed_at, wait) do
+      seconds when seconds > 0 -> wait_for_capacity(claim, reason, seconds)
+      _over -> rerun(claim, reason, reruns + 1)
+    end
+  end
+
+  defp execution_failure(claim, {:work_provider_limited, _failed_at, code, detail}, settings),
+    do: execution_failure(claim, {:work_turn_terminal, "failed", code, detail}, settings)
 
   # The provider couldn't serve the model. OpenAI's was "at capacity" from about 05:25 to 06:10
   # UTC on 2026-10-13: a question in Slack stopped for a person at once, and a run started by
@@ -299,15 +333,15 @@ defmodule Ryker.Work.Dispatcher do
   defp yield_progress(claim, reason, settings),
     do: yield_for(claim, reason, settings.retry_base_seconds)
 
-  defp wait_for_capacity(claim, reason, settings) do
-    {_code, detail} = describe_error(reason)
+  defp wait_for_capacity(claim, reason, retry_seconds, error_code \\ nil) do
+    {reason_code, detail} = describe_error(reason)
 
     case Custody.wait_for_capacity(
            claim.episode.id,
            claim.turn.turn_ref,
            claim.lease_ref,
-           settings.retry_max_seconds,
-           "coop_worker_capacity_unavailable",
+           retry_seconds,
+           error_code || reason_code,
            detail
          ) do
       {:ok, _turn} -> {:ok, {:deferred, reason}}
@@ -407,6 +441,14 @@ defmodule Ryker.Work.Dispatcher do
 
   defp capacity_wait?({:work_completion_blocked, _receipt, reason}), do: capacity_wait?(reason)
   defp capacity_wait?(_reason), do: false
+
+  defp rate_limit_wait?({:coop_error, 429, _code, _detail}), do: true
+  defp rate_limit_wait?({:work_generation_spent, _phase, reason}), do: rate_limit_wait?(reason)
+
+  defp rate_limit_wait?({:work_completion_blocked, _receipt, reason}),
+    do: rate_limit_wait?(reason)
+
+  defp rate_limit_wait?(_reason), do: false
 
   defp retry_class({:work_generation_spent, _phase, _reason}), do: :transient
   defp retry_class({:work_cancellation_unresolved, _reason}), do: :transient

@@ -203,9 +203,9 @@ defmodule Ryker.Work.Executor.Turns do
        when state in @turn_waiting_states,
        do: {:error, {:work_poll_window_elapsed, :turn}}
 
-  defp continue_await_turn(_claim, %{"state" => state} = turn, _settings, _left)
+  defp continue_await_turn(claim, %{"state" => state} = turn, _settings, _left)
        when state in @stopped_turn_states,
-       do: {:error, terminal(state, turn)}
+       do: {:error, terminal(state, turn, claim.turn.inserted_at)}
 
   defp continue_await_turn(_claim, _turn, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
@@ -213,13 +213,23 @@ defmodule Ryker.Work.Executor.Turns do
   # A provider that couldn't serve the model passes, as does the model's software failing on
   # something it did not expect, so the dispatcher runs the task again once its wait from the
   # failure is over (`Ryker.Work.Dispatcher`).
-  defp terminal("failed", %{"error_code" => code, "error_detail" => detail} = turn) do
-    if FailureCause.transient?(detail),
-      do: {:work_provider_unavailable, finished_at(turn), code, detail},
-      else: {:work_turn_terminal, "failed", code, detail}
+  defp terminal("failed", turn, created_at) do
+    code = turn["error_code"]
+    detail = turn["error_detail"]
+
+    cond do
+      FailureCause.rate_limited?(code, detail) ->
+        {:work_provider_limited, finished_at(turn) || created_at, code, detail}
+
+      FailureCause.transient?(detail) ->
+        {:work_provider_unavailable, finished_at(turn), code, detail}
+
+      true ->
+        {:work_turn_terminal, "failed", code, detail}
+    end
   end
 
-  defp terminal(state, turn),
+  defp terminal(state, turn, _created_at),
     do: {:work_turn_terminal, state, turn["error_code"], turn["error_detail"]}
 
   defp finished_at(%{"finished_at" => finished_at}) when is_binary(finished_at) do

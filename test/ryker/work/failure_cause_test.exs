@@ -73,6 +73,27 @@ defmodule Ryker.Work.FailureCauseTest do
     end
   end
 
+  # On 2026-10-28 an HTTP 429 stopped a task and asked for credits even though
+  # waiting for the provider would let it continue.
+  test "provider throttles and usage limits are retryable regardless of adapter wording" do
+    for {code, detail} <- [
+          {"rate_limited", "exceeded retry limit, last status: 429 Too Many Requests"},
+          {"acp_protocol_error",
+           "provider limit prevented the turn: You've hit your usage limit."},
+          {nil,
+           "provider rate limited the turn: exceeded retry limit, last status: 429 Too Many Requests"}
+        ] do
+      assert FailureCause.rate_limited?(code, detail)
+    end
+
+    refute FailureCause.rate_limited?(
+             "acp_protocol_error",
+             "Failed to refresh token: 401 Unauthorized"
+           )
+
+    refute FailureCause.rate_limited?(nil, nil)
+  end
+
   # The task 82633a80 would now run again read "stopped before Ryker could
   # confirm why" on the Failures page, though the saved error says why.
   test "a task stopped by a stale briefing says the briefing changed" do

@@ -436,6 +436,67 @@ defmodule Ryker.Admission.DispatcherTest do
     assert DateTime.diff(waiting.next_attempt_at, @now) == 60
   end
 
+  # A provider HTTP 429 stopped a task on 2026-10-28; admission must retain
+  # messages through the same quota outage without spending its failure budget.
+  test "rate-limited messages keep retrying with fresh operation keys until accepted" do
+    entry = record_input!("Ev-provider-throttled", [], @mentioned)
+    input_ref = Inbox.ref(entry)
+
+    reason =
+      {:coop_turn_failed, "failed", "rate_limited",
+       "provider rate limited the turn: exceeded retry limit, last status: 429 Too Many Requests"}
+
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+    for attempt <- 0..11 do
+      at = DateTime.add(@now, attempt * 601, :second)
+
+      opts =
+        options(stub) |> Keyword.put(:now, fn -> at end) |> Keyword.put(:notify, notify(self()))
+
+      assert {:ok, {:deferred, ^input_ref, ^reason}} = Dispatcher.run_once(opts)
+      assert {:ok, waiting} = Inbox.fetch(input_ref)
+      assert waiting.status == :pending
+      assert waiting.attempt_count == 0
+      assert waiting.execution_generation == attempt + 2
+      assert waiting.lease_ref == nil
+
+      assert DateTime.diff(waiting.next_attempt_at, at) ==
+               Enum.at([60, 120, 240, 480], attempt, 600)
+
+      refute_received {:note, _note}
+    end
+
+    ExecutorStub.succeed(stub)
+
+    assert {:ok, {:decided, execution}} =
+             Dispatcher.run_once(
+               Keyword.put(options(stub), :now, fn -> DateTime.add(@now, 12 * 601, :second) end)
+             )
+
+    assert execution.result.entry.id == entry.id
+  end
+
+  test "HTTP 429 leaves admission queued without spending failure attempts" do
+    entry = record_input!("Ev-http-throttled")
+    input_ref = Inbox.ref(entry)
+    reason = {:coop_error, 429, "rate_limited", "try later"}
+    {:ok, stub} = ExecutorStub.start_link({:fail, reason})
+
+    for attempt <- 0..9 do
+      at = DateTime.add(@now, attempt * 61, :second)
+
+      assert {:ok, {:deferred, ^input_ref, ^reason}} =
+               Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> at end))
+
+      assert {:ok, waiting} = Inbox.fetch(input_ref)
+      assert waiting.status == :pending
+      assert waiting.attempt_count == 0
+      assert waiting.execution_generation == 1
+      assert waiting.lease_ref == nil
+    end
+  end
+
   # The worker's sign-in failed on 2026-09-27 and Coop worded it as a service outage. Waiting on
   # the provider ladder cures no sign-in, and the person who asked heard nothing for an hour.
   test "a message whose worker sign-in failed stops for a person at once" do
@@ -504,37 +565,33 @@ defmodule Ryker.Admission.DispatcherTest do
     assert FakeAPI.state(fake).submit_count == 1
   end
 
-  test "recorded worker startup and quota failures block once with their actual diagnosis" do
+  test "recorded worker startup failures block once with their actual diagnosis" do
     # Input b8bff9f3 on 2026-09-09 spent fifteen admission executions on an
-    # incompatible worker and an exhausted account. Coop already owns failover;
-    # resubmitting its terminal failure only repeats the same frozen request.
-    for {code, detail} <- [
-          {"acp_process_error", "ACP child closed before its response"},
-          {"acp_protocol_error",
-           "provider limit prevented the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 15th, 2026 4:32 PM."}
-        ] do
-      entry = record_input!("Ev-recorded-#{code}")
-      reason = {:coop_turn_failed, "failed", code, detail}
-      {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+    # incompatible worker. Coop already owns failover; resubmitting a broken
+    # runtime's terminal failure only repeats the same frozen request.
+    code = "acp_process_error"
+    detail = "ACP child closed before its response"
+    entry = record_input!("Ev-recorded-#{code}")
+    reason = {:coop_turn_failed, "failed", code, detail}
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
 
-      assert {:ok, {:blocked, input_ref, ^reason}} = Dispatcher.run_once(options(stub))
-      assert input_ref == Inbox.ref(entry)
-      assert {:ok, blocked} = Inbox.fetch(input_ref)
-      assert blocked.attempt_count == 1
-      assert blocked.execution_generation == 2
-      assert blocked.last_error_code == code
-      assert blocked.last_error_detail =~ detail
-      assert Dispatcher.run_once(options(stub)) == {:ok, :idle}
-    end
+    assert {:ok, {:blocked, input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+    assert input_ref == Inbox.ref(entry)
+    assert {:ok, blocked} = Inbox.fetch(input_ref)
+    assert blocked.attempt_count == 1
+    assert blocked.execution_generation == 2
+    assert blocked.last_error_code == code
+    assert blocked.last_error_detail =~ detail
+    assert Dispatcher.run_once(options(stub)) == {:ok, :idle}
   end
 
-  # 2026-09-26: the model account ran out of usage for three days. Every
-  # message stopped on Failures and nowhere else, so a person who asked Ryker
-  # something in Slack heard nothing at all.
-  test "a person who asked Ryker hears once a thread a day that its model account is out" do
+  # Account failures once stopped on Failures and nowhere else, so a person
+  # who asked Ryker something in Slack heard nothing at all. Sign-in failures
+  # still need this courtesy; rate limits now wait in the queue instead.
+  test "a person who asked Ryker hears once a thread a day that its model sign-in failed" do
     reason =
-      {:coop_turn_failed, "failed", "rate_limited",
-       "provider rate limited the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 29th, 2026 8:59 PM."}
+      {:coop_turn_failed, "failed", "acp_protocol_error",
+       "provider service unavailable: Failed to refresh token: 400 Bad Request"}
 
     first = record_input!("Ev-account-out-1", [], @mentioned)
 
@@ -568,17 +625,17 @@ defmodule Ryker.Admission.DispatcherTest do
   end
 
   test "an app, a message not meant for Ryker and a cure a retry may bring get no note" do
-    limited =
+    sign_in_failed =
       {:coop_turn_failed, "failed", "acp_protocol_error",
-       "provider limit prevented the turn: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 15th, 2026 4:32 PM."}
+       "provider service unavailable: Failed to refresh token: 400 Bad Request"}
 
     crashed =
       {:coop_turn_failed, "failed", "acp_process_error", "ACP child closed before its response"}
 
     for {event, overrides, record_options, reason} <- [
-          {"Ev-quiet-app", [actor: %{kind: :bot, ref: "B123"}], @mentioned, limited},
+          {"Ev-quiet-app", [actor: %{kind: :bot, ref: "B123"}], @mentioned, sign_in_failed},
           {"Ev-quiet-ambient", [message_ref: "1787832000.000300"],
-           [slack_audience: :ambient, slack_bot_user_ref: "UBOT"], limited},
+           [slack_audience: :ambient, slack_bot_user_ref: "UBOT"], sign_in_failed},
           {"Ev-quiet-crash", [message_ref: "1787832000.000400"], @mentioned, crashed}
         ] do
       record_input!(event, overrides, record_options)

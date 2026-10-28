@@ -235,10 +235,23 @@ defmodule Ryker.Work.FailureCause do
     end
   end
 
+  @doc "Whether Coop reports provider throttling or a usage cap that can reset."
+  @spec rate_limited?(String.t() | nil, String.t() | nil) :: boolean()
+  def rate_limited?("rate_limited", _detail), do: true
+
+  def rate_limited?(_code, detail) when is_binary(detail) do
+    String.contains?(detail, [
+      "provider rate limited the turn",
+      "provider limit prevented the turn"
+    ])
+  end
+
+  def rate_limited?(_code, _detail), do: false
+
   @doc """
-  Whether the saved error says the model account the worker signs in with
-  needs a person: it is limited, or its sign-in no longer works. No retry
-  cures either.
+  Whether a historical account failure has an operator explanation: the
+  provider limited it, or its sign-in no longer works. Dispatchers handle
+  limits separately with `rate_limited?/2`, because a quota can reset.
   """
   @spec account_problem?(String.t() | nil) :: boolean()
   def account_problem?(detail) when is_binary(detail),

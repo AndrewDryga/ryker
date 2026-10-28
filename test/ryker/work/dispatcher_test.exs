@@ -78,12 +78,16 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.work_attempt_count == 1
   end
 
-  test "capacity waits preserve a completed answer while its workspace cannot be saved" do
+  test "capacity and rate-limit waits preserve a completed answer while its workspace cannot be saved" do
     command = create_episode!("completed-capacity-wait")
     proof = finished!(command)
-    reason = {:coop_worker_capacity_unavailable, "session:checkpoint"}
 
-    for _attempt <- 1..10 do
+    reasons = [
+      {:coop_worker_capacity_unavailable, "session:checkpoint"},
+      {:coop_error, 429, "rate_limited", "try later"}
+    ]
+
+    for reason <- List.duplicate(reasons, 10) |> List.flatten() do
       assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(saving_fails(proof, reason))
       turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
       assert turn.status == :pending
@@ -481,6 +485,66 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.cancellation_intent["action"] == "block"
   end
 
+  # On 2026-10-28 a provider's HTTP 429 exhausted its own retries and Ryker
+  # stopped the task. Throttling must outlast both host retry budgets.
+  test "rate-limited work stays queued past an hour without spending attempts" do
+    command = create_episode!("provider-limited", "turn:rerun:12:#{Ecto.UUID.generate()}")
+
+    detail =
+      "provider rate limited the turn: exceeded retry limit, last status: 429 Too Many Requests"
+
+    reason = {:work_turn_terminal, "failed", "rate_limited", detail}
+    failed = {:work_provider_limited, DateTime.utc_now(), "rate_limited", detail}
+
+    for _attempt <- 1..10 do
+      assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, failed}))
+      turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+      assert turn.status == :pending
+      assert turn.cancellation_intent == nil
+      assert turn.work_attempt_count == 0
+      assert turn.lease_ref == nil
+      assert DateTime.diff(turn.next_attempt_at, Ryker.Repo.now!()) in 590..600
+
+      Ryker.Repo.update_all(from(saved in Turn, where: saved.id == ^turn.id),
+        set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]]
+      )
+    end
+
+    elapsed =
+      {:work_provider_limited, DateTime.add(DateTime.utc_now(), -601, :second), "rate_limited",
+       detail}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, elapsed}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    next_ref = "turn:rerun:13:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^next_ref} = turn.cancellation_intent
+  end
+
+  test "HTTP 429 waits preserve the failure budget and resume when requests are accepted" do
+    command = create_episode!("http-throttle")
+    reason = {:coop_error, 429, "rate_limited", "try later"}
+
+    for failure <-
+          List.duplicate(reason, 10) ++
+            List.duplicate({:work_generation_spent, :turn_submit, reason}, 10) do
+      assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, failure}))
+      turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+      assert turn.status == :pending
+      assert turn.work_attempt_count == 0
+      assert turn.lease_ref == nil
+      assert DateTime.diff(turn.next_attempt_at, Ryker.Repo.now!()) in 55..60
+
+      Ryker.Repo.update_all(from(saved in Turn, where: saved.id == ^turn.id),
+        set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]]
+      )
+    end
+
+    assert Dispatcher.run_once(options({:ok, %{resumed: true}})) ==
+             {:ok, {:executed, %{resumed: true}}}
+  end
+
   defp provider_failed_long_ago do
     long_ago = DateTime.add(DateTime.utc_now(), -3_600, :second)
     {:error, {:work_provider_unavailable, long_ago, "acp_protocol_error", @at_capacity}}
@@ -488,29 +552,40 @@ defmodule Ryker.Work.DispatcherTest do
 
   # Coop can report a turn a person stopped the way it reports one a worker restart interrupted,
   # so the re-run above must never replace a person's Stop.
-  test "a turn a person stopped is not run again when Coop reports it cancelled" do
-    command = create_episode!("stopped-not-rerun")
-    reason = {:work_turn_terminal, "failed", "acp_cancelled", "turn cancelled"}
+  for failure <- [:cancelled, :limited] do
+    test "a person's stop survives the worker reporting #{failure}" do
+      command = create_episode!("stopped-not-rerun")
 
-    before_return = fn claim ->
-      assert {:ok, _requested} =
-               Custody.request_cancel(
-                 claim.episode.id,
-                 claim.episode.key,
-                 claim.turn.turn_ref,
-                 "cancel:stopped-not-rerun:#{claim.turn.id}",
-                 "Stopped by the operator."
-               )
+      reason =
+        case unquote(failure) do
+          :cancelled ->
+            {:work_turn_terminal, "failed", "acp_cancelled", "turn cancelled"}
+
+          :limited ->
+            {:work_provider_limited, DateTime.utc_now(), "rate_limited",
+             "provider rate limited the turn: exceeded retry limit, last status: 429 Too Many Requests"}
+        end
+
+      before_return = fn claim ->
+        assert {:ok, _requested} =
+                 Custody.request_cancel(
+                   claim.episode.id,
+                   claim.episode.key,
+                   claim.turn.turn_ref,
+                   "cancel:stopped-not-rerun:#{claim.turn.id}",
+                   "Stopped by the operator."
+                 )
+      end
+
+      dispatcher_options =
+        options({:error, reason})
+        |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
+
+      assert {:ok, {:lease_lost, _reason}} = Dispatcher.run_once(dispatcher_options)
+
+      turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+      assert turn.cancellation_intent["action"] == "cancel"
     end
-
-    dispatcher_options =
-      options({:error, reason})
-      |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
-
-    assert {:ok, {:lease_lost, ^reason}} = Dispatcher.run_once(dispatcher_options)
-
-    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
-    assert turn.cancellation_intent["action"] == "cancel"
   end
 
   test "healthy running Coop work crosses many poll windows without spending failure attempts" do
