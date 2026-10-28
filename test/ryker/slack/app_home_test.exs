@@ -24,6 +24,77 @@ defmodule Ryker.Slack.AppHomeTest do
     def publish_home(_client, _user_ref, _view), do: {:error, :slack_unavailable}
   end
 
+  # The Home screenshot on 2026-10-28 was eight plain status lines with
+  # identical Open buttons. A title must lead to its own thread, and a
+  # blocked row must explain Ryker's failure separately from the request.
+  test "attention rows lead with linked titles and explain the work that needs help" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    row = %{
+      kind: :blocked_work,
+      ref: "episode:blocked",
+      title: "Alert resolved <@U456>",
+      detail: "The worker could not finish.\nCheck the worker and retry.",
+      url: "https://example-team.slack.com/archives/COPS/p1787832000000100"
+    }
+
+    snapshot = %{AppHomeProjection.empty() | needs_attention: [row]}
+
+    assert {:ok, %{outcome: :published}} =
+             AppHome.handle(event("U123"), options(calls, fn _, _, _ -> snapshot end))
+
+    [{_, %{"blocks" => blocks}}] = Agent.get(calls, & &1)
+    section = Enum.find(blocks, &(&1["type"] == "rich_text"))
+    assert section, "the title and explanation need a visual hierarchy"
+    [title, detail] = hd(section["elements"])["elements"]
+
+    assert title == %{
+             "type" => "link",
+             "url" => row.url,
+             "text" => row.title,
+             "style" => %{"bold" => true}
+           }
+
+    assert detail == %{"type" => "text", "text" => "\n" <> row.detail}
+    refute visible_text(blocks) =~ "Stopped, needs you"
+    refute Map.has_key?(section, "accessory")
+    assert Enum.any?(blocks, &(get_in(&1, ["text", "text"]) == "Needs your attention"))
+  end
+
+  test "source text stays literal and an untrusted destination cannot become a Home link" do
+    row = %{
+      kind: :blocked_work,
+      ref: "episode:unsafe",
+      title: "*Do this* <@U456>",
+      detail: "<!here> <https://example.invalid/approve|Approve>",
+      url: "https://example.invalid/approve"
+    }
+
+    blocks = published_dashboard(%{AppHomeProjection.empty() | needs_attention: [row]})["blocks"]
+
+    [%{"elements" => [%{"elements" => [title, detail]}]}] =
+      Enum.filter(blocks, &(&1["type"] == "rich_text"))
+
+    assert title == %{"type" => "text", "text" => row.title, "style" => %{"bold" => true}}
+    assert detail == %{"type" => "text", "text" => "\n" <> row.detail}
+    refute Map.has_key?(title, "url")
+  end
+
+  test "work needing attention appears once instead of repeating under work in progress" do
+    row = %{kind: :operator_input, ref: "episode:waiting", title: "Choose the sampling strategy"}
+
+    snapshot = %{
+      AppHomeProjection.empty()
+      | needs_attention: [row],
+        work: [Map.put(row, :next_action, "operator_input")]
+    }
+
+    blocks = published_dashboard(snapshot)["blocks"]
+
+    assert length(Enum.filter(blocks, &(&1["type"] == "rich_text"))) == 1
+    refute visible_text(blocks) =~ "In flight"
+  end
+
   test "publishes a bounded what-needs-me view for an operator" do
     {:ok, calls} = Agent.start_link(fn -> [] end)
 
@@ -163,35 +234,27 @@ defmodule Ryker.Slack.AppHomeTest do
     assert [{"U123", %{"blocks" => blocks, "type" => "home"}}] = Agent.get(calls, & &1)
     assert length(blocks) < 100
 
-    assert 6 ==
-             for(
-               block <- blocks,
-               element <- [Map.get(block, "accessory") | List.wrap(Map.get(block, "elements"))],
-               is_map(element),
-               String.starts_with?(element["action_id"] || "", "ryker_home_open"),
-               String.starts_with?(
-                 element["url"] || "",
-                 "https://example-team.slack.com/archives/"
-               ),
-               do: element
-             )
-             |> length()
-
     text = Jason.encode!(blocks)
-    assert text =~ "What needs you"
+    assert length(Regex.scan(~r{https://example-team.slack.com/archives/}, text)) == 6
+    assert text =~ "Needs your attention"
     # A row says what the work is and where it stands, in words (Slack as
     # Andrew, 2026-10-09: `ingress-input:01a11f07-… · waiting for event; next:
     # external event`, under a block of nine counters).
-    assert text =~ "Repair checkout deploy · Working"
-    assert text =~ "Track Terraform run run-LfSQGsUsJgv6vXJ2 · Waiting for an update"
     visible = visible_text(blocks)
+    assert visible =~ "Repair checkout deploy"
+    assert visible =~ "Working"
+    assert visible =~ "Track Terraform run run-LfSQGsUsJgv6vXJ2"
+    assert visible =~ "Waiting for an update"
     refute visible =~ "next:"
     refute visible =~ "ingress-input:"
     refute visible =~ "Active commitments"
     refute visible =~ "authoritative"
-    assert visible =~ "Waiting for your answer: Choose the sampling strategy"
-    assert visible =~ "Kept, never published: Preserved checkout patch"
-    assert visible =~ "Checkout API latency · Open"
+    assert visible =~ "Choose the sampling strategy"
+    assert visible =~ "Waiting for your answer"
+    assert visible =~ "Preserved checkout patch"
+    assert visible =~ "Kept, never published"
+    assert visible =~ "Checkout API latency"
+    assert visible =~ "Incident room open"
     refute visible =~ "operator input"
     refute visible =~ "retained workspace"
     assert text =~ "Choose the sampling strategy"
@@ -493,7 +556,7 @@ defmodule Ryker.Slack.AppHomeTest do
     # Slack rejects a view over 100 blocks, so the complete-list controls cost
     # exactly one actions block for all three collections.
     assert length(blocks) < 100
-    assert length(blocks) == 95
+    assert length(blocks) == 94
     action_ids = action_ids(blocks)
     assert length(action_ids) == length(Enum.uniq(action_ids))
     rendered = Jason.encode!(blocks)
@@ -717,12 +780,11 @@ defmodule Ryker.Slack.AppHomeTest do
   defp chosen_operators(people),
     do: Operators.new(people, false, "T123")
 
-  defp visible_text(blocks) do
-    blocks
-    |> Enum.flat_map(
-      &[get_in(&1, ["text", "text"]) | Enum.map(&1["fields"] || [], fn f -> f["text"] end)]
-    )
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("\n")
-  end
+  defp visible_text(%{"text" => text}) when is_binary(text), do: text
+
+  defp visible_text(%{} = block),
+    do: block |> Map.take(~w(text fields elements)) |> Map.values() |> visible_text()
+
+  defp visible_text(blocks) when is_list(blocks), do: Enum.map_join(blocks, "\n", &visible_text/1)
+  defp visible_text(_value), do: ""
 end

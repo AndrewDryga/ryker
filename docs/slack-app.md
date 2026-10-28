@@ -161,8 +161,14 @@ Direct messages are always read, even when normal-channel proactive mode is off,
 the same admission as any other message. The **Investigate message** shortcut does the same for one selected message.
 App Home summarizes current incidents, active sessions, failed durable work, current channel
 situations, and the commitments Ryker owes the team; the web control plane shows the same records
-with more history. Each bounded destination-backed Home row links back to its exact Slack location;
-memory and behavior rows link to their source while the exact user still shares it. Configured
+with more history.
+
+Open a request by its title to return to its exact Slack location. Blocked work shows what stopped
+Ryker and what to do next, separately from the request's title or the health of the system it names.
+Alert titles can come from Slack attachments or rich text. When neither a title nor source text is
+available, Home shows when the request began.
+
+Memory and behavior rows link to their source while the exact user still shares it. Configured
 operators can use state-specific memory, schedule, publication-recovery, and safe retained-work
 controls. Home excludes Slack Connect and private or direct conversations the operator no longer
 shares with the bot. These surfaces do not weaken operator authorization or incident-creation rules.

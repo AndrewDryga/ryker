@@ -5,8 +5,10 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.SavedEntities
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
   alias Ryker.Slack.AppHomeProjection
+  alias Ryker.Work
 
   # An hour before this file compiles, which is every test run: in the past, as
   # a confirmation is, but never a fixed date. Records confirmed at a fixed
@@ -32,10 +34,8 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
                row.url == "https://slack.com/app_redirect?team=T123&channel=C456"
            end)
 
-    assert Enum.any?(snapshot.work, fn row ->
-             row.ref == local.episode.key and row.title == "Choose local." and
-               row.url == "https://slack.com/app_redirect?team=T123&channel=C456"
-           end)
+    refute Enum.any?(snapshot.work, &(&1.ref == local.episode.key))
+    refute Enum.any?(snapshot.needs_attention, &(&1.ref == foreign.episode.key))
 
     refute Enum.any?(snapshot.work, &(&1.ref == foreign.episode.key))
     refute Enum.any?(snapshot.work, &(&1.ref == publication.episode.key))
@@ -70,11 +70,107 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
 
     untitled = waiting_episode!("T123", "untitled")
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
-    titles = Map.new(snapshot.work, &{&1.ref, &1.title})
+    titles = Map.new(snapshot.needs_attention, &{&1.ref, &1.title})
 
     assert titles[titled.episode.key] == "Commit-message rules"
     assert titles[untitled.episode.key] == "Choose untitled."
     refute Map.has_key?(snapshot, :counts)
+  end
+
+  # Home showed seven requests as "A request" (2026-10-28). This
+  # retained Terraform notification has no top-level text; its title lives
+  # in the attachment, exactly as Slack delivered it.
+  test "an attachment-only alert keeps its source title in Home" do
+    message = File.read!("testdata/slack/hcp-terraform-planning.json") |> Jason.decode!()
+    content = Map.take(message, ~w(text attachments blocks))
+    waiting = waiting_episode!("T123", "attachment", "C456", content)
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    row = Enum.find(snapshot.needs_attention, &(&1.ref == waiting.episode.key))
+
+    assert row.title == hd(message["attachments"])["title"]
+  end
+
+  test "a request with no retained title is identified by when it began" do
+    waiting = waiting_episode!("T123", "missing", "C456", %{})
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    row = Enum.find(snapshot.needs_attention, &(&1.ref == waiting.episode.key))
+
+    assert is_binary(row.title), "a request without source text still needs a dated label"
+    assert row.title =~ "Request from "
+    assert row.title =~ Calendar.strftime(waiting.episode.inserted_at, "%d %b %Y")
+  end
+
+  test "eight newer questions do not hide an older request still in progress" do
+    id = Ecto.UUID.generate()
+
+    {:ok, running} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: id,
+          episode_key: "home-running:#{id}",
+          turn_ref: "turn:#{id}",
+          destination: %{
+            transport: "slack",
+            conversation_ref: "slack:T123:C456",
+            thread_ref: "1790000000.000200"
+          },
+          occurred_at: DateTime.add(@now, -60, :second),
+          payload: %{"text" => "Check production health"}
+        })
+      )
+
+    for index <- 1..8, do: waiting_episode!("T123", "question-#{index}")
+
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+
+    assert length(snapshot.needs_attention) == 8
+    assert Enum.map(snapshot.work, & &1.ref) == [running.episode.key]
+  end
+
+  # A resolved alert still read "Stopped, needs you", with no explanation
+  # of what stopped Ryker or what the operator could do (2026-10-28).
+  test "blocked work carries its recorded cause and next step without claiming system health" do
+    id = Ecto.UUID.generate()
+
+    {:ok, admitted} =
+      Episodes.apply(
+        EpisodeFixtures.admit_input(%{
+          episode_id: id,
+          episode_key: "home-blocked:#{id}",
+          turn_ref: "turn:#{id}",
+          destination: %{
+            transport: "slack",
+            conversation_ref: "slack:T123:C456",
+            thread_ref: "1790000000.000100"
+          },
+          payload: %{"text" => "Alert resolved"}
+        })
+      )
+
+    {:ok, _session} = WorkSessions.pin_episode(id, "home-test", String.duplicate("a", 64))
+    {:ok, claim} = Work.Custody.claim_next("home-test", 60)
+    assert claim.episode.id == id
+
+    Repo.update_all(from(turn in Work.Turn, where: turn.id == ^claim.turn.id),
+      set: [
+        status: :blocked,
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil,
+        last_error_code: "coop_worker_command_timeout",
+        last_error_detail: "coop_worker_command_timeout: placement 7"
+      ]
+    )
+
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    row = Enum.find(snapshot.needs_attention, &(&1.ref == admitted.episode.key))
+
+    assert row.title == "Alert resolved"
+    assert is_binary(Map.get(row, :detail)), "a blocked request must explain why it needs help"
+    assert row.detail =~ "worker did not take or finish"
+    assert row.detail =~ "Check that the worker is connected"
+    refute row.detail =~ "placement 7"
+    refute Enum.any?(snapshot.work, &(&1.ref == row.ref))
   end
 
   # Each row's title cost two more queries, the work's latest session and its
@@ -86,8 +182,8 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
 
     for suffix <- ~w(second third fourth), do: waiting_episode!("T123", suffix)
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
-    assert length(snapshot.work) == 4
-    assert Enum.all?(snapshot.work, &(&1.title =~ ~r/\AChoose \w+\.\z/))
+    assert length(snapshot.needs_attention) == 4
+    assert Enum.all?(snapshot.needs_attention, &(&1.title =~ ~r/\AChoose \w+\.\z/))
 
     four = queries(fn -> AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"])) end)
     assert four == one
@@ -159,8 +255,8 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
 
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
 
-    assert Enum.any?(snapshot.work, &(&1.ref == visible.episode.key))
-    refute Enum.any?(snapshot.work, &(&1.ref == secret.episode.key))
+    assert Enum.any?(snapshot.needs_attention, &(&1.ref == visible.episode.key))
+    refute Enum.any?(snapshot.needs_attention, &(&1.ref == secret.episode.key))
     refute Jason.encode!(snapshot) =~ "Choose secret."
     refute Jason.encode!(snapshot) =~ "Implement secret-home-publication"
   end
@@ -331,7 +427,7 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
     end
   end
 
-  defp waiting_episode!(workspace_ref, suffix, channel_ref \\ "C456") do
+  defp waiting_episode!(workspace_ref, suffix, channel_ref \\ "C456", content \\ nil) do
     id = Ecto.UUID.generate()
     turn_ref = "turn:app-home:#{suffix}:#{id}"
     key = "app-home:#{suffix}:#{id}"
@@ -348,7 +444,7 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
           episode_key: key,
           native_input_id: "source:app-home:#{suffix}:#{id}",
           occurred_at: @now,
-          payload: %{"text" => "Choose #{suffix}."},
+          payload: content || %{"text" => "Choose #{suffix}."},
           turn_ref: turn_ref
         })
       )

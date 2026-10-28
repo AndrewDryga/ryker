@@ -180,7 +180,13 @@ defmodule Ryker.Slack.AppHome do
 
   defp operator_view(snapshot) do
     needs_attention = bounded_list(snapshot, :needs_attention, @maximum_attention)
-    work = bounded_list(snapshot, :work, @maximum_work)
+    attention_refs = MapSet.new(needs_attention, &Map.get(&1, :ref))
+
+    work =
+      snapshot
+      |> bounded_list(:work, @maximum_work)
+      |> Enum.reject(&MapSet.member?(attention_refs, Map.get(&1, :ref)))
+
     incidents = bounded_list(snapshot, :incidents, @maximum_incidents)
     behaviors = bounded_list(snapshot, :behaviors, @maximum_behaviors)
     memories = bounded_list(snapshot, :memories, @maximum_memories)
@@ -192,7 +198,7 @@ defmodule Ryker.Slack.AppHome do
     schedules = bounded_list(snapshot, :schedules, @maximum_schedules)
 
     blocks =
-      [header("Ryker"), context("What needs you")]
+      [header("Needs your attention")]
       |> append_rows(
         needs_attention,
         &attention_blocks/1,
@@ -381,17 +387,19 @@ defmodule Ryker.Slack.AppHome do
   defp append_memory_review_overflow(blocks, _count, _shown), do: blocks
 
   defp attention_blocks(row) do
-    summary =
-      "#{attention_label(Map.get(row, :kind))}: #{bounded(Map.get(row, :title) || "A request")}"
+    detail = Map.get(row, :detail) || attention_label(Map.get(row, :kind))
 
-    [section(summary, open_button(row))]
+    [work_summary(row, detail)]
     |> append_attention_controls(row)
   end
 
   # Why a row needs the reader, in words: it said "operator input", "publish
   # pending" and "retained workspace" (Slack as Andrew, 2026-10-09).
   defp attention_label(:operator_input), do: "Waiting for your answer"
-  defp attention_label(:blocked_work), do: "Stopped, needs you"
+
+  defp attention_label(:blocked_work),
+    do: "Ryker couldn't finish this request. Review the thread for the saved error."
+
   defp attention_label(:blocked_incident), do: "Incident room needs you"
   defp attention_label(:retained_workspace), do: "Kept, never published"
   defp attention_label(:published), do: "Pull request changed outside Ryker"
@@ -402,26 +410,54 @@ defmodule Ryker.Slack.AppHome do
   # `ingress-input:01a11f07-… · waiting for event; next: external event`
   # (Slack as Andrew, 2026-10-09).
   defp work_block(row) do
-    title = bounded(Map.get(row, :title) || "A request")
-    section("#{title} · #{work_status(row)}", open_button(row))
+    work_summary(row, work_status(row))
+  end
+
+  # The trusted source link is the title, so rows do not repeat an Open
+  # button. Native text nodes keep source text literal, including Markdown
+  # and mention-like text; only a separately validated URL becomes a link.
+  defp work_summary(row, detail) do
+    title = bounded(Map.get(row, :title) || "Request details unavailable")
+    title = String.replace(title, ~r/\s+/u, " ")
+
+    title_element =
+      case open_button(row) do
+        %{"url" => url} ->
+          %{"type" => "link", "url" => url, "text" => title, "style" => %{"bold" => true}}
+
+        _unavailable ->
+          %{"type" => "text", "text" => title, "style" => %{"bold" => true}}
+      end
+
+    %{
+      "type" => "rich_text",
+      "elements" => [
+        %{
+          "type" => "rich_text_section",
+          "elements" => [
+            title_element,
+            %{"type" => "text", "text" => "\n" <> bounded_part(detail, 900)}
+          ]
+        }
+      ]
+    }
   end
 
   defp work_status(%{next_action: "operator_input"}), do: "Waiting for your answer"
   defp work_status(%{next_action: "external_event"}), do: "Waiting for an update"
   defp work_status(%{next_action: "deliver_result"}), do: "Sending the answer"
-  defp work_status(%{next_action: "operator_recovery"}), do: "Stopped, needs you"
+  defp work_status(%{next_action: "operator_recovery"}), do: "Ryker needs help to continue"
   defp work_status(%{next_action: "reconcile_stop"}), do: "Stopping"
   defp work_status(%{next_action: "start_work"}), do: "Starting"
   defp work_status(_row), do: "Working"
 
   defp incident_block(row) do
-    title = bounded(Map.get(row, :title) || "Incident")
-    section("#{title} · #{incident_status(Map.get(row, :status))}", open_button(row))
+    work_summary(row, incident_status(Map.get(row, :status)))
   end
 
   defp incident_status(:requested), do: "Creating the room"
   defp incident_status(:blocked), do: "Needs you"
-  defp incident_status(_open), do: "Open"
+  defp incident_status(_open), do: "Incident room open"
 
   defp memory_blocks(%{ref: ref, revision: fingerprint} = row) do
     value = ControlValue.encode("memory", ref, fingerprint)

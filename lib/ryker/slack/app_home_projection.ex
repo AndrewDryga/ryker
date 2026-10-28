@@ -8,11 +8,13 @@ defmodule Ryker.Slack.AppHomeProjection do
   """
   alias Ryker.ConversationRef
   alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Slack.{AppHome, Collections, ID, Names, Permalink, SavedEntity}
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @maximum_collection_rows 10
@@ -41,6 +43,12 @@ defmodule Ryker.Slack.AppHomeProjection do
 
       actor_scope = "slack:user:#{actor_ref}"
       workspace_scope = ConversationRef.slack_workspace(workspace_ref)
+      attention = needs_attention(workspace_ref, destination_refs, channel_refs)
+
+      attention_refs =
+        for %{kind: kind, ref: ref} <- attention,
+            kind in [:operator_input, :blocked_work],
+            do: ref
 
       memory_reviews =
         Memories.home_reviews(workspace_scope, actor_scope, limit: @maximum_memory_reviews)
@@ -73,9 +81,9 @@ defmodule Ryker.Slack.AppHomeProjection do
           ),
         memory_review_count: memory_reviews.total,
         memory_reviews: memory_reviews.items,
-        needs_attention: needs_attention(workspace_ref, destination_refs, channel_refs),
+        needs_attention: attention,
         schedules: schedules(workspace_ref, destination_refs, now),
-        work: work(workspace_ref, destination_refs)
+        work: work(workspace_ref, destination_refs, attention_refs)
       }
     else
       unreadable()
@@ -205,10 +213,17 @@ defmodule Ryker.Slack.AppHomeProjection do
     |> AppHome.Query.listed_blocked_turns(@maximum_attention)
     |> Repo.all()
     |> with_requests(&elem(&1, 0))
-    |> Enum.map(fn {{episode, updated_at}, title} ->
+    |> Enum.map(fn {{episode, turn}, title} ->
       episode
       |> episode_attention(title, workspace_ref, :blocked_work, [])
-      |> Map.put(:updated_at, updated_at)
+      |> Map.put(:updated_at, turn.updated_at)
+      |> Map.put(
+        :detail,
+        Work.FailureCause.summary(
+          turn,
+          "Ryker couldn't finish this request, but the saved error doesn't name a cause. Review the thread before retrying."
+        )
+      )
     end)
   end
 
@@ -277,9 +292,9 @@ defmodule Ryker.Slack.AppHomeProjection do
     end)
   end
 
-  defp work(workspace_ref, destination_refs) do
+  defp work(workspace_ref, destination_refs, attention_refs) do
     destination_refs
-    |> AppHome.Query.work(@maximum_work)
+    |> AppHome.Query.work(attention_refs, @maximum_work)
     |> Repo.all()
     |> with_requests(&elem(&1, 0))
     |> Enum.map(fn {{episode, turn_status, coop_turn_id}, title} ->
@@ -412,7 +427,11 @@ defmodule Ryker.Slack.AppHomeProjection do
     Enum.map(rows, fn row ->
       episode = episode_of.(row)
       input = request_from_payload(inputs[episode.id])
-      {row, episode_request(tasks[episode.id], titles[episode.id], input)}
+      title = episode_request(tasks[episode.id], titles[episode.id], input)
+
+      title = title || "Request from " <> UTCDateTime.readable(episode.inserted_at)
+
+      {row, title}
     end)
   end
 
@@ -432,17 +451,28 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp request_from_payload(payload) when is_map(payload) do
     input = payload["payload"] || %{}
-    content = input["content"] || %{}
+    content = input["content"] || input
     task = payload["task"] || %{}
     schedule = content["schedule"] || %{}
+
+    attachment_title =
+      content
+      |> Map.get("attachments", [])
+      |> List.wrap()
+      |> Enum.find_value(fn
+        %{"title" => title} -> first_text([title])
+        _attachment -> nil
+      end)
 
     first_text([
       content["text"],
       input["text"],
+      attachment_title,
       task["prompt"],
       task["title"],
       schedule["title"],
-      content["title"]
+      content["title"],
+      content |> Ingress.MessageText.parts() |> List.wrap() |> Enum.join("\n")
     ])
   end
 

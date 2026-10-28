@@ -105,7 +105,7 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "The `limit` latest of `blocked_turns/1`, as `{episode, blocked_at}`."
+  @doc "The `limit` latest of `blocked_turns/1`, as `{episode, blocked_turn}`."
   def listed_blocked_turns(destination_refs, limit) do
     from(
       [episode_work_turns: turn, episode_kernel_episodes: episode] in blocked_turns(
@@ -113,7 +113,13 @@ defmodule Ryker.Slack.AppHome.Query do
       ),
       order_by: [desc: turn.updated_at, desc: turn.id],
       limit: ^limit,
-      select: {episode, turn.updated_at}
+      select:
+        {episode,
+         %{
+           updated_at: turn.updated_at,
+           last_error_code: turn.last_error_code,
+           last_error_detail: turn.last_error_detail
+         }}
     )
   end
 
@@ -240,12 +246,14 @@ defmodule Ryker.Slack.AppHome.Query do
   with the status and Coop turn of the turn that owns each, as `{episode,
   turn_status, coop_turn_id}`.
   """
-  def work(destination_refs, limit) do
+  def work(destination_refs, attention_refs, limit) do
     from(episode in active_episodes(destination_refs),
       left_join: turn in Work.Turn,
       on:
         turn.episode_id == episode.id and episode.owner_kind == :turn and
           turn.turn_ref == episode.owner_ref,
+      where: is_nil(turn.id) or turn.status != :blocked,
+      where: episode.key not in ^attention_refs,
       order_by: [desc: episode.updated_at, desc: episode.id],
       limit: ^limit,
       select: {episode, turn.status, turn.coop_turn_id}
