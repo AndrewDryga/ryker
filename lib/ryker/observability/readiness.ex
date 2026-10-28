@@ -145,6 +145,7 @@ defmodule Ryker.Observability.Readiness do
       admission_ready: {:named, Ryker.Admission.ReadyPool},
       learning: {:named, Ryker.Learning.Runtime},
       improvement: {:named, Ryker.Improvement.Runtime},
+      weekly_review: {:named, Ryker.WeeklyReport.ReviewWorker},
       coop_worker_gateway: {:supervised, Ryker.CoopFleet.Server},
       control_plane: {:supervised, Ryker.ControlPlane.Server},
       delivery: {:named, Ryker.Delivery.Runtime},

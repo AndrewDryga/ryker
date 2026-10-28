@@ -18,6 +18,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   alias Ryker.Learning
   alias Ryker.Publication
   alias Ryker.RepositoryKnowledge
+  alias Ryker.WeeklyReport
   alias Ryker.Work
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
@@ -32,12 +33,21 @@ defmodule Ryker.Retention.Cleanup.Query do
   # eligibility and read as a stall the moment it could run again. A retained
   # workspace is eligible again at its scheduled recheck, or when its
   # publication became durable.
-  defmacrop eligible_at(session, episode, learning, improvement, knowledge, review, admission) do
+  defmacrop eligible_at(
+              session,
+              episode,
+              learning,
+              improvement,
+              knowledge,
+              review,
+              weekly_review,
+              admission
+            ) do
     quote do
       fragment(
         """
         CASE
-          WHEN ? IN ('active', 'close_pending') THEN GREATEST(COALESCE(?, ?, ?, ?, ?, ?, ?), ?)
+          WHEN ? IN ('active', 'close_pending') THEN GREATEST(COALESCE(?, ?, ?, ?, ?, ?, ?, ?), ?)
           WHEN ? = 'grace' THEN COALESCE(?, ?)
           WHEN ? IN ('plan_pending', 'discard_pending') THEN GREATEST(COALESCE(?, ?), ?)
           WHEN ? = 'retained' THEN COALESCE(
@@ -54,6 +64,7 @@ defmodule Ryker.Retention.Cleanup.Query do
         unquote(improvement).remote_stopped_at,
         unquote(knowledge).remote_stopped_at,
         unquote(review).remote_stopped_at,
+        unquote(weekly_review).remote_stopped_at,
         unquote(admission).updated_at,
         unquote(episode).updated_at,
         unquote(session).updated_at,
@@ -79,12 +90,13 @@ defmodule Ryker.Retention.Cleanup.Query do
     quote do
       type(
         fragment(
-          "COALESCE(?, ?, ?, ?, ?, ?)",
+          "COALESCE(?, ?, ?, ?, ?, ?, ?)",
           unquote(session).episode_id,
           unquote(session).learning_run_id,
           unquote(session).improvement_run_id,
           unquote(session).knowledge_run_id,
           unquote(session).completion_review_id,
+          unquote(session).weekly_review_id,
           unquote(session).admission_input_id
         ),
         :binary_id
@@ -114,6 +126,9 @@ defmodule Ryker.Retention.Cleanup.Query do
       left_join: review in Work.CompletionReview.Run,
       as: :work_completion_reviews,
       on: review.id == session.completion_review_id,
+      left_join: weekly_review in WeeklyReport.Review,
+      as: :weekly_report_reviews,
+      on: weekly_review.id == session.weekly_review_id,
       left_join: admission in Ingress.Inbox.Entry,
       as: :ingress_inbox_entries,
       on: admission.id == session.admission_input_id,
@@ -165,10 +180,22 @@ defmodule Ryker.Retention.Cleanup.Query do
         improvement_analysis_runs: improvement,
         repository_knowledge_runs: knowledge,
         work_completion_reviews: review,
+        weekly_report_reviews: weekly_review,
         ingress_inbox_entries: admission
       ] in queryable,
       select:
-        min(eligible_at(session, episode, learning, improvement, knowledge, review, admission))
+        min(
+          eligible_at(
+            session,
+            episode,
+            learning,
+            improvement,
+            knowledge,
+            review,
+            weekly_review,
+            admission
+          )
+        )
     )
   end
 
@@ -185,13 +212,33 @@ defmodule Ryker.Retention.Cleanup.Query do
         improvement_analysis_runs: improvement,
         repository_knowledge_runs: knowledge,
         work_completion_reviews: review,
+        weekly_report_reviews: weekly_review,
         ingress_inbox_entries: admission
       ] in queryable,
       select:
         {session,
-         eligible_at(session, episode, learning, improvement, knowledge, review, admission)},
+         eligible_at(
+           session,
+           episode,
+           learning,
+           improvement,
+           knowledge,
+           review,
+           weekly_review,
+           admission
+         )},
       order_by: [
-        asc: eligible_at(session, episode, learning, improvement, knowledge, review, admission),
+        asc:
+          eligible_at(
+            session,
+            episode,
+            learning,
+            improvement,
+            knowledge,
+            review,
+            weekly_review,
+            admission
+          ),
         asc: session.id
       ],
       limit: ^limit
@@ -212,13 +259,24 @@ defmodule Ryker.Retention.Cleanup.Query do
         improvement_analysis_runs: improvement,
         repository_knowledge_runs: knowledge,
         work_completion_reviews: review,
+        weekly_report_reviews: weekly_review,
         ingress_inbox_entries: admission,
         coop_session_placements: placement
       ] in placed(now),
       where: session.id not in ^exclude.session_ids,
       where: is_nil(placement.worker_id) or placement.worker_id not in ^exclude.worker_ids,
       order_by: [
-        asc: eligible_at(session, episode, learning, improvement, knowledge, review, admission),
+        asc:
+          eligible_at(
+            session,
+            episode,
+            learning,
+            improvement,
+            knowledge,
+            review,
+            weekly_review,
+            admission
+          ),
         asc: session.id
       ],
       select: {session.execution_kind, owner_id(session), session.id, placement.worker_id},
@@ -258,6 +316,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   def owner(:learning, run_id), do: Learning.LearningRun.Query.by_id(run_id)
   def owner(:improvement, run_id), do: Improvement.AnalysisRun.Query.by_id(run_id)
   def owner(:knowledge, run_id), do: RepositoryKnowledge.Run.Query.by_id(run_id)
+  def owner(:weekly_review, run_id), do: WeeklyReport.Review.Query.by_id(run_id)
   def owner(:completion_review, run_id), do: Work.CompletionReview.Run.Query.by_id(run_id)
   def owner(:admission, input_id), do: Ingress.Inbox.Entry.Query.by_id(input_id)
 
@@ -315,7 +374,8 @@ defmodule Ryker.Retention.Cleanup.Query do
   defp owner_finished do
     dynamic(
       ^work_finished() or ^learning_finished() or ^improvement_finished() or
-        ^knowledge_finished() or ^review_finished() or ^admission_finished() or ^ready_retired()
+        ^knowledge_finished() or ^review_finished() or ^weekly_review_finished() or
+        ^admission_finished() or ^ready_retired()
     )
   end
 
@@ -358,6 +418,13 @@ defmodule Ryker.Retention.Cleanup.Query do
     dynamic(
       [episode_work_sessions: session, repository_knowledge_runs: knowledge],
       session.execution_kind == :knowledge and not is_nil(knowledge.remote_stopped_at)
+    )
+  end
+
+  defp weekly_review_finished do
+    dynamic(
+      [episode_work_sessions: session, weekly_report_reviews: review],
+      session.execution_kind == :weekly_review and not is_nil(review.remote_stopped_at)
     )
   end
 

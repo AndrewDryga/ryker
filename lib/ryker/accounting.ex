@@ -159,6 +159,41 @@ defmodule Ryker.Accounting do
      )}
   end
 
+  @doc "Meters one weekly advisory review independently of the Work it examined."
+  def observe_weekly_review_in_transaction(
+        review,
+        run,
+        session_id,
+        remote_turn,
+        remote_session,
+        now
+      ) do
+    measurement = Work.Measurement.prepare(remote_turn, remote_session)
+
+    measurement =
+      if remote_turn["state"] == "completed",
+        do: Work.Measurement.acceptance_attributes(measurement, now),
+        else: measurement
+
+    {:ok,
+     record(
+       %{
+         kind: "weekly_review",
+         source_id: run.id,
+         generation: "1",
+         episode_id: nil,
+         session_id: session_id,
+         transport: "slack",
+         conversation_ref: review.conversation_ref,
+         repository_ref: nil,
+         execution_mode: "live"
+       },
+       remote_turn,
+       measurement,
+       now
+     )}
+  end
+
   @doc """
   The caller already owns the repository's knowledge lease; one ledger row
   per frozen knowledge attempt (`Ryker.RepositoryKnowledge`). It belongs to

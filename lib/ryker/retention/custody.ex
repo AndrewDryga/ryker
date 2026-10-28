@@ -494,7 +494,14 @@ defmodule Ryker.Retention.Custody do
   defp peek_and_lock_owner(kind, nil, _lock) when kind in [:admission, :work], do: :ready_pool
 
   defp peek_and_lock_owner(kind, id, lock)
-       when kind in [:work, :learning, :improvement, :knowledge, :completion_review],
+       when kind in [
+              :work,
+              :learning,
+              :improvement,
+              :knowledge,
+              :completion_review,
+              :weekly_review
+            ],
        do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.peek()
 
   defp peek_and_lock_owner(:admission, input_id, lock) do

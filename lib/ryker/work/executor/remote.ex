@@ -16,18 +16,10 @@ defmodule Ryker.Work.Executor.Remote do
   alias Ryker.Knowledge
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Session, StateBinding}
+  alias Ryker.Work.Executor.States
 
   @operation_waiting_states ~w(reserved running)
   @session_states ~w(open exhausted closed discarded)
-  @terminal_turn_states ~w(cancelled completed failed interrupted budget_exhausted)
-  @turn_waiting_states ~w(queued starting running)
-
-  @doc false
-  def terminal_turn_states, do: @terminal_turn_states
-
-  @doc false
-  def turn_waiting_states, do: @turn_waiting_states
-
   @doc false
   def operation_by_key(settings, key) do
     api_call(settings, fn -> settings.api.operation_by_key(settings.client, key) end)
@@ -215,7 +207,7 @@ defmodule Ryker.Work.Executor.Remote do
     do: {:error, {:coop_mutation_response_unresolved, phase, reason}}
 
   @doc false
-  def terminal_turn?(%{"state" => state}), do: state in @terminal_turn_states
+  def terminal_turn?(%{"state" => state}), do: state in States.terminal()
   def terminal_turn?(_turn), do: false
 
   @doc false

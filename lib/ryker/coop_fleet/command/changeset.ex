@@ -28,6 +28,20 @@ defmodule Ryker.CoopFleet.Command.Changeset do
     |> check_constraint(:status, name: :coop_worker_command_result_valid)
   end
 
+  @doc "Erases a never-delivered prompt while retaining its original fingerprint and fence receipt."
+  def erase_unsubmitted_prompt(%Command{status: :failed, delivered_at: nil} = command) do
+    change(command, payload: Map.drop(command.payload, ["submission", "controller_tools"]))
+  end
+
+  @doc "Removes copied text after its owner has stop proof, preserving transport identity and hashes."
+  def scrub_content(%Command{} = command, result, error) do
+    change(command,
+      payload: Map.drop(command.payload, ["submission", "controller_tools"]),
+      result: result,
+      error: error
+    )
+  end
+
   @doc "A poll handed the command to its worker."
   def deliver(%Command{} = command, at), do: change(command, delivered_at: at, status: :delivered)
 

@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
     :conversational,
     :incident,
     :learning,
+    :weekly_review,
     :schedule_governed,
     :schedule_read_only
   ]
@@ -26,7 +27,8 @@ defmodule Ryker.CoopFleet.JobTemplates do
     schedule_governed: :schedule_models,
     schedule_read_only: :schedule_models,
     incident: :incident_models,
-    learning: :learning_models
+    learning: :learning_models,
+    weekly_review: :learning_models
   }
 
   # How long Coop keeps an agent running between turns. Only routing sessions
@@ -136,7 +138,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
   # nothing else. Coop runs a filtered job only on a worker `coop net setup`
   # qualified, never on the open network instead
   # (deploy/compose/coop/entrypoint.sh).
-  defp egress(:knowledge),
+  defp egress(purpose) when purpose in [:knowledge, :weekly_review],
     do: %{"mode" => "filtered", "rules" => [], "export_destinations" => false}
 
   defp egress(_purpose), do: %{"mode" => "open", "rules" => [], "export_destinations" => false}

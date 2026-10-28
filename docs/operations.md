@@ -747,3 +747,34 @@ not overwrite it or claim the files were removed. An explicit stale-revision or
 non-quarantined-session refusal restores prior custody. An uncertain response
 stays pending and cannot create a replacement until reconciled. Busy owner locks
 return `:quarantine_custody_busy`; retry the same action after its owner settles.
+
+### Weekly operational recommendations
+
+When the weekly report is enabled, Ryker prepares one advisory review for that
+scheduled interval using the configured learning models. It can include up to
+three recommendations about the monitored systems, separate from the Flywheel
+skill that improves Ryker itself. It does not run infrastructure commands or
+apply the recommendations. The source-free worker can reach its model provider
+only; no repository or controller tools are granted.
+
+The review uses at most 80 already-delivered public answers (80 KB of evidence)
+from joined, non-shared Slack channels in the report's workspace, with links to
+those exact messages. Missing, forgotten, expired, private and shared sources
+are excluded; omissions are disclosed. The destination must be a known joined
+internal channel. A channel audience change revokes derived review content.
+These are historical suggestions, not a new live health check.
+
+One frozen review owns its single model turn and resumes that same operation
+through restarts or uncertain responses. Disabling or reconfiguring reporting
+prevents new submissions while the existing remote custody is reconciled.
+The ordinary report waits at most five minutes and says when the review was
+unavailable. Later results never rewrite a queued report. Explicit forgetting
+and retention redact copied review/report content while preserving delivery
+and stop receipts. A preview never starts a model review.
+
+If reviewed evidence is forgotten or expires, unsent review prompts are fenced immediately.
+Transport copies already sent to a worker remain pending erasure until reconciliation proves
+the remote turn stopped; the saved prompt and report are already redacted. After stop proof,
+Ryker scrubs the copied transport text and removes body files, retaining only custody identities
+and fingerprints. The ordinary file sweep retries interrupted cleanup. Weekly provider narration
+is not retained as a separate text copy.

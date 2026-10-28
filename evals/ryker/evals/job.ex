@@ -17,7 +17,8 @@ defmodule Ryker.Evals.Job do
     world: "RYKER_EVAL_WORLD_TARGET",
     baseline: "RYKER_EVAL_BASELINE_TARGET",
     routing: "RYKER_EVAL_ROUTING_TARGET",
-    improvement: "RYKER_EVAL_IMPROVEMENT_TARGET"
+    improvement: "RYKER_EVAL_IMPROVEMENT_TARGET",
+    weekly_review: "RYKER_EVAL_WEEKLY_REVIEW_TARGET"
   }
 
   @doc "The variables that name an eval's Coop socket and its targets."
@@ -50,15 +51,30 @@ defmodule Ryker.Evals.Job do
   @doc "The model self-analysis replays ask (`Ryker.Evals.ImprovementReplay`), named explicitly."
   def improvement, do: required(:improvement)
 
+  @doc "A weekly review on the same provider-only filtered policy as production."
+  def weekly_review, do: required(:weekly_review)
+
   def new(kind, target)
-      when kind in [:judge, :world, :baseline, :admission, :learning, :routing, :improvement] do
+      when kind in [
+             :judge,
+             :world,
+             :baseline,
+             :admission,
+             :learning,
+             :routing,
+             :improvement,
+             :weekly_review
+           ] do
     if is_binary(target) and String.valid?(target) and byte_size(target) in 1..256 and
          not Regex.match?(~r/\s|\x00/u, target) do
       name = "ryker-eval-#{kind}"
 
       document =
         %{learning_models: [target]}
-        |> JobTemplates.execution(:learning, false)
+        |> JobTemplates.execution(
+          if(kind == :weekly_review, do: :weekly_review, else: :learning),
+          false
+        )
         |> Map.merge(%{"version" => 2, "job_ref" => name, "source" => nil, "companions" => []})
 
       with {:ok, digest} <- JobSpec.digest(document),
@@ -104,7 +120,16 @@ defmodule Ryker.Evals.Job do
     with [target] <- document["targets"],
          kind when not is_nil(kind) <-
            Enum.find(
-             [:judge, :world, :baseline, :admission, :learning, :routing, :improvement],
+             [
+               :judge,
+               :world,
+               :baseline,
+               :admission,
+               :learning,
+               :routing,
+               :improvement,
+               :weekly_review
+             ],
              &(name == "ryker-eval-#{&1}")
            ),
          {:ok, template} <- new(kind, target),

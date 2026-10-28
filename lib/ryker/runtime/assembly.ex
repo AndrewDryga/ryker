@@ -60,6 +60,7 @@ defmodule Ryker.Runtime.Assembly do
       # Self-analysis runs on learning's policy and models, only where learning
       # runs, in a pool of its own so its restarts never touch learning's.
       {:improvement, Ryker.Improvement.Runtime},
+      {:weekly_review, Ryker.WeeklyReport.ReviewWorker},
       {:retention, Ryker.Retention.Runtime},
       # Its own key, so turning keeping routing examples on or off, or a stored
       # credential changing, restarts only the copy, never cleanup.
@@ -141,6 +142,7 @@ defmodule Ryker.Runtime.Assembly do
     embeddings = embeddings(admission)
     learning = learning(settings, policies, work)
     improvement = improvement(settings, policies, work)
+    weekly_review = weekly_review(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
     {github, github_left_out} = github(bootstrap, settings, repositories, environments)
@@ -154,7 +156,7 @@ defmodule Ryker.Runtime.Assembly do
     control_plane = control_plane(bootstrap, environments, work, schedules, outside)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
-    weekly_report = weekly_report(settings, slack, delivery)
+    weekly_report = weekly_report(settings, slack, delivery, weekly_review)
     publication = publication(settings, work, repositories, github, adapters)
     {emisar, emisar_left_out} = emisar(settings, adapters, slack, github)
 
@@ -194,6 +196,7 @@ defmodule Ryker.Runtime.Assembly do
     |> Maps.put_present(:event_waits, Defaults.fetch!(:event_waits))
     |> Maps.put_present(:github, github && github.runtime)
     |> Maps.put_present(:improvement, improvement)
+    |> Maps.put_present(:weekly_review, weekly_review)
     |> Maps.put_present(:learning, learning)
     |> Maps.put_present(:local_routing, local_routing)
     |> Maps.put_present(:embeddings, embeddings)
@@ -645,6 +648,24 @@ defmodule Ryker.Runtime.Assembly do
         policy_digest: policy.digest,
         worker_ref: "#{settings.installation.host_ref}:improvement"
       })
+    else
+      _unavailable -> nil
+    end
+  end
+
+  defp weekly_review(settings, policies, work) do
+    with %{} = policy <- installation_policy(policies, :weekly_review), %{api: _api} <- work do
+      %{
+        api: work.api,
+        client: work.client,
+        policy: policy.name,
+        policy_digest: policy.digest,
+        worker_ref: "#{settings.installation.host_ref}:weekly-review",
+        enabled: settings.report.weekly_self_report_enabled,
+        poll_interval_ms: 30_000,
+        lease_seconds: 300,
+        execution_timeout_seconds: 300
+      }
     else
       _unavailable -> nil
     end
@@ -1188,12 +1209,13 @@ defmodule Ryker.Runtime.Assembly do
   defp weekly_report(
          %{report: %{weekly_self_report_enabled: true, channel_ref: channel}},
          slack,
-         delivery
+         delivery,
+         review_settings
        )
        when is_binary(channel) and is_map(slack) and is_map(delivery),
-       do: %{}
+       do: %{review_settings: review_settings}
 
-  defp weekly_report(_settings, _slack, _delivery), do: nil
+  defp weekly_report(_settings, _slack, _delivery, _review_settings), do: nil
 
   # Publication runs authorized readiness reviews through the same Coop
   # authority Work uses; without a Work lane there is nothing to review with.

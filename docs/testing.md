@@ -389,3 +389,16 @@ journeys whose integration is not configured in this installation.
   channels and repositories show configuration, membership, continuity and serving worker revisions
   without fetching Git live; and that Configuration and Usage render only allowlisted values, grant
   names, effective models, corrections, tokens, cost and timing.
+
+### Weekly operational review qualification
+
+Use a harvested, pseudonymized evidence manifest with the production `evidence` array. The
+focused runner uses the production prompt, schema and parser, a source-free job with provider-only
+filtered egress, and one model answer without repair. It reports contract validity; inspect the
+returned recommendations to assess usefulness and grounding. It does not send a Slack message.
+
+```sh
+RYKER_EVAL_WEEKLY_REVIEW_TARGET='<provider:model/effort@account>' MIX_ENV=test \
+  scripts/elixir-mix.sh ryker.eval weekly-review \
+  --manifest /absolute/weekly-manifest.json --results /absolute/weekly-review.json
+```

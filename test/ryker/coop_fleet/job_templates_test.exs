@@ -25,6 +25,31 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
 
   # Coop's job-setup:2 refuses a job without finite per-container caps, and
   # Docker refuses a CPU cap above the host's cores: tenant's worker VM has six.
+  test "weekly operational review can reach only its provider and has no repository or controller tools" do
+    execution = JobTemplates.execution(%Work{}, :weekly_review, false)
+
+    assert execution["egress"] == %{
+             "mode" => "filtered",
+             "rules" => [],
+             "export_destinations" => false
+           }
+
+    assert execution["repository_read_only"]
+    assert execution["environment"] == %{}
+    refute Map.has_key?(execution, "project_mcp")
+    refute Map.has_key?(execution, "project_env")
+
+    job =
+      Map.merge(execution, %{
+        "version" => 2,
+        "job_ref" => "ryker-weekly-review:test",
+        "source" => nil,
+        "companions" => []
+      })
+
+    assert {:ok, _digest} = JobSpec.digest(job)
+  end
+
   test "every job carries caps the smallest worker can enforce" do
     for purpose <- [:admission, :contributor, :learning] do
       assert JobTemplates.execution(%Work{}, purpose, true)["resources"] == %{
@@ -88,8 +113,8 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
 
   test "controller templates require no worker or policy rows" do
     templates = JobTemplates.from_settings(snapshot())
-    assert length(templates) == 26
-    assert Enum.count(templates, &(&1.scope_kind == :installation)) == 6
+    assert length(templates) == 27
+    assert Enum.count(templates, &(&1.scope_kind == :installation)) == 7
     assert Enum.count(templates, &(&1.scope_kind == :repository)) == 12
     assert Enum.count(templates, &(&1.scope_kind == :environment)) == 8
     assert template(templates, :conversational).policy_name == "ryker-repo-app-conversation"
@@ -202,12 +227,12 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
 
     for changed <- [%{app | github_access: :suspended}, %{app | source_commit: nil}] do
       templates = JobTemplates.from_settings(%{snapshot | repositories: [changed, companion]})
-      assert length(templates) == 12
+      assert length(templates) == 13
       refute Enum.any?(templates, &(&1.scope_kind == :environment or &1.scope_ref == "app"))
     end
 
     templates = JobTemplates.from_settings(%{snapshot | github_bindings: []})
-    assert length(templates) == 6
+    assert length(templates) == 7
   end
 
   test "adding or changing a companion changes environment authority" do

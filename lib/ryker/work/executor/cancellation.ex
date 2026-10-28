@@ -15,8 +15,9 @@ defmodule Ryker.Work.Executor.Cancellation do
   alias Ryker.Work.{Custody, OperationKeys, StateBinding}
   alias Ryker.Work.Custody.Cancellation, as: CancellationCustody
   alias Ryker.Work.Executor.{Remote, Turns}
+  alias Ryker.Work.Executor.States
 
-  @terminal_turn_states Remote.terminal_turn_states()
+  @terminal_turn_states States.terminal()
 
   @doc false
   def execute_cancellation(claim, settings) do

@@ -158,6 +158,18 @@ defmodule Ryker.Evals.ClientJobTest do
     assert {:ok, ^pinned} = JobAuthority.validate(pinned)
   end
 
+  test "weekly qualification pins its exact standalone job before any network call", %{
+    client: client
+  } do
+    {:ok, job} = Job.new(:weekly_review, "codex:fixture/high@eval")
+    key = "ryker:eval:weekly-review:qualification:create"
+    reference = "ryker-eval:weekly-review:qualification:weekly-review-contract"
+    assert Client.prepare_create_session(%{client | job: job}, key, job, reference, nil) == :ok
+
+    assert Client.prepare_create_session(%{client | job: job}, key, job, "wrong-reference", nil) ==
+             {:error, :invalid_model_eval_job}
+  end
+
   defp work_session(job, repository_ref \\ nil) do
     id = Ecto.UUID.generate()
 

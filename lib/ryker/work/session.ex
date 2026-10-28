@@ -11,10 +11,20 @@ defmodule Ryker.Work.Session do
     # A session of one repository knowledge turn (`Ryker.RepositoryKnowledge`).
     belongs_to(:knowledge_run, Ryker.RepositoryKnowledge.Run)
 
+    belongs_to(:weekly_review, Ryker.WeeklyReport.Review)
+
     belongs_to(:completion_review, Ryker.Work.CompletionReview.Run)
 
     field(:execution_kind, Ecto.Enum,
-      values: [:work, :admission, :learning, :improvement, :knowledge, :completion_review],
+      values: [
+        :work,
+        :admission,
+        :learning,
+        :improvement,
+        :knowledge,
+        :completion_review,
+        :weekly_review
+      ],
       default: :work
     )
 
@@ -107,7 +117,13 @@ defmodule Ryker.Work.Session do
           id: Ecto.UUID.t() | nil,
           episode_id: Ecto.UUID.t() | nil,
           execution_kind:
-            :work | :admission | :learning | :improvement | :knowledge | :completion_review,
+            :work
+            | :admission
+            | :learning
+            | :improvement
+            | :knowledge
+            | :completion_review
+            | :weekly_review,
           policy: String.t() | nil,
           policy_digest: String.t() | nil,
           authority_digest: String.t() | nil,

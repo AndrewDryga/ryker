@@ -16,6 +16,7 @@ defmodule Ryker.CoopFleet.Bridge do
   @option_keys [
     :body_root,
     :checkpoint_key,
+    :enqueue_guard,
     :capability_names,
     :capability_versions,
     :lease_seconds,
@@ -30,7 +31,7 @@ defmodule Ryker.CoopFleet.Bridge do
   def execute(%Work.Session{} = session, kind, payload, idempotency_key, options) do
     with {:ok, settings} <- settings(options),
          {:ok, command} <-
-           enqueue(session, kind, payload, idempotency_key, settings),
+           guarded_enqueue(session, kind, payload, idempotency_key, settings),
          :ok <- Checkpoints.prepare_restore(command, options) do
       await_settled(command.id, settings)
     end
@@ -38,6 +39,13 @@ defmodule Ryker.CoopFleet.Bridge do
 
   def execute(_session, _kind, _payload, _idempotency_key, _options),
     do: {:error, {:invalid_coop_worker_bridge, :session}}
+
+  # Only durable enqueue is fenced. Waiting inside the guard's transaction
+  # would hide the command from the worker until the caller timed out.
+  defp guarded_enqueue(session, kind, payload, key, settings) do
+    enqueue = fn -> enqueue(session, kind, payload, key, settings) end
+    if settings.enqueue_guard, do: settings.enqueue_guard.(kind, enqueue), else: enqueue.()
+  end
 
   defp enqueue(session, kind, payload, key, settings) do
     result =
@@ -347,6 +355,7 @@ defmodule Ryker.CoopFleet.Bridge do
 
     %{
       body_root: Keyword.get(options, :body_root),
+      enqueue_guard: Keyword.get(options, :enqueue_guard),
       checkpoint_key: Keyword.get(options, :checkpoint_key),
       capability_names: Keyword.get(options, :capability_names, []),
       capability_versions: Keyword.get(options, :capability_versions, %{}),
@@ -380,6 +389,7 @@ defmodule Ryker.CoopFleet.Bridge do
       settings.poll_interval_ms in 1..60_000,
       is_binary(settings.workspace_ref),
       settings.workspace_ref != "",
+      is_nil(settings.enqueue_guard) or is_function(settings.enqueue_guard, 2),
       is_nil(settings.wait) or is_function(settings.wait, 0)
     ])
   end

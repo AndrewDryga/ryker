@@ -14,10 +14,14 @@ defmodule Ryker.WeeklyReport do
   (`Ryker.WeeklyReport.Digest`). It names no Slack request it merely
   answered and gives no completion rate.
 
-  **How it is made.** From the database alone, with no model turn
-  (`Ryker.WeeklyReport.Facts`, `Ryker.WeeklyReport.Digest`), so it cannot say
-  anything the tables do not hold. The worst it can do is count the wrong
-  rows, and that is a bug a test can catch.
+  **How it is made.** The ordinary report reads saved facts only. At its scheduled
+  time, one source-free model review may suggest up to three operational
+  improvements from already-delivered public answers in this workspace. This
+  uses the learning models with provider-only network access, never changes
+  infrastructure, and never replaces Ryker's self-improvement Flywheel. The
+  ordinary report waits at most five minutes; an unavailable review is stated
+  explicitly. A queued report's contents never change except explicit deletion
+  or retention redaction of its source evidence.
 
   **Its week.** A report covers the seven days before it is sent: from the
   same day and local time a week earlier up to the send time
@@ -44,9 +48,12 @@ defmodule Ryker.WeeklyReport do
   alias Ryker.ConversationRef
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}
+  alias Ryker.WeeklyReport.{Custody, Digest, Facts, ReviewCustody, ReviewEvidence, Schedule}
 
   @week_seconds 7 * 86_400
+
+  @doc "Internal — fences report copying and publication against evidence revocation."
+  defdelegate with_evidence(callback), to: ReviewCustody
 
   @doc """
   The report for `week` (`from`, `to` and its `timezone`), read at `:now`.
@@ -60,8 +67,11 @@ defmodule Ryker.WeeklyReport do
     base_url = Keyword.get_lazy(options, :base_url, &base_url/0)
     preview = Keyword.get(options, :preview, false)
 
+    review = Keyword.get_lazy(options, :review, fn -> saved_review(week) end)
+
     week
     |> Facts.read(now)
+    |> Map.put(:operational_review, review)
     |> Digest.render(base_url, database(options), preview)
   end
 
@@ -102,7 +112,8 @@ defmodule Ryker.WeeklyReport do
          {:ok, local} <- DateTime.shift_zone(now, zone, database) do
       week = last_seven_days(now, zone)
       options = Keyword.merge(options, now: now, time_zone_database: database, preview: true)
-      digest = compose(week, options)
+      # A preview does not run a review or copy a saved review into an untracked post.
+      digest = compose(week, Keyword.put(options, :review, nil))
 
       Custody.enqueue(%{
         conversation_ref: configured.conversation_ref,
@@ -141,6 +152,76 @@ defmodule Ryker.WeeklyReport do
       :off -> {:ok, :off}
     end
   end
+
+  @doc "Internal — the due review interval for ReviewWorker, or :off outside its preparation window."
+  def review_period(options \\ []) do
+    now = Keyword.get_lazy(options, :now, &Repo.now!/0)
+    database = database(options)
+
+    with {:ok, configured} <- configured(),
+         {:ok, latest} <- Schedule.latest(configured.schedule, now, database),
+         false <- Custody.recorded?(latest.week),
+         true <- after_last_save?(latest.at, configured.saved_at),
+         {:ok, previous} <- Schedule.previous(latest, configured.schedule, database),
+         deadline = DateTime.add(latest.at, 300),
+         true <- DateTime.before?(now, deadline) do
+      {:ok,
+       %{
+         week: %{from: previous.at, to: latest.at, timezone: configured.schedule.timezone},
+         conversation_ref: configured.conversation_ref,
+         saved_at: configured.saved_at,
+         deadline_at: deadline
+       }}
+    else
+      _not_due -> :off
+    end
+  end
+
+  @doc "Whether the saved report configuration still authorizes this review."
+  def review_current?(review) do
+    case configured() do
+      {:ok, configured} ->
+        configured.conversation_ref == review.conversation_ref and
+          configured.saved_at == review.settings_saved_at
+
+      :off ->
+        false
+    end
+  end
+
+  defp saved_review(week) do
+    with {:ok, configured} <- destination(),
+         {:ok, review} <- ReviewCustody.fetch_for_report(week, configured.conversation_ref) do
+      public_review(review)
+    else
+      _none -> nil
+    end
+  end
+
+  defp public_review(%{status: :applied, pruned_at: nil, forgotten_at: nil} = review) do
+    if ReviewEvidence.publishable?(review.manifest, review.conversation_ref),
+      do: %{
+        id: review.id,
+        status: :available,
+        recommendations: review.recommendations,
+        manifest: review.manifest
+      },
+      else: %{id: review.id, status: :unavailable}
+  end
+
+  defp public_review(review), do: %{id: review.id, status: :unavailable}
+
+  @doc false
+  defdelegate revoke_transport_in_transaction(ids), to: ReviewCustody
+
+  @doc false
+  defdelegate submission_allowed?(session_id), to: ReviewCustody
+
+  @doc "Internal — removes operational-review copies when RoutingExamples forgets source messages."
+  defdelegate forget_in_transaction(identities, keys), to: ReviewCustody
+
+  @doc "Internal — removes operational-review copies when a source channel is revoked."
+  defdelegate forget_conversation_in_transaction(conversation), to: ReviewCustody
 
   # The saved report, when it can be sent: on, with a channel, and Slack
   # connected to a workspace.
@@ -188,23 +269,73 @@ defmodule Ryker.WeeklyReport do
   defp queue(latest, configured, now, database, options, next) do
     with {:ok, previous} <- Schedule.previous(latest, configured.schedule, database) do
       week = %{from: previous.at, to: latest.at, timezone: configured.schedule.timezone}
-      options = Keyword.merge(options, now: now, time_zone_database: database)
-      digest = compose(week, options)
 
-      report = %{
+      deadline = DateTime.add(latest.at, 300)
+
+      period = %{
+        week: week,
         conversation_ref: configured.conversation_ref,
-        due_at: latest.at,
-        message: digest.text,
-        period_start: previous.at,
-        timezone: configured.schedule.timezone,
-        week: latest.week
+        saved_at: configured.saved_at,
+        deadline_at: deadline
       }
 
-      case Custody.enqueue(report) do
-        {:ok, :already_queued} -> {:ok, {:waiting, next.at}}
-        {:ok, report} -> {:ok, {:queued, report, next.at}}
-        {:error, reason} -> {:error, reason}
+      review = scheduled_review(period, now, Keyword.get(options, :review_settings))
+
+      deadline = DateTime.add(latest.at, 300)
+      waiting? = not is_nil(review) and is_nil(review.remote_stopped_at)
+
+      if waiting? and DateTime.before?(now, deadline) do
+        {:ok, {:waiting, deadline}}
+      else
+        queue_report(week, latest, configured, now, database, options, next, review)
       end
+    end
+  end
+
+  defp scheduled_review(period, now, settings) do
+    result =
+      if is_map(settings) and DateTime.before?(now, period.deadline_at),
+        do: ReviewCustody.prepare(period, settings),
+        else: ReviewCustody.fetch_for_report(period.week, period.conversation_ref)
+
+    case result do
+      {:ok, review} -> review
+      {:error, _unavailable} -> nil
+    end
+  end
+
+  defp queue_report(week, latest, configured, now, database, options, next, review) do
+    with_evidence(fn ->
+      review = if review, do: ReviewCustody.current_for_copy(review.id)
+      queue_frozen_report(week, latest, configured, now, database, options, next, review)
+    end)
+  end
+
+  defp queue_frozen_report(week, latest, configured, now, database, options, next, review) do
+    summary =
+      cond do
+        not is_nil(review) -> public_review(review)
+        Keyword.has_key?(options, :review_settings) -> %{status: :unavailable}
+        true -> nil
+      end
+
+    options = Keyword.merge(options, now: now, time_zone_database: database, review: summary)
+    digest = compose(week, options)
+
+    report = %{
+      conversation_ref: configured.conversation_ref,
+      due_at: latest.at,
+      message: digest.text,
+      period_start: week.from,
+      timezone: configured.schedule.timezone,
+      week: latest.week,
+      review_id: if(is_map(summary) and summary.status == :available, do: summary[:id])
+    }
+
+    case Custody.enqueue(report) do
+      {:ok, :already_queued} -> {:ok, {:waiting, next.at}}
+      {:ok, report} -> {:ok, {:queued, report, next.at}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -284,6 +284,12 @@ defmodule Ryker.RetentionPolicies do
         "each model turn that read a repository, with its prompt and answer; a stopped one leaves at the operational horizon once its session is gone, except the one that wrote the current RYKER.md"
     },
     %{
+      table: "weekly_report_reviews",
+      class: :operational,
+      why:
+        "weekly advisory prompts and recommendations are erased when a source expires or is forgotten; compact custody remains until the remote run stopped, its session was cleaned up and dependent reports expired"
+    },
+    %{
       table: "weekly_reports",
       class: :operational,
       why:

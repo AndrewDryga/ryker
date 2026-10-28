@@ -14,7 +14,7 @@ defmodule Ryker.Evals.CoopRunner do
   """
   alias Ryker.Crypto
   alias Ryker.Evals.{ImprovementReplayCase, Job, RoutingReplayCase}
-  alias Ryker.Evals.{WorldAdmissionCase, WorldJudgeCase}
+  alias Ryker.Evals.{WeeklyReviewCase, WorldAdmissionCase, WorldJudgeCase}
   alias Ryker.Reference
   alias Ryker.Retention.Plan
 
@@ -37,7 +37,14 @@ defmodule Ryker.Evals.CoopRunner do
           | WorldAdmissionCase.t()
           | RoutingReplayCase.t()
           | ImprovementReplayCase.t()
-  @cases [WorldJudgeCase, WorldAdmissionCase, RoutingReplayCase, ImprovementReplayCase]
+          | WeeklyReviewCase.t()
+  @cases [
+    WorldJudgeCase,
+    WorldAdmissionCase,
+    RoutingReplayCase,
+    ImprovementReplayCase,
+    WeeklyReviewCase
+  ]
 
   @spec run([eval_case()], keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(cases, options) when is_list(cases) do

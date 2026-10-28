@@ -42,9 +42,7 @@ defmodule Ryker.WorkExamples do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
-  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
-  alias Ryker.Learning
   alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.RoutingExamples
@@ -58,9 +56,6 @@ defmodule Ryker.WorkExamples do
   # provider liveness says nothing about the work. An elided event marks
   # where the recorder dropped events, so a gap reads as one.
   @trajectory_kinds ~w(tool.completed model.thought model.progress activity.elided)
-
-  # How far up the chain of confirmed tasks an example traces its messages.
-  @maximum_links 8
 
   # What forgetting empties; the example keeps its identity.
   @bodies [
@@ -163,8 +158,7 @@ defmodule Ryker.WorkExamples do
   defp example(turn, secrets) do
     now = Repo.now!()
     episode = Repo.fetch!(Episodes.Episode.Query.by_id(turn.episode_id))
-    inputs = inputs(episode, turn)
-    quoted = Enum.map(inputs, &RoutingExamples.quoted_keys/1)
+    dependencies = Work.SourceDependencies.read(episode, turn)
     submission = turn.submission
     context = if is_map(submission["context"]), do: submission["context"], else: %{}
 
@@ -173,13 +167,9 @@ defmodule Ryker.WorkExamples do
       turn_id: turn.id,
       episode_id: episode.id,
       episode_ref: episode.key,
-      source_identities: inputs |> Enum.map(&Learning.Observations.source_identity/1) |> sorted(),
-      message_keys: quoted |> Enum.flat_map(& &1.keys) |> sorted(),
-      conversation_refs:
-        quoted
-        |> Enum.flat_map(& &1.conversations)
-        |> Kernel.++(List.wrap(episode.destination_conversation_ref))
-        |> sorted(),
+      source_identities: dependencies.source_identities,
+      message_keys: dependencies.message_keys,
+      conversation_refs: dependencies.conversation_refs,
       transport: episode.destination_transport,
       conversation_ref: episode.destination_conversation_ref,
       thread_ref: episode.destination_thread_ref,
@@ -191,7 +181,7 @@ defmodule Ryker.WorkExamples do
       updated_at: now
     }
 
-    if Enum.any?(inputs, &RoutingExamples.quotes_forgotten?/1) do
+    if dependencies.forgotten? do
       %{identity | forgotten_at: now}
     else
       %{
@@ -207,37 +197,6 @@ defmodule Ryker.WorkExamples do
       }
     end
   end
-
-  # The messages the request was asked in, up to this turn: every message
-  # admitted to it, the earliest first.
-  # The messages a turn was asked in. A confirmed task's request was started by
-  # a card, not a message, and what it was told came from the request it was
-  # offered in, so that request's messages are its too, up the chain of
-  # requests each was confirmed from: forgetting one of them reached none of
-  # its examples (2026-10-04 review).
-  defp inputs(episode, turn) do
-    admitted(episode.id, turn.inserted_at) ++
-      linked_inputs(episode.linked_episode_id, episode.inserted_at, @maximum_links)
-  end
-
-  defp linked_inputs(nil, _until, _left), do: []
-  defp linked_inputs(_episode_id, _until, 0), do: []
-
-  defp linked_inputs(episode_id, until, left) do
-    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
-      {:ok, %Episodes.Episode{} = source_episode} ->
-        admitted(source_episode.id, until) ++
-          linked_inputs(source_episode.linked_episode_id, source_episode.inserted_at, left - 1)
-
-      {:error, :not_found} ->
-        []
-    end
-  end
-
-  defp admitted(episode_id, until),
-    do: episode_id |> Ingress.Inbox.Entry.Query.admitted_to(until) |> Repo.all()
-
-  defp sorted(values), do: values |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
 
   # -- Bodies ----------------------------------------------------------------------
 

@@ -18,6 +18,7 @@ defmodule Ryker.Retention.Data do
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Settings
+  alias Ryker.WeeklyReport
   alias Ryker.Work
   require Logger
 
@@ -292,7 +293,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT session.id
     FROM episode_work_sessions AS session
-    WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge', 'completion_review')
+    WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge', 'completion_review', 'weekly_review')
       AND #{@session_discarded}
       AND NOT session.activity_sync_pending
       AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
@@ -459,6 +460,49 @@ defmodule Ryker.Retention.Data do
   DELETE FROM repository_knowledge_runs AS run
   USING candidates
   WHERE run.id = candidates.id
+  """
+
+  # A weekly review may not retain a copied answer beyond that answer's
+  # operational horizon. Erasing a running prompt leaves its remote custody
+  # intact; the worker cancels it and still obtains stop proof.
+  @prune_weekly_review_bodies """
+  WITH candidates AS (
+    SELECT review.id FROM weekly_report_reviews review
+    WHERE review.pruned_at IS NULL AND (
+      review.period_end < clock_timestamp() - ($1 * interval '1 second')
+      OR EXISTS (SELECT 1 FROM episode_work_turns source
+        WHERE source.id = ANY(review.source_turn_ids) AND source.operational_pruned_at IS NOT NULL)
+    )
+    ORDER BY review.period_end, review.id LIMIT 100
+    FOR UPDATE OF review SKIP LOCKED
+  ), bodies AS (
+    UPDATE weekly_report_reviews review SET prompt = NULL, result = NULL,
+      output_schema = NULL, manifest = NULL, recommendations = '{}', producer = NULL,
+      pruned_at = clock_timestamp()
+    FROM candidates WHERE review.id = candidates.id
+    RETURNING review.id
+  ), reports AS (
+    UPDATE weekly_reports report SET
+      document = '{"message":"This weekly report content has expired under the data retention policy."}',
+      review_redacted_at = clock_timestamp()
+    FROM bodies WHERE report.review_id = bodies.id
+  )
+  SELECT id::text FROM bodies
+  """
+
+  @prune_weekly_reviews """
+  WITH candidates AS (
+    SELECT review.id FROM weekly_report_reviews review
+    WHERE review.remote_stopped_at IS NOT NULL AND review.pruned_at IS NOT NULL
+      AND review.period_end < clock_timestamp() - ($1 * interval '1 second')
+      AND NOT EXISTS (SELECT 1 FROM episode_work_sessions session WHERE session.weekly_review_id = review.id)
+      AND NOT EXISTS (SELECT 1 FROM weekly_reports report WHERE report.review_id = review.id)
+      AND NOT EXISTS (SELECT 1 FROM episode_work_turns source
+        WHERE source.id = ANY(review.source_turn_ids) AND source.operational_pruned_at IS NULL)
+    ORDER BY review.period_end, review.id LIMIT 100
+    FOR UPDATE OF review SKIP LOCKED
+  )
+  DELETE FROM weekly_report_reviews review USING candidates WHERE review.id = candidates.id
   """
 
   # A finished setup conversation ages from its last change, and every one from
@@ -753,6 +797,9 @@ defmodule Ryker.Retention.Data do
     _local_routing_comparisons = execute_count(@prune_local_routing_comparisons)
     _status_receipts = prune_aged(@finished_status_receipts, settings)
     operational_turns = execute_count(@prune_operational_turns, [@terminal_turn_states, cutoff])
+    %{rows: weekly_review_ids} = Repo.query!(@prune_weekly_review_bodies, [cutoff])
+    :ok = WeeklyReport.revoke_transport_in_transaction(List.flatten(weekly_review_ids))
+    _weekly_reviews = execute_count(@prune_weekly_reviews, [cutoff])
     _activity_evidence = Work.ActivityRetention.prune()
     _input_artifact_references = execute_count(@prune_input_artifact_references)
     _work_artifact_references = execute_count(@prune_work_artifact_references)

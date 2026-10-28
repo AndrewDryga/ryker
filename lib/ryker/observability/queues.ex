@@ -15,6 +15,7 @@ defmodule Ryker.Observability.Queues do
   alias Ryker.Retention
   alias Ryker.Schedules
   alias Ryker.UTCDateTime
+  alias Ryker.WeeklyReport
   alias Ryker.Work
 
   @type queue :: %{
@@ -58,6 +59,11 @@ defmodule Ryker.Observability.Queues do
       fn -> approval(now) end,
       fn -> publication_followup(now) end,
       fn -> publication_lifecycle(now) end,
+      fn ->
+        WeeklyReport.Review.Query.outstanding()
+        |> Projection.Query.retry_due_at(now)
+        |> leased_queue(:weekly_review, :inserted_at, now)
+      end,
       fn -> retention(now) end,
       fn -> due_schedule(now) end
     ]

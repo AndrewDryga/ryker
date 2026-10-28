@@ -80,6 +80,10 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
+  @doc "Fences only command enqueue; the worker receipt is awaited after the fence commits."
+  def with_enqueue_guard(%__MODULE__{} = client, guard) when is_function(guard, 2),
+    do: %{client | bridge_options: Keyword.put(client.bridge_options, :enqueue_guard, guard)}
+
   @impl true
   def prepare_create_session(client, key, policy, task, source) do
     with {:ok, session} <- create_session_identity(key, task),

@@ -169,7 +169,7 @@ defmodule Ryker.Retention.Dispatcher do
   end
 
   # A self-analysis session runs on learning's adapter, like learning's own.
-  defp execution_adapter(kind, settings) when kind in [:learning, :improvement],
+  defp execution_adapter(kind, settings) when kind in [:learning, :improvement, :weekly_review],
     do: {settings.learning_api, settings.learning_client}
 
   defp execution_adapter(_execution_kind, settings), do: {settings.api, settings.client}

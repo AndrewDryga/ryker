@@ -15,6 +15,7 @@ defmodule Ryker.WeeklyReport.Report.Changeset do
     :id,
     :period_start,
     :preview,
+    :review_id,
     :timezone,
     :transport,
     :week
@@ -24,7 +25,7 @@ defmodule Ryker.WeeklyReport.Report.Changeset do
   def insert(attributes) do
     %Report{}
     |> cast(attributes, @fields)
-    |> validate_required(@fields)
+    |> validate_required(@fields -- [:review_id])
     |> report_constraints()
   end
 

@@ -60,6 +60,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.Slack
   alias Ryker.TrainingExamples
   alias Ryker.UTCDateTime
+  alias Ryker.WeeklyReport
   alias Ryker.Work
   alias Ryker.WorkExamples
 
@@ -341,6 +342,12 @@ defmodule Ryker.RoutingExamples do
       %{source_identity: Learning.Observations.source_identity(entry), message_keys: quoted.keys},
       quoted
     )
+  end
+
+  @doc "Whether a saved message was explicitly deleted or forgotten before a new copy."
+  def message_revoked?(conversation, message) do
+    messages = [{conversation, message}]
+    forgotten_message?(messages) or deleted_message?(messages) or edited_messages(messages) != []
   end
 
   # Whether a person already removed anything the prompt quotes: the message
@@ -677,6 +684,7 @@ defmodule Ryker.RoutingExamples do
     :ok = Learning.forget_conversation_in_transaction(conversation_ref)
     :ok = LocalRouting.forget_conversation_in_transaction(conversation_ref)
     :ok = WorkExamples.forget_conversation_in_transaction(conversation_ref)
+    :ok = WeeklyReport.forget_conversation_in_transaction(conversation_ref)
 
     conversation_ref |> Example.Query.by_conversation() |> erase()
   end
@@ -686,6 +694,7 @@ defmodule Ryker.RoutingExamples do
     :ok = Improvement.forget_in_transaction(keys)
     :ok = LocalRouting.forget_in_transaction(identities, keys)
     :ok = WorkExamples.forget_in_transaction(identities, keys)
+    :ok = WeeklyReport.forget_in_transaction(identities, keys)
 
     identities |> Example.Query.from_sources_or_messages(keys) |> erase()
   end
@@ -706,6 +715,9 @@ defmodule Ryker.RoutingExamples do
   """
   @spec copy_lock_in_transaction() :: :ok
   def copy_lock_in_transaction, do: lock(:shared)
+
+  @doc "Internal — fences deletion of copies before a source's public audience is revoked."
+  def exclusive_copy_lock_in_transaction, do: lock(:exclusive)
 
   defp lock(mode), do: AdvisoryLock.hold!(@lock, mode)
 end

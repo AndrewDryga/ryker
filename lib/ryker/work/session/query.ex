@@ -43,6 +43,12 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
+  def by_weekly_review_ids(queryable \\ all(), ids),
+    do: where(queryable, [episode_work_sessions: s], s.weekly_review_id in ^ids)
+
+  def by_weekly_review_id(queryable \\ all(), id),
+    do: where(queryable, [episode_work_sessions: s], s.weekly_review_id == ^id)
+
   @doc "The session of improvement analysis run `run_id`."
   def by_improvement_run_id(queryable \\ all(), run_id) do
     where(

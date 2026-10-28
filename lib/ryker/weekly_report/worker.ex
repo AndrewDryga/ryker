@@ -18,7 +18,7 @@ defmodule Ryker.WeeklyReport.Worker do
   alias Ryker.{Options, PollingWorker, Settings, WeeklyReport}
   require Logger
 
-  @fields [:longest_sleep_ms, :retry_ms]
+  @fields [:longest_sleep_ms, :retry_ms, :review_settings]
   @longest_sleep_ms 600_000
   @retry_ms 60_000
 
@@ -39,7 +39,7 @@ defmodule Ryker.WeeklyReport.Worker do
 
   @impl PollingWorker
   def poll(options) do
-    case WeeklyReport.run_once() do
+    case WeeklyReport.run_once(review_settings: Map.get(options, :review_settings)) do
       {:ok, :off} ->
         options.longest_sleep_ms
 
@@ -68,8 +68,11 @@ defmodule Ryker.WeeklyReport.Worker do
 
     options = Map.merge(%{longest_sleep_ms: @longest_sleep_ms, retry_ms: @retry_ms}, options)
 
-    unless Enum.all?(@fields, &(is_integer(options[&1]) and options[&1] > 0)),
-      do: raise(ArgumentError, "weekly report configuration is outside its safe bounds")
+    unless Enum.all?(
+             [:longest_sleep_ms, :retry_ms],
+             &(is_integer(options[&1]) and options[&1] > 0)
+           ),
+           do: raise(ArgumentError, "weekly report configuration is outside its safe bounds")
 
     options
   end

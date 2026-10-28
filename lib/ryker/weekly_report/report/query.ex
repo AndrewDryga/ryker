@@ -5,6 +5,9 @@ defmodule Ryker.WeeklyReport.Report.Query do
 
   def all, do: from(reports in Report, as: :weekly_reports)
 
+  def by_review_ids(queryable \\ all(), ids),
+    do: where(queryable, [weekly_reports: r], r.review_id in ^ids)
+
   def by_delivery_ref(queryable \\ all(), delivery_ref),
     do: where(queryable, [weekly_reports: r], r.delivery_ref == ^delivery_ref)
 

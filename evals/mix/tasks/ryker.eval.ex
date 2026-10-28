@@ -52,7 +52,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Evals.{CoopRunner, ImprovementReplay, Job, RoutingReplay, WorldCase, WorldCassette}
   alias Ryker.Evals.{PrivateFile, SessionCleanup}
   alias Ryker.Evals.Runtime, as: EvalRuntime
-  alias Ryker.Evals.{WorldAdmissionCase, WorldCoverage, WorldDatabase}
+  alias Ryker.Evals.{WeeklyReviewCase, WorldAdmissionCase, WorldCoverage, WorldDatabase}
   alias Ryker.Evals.{WorldJudgeCase, WorldReport, WorldRunner}
   alias Ryker.Evals.{WorldSource, WorldSuite, WorldTools}
   alias Ryker.Repo
@@ -89,6 +89,28 @@ defmodule Mix.Tasks.Ryker.Eval do
     run_routing_replay(arguments)
   end
 
+  def run(["weekly-review" | arguments]) do
+    with {:ok, flags, []} <- parse_flags(arguments, manifest: :string, results: :string),
+         :ok <-
+           absolute_paths(flags[:manifest], flags[:results], :weekly_review_needs_absolute_paths),
+         {:ok, bytes} <- File.read(flags[:manifest]),
+         {:ok, manifest} <- Jason.decode(bytes),
+         {:ok, eval} <- WeeklyReviewCase.new(manifest),
+         {:ok, job} <- Job.weekly_review(),
+         {:ok, finch} <- start_finch(),
+         {:ok, client} <- eval_client(finch),
+         {:ok, result} <- CoopRunner.run([eval], client: client, concurrency: 1, job: job),
+         :ok <- write_report(flags[:results], printable_eval(result)) do
+      if result.failed > 0, do: Mix.raise("weekly review failed; report at #{flags[:results]}")
+
+      Mix.shell().info(
+        "weekly review: #{result.passed}/#{result.total} contract checks passed; inspect advice in #{flags[:results]}"
+      )
+    else
+      error -> Mix.raise("weekly review failed: #{inspect(error)}")
+    end
+  end
+
   def run(["improvement-replay" | arguments]) do
     run_improvement_replay(arguments)
   end
@@ -106,6 +128,14 @@ defmodule Mix.Tasks.Ryker.Eval do
         " --results /absolute/improvement-replay.json [--concurrency N]"
     )
   end
+
+  defp printable_eval(result),
+    do: Map.update!(result, :results, &Enum.map(&1, fn row -> printable_eval_row(row) end))
+
+  defp printable_eval_row(%{reason: reason} = row) when not is_nil(reason),
+    do: %{row | reason: inspect(reason)}
+
+  defp printable_eval_row(row), do: row
 
   defp run_routing_replay(arguments) do
     case routing_replay_arguments(arguments) do

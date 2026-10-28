@@ -15,11 +15,11 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work.{Custody, FinalPreflight, OperationKeys}
-  alias Ryker.Work.Executor.Remote
+  alias Ryker.Work.Executor.{Remote, States}
   alias Ryker.Work.{StateBinding, Validator}
 
-  @terminal_turn_states Remote.terminal_turn_states()
-  @turn_waiting_states Remote.turn_waiting_states()
+  @terminal_turn_states States.terminal()
+  @turn_waiting_states States.waiting()
 
   @doc false
   def ensure_validation_intent(

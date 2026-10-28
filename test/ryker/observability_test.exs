@@ -188,7 +188,7 @@ defmodule Ryker.ObservabilityTest do
     queues =
       Enum.flat_map(
         ~w(ingress work cancellation delivery routing_delivery publication emisar_approval
-           publication_followup publication_lifecycle retention schedule),
+           publication_followup publication_lifecycle weekly_review retention schedule),
         fn queue ->
           label = ~s({queue="#{queue}"})
 

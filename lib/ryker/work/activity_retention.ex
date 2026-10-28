@@ -4,6 +4,11 @@ defmodule Ryker.Work.ActivityRetention do
   alias Ryker.Repo
   alias Ryker.Work.{ActivityEvent, Turn}
 
+  # Weekly advice has no project tools or timeline. Its owner retains the
+  # frozen prompt and answer; provider narration must not make untracked copies.
+  def context(%{weekly_review_id: id}) when is_binary(id),
+    do: %{all: Repo.now!(), turns: %{}}
+
   def context(%{admission_input_id: id}) when is_binary(id),
     do: %{
       all:

@@ -30,6 +30,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.Slack.ChannelMembershipEvent
   alias Ryker.Slack.{ChannelSettings, ConfigurationAction}
   alias Ryker.Slack.ConfigurationSession
+  alias Ryker.WeeklyReport
 
   @membership_fields [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
   @participation_change_fields [
@@ -679,6 +680,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
         |> Repo.update!()
       end
 
+    revoke_weekly_evidence(membership)
+
     %{
       configuration: ensure_configuration!(membership, catalog),
       membership: membership,
@@ -825,6 +828,19 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> Repo.update!()
   end
 
+  defp revoke_weekly_evidence(%ChannelMembership{
+         status: :joined,
+         private: false,
+         external_shared: false
+       }) do
+    :ok
+  end
+
+  defp revoke_weekly_evidence(%ChannelMembership{} = membership) do
+    conversation = ConversationRef.slack(membership.workspace_ref, membership.channel_ref)
+    WeeklyReport.forget_conversation_in_transaction(conversation)
+  end
+
   defp leave_membership!(membership, occurred_at) do
     membership
     |> ChannelMembership.Changeset.update(%{
@@ -834,6 +850,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       status: :left
     })
     |> Repo.update!()
+    |> tap(&revoke_weekly_evidence/1)
   end
 
   defp delete_membership!(membership, occurred_at) do

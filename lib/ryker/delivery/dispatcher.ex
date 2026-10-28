@@ -82,13 +82,24 @@ defmodule Ryker.Delivery.Dispatcher do
   defp execute(claim, settings) do
     custody = custody(claim, settings)
 
-    with {:ok, request} <- request(claim, settings.kind),
-         {:ok, receipt} <- publish_with_lease(request, custody, settings),
+    with {:ok, {request, receipt}} <- publish(claim, custody, settings),
          {:ok, _settled} <- confirm(claim, request, receipt, settings.kind) do
       {:ok, {:delivered, custody.kind, request.ref}}
     else
       {:error, reason} -> handle_error(custody, reason, settings)
     end
+  end
+
+  defp publish(claim, custody, %{kind: :report} = settings) do
+    WeeklyReport.with_evidence(fn -> publish_request(claim, custody, settings) end)
+  end
+
+  defp publish(claim, custody, settings), do: publish_request(claim, custody, settings)
+
+  defp publish_request(claim, custody, settings) do
+    with {:ok, request} <- request(claim, settings.kind),
+         {:ok, receipt} <- publish_with_lease(request, custody, settings),
+         do: {:ok, {request, receipt}}
   end
 
   # The four custodies hold the same lease shape under different names; the

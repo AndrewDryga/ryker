@@ -20,7 +20,7 @@ defmodule Ryker.WeeklyReport.Custody do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.WeeklyReport.Report
+  alias Ryker.WeeklyReport.{Report, ReviewCustody}
   alias Ryker.Work
 
   @type claim :: %{report: Report.t(), lease_ref: Ecto.UUID.t()}
@@ -34,6 +34,12 @@ defmodule Ryker.WeeklyReport.Custody do
   """
   @spec enqueue(map()) :: {:ok, Report.t() | :already_queued} | {:error, term()}
   def enqueue(%{week: %Date{} = week} = attributes) do
+    ReviewCustody.with_evidence(fn -> enqueue_frozen(week, attributes) end)
+  end
+
+  def enqueue(_attributes), do: {:error, {:invalid_weekly_report, :week}}
+
+  defp enqueue_frozen(week, attributes) do
     id = Repo.generate_id()
     preview = Map.get(attributes, :preview, false) == true
 
@@ -45,20 +51,23 @@ defmodule Ryker.WeeklyReport.Custody do
       id: id,
       period_start: attributes.period_start,
       preview: preview,
+      review_id: Map.get(attributes, :review_id),
       timezone: attributes.timezone,
       transport: "slack",
       week: week
     }
 
-    with {:ok, _request} <- request_for(values) do
+    with true <- ReviewCustody.delivery_allowed?(values.review_id),
+         {:ok, _request} <- request_for(values) do
       values
       |> Report.Changeset.insert()
-      |> Repo.insert()
+      |> Repo.insert(mode: :savepoint)
       |> queued()
+    else
+      false -> {:error, :weekly_review_source_revoked}
+      error -> error
     end
   end
-
-  def enqueue(_attributes), do: {:error, {:invalid_weekly_report, :week}}
 
   defp queued({:ok, report}) do
     broadcast_report_updated(report)
@@ -112,7 +121,11 @@ defmodule Ryker.WeeklyReport.Custody do
 
   @doc "The report's post as the one immutable message the publishers take."
   @spec request(Report.t()) :: {:ok, Delivery.Request.t()} | {:error, term()}
-  def request(%Report{} = report), do: request_for(report)
+  def request(%Report{} = report) do
+    if is_nil(report.review_redacted_at) and ReviewCustody.delivery_allowed?(report.review_id),
+      do: request_for(report),
+      else: {:error, :weekly_review_source_revoked}
+  end
 
   def request(_report), do: {:error, {:invalid_weekly_report, :request}}
 

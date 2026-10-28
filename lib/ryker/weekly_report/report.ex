@@ -12,6 +12,8 @@ defmodule Ryker.WeeklyReport.Report do
   alias Ryker.CanonicalJSON
 
   schema "weekly_reports" do
+    belongs_to(:review, Ryker.WeeklyReport.Review)
+    field(:review_redacted_at, :utc_datetime_usec)
     field(:week, :date)
     field(:preview, :boolean, default: false)
     field(:due_at, :utc_datetime_usec)

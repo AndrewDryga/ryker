@@ -330,7 +330,8 @@ defmodule Ryker.Coop.Client do
     "ryker-eval-admission" => "world-admission",
     "ryker-eval-judge" => "world-judge",
     "ryker-eval-routing" => "routing-replay",
-    "ryker-eval-improvement" => "improvement-replay"
+    "ryker-eval-improvement" => "improvement-replay",
+    "ryker-eval-weekly_review" => "weekly-review"
   }
 
   # Standalone evaluations have no Work row: a world admission, a judge, a routing replay and a

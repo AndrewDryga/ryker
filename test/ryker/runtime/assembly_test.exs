@@ -155,6 +155,7 @@ defmodule Ryker.Runtime.AssemblyTest do
                :slack,
                :slack_names,
                :webhooks,
+               :weekly_review,
                :work,
                :work_ready
              ])
@@ -503,7 +504,9 @@ defmodule Ryker.Runtime.AssemblyTest do
              )
 
     assert {:ok, configuration} = Assembly.build(bootstrap(), on)
-    assert configuration.weekly_report == %{}
+    assert configuration.weekly_report == %{review_settings: configuration.weekly_review}
+    assert configuration.weekly_review.enabled
+    assert configuration.weekly_review.policy == "ryker-weekly-review"
 
     # Its day and time are read when it checks, so moving them restarts nothing.
     assert {:ok, moved} =

@@ -15,6 +15,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   alias Ryker.CoopFleet.{Placement, Protocol, Requests}
   alias Ryker.Repo
   alias Ryker.StateTools
+  alias Ryker.WeeklyReport
   alias Ryker.Work
   require Logger
 
@@ -379,6 +380,31 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     :ok
   end
 
+  @doc "Fences a revoked prompt that has never left Ryker, without inventing stop proof for delivered work."
+  def revoke_unsubmitted_in_transaction(session_ids) do
+    commands =
+      session_ids
+      |> Command.Query.by_session_ids()
+      |> Command.Query.by_kind("submit_turn")
+      |> Command.Query.queued()
+      |> Command.Query.lock_for_update()
+      |> Repo.all()
+
+    Enum.each(commands, &revoke_unsubmitted/1)
+    :ok
+  end
+
+  defp revoke_unsubmitted(command) do
+    error = %{
+      "code" => "operation_not_enqueued",
+      "detail" => "This weekly submission is no longer authorized and never reached its worker.",
+      "status" => 409
+    }
+
+    command = reject_command(command, error, Repo.now!())
+    command |> Command.Changeset.erase_unsubmitted_prompt() |> Repo.update!()
+  end
+
   @orphaned_seconds 24 * 60 * 60
 
   @doc """
@@ -536,12 +562,15 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         }
 
         command
-        |> Command.Changeset.settle(attributes)
+        |> Command.Changeset.settle(
+          WeeklyReport.ReviewTransport.compact_result(command, attributes)
+        )
         |> Repo.update()
         |> Shared.unwrap_write()
         |> broadcast_command_settled()
     end
 
+    Repo.after_commit(fn -> Bodies.prune_revoked(body_root, command.id) end)
     command.id
   end
 
@@ -582,6 +611,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
              ) do
           {:ok, request} ->
             deliver_command(command, placement, request, now, acc)
+
+          {:error, :weekly_review_submission_revoked} when command.status == :queued ->
+            revoke_unsubmitted(command)
+            acc
 
           {:error, _reason} when command.status == :queued ->
             reject_command(
@@ -640,7 +673,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          body_root,
          checkpoint_key
        ) do
-    with :ok <- placement_request(placement, command.kind, command.payload),
+    with :ok <- submission_current(command),
+         :ok <- placement_request(placement, command.kind, command.payload),
          {:ok, payload} <-
            materialize_binding_at(command.payload, command, placement, state_tools_secret, [
              "controller_tools"
@@ -657,6 +691,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       end
     end
   end
+
+  defp submission_current(%Command{kind: "submit_turn", session_id: id}) do
+    if Ryker.WeeklyReport.submission_allowed?(id),
+      do: :ok,
+      else: {:error, :weekly_review_submission_revoked}
+  end
+
+  defp submission_current(_command), do: :ok
 
   defp materialize_binding_at(payload, command, placement, state_tools_secret, path) do
     case get_in(payload, path) do

@@ -67,6 +67,7 @@ defmodule Ryker.WeeklyReport.Digest do
         work: work(facts, pull_requests != []),
         questions: questions(facts.questions, base),
         stuck: stuck(facts.stuck, base),
+        operational_review: operational_review(Map.get(facts, :operational_review)),
         closing: closing(facts)
       ]
       |> Enum.reject(fn {_key, lines} -> lines == [] end)
@@ -380,6 +381,54 @@ defmodule Ryker.WeeklyReport.Digest do
   defp things(%{count: count, newest: name}),
     do: "#{count} new things, most recently about \"#{plain(name)}\"."
 
+  defp operational_review(nil), do: []
+
+  defp operational_review(%{status: :unavailable}),
+    do: [
+      "The operational review wasn't available for this report; this is not a new health check."
+    ]
+
+  defp operational_review(%{status: :available, recommendations: []}),
+    do: [
+      "I reviewed the retained public updates and found no additional evidence-backed operational recommendations. This was not a new health check."
+    ]
+
+  defp operational_review(%{
+         status: :available,
+         recommendations: recommendations,
+         manifest: manifest
+       }) do
+    evidence = Map.new(manifest["evidence"], &{&1["id"], &1})
+
+    lines =
+      Enum.map(recommendations, fn recommendation ->
+        links =
+          recommendation["evidence_ids"]
+          |> Enum.with_index(1)
+          |> Enum.map_join(" · ", fn {id, index} ->
+            "[Evidence #{index}](#{evidence[id]["url"]})"
+          end)
+
+        "- #{plain(recommendation["action"], 240)} — #{plain(recommendation["benefit"], 320)} #{links}"
+      end)
+
+    coverage =
+      if manifest["more_available"] or manifest["omitted"] > 0,
+        do: "Some retained updates were outside this review's evidence limits.",
+        else: nil
+
+    ["From the retained public updates, I recommend:"] ++
+      lines ++
+      [""] ++
+      Enum.reject(
+        [
+          "These are suggestions, based on that week's evidence rather than a new health check.",
+          coverage
+        ],
+        &is_nil/1
+      )
+  end
+
   # -- Words ---------------------------------------------------------------------------
 
   defp more(0), do: []
@@ -389,7 +438,7 @@ defmodule Ryker.WeeklyReport.Digest do
   # bounded, with the brackets that would make Markdown a link turned into
   # plain ones, so a title can name a link or a person but never become one.
   # The publisher escapes the rest, so no title becomes a mention either.
-  defp plain(text) do
+  defp plain(text, maximum \\ @title_characters) do
     text
     |> String.replace(~r/\s+/u, " ")
     |> String.replace(["[", "]"], fn
@@ -397,6 +446,6 @@ defmodule Ryker.WeeklyReport.Digest do
       "]" -> ")"
     end)
     |> String.trim()
-    |> Text.shorten(@title_characters)
+    |> Text.shorten(maximum)
   end
 end

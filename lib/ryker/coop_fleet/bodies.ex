@@ -3,6 +3,7 @@ defmodule Ryker.CoopFleet.Bodies do
   alias Ryker.{CanonicalJSON, Defaults, Repo}
   alias Ryker.CoopFleet.{BodyCrypto, Command, ControlPlane, Protocol}
   alias Ryker.Crypto
+  alias Ryker.WeeklyReport
 
   @chunk_bytes 256 * 1_024
   # A worker could upload any size it declared, for any command, up to 2^63
@@ -100,6 +101,21 @@ defmodule Ryker.CoopFleet.Bodies do
     end
   end
 
+  @doc "Removes revoked body files after settlement, retried by the ordinary orphan sweep after a crash."
+  # The configured absolute body root is joined only with a command id cast as a UUID.
+  # sobelow_skip ["Traversal.FileModule"]
+  def prune_revoked(root, id) when is_binary(root) do
+    with true <- Path.type(root) == :absolute and root != "/",
+         {:ok, ^id} <- Ecto.UUID.cast(id),
+         true <- WeeklyReport.ReviewTransport.body_prunable?(id) do
+      File.rm_rf(Path.join(root, id))
+    else
+      _ -> :ok
+    end
+  end
+
+  def prune_revoked(_root, _id), do: :ok
+
   def prune_orphans(nil), do: :ok
 
   def prune_orphans(root) do
@@ -124,9 +140,10 @@ defmodule Ryker.CoopFleet.Bodies do
     path = Path.join(root, name)
 
     with {:ok, ^name} <- Ecto.UUID.cast(name),
-         {:ok, %File.Stat{type: :directory, mtime: modified}} when modified < cutoff <-
-           File.lstat(path, time: :posix),
-         false <- Repo.exists?(Command.Query.by_id(name)) do
+         {:ok, %File.Stat{type: :directory, mtime: modified}} <- File.lstat(path, time: :posix),
+         true <-
+           WeeklyReport.ReviewTransport.body_prunable?(name) or
+             (modified < cutoff and not Repo.exists?(Command.Query.by_id(name))) do
       # A command is committed before any writer starts. Its row remains
       # while a checkpoint needs its body; UUIDs are never reused. Removing
       # an orphan cannot authorize an in-flight upload to publish or ACK.

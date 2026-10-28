@@ -101,6 +101,27 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert Enum.map(reports(), & &1.week) == [~D[2026-10-05], ~D[2026-10-12]]
   end
 
+  test "a review may delay the report for five minutes but never replaces a frozen report" do
+    connect!(%{weekday: 1, local_time: ~T[09:00:00]})
+    last_saved!(~U[2026-09-30 10:00:00.000000Z])
+    review_settings = %{policy: "ryker-weekly-review", policy_digest: String.duplicate("a", 64)}
+    options = [now: ~U[2026-10-05 09:00:01Z], review_settings: review_settings]
+    assert {:ok, {:waiting, ~U[2026-10-05 09:05:00.000000Z]}} = WeeklyReport.run_once(options)
+    assert reports() == []
+    assert Repo.aggregate(Ryker.WeeklyReport.Review, :count) == 1
+
+    assert {:ok, {:queued, report, _}} =
+             WeeklyReport.run_once(Keyword.put(options, :now, ~U[2026-10-05 09:05:00Z]))
+
+    assert report.document["message"] =~ "operational review wasn't available"
+
+    assert {:ok, {:waiting, _}} =
+             WeeklyReport.run_once(Keyword.put(options, :now, ~U[2026-10-05 09:06:00Z]))
+
+    assert Repo.get!(Report, report.id).document == report.document
+    assert Repo.aggregate(Ryker.WeeklyReport.Review, :count) == 1
+  end
+
   # The Go report recorded the boundary on its first sweep for the same
   # reason: a deployment that ticks the box and gets a report that second has
   # learned the bot posts whenever it likes.

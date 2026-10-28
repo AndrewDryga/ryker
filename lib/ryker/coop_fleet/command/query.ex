@@ -2,6 +2,8 @@ defmodule Ryker.CoopFleet.Command.Query do
   @moduledoc "Commands Ryker queued for its workers, for every read of `coop_worker_commands`."
   use Ryker, :query
   alias Ryker.CoopFleet.{Command, Placement}
+  alias Ryker.WeeklyReport
+  alias Ryker.Work
 
   def all, do: from(commands in Command, as: :coop_worker_commands)
 
@@ -12,6 +14,25 @@ defmodule Ryker.CoopFleet.Command.Query do
 
   def by_session_id(queryable \\ all(), session_id),
     do: where(queryable, [coop_worker_commands: c], c.session_id == ^session_id)
+
+  def by_session_ids(queryable \\ all(), session_ids),
+    do: where(queryable, [coop_worker_commands: c], c.session_id in ^session_ids)
+
+  @doc "Copied weekly-review bodies whose owner was revoked and has durable remote stop proof."
+  def stopped_revoked_weekly(queryable \\ all()) do
+    from(c in queryable,
+      join: s in Work.Session,
+      on: s.id == c.session_id,
+      join: r in WeeklyReport.Review,
+      on: r.id == s.weekly_review_id,
+      where:
+        (not is_nil(r.forgotten_at) or not is_nil(r.pruned_at)) and
+          not is_nil(r.remote_stopped_at) and c.kind in ["submit_turn", "get_turn"]
+    )
+  end
+
+  def settled(queryable),
+    do: where(queryable, [coop_worker_commands: c], c.status in [:succeeded, :failed, :uncertain])
 
   @doc "Commands whose execution has not been conclusively settled."
   def unsettled(queryable) do
@@ -118,12 +139,22 @@ defmodule Ryker.CoopFleet.Command.Query do
       join: p in Placement,
       as: :coop_session_placements,
       on: p.id == c.placement_id,
+      where: c.kind != "submit_turn" or c.session_id not in subquery(revoked_weekly_sessions()),
       where:
         c.worker_id == ^worker_id and c.status in [:queued, :delivered, :acknowledged] and
           p.state == :active and p.lease_expires_at > ^now,
       where:
         c.kind != "prepare_session" or is_nil(c.delivered_at) or c.delivered_at > ^prepare_cutoff,
       where: not like(c.idempotency_key, ^reads) or c.inserted_at > ^read_cutoff
+    )
+  end
+
+  defp revoked_weekly_sessions do
+    from(s in Work.Session,
+      join: r in WeeklyReport.Review,
+      on: r.id == s.weekly_review_id,
+      where: not is_nil(r.forgotten_at) or not is_nil(r.pruned_at),
+      select: s.id
     )
   end
 
@@ -206,6 +237,10 @@ defmodule Ryker.CoopFleet.Command.Query do
     do: select(queryable, [coop_worker_commands: c, coop_session_placements: p], {c, p})
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
+
+  def lock_command_for_update(queryable),
+    do: lock(queryable, [coop_worker_commands: c], fragment("FOR UPDATE OF ?", c))
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 

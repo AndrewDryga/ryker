@@ -17,11 +17,11 @@ defmodule Ryker.Work.Executor.Turns do
   alias Ryker.Records
   alias Ryker.StateTools
   alias Ryker.Work.{Activity, Custody}
-  alias Ryker.Work.Executor.{Remote, Validation}
+  alias Ryker.Work.Executor.{Remote, States, Validation}
   alias Ryker.Work.{FailureCause, Measurement, OperationKeys, StateBinding, ValidationIntent}
 
-  @turn_waiting_states Remote.turn_waiting_states()
-  @stopped_turn_states Remote.terminal_turn_states() -- ["completed"]
+  @turn_waiting_states States.waiting()
+  @stopped_turn_states States.terminal() -- ["completed"]
 
   @doc false
   def ensure_turn(%{turn: %{coop_turn_id: turn_id}} = claim, settings)
