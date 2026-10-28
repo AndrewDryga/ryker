@@ -130,7 +130,10 @@ defmodule Ryker.Continuity.ConversationRollup.Query do
     }
   end
 
-  def select_ids(queryable), do: select(queryable, [conversation_rollups: r], r.id)
+  @doc "Rank small recall descriptors without loading retained source dependency lists."
+  def select_descriptors(queryable),
+    do: select(queryable, [conversation_rollups: r], map(r, [:id, :state]))
+
   def limit_to(queryable, count), do: limit(queryable, ^count)
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 end

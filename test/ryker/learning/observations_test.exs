@@ -200,7 +200,7 @@ defmodule Ryker.Learning.ObservationsTest do
 
     next =
       input!("next", "C1",
-        text: "Why are we keeping that service?",
+        text: "Why are we keeping draft-ai-suggestions?",
         message_ref: "1787832000.000101"
       )
 
@@ -219,7 +219,9 @@ defmodule Ryker.Learning.ObservationsTest do
     destination = destination(next)
 
     assert [%{"source_input_id" => source}] =
-             Continuity.model_context(destination, "tenant-infra")["observations"]
+             Continuity.model_context(destination, "tenant-infra", [next.content["text"]])[
+               "observations"
+             ]
 
     assert source == first.id
     page = MemorySearchPage.first("draft-ai", "current_channel")
@@ -232,6 +234,31 @@ defmodule Ryker.Learning.ObservationsTest do
                  &Observations.search_page(destination, "tenant-infra", &1)
                )
              end)
+  end
+
+  # Routing used a separate recent-notes selector, so filtering Work alone still
+  # paid to inject unrelated history before deciding whether the request needed work.
+  test "routing excludes unrelated original messages and keeps relevant notes bounded" do
+    joined!("TNOTES", "C1")
+
+    for index <- 1..7 do
+      observe!("routing-note-#{index}", "C1", @note,
+        message_ref: "1787832000.#{String.pad_leading(to_string(index), 6, "0")}"
+      )
+    end
+
+    unrelated = input!("routing-build", "C1", text: "Build succeeded")
+    assert context!(unrelated).observations == []
+
+    related = input!("routing-recall", "C1", text: "Why are we keeping draft-ai-suggestions?")
+    context = context!(related)
+    assert length(context.observations) == 5
+    assert Enum.all?(context.observations, &(&1["summary"] == @message))
+
+    assert {:ok, restored} =
+             Context.restore(Context.snapshot(context), context.input, related, %{})
+
+    assert restored.observations == context.observations
   end
 
   test "silent notes outlive operational records and expire at the memory horizon" do
@@ -359,9 +386,10 @@ defmodule Ryker.Learning.ObservationsTest do
     related =
       Observations.related_context(target, "tenant-infra", ["Is pgsql-prod-01 healthy now?"])
 
-    assert [%{"summary" => first} | _rest] = related
+    assert [%{"summary" => first}] = related
     assert first =~ "pgsql-prod-01"
-    assert length(related) == 16
+    # A build-success briefing received 16 unrelated excerpts after ranking (2026-10-28).
+    assert Observations.related_context(target, "tenant-infra", ["Build succeeded"]) == []
   end
 
   test "edits and deletions replace source notes and a delayed older revision cannot resurrect them" do

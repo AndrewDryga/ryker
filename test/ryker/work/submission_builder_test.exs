@@ -1273,7 +1273,11 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         next_claim!(claim, ["Consumed history #{index}: " <> String.duplicate("h", 2_000)])
       end)
 
-    next = next_claim!(historical, [String.duplicate("A", 60_000), String.duplicate("B", 60_000)])
+    next =
+      next_claim!(historical, [
+        "CURRENT_REQUEST " <> String.duplicate("A", 60_000),
+        String.duplicate("B", 60_000)
+      ])
 
     assert {:ok, rotated} =
              Custody.rotate_session(
@@ -1412,10 +1416,11 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   # kept as a learned note of about 4.8 KB: legal multibyte text, recalled the
   # way a real conversation's notes are. The notes this seeded before
   # 2026-10-07 had no source a briefing could recall, so the tests using them
-  # never had a note to fit.
+  # never had a note to fit. The request terms keep these notes relevant so
+  # stricter recall does not turn budget coverage into an empty-list test.
   defp seed_large_observations!(claim) do
     for index <- 1..16 do
-      text = "Side note #{index}: " <> String.duplicate("😀", 1_200)
+      text = "CURRENT_REQUEST side note #{index}: " <> String.duplicate("😀", 1_200)
       at = DateTime.add(@now, index - 3_600, :second)
       LearningFixtures.noted_message!(claim.episode, text, at, claim.session.repository_ref)
     end

@@ -200,12 +200,16 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
     rollup = rollup!(target)
 
     assert [%{"source_ref" => ref}] =
-             Continuity.model_context(episode, target.repository_ref)["related"]
+             Continuity.model_context(episode, target.repository_ref, [
+               Ryker.Ingress.RecallText.prose(target.content)
+             ])["related"]
 
     assert ref == local.ref
 
     assert [%{"source_ref" => ref}] =
-             Continuity.model_context(episode, target.repository_ref)["rollups"]
+             Continuity.model_context(episode, target.repository_ref, [
+               Ryker.Ingress.RecallText.prose(target.content)
+             ])["rollups"]
 
     assert ref == rollup.ref
 
@@ -219,7 +223,11 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
       record |> Ecto.Changeset.change(source_dependencies: mixed) |> Repo.update!()
     end
 
-    context = Continuity.model_context(episode, target.repository_ref)
+    context =
+      Continuity.model_context(episode, target.repository_ref, [
+        Ryker.Ingress.RecallText.prose(target.content)
+      ])
+
     assert context["related"] == []
     assert context["rollups"] == []
 
@@ -227,7 +235,9 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
       record |> Ecto.Changeset.change(environment_known: false) |> Repo.update!()
     end
 
-    assert Continuity.model_context(episode, target.repository_ref)["related"] == []
+    assert Continuity.model_context(episode, target.repository_ref, [
+             Ryker.Ingress.RecallText.prose(target.content)
+           ])["related"] == []
   end
 
   test "compaction keeps shared conversation histories in separate environment identities" do
@@ -251,7 +261,12 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
 
     for entry <- [source, target] do
       episode = Repo.get!(Ryker.Episodes.Episode, entry.episode_id)
-      assert [document] = Continuity.model_context(episode, entry.repository_ref)["rollups"]
+
+      assert [document] =
+               Continuity.model_context(episode, entry.repository_ref, [
+                 Ryker.Ingress.RecallText.prose(entry.content)
+               ])["rollups"]
+
       assert document["environment_ref"] == entry.work_profile["environment_ref"]
     end
   end
@@ -269,9 +284,16 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
     |> Repo.update!()
 
     episode = Repo.get!(Ryker.Episodes.Episode, source.episode_id)
-    assert Continuity.model_context(episode, source.repository_ref)["current"] != nil
+
+    assert Continuity.model_context(episode, source.repository_ref, [
+             Ryker.Ingress.RecallText.prose(source.content)
+           ])["current"] != nil
+
     assert KnowledgeFixtures.forget!(source) == :ok
-    assert Continuity.model_context(episode, source.repository_ref)["current"] == nil
+
+    assert Continuity.model_context(episode, source.repository_ref, [
+             Ryker.Ingress.RecallText.prose(source.content)
+           ])["current"] == nil
   end
 
   test "forgetting a recalled original invalidates the retained native transcript" do
@@ -303,7 +325,9 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
       source_episode = Repo.get!(Ryker.Episodes.Episode, summary_source.episode_id)
 
       [document] =
-        Continuity.model_context(source_episode, summary_source.repository_ref)["related"]
+        Continuity.model_context(source_episode, summary_source.repository_ref, [
+          Ryker.Ingress.RecallText.prose(summary_source.content)
+        ])["related"]
 
       document =
         case unquote(provenance) do
@@ -326,7 +350,10 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
         end
 
       target_episode = Repo.get!(Ryker.Episodes.Episode, target.episode_id)
-      assert Continuity.model_context(target_episode, target.repository_ref)["related"] == []
+
+      assert Continuity.model_context(target_episode, target.repository_ref, [
+               Ryker.Ingress.RecallText.prose(target.content)
+             ])["related"] == []
 
       claim = target_claim!(target)
       assert claim.session.environment_ref == "product-b"
@@ -356,7 +383,12 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
     {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
     summary!(source)
     source_episode = Repo.get!(Ryker.Episodes.Episode, source.episode_id)
-    [document] = Continuity.model_context(source_episode, source.repository_ref)["related"]
+
+    [document] =
+      Continuity.model_context(source_episode, source.repository_ref, [
+        Ryker.Ingress.RecallText.prose(source.content)
+      ])["related"]
+
     claim = target_claim!(target)
     caller_session = %{claim.session | environment_ref: "product-a"}
     frozen = automatic_submission(document)
@@ -373,7 +405,12 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
     {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
     summary!(source)
     source_episode = Repo.get!(Ryker.Episodes.Episode, source.episode_id)
-    [document] = Continuity.model_context(source_episode, source.repository_ref)["related"]
+
+    [document] =
+      Continuity.model_context(source_episode, source.repository_ref, [
+        Ryker.Ingress.RecallText.prose(source.content)
+      ])["related"]
+
     assert document["environment_ref"] == "product-a"
     claim = target_claim!(target)
     assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [document]) == :ok
@@ -390,7 +427,12 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
     {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(target) end)
     summary!(target)
     episode = Repo.get!(Ryker.Episodes.Episode, target.episode_id)
-    [document] = Continuity.model_context(episode, target.repository_ref)["related"]
+
+    [document] =
+      Continuity.model_context(episode, target.repository_ref, [
+        Ryker.Ingress.RecallText.prose(target.content)
+      ])["related"]
+
     claim = target_claim!(target)
     frozen = automatic_submission(document)
 
@@ -408,7 +450,12 @@ defmodule Ryker.Continuity.EnvironmentContextTest do
     {:ok, :ok} = Repo.transaction(fn -> Observations.record_excerpt_in_transaction(target) end)
     summary!(target)
     episode = Repo.get!(Ryker.Episodes.Episode, target.episode_id)
-    [document] = Continuity.model_context(episode, target.repository_ref)["related"]
+
+    [document] =
+      Continuity.model_context(episode, target.repository_ref, [
+        Ryker.Ingress.RecallText.prose(target.content)
+      ])["related"]
+
     claim = target_claim!(target)
     frozen = automatic_submission(document)
     claim = %{claim | turn: %{claim.turn | submission: frozen}}

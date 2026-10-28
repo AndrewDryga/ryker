@@ -45,11 +45,14 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
         context =
           Continuity.model_context(
             target(input.destination_conversation_ref),
-            input.repository_ref
+            input.repository_ref,
+            ["Ship the requested behavior"]
           )
 
         assert length(context[key]) == if(unquote(kind) == :summary, do: 8, else: 4)
-        assert count_validations(reference) <= length(context[key]) + 1
+        # A nonempty request also scopes the knowledge and original-note lanes.
+        # Their two fixed reads must not turn into validation of all 64 candidates.
+        assert count_validations(reference) <= length(context[key]) + 2
       after
         :telemetry.detach(handler)
       end
@@ -82,13 +85,19 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
             healthy_input.destination_conversation_ref,
             "slack:#{workspace}:CPUBLIC"
           ] do
-        context = Continuity.model_context(target(conversation), healthy_input.repository_ref)
+        context =
+          Continuity.model_context(target(conversation), healthy_input.repository_ref, [
+            "Ship the requested behavior"
+          ])
+
         assert [%{"source_ref" => ref}] = context[key]
         assert ref == healthy.ref
       end
 
       for conversation <- ["slack:#{workspace}:CPRIVATE", "slack:TFOREIGN:CFOR"] do
-        assert Continuity.model_context(target(conversation), healthy_input.repository_ref)[key] ==
+        assert Continuity.model_context(target(conversation), healthy_input.repository_ref, [
+                 "Ship the requested behavior"
+               ])[key] ==
                  []
       end
     end
@@ -127,7 +136,8 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
         context =
           Continuity.model_context(
             target(healthy_input.destination_conversation_ref),
-            healthy_input.repository_ref
+            healthy_input.repository_ref,
+            ["Ship the requested behavior"]
           )
 
         assert [%{"source_ref" => ref}] = context[key]
@@ -166,7 +176,8 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
         context =
           Continuity.model_context(
             target(input.destination_conversation_ref),
-            input.repository_ref
+            input.repository_ref,
+            ["Ship the requested behavior"]
           )
 
         assert Enum.map(context[key], & &1["source_ref"]) == [memory.ref],
@@ -215,7 +226,9 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
     assert LearningSources.valid?(private.source_dependencies, scope)
 
     assert [%{"source_ref" => ref}] =
-             Continuity.model_context(reader, healthy_input.repository_ref)["related"]
+             Continuity.model_context(reader, healthy_input.repository_ref, [
+               "Ship the requested behavior"
+             ])["related"]
 
     assert ref == healthy.ref
   end
@@ -385,7 +398,9 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
     public_target = target("slack:T123:C1")
 
     assert [%{"source_ref" => ref}] =
-             Continuity.model_context(public_target, "ryker")["rollups"]
+             Continuity.model_context(public_target, "ryker", ["Ship the requested behavior"])[
+               "rollups"
+             ]
 
     assert ref == matching.ref
 

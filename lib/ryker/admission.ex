@@ -171,7 +171,12 @@ defmodule Ryker.Admission do
         repository_choices: repository_choices(entry),
         routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),
-        observations: Learning.Observations.context(entry, entry.repository_ref, "", 5),
+        observations:
+          entry
+          |> Learning.Observations.related_context(entry.repository_ref, [
+            Ingress.RecallText.from(input.content)
+          ])
+          |> Enum.take(5),
         knowledge:
           Knowledge.context(
             entry,

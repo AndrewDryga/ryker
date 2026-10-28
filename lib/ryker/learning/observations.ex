@@ -272,7 +272,8 @@ defmodule Ryker.Learning.Observations do
 
   @doc """
   The notes a model receives beside `input_texts`: those `context/5` would give, chosen from
-  more of them, the ones sharing most with the request first (`Ryker.Continuity.Relevance`).
+  more of them, excluding weak matches and ranking the relevant ones first. Same-thread
+  continuity is provided separately; unused note slots stay empty.
   """
   @spec related_context(term(), String.t() | nil, [String.t()]) :: [map()]
   def related_context(destination, repository_ref, input_texts) do

@@ -7,8 +7,9 @@ defmodule Ryker.Continuity.Relevance do
   A briefing chose its conversation notes and related summaries by how recent they were, so a
   note about the host a person asked after lost its place to lunch plans written later (the
   token-cost plan, 2026-09-30: "irrelevant recent chatter loses to applicable older
-  knowledge"). Ranking keeps each list's own order among texts that share nothing with the
-  request, so nothing changes where the request says nothing to compare.
+  knowledge"). Automatic recall requires an exact identifier or multiple meaningful shared words. A
+  shared broad name alone is not enough. Empty requests recall no unrelated history; current
+  thread continuity and explicit memory search have their own paths.
   """
   alias Ryker.Episodes
 
@@ -29,16 +30,21 @@ defmodule Ryker.Continuity.Relevance do
   # Words that say nothing about a subject on their own.
   @filler ~w(the and for with this that from was were are is has have had not but you your our
     can will would could should been being into onto about again still now just also any all
-    some what when where which who why how there here they them their its it's i'm we're)
+    some what when where which who why how there here they them their its it's i'm we're
+    please thanks thank hey hello okay yes see look looking keep need needs want wants help
+    check checking get got getting make made say said tell told know think like use using used
+    something anything everything thing things quick quickly explain question answer
+    status update updated success successful succeeded failed failure healthy health production
+    staging environment workspace repository notification utc today yesterday)
 
   # Split at every mark, so website/haproxy-edge shares haproxy with a question about
   # "haproxy-edge", and OOM-killed shares oom with "OOM".
   defp words(text) do
     ~r/[\p{L}\p{N}]+/u
-    |> Regex.scan(String.slice(text, 0, 8_192))
+    |> Regex.scan(text |> String.slice(0, 8_192) |> String.replace(~r{https?://\S+}u, " "))
     |> List.flatten()
     |> Enum.map(&String.downcase/1)
-    |> Enum.reject(&(String.length(&1) < 3 or &1 in @filler))
+    |> Enum.reject(&(String.length(&1) < 3 or &1 in @filler or Regex.match?(~r/^\d+$/, &1)))
     |> MapSet.new()
   end
 
@@ -57,10 +63,23 @@ defmodule Ryker.Continuity.Relevance do
 
   def score(_text, _request), do: 0
 
-  @doc "`items` with those sharing most with `request` first, each list's own order otherwise."
+  @doc "Whether a candidate has enough subject overlap to enter automatic recall."
+  @spec related?(String.t(), request()) :: boolean()
+  def related?(text, %{identifiers: identifiers, words: words}) when is_binary(text) do
+    candidate = request([text])
+    shared = MapSet.intersection(candidate.words, words)
+
+    not MapSet.disjoint?(candidate.identifiers, identifiers) or
+      MapSet.size(shared) >= 2
+  end
+
+  def related?(_text, _request), do: false
+
+  @doc "Relevant items first by shared subject, preserving input order for equal scores."
   @spec rank([term()], request(), (term() -> String.t())) :: [term()]
   def rank(items, request, text) do
     items
+    |> Enum.filter(&related?(text.(&1), request))
     |> Enum.with_index()
     |> Enum.sort_by(fn {item, index} -> {-score(text.(item), request), index} end)
     |> Enum.map(&elem(&1, 0))

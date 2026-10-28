@@ -58,7 +58,12 @@ defmodule Ryker.Continuity.ContinuityTest do
     before_exposure = Repo.fetch!(exposure_query)
     assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
     accept!(work, submission)
-    summary = Continuity.model_context(work.episode, "tenant-infra")["current"]
+
+    summary =
+      Continuity.model_context(work.episode, "tenant-infra", ["Ship the requested behavior"])[
+        "current"
+      ]
+
     assert summary != nil
     assert KnowledgeSnapshot.expose(work.claim, [summary]) == :ok
     assert KnowledgeSnapshot.expose_submission(work.claim) == :ok
@@ -97,7 +102,12 @@ defmodule Ryker.Continuity.ContinuityTest do
     {entry, work, submission} = raw_work!()
     assert {:ok, _} = Continuity.stage(work.state_token, state("website/haproxy-edge OOM"))
     accept!(work, submission)
-    summary = Continuity.model_context(work.episode, "tenant-infra")["current"]
+
+    summary =
+      Continuity.model_context(work.episode, "tenant-infra", ["Ship the requested behavior"])[
+        "current"
+      ]
+
     assert summary != nil
 
     submission =
@@ -142,7 +152,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert summary.environment_ref == "product-a"
     assert summary.environment_known
 
-    assert Continuity.model_context(work.episode, "tenant-infra")["current"]["environment_ref"] ==
+    assert Continuity.model_context(work.episode, "tenant-infra", ["Ship the requested behavior"])[
+             "current"
+           ]["environment_ref"] ==
              "product-a"
   end
 
@@ -338,14 +350,19 @@ defmodule Ryker.Continuity.ContinuityTest do
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
       original = Repo.one!(schema)
-      context = Continuity.model_context(work.episode, "tenant-infra")
+
+      context =
+        Continuity.model_context(work.episode, "tenant-infra", ["Ship the requested behavior"])
+
       document = if unquote(compact?), do: hd(context["rollups"]), else: context["current"]
 
       Repo.update!(
         Ecto.Changeset.change(original, source_dependencies: unquote(Macro.escape(missing)))
       )
 
-      current = Continuity.model_context(work.episode, "tenant-infra")
+      current =
+        Continuity.model_context(work.episode, "tenant-infra", ["Ship the requested behavior"])
+
       assert current["current"] == nil
       assert current["related"] == []
       assert current["rollups"] == []
@@ -424,10 +441,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     end
 
     reader = %{work.episode | destination_thread_ref: "reader-thread"}
-    recent = Continuity.model_context(reader, "tenant-infra")["related"]
-    refute Enum.any?(recent, &(&1["source_ref"] == original.ref))
+    assert Continuity.model_context(reader, "tenant-infra", [])["related"] == []
 
-    assert [first | _rest] =
+    assert [first] =
              Continuity.model_context(reader, "tenant-infra", [
                "Is haproxy-edge OOM-killed again?"
              ])[
@@ -435,6 +451,10 @@ defmodule Ryker.Continuity.ContinuityTest do
              ]
 
     assert first["source_ref"] == original.ref
+
+    # The inspected build briefing carried eight unrelated incident summaries.
+    assert Continuity.model_context(reader, "tenant-infra", ["Build succeeded"])["related"] == []
+    assert Continuity.model_context(work.episode, "tenant-infra", ["And now?"])["current"] != nil
   end
 
   test "receiptless summaries cannot consume recall or compaction slots ahead of healthy sources" do
@@ -462,7 +482,12 @@ defmodule Ryker.Continuity.ContinuityTest do
     end
 
     reader = %{work.episode | destination_thread_ref: "reader-thread"}
-    assert [related] = Continuity.model_context(reader, "tenant-infra")["related"]
+
+    assert [related] =
+             Continuity.model_context(reader, "tenant-infra", ["Ship the requested behavior"])[
+               "related"
+             ]
+
     assert related["source_ref"] == original.ref
 
     assert [match] = search!(:summary, reader, "tenant-infra", "haproxy", "workspace", 1)
@@ -606,7 +631,10 @@ defmodule Ryker.Continuity.ContinuityTest do
       situation = "Grafana reported website/haproxy-edge OOM on nomad-hst01."
       assert {:ok, _} = Continuity.stage(work.state_token, state(situation))
       accept!(work, submission)
-      assert Continuity.model_context(work.episode, "tenant-infra")["current"] != nil
+
+      assert Continuity.model_context(work.episode, "tenant-infra", [
+               "Ship the requested behavior"
+             ])["current"] != nil
 
       changed = %{
         entry
@@ -619,7 +647,9 @@ defmodule Ryker.Continuity.ContinuityTest do
       assert Repo.transaction(fn -> Observations.receive_in_transaction(changed) end) ==
                {:ok, :ok}
 
-      assert Continuity.model_context(work.episode, "tenant-infra")["current"] == nil
+      assert Continuity.model_context(work.episode, "tenant-infra", [
+               "Ship the requested behavior"
+             ])["current"] == nil
 
       for kind <- [:summary, :rollup] do
         assert search!(kind, work.episode, "tenant-infra", "nomad-hst01", "workspace", 20) == []
@@ -1365,7 +1395,10 @@ defmodule Ryker.Continuity.ContinuityTest do
       end
 
       KnowledgeFixtures.revoke!(source)
-      context = Continuity.model_context(work.claim.episode, "ryker")
+
+      context =
+        Continuity.model_context(work.claim.episode, "ryker", ["Ship the requested behavior"])
+
       assert context["current"] == nil
       assert context["related"] == []
       assert context["rollups"] == []
@@ -1518,7 +1551,9 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert page =~ "Verify production delivery"
 
-    recalled = Continuity.model_context(work.claim.episode, "ryker")
+    recalled =
+      Continuity.model_context(work.claim.episode, "ryker", ["Ship the requested behavior"])
+
     assert recalled["current"]["state"] == revised
     assert recalled["current"]["source_ref"] == summary.ref
     assert Repo.get!(ConversationSummary, summary.id).recall_count == 1
@@ -1589,7 +1624,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   test "public continuity boundaries fail closed outside their custody transaction" do
     work = open_work!("transaction-fences", "slack:T123:C223", nil, nil)
 
-    assert Continuity.model_context(:invalid, nil) == %{
+    assert Continuity.model_context(:invalid, nil, ["Ship the requested behavior"]) == %{
              "current" => nil,
              "related" => [],
              "rollups" => []
@@ -1617,7 +1652,10 @@ defmodule Ryker.Continuity.ContinuityTest do
              {:error, :conversation_summary_invalid_acceptance}
 
     invalid_destination = %{work.claim.episode | destination_transport: nil}
-    assert Continuity.model_context(invalid_destination, nil)["current"] == nil
+
+    assert Continuity.model_context(invalid_destination, nil, ["Ship the requested behavior"])[
+             "current"
+           ] == nil
 
     for kind <- [:summary, :rollup] do
       assert search!(kind, invalid_destination, nil, "query", "workspace", 20) == []
@@ -1629,7 +1667,9 @@ defmodule Ryker.Continuity.ContinuityTest do
         destination_transport: "slack"
     }
 
-    assert Continuity.model_context(malformed_slack, nil)["current"] == nil
+    assert Continuity.model_context(malformed_slack, nil, ["Ship the requested behavior"])[
+             "current"
+           ] == nil
 
     malformed_github = %{
       work.claim.episode
@@ -1637,7 +1677,9 @@ defmodule Ryker.Continuity.ContinuityTest do
         destination_transport: "github"
     }
 
-    assert Continuity.model_context(malformed_github, nil)["current"] == nil
+    assert Continuity.model_context(malformed_github, nil, ["Ship the requested behavior"])[
+             "current"
+           ] == nil
   end
 
   test "a universal transport retains exact-conversation continuity without gaining cross-channel scope" do
@@ -1654,7 +1696,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     accept!(work)
 
     assert %ConversationSummary{visibility: :conversation} = Repo.one!(ConversationSummary)
-    context = Continuity.model_context(work.claim.episode, nil)
+    context = Continuity.model_context(work.claim.episode, nil, ["Ship the requested behavior"])
     assert context["current"]["state"]["situation"] == "Universal input"
     assert context["related"] == []
 
@@ -1683,9 +1725,16 @@ defmodule Ryker.Continuity.ContinuityTest do
     same_direct = open_work!("direct-same", "slack:T123:D111", "reply", "ryker")
     other_direct = open_work!("direct-other", "slack:T123:D222", nil, "ryker")
 
-    assert [related] = Continuity.model_context(same_direct.claim.episode, "ryker")["related"]
+    assert [related] =
+             Continuity.model_context(same_direct.claim.episode, "ryker", [
+               "Ship the requested behavior"
+             ])["related"]
+
     assert related["state"]["situation"] == "Direct state"
-    assert Continuity.model_context(other_direct.claim.episode, "ryker")["related"] == []
+
+    assert Continuity.model_context(other_direct.claim.episode, "ryker", [
+             "Ship the requested behavior"
+           ])["related"] == []
   end
 
   test "cross-channel recall prefers the same repository and never crosses private boundaries" do
@@ -1715,7 +1764,9 @@ defmodule Ryker.Continuity.ContinuityTest do
     )
 
     current = open_work!("current", "slack:T123:C111", "1710000000.000013", "ryker")
-    context = Continuity.model_context(current.claim.episode, "ryker")
+
+    context =
+      Continuity.model_context(current.claim.episode, "ryker", ["Ship the requested behavior"])
 
     assert Enum.map(context["related"], & &1["state"]["situation"]) == [
              "Same repository",
@@ -1731,10 +1782,14 @@ defmodule Ryker.Continuity.ContinuityTest do
       set: [status: :left, left_at: @now]
     )
 
-    after_leave = Continuity.model_context(current.claim.episode, "ryker")
+    after_leave =
+      Continuity.model_context(current.claim.episode, "ryker", ["Ship the requested behavior"])
+
     assert Enum.map(after_leave["related"], & &1["state"]["situation"]) == ["Other repository"]
 
-    private_context = Continuity.model_context(private.claim.episode, "ryker")
+    private_context =
+      Continuity.model_context(private.claim.episode, "ryker", ["Ship the requested behavior"])
+
     assert private_context["current"]["state"]["situation"] == "Private detail"
   end
 
@@ -1762,7 +1817,10 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert DateTime.diff(rollup.expires_at, DateTime.add(old, 3_600, :second), :second) == 0
 
     current = open_work!("rollup-current", "slack:T123:C777", "1710000000.000021", "ryker")
-    context = Continuity.model_context(current.claim.episode, "ryker")
+
+    context =
+      Continuity.model_context(current.claim.episode, "ryker", ["Ship the requested behavior"])
+
     assert [recalled] = context["rollups"]
     assert recalled["source_refs"] == rollup.source_refs
     assert recalled["state"]["evidence_refs"] == ["source:one"]
@@ -1774,7 +1832,9 @@ defmodule Ryker.Continuity.ContinuityTest do
       set: [status: :left, left_at: @now]
     )
 
-    assert Continuity.model_context(current.claim.episode, "ryker")["rollups"] == []
+    assert Continuity.model_context(current.claim.episode, "ryker", [
+             "Ship the requested behavior"
+           ])["rollups"] == []
 
     assert {:ok, _deleted} =
              ChannelConfigurations.observe_membership(
@@ -1875,10 +1935,15 @@ defmodule Ryker.Continuity.ContinuityTest do
       open_work!("private-other", "slack:T123:G666", "1710000000.000032", "ryker")
 
     assert [related] =
-             Continuity.model_context(same_channel.claim.episode, "ryker")["related"]
+             Continuity.model_context(same_channel.claim.episode, "ryker", [
+               "Ship the requested behavior"
+             ])["related"]
 
     assert related["state"]["situation"] == "Private channel state"
-    assert Continuity.model_context(other_channel.claim.episode, "ryker")["related"] == []
+
+    assert Continuity.model_context(other_channel.claim.episode, "ryker", [
+             "Ship the requested behavior"
+           ])["related"] == []
   end
 
   test "Slack Connect continuity stays inside the externally shared channel" do
@@ -1897,10 +1962,15 @@ defmodule Ryker.Continuity.ContinuityTest do
     internal = open_work!("connect-internal", "slack:T123:CINT", nil, "ryker")
 
     assert [related] =
-             Continuity.model_context(same_channel.claim.episode, "ryker")["related"]
+             Continuity.model_context(same_channel.claim.episode, "ryker", [
+               "Ship the requested behavior"
+             ])["related"]
 
     assert related["state"]["situation"] == "Partner-only state"
-    assert Continuity.model_context(internal.claim.episode, "ryker")["related"] == []
+
+    assert Continuity.model_context(internal.claim.episode, "ryker", [
+             "Ship the requested behavior"
+           ])["related"] == []
   end
 
   test "an unknown Slack channel fails closed and first-seen deletion removes its continuity" do
