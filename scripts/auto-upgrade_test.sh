@@ -130,7 +130,7 @@ push second
 second=$(s rev-parse HEAD)
 upgrade
 check "a moved branch is upgraded to" "$second" "$(head_of)"
-check "after a backup" "compose.sh backup"$'\n'"compose.sh upgrade" "$(cat "$work/calls")"
+check "after a controller-only backup" "compose.sh backup --controller-only"$'\n'"compose.sh upgrade" "$(cat "$work/calls")"
 check "and the worker is asked to run the Coop it pins" "compose.sh upgrade"$'\n'"compose.sh worker-upgrade" "$(cat "$work/calls")"
 check "and the upgrade is recorded" "-> ${second:0:12}" "$(grep ' upgraded ' "$work/upgrades/upgrades.log")"
 
@@ -164,6 +164,15 @@ before=$(head_of)
 
 # A migration that failed: the release before no longer serves, so the backup comes back.
 pin_old
+# The new rollback behavior exists only in the target revision. Resetting to
+# the old checkout before restoring would silently run the broken implementation.
+python3 - "$source/scripts/compose.sh" <<'PY'
+import pathlib,sys
+path=pathlib.Path(sys.argv[1])
+text=path.read_text().replace('case $1 in', 'case $1 in\n  restore) echo "target restore $*" >>"$UPGRADE_TEST_STATE/restore-version";;', 1)
+path.write_text(text)
+PY
+s add scripts/compose.sh
 push "does not migrate"
 unmigrated=$(s rev-parse HEAD)
 touch "$work/upgrade.fail"
@@ -171,6 +180,8 @@ printf '503' >"$work/console/code"
 upgrade
 check "a failed upgrade that stopped the release restores the backup it took" \
   "compose.sh restore $work/state/backups/pre-upgrade-" "$(cat "$work/calls")"
+check "rollback uses the target revision's controller-only restore before resetting" \
+  "--controller-only" "$(cat "$work/restore-version" 2>/dev/null)"
 check "and puts the checkout back too" "$before" "$(head_of)"
 rm "$work/upgrade.fail" "$work/console/code"
 retry_seconds=0 upgrade

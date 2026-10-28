@@ -301,16 +301,25 @@ scripts/compose.sh backup
 
 The helper pauses Ryker while it captures a consistent PostgreSQL dump, private state volume
 (including encrypted checkpoint bodies), and the generated environment containing decryption
-keys. Ryker then runs again while the helper archives the bundled worker's state as
-`worker-state.tar.gz`: its model sign-in and its identity key, without the caches Coop downloads
-again or its temporary files. The worker keeps working meanwhile, and a file it changes during the
-archive does not fail the backup. It restarts the previously running controller even if the backup fails. Worker leases use
-their normal expiry rules during this maintenance window; allow time for large bodies to copy.
+keys. A full backup also stops the bundled worker and its Docker daemon while it captures
+`worker-state.tar.gz`: model sign-in, identity, session records, private generation anchors and
+their working copies and pinned repository bases in one hardlink-preserving archive. Old state
+copies and temporary files are omitted. Changing files fail this quiesced snapshot.
+Previously running services restart on success or failure; services already stopped stay stopped.
+Worker leases use their normal expiry rules during this maintenance window; allow time for large
+bodies to copy. Use `backup --controller-only` for a controller deployment: it leaves the worker
+and its daemon running, and captures only database, encrypted controller state and environment.
 Pre-deploy backups hold the database, the encrypted files and the environment, and not the
 worker's state. A deploy keeps the newest ten of them and, past those, the newest of each of the
 last seven days; the backups you take yourself are never removed. Each archive is written under a
 hidden name and renamed once it is whole, so one cut short never looks like a good one. Store
 these owner-only archives as sensitive material.
+
+A full restore moves current worker contents into `.restore-held.*` directories on their original
+volumes before installing the archived state. Those directories preserve newer work for rescue;
+they are outside active custody and excluded from subsequent backups. Do not delete them until
+the restored work and any newer uncommitted changes have been reconciled. Controller-only restore
+leaves worker volumes untouched.
 
 Take one every day on its own:
 
@@ -333,7 +342,11 @@ scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
 Restore refuses an archive whose encryption keys (`RYKER_CHECKPOINT_KEY`, `RYKER_CREDENTIAL_KEY`)
-differ from an existing installation's. The state-tools token may differ: a backup taken before
+differ from an existing installation's. `restore FILE --controller-only` leaves worker custody
+untouched even if the archive contains it; automatic controller rollback uses this mode before
+resetting the checkout. Old worker archives that omitted the generation hardlinks are refused
+for full restore, before stopping anything, and remain available for explicit controller-only
+recovery. The state-tools token may differ: a backup taken before
 the token was rotated restores, and the current token stays. With no
 existing installation state it restores the archived roots first, unless another checkout's
 installation already owns this host's database volume. It pins the release the backup was taken

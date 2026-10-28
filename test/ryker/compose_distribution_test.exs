@@ -168,9 +168,12 @@ defmodule Ryker.ComposeDistributionTest do
 
   test "the worker backup retains custody but no retired checkout volume" do
     lifecycle = read("scripts/compose.sh")
-    assert lifecycle =~ "-czf - -C /var/lib --exclude=coop/sessions/job-sources"
+    # Excluding repository bases broke restored workspace anchors. The deploy script
+    # self-test checks the archive and its hardlinks using real tar operations.
+    refute lifecycle =~ "--exclude=coop/sessions/job-sources"
+    assert lifecycle =~ "complete-v1"
     assert lifecycle =~ "coop ryker-coop >\"$scratch/worker-state.tar.gz\""
-    assert lifecycle =~ "-xzf - -C /var/lib coop ryker-coop"
+    assert lifecycle =~ ~s(tar -xzf - -C "$1" coop ryker-coop)
     refute lifecycle =~ "ryker-workspaces"
     refute read("release-assets.txt") =~ "load-policies.sh"
     refute File.exists?(Path.join(@root, "deploy/compose/coop/load-policies.sh"))

@@ -147,9 +147,28 @@ case " $* " in
     tar -czf - -T /dev/null
     ;;
   *" run --rm --no-deps -T --entrypoint tar ryker-coop "*)
-    tar -czf - -T /dev/null
+    # Run the real archive command on fixture volumes. Argument-only tests
+    # missed that excluded job sources also held the live fork markers.
+    while [[ $1 != ryker-coop ]]; do shift; done
+    shift
+    arguments=()
+    for argument do
+      [[ $argument == /var/lib ]] && argument="$fake/volumes"
+      arguments+=("$argument")
+    done
+    tar "${arguments[@]}"
     [[ -f $fake/worker.changed ]] && { echo "tar: coop/agents: file changed as we read it" >&2; exit 1; }
     [[ -f $fake/worker.unreadable ]] && { echo "tar: coop: Cannot open: Permission denied" >&2; exit 2; }
+    ;;
+  *" run --rm --no-deps -T --entrypoint sh ryker-coop -ec "*)
+    while [[ $1 != ryker-coop ]]; do shift; done
+    shift
+    arguments=()
+    for argument do
+      [[ $argument == /var/lib ]] && argument="$fake/volumes"
+      arguments+=("$argument")
+    done
+    sh "${arguments[@]}"
     ;;
   *" run --rm --no-deps -T --entrypoint /opt/ryker/bin/ryker ryker eval Ryker.Release.migrate() "*)
     printf 'RYKER_IMAGE=%s\n' "${RYKER_IMAGE:-}" >>"$fake/migrate.env"
@@ -199,7 +218,10 @@ case " $* " in
   *" ps --all --quiet ryker-coop "*) [[ -f $fake/worker.image ]] && echo fake-worker-container ;;
   *" inspect --format {{.Config.Image}} fake-worker-container "*) cat "$fake/worker.image" ;;
   *" exec -T database psql "*"coop_worker_commands"*) cat "$fake/inflight" 2>/dev/null || echo 0 ;;
-  *" ps --status running --services "*) [[ -f $fake/controller.stopped ]] || echo "ryker" ;;
+  *" ps --status running --services "*)
+    [[ -f $fake/controller.stopped ]] || echo "ryker"
+    printf 'ryker-coop\nryker-coop-docker\n'
+    ;;
   *" exec -T database psql "*"schema_migrations"*) cat "$fake/schema" 2>/dev/null || echo 20261005000000 ;;
   *" exec -T database psql "*) echo 1 ;;
   *" ps "*) echo "ryker fake running" ;;
@@ -224,6 +246,17 @@ seed() {
     "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail" "$fake/models.fail" \
     "$fake/worker.image" "$fake/inflight" "$fake/prewarm.env" "$fake/live.calls" "$fake/live.fail"
   touch "$fake/controller.running"
+  mkdir -p "$fake/volumes/coop/sessions/job-sources/example/repository-forks/work" \
+    "$fake/volumes/coop/sessions/job-sources/example/repository" \
+    "$fake/volumes/coop/.local/state/coop/forks/example" "$fake/volumes/ryker-coop"
+  marker="$fake/volumes/coop/sessions/job-sources/example/repository-forks/work/.coop-fork-generation"
+  anchor="$fake/volumes/coop/.local/state/coop/forks/example/generation.anchor"
+  rm -f "$marker" "$anchor"
+  printf 'generation-authority\n' >"$marker"
+  chmod 0600 "$marker"
+  ln "$marker" "$anchor"
+  printf 'uncommitted work\n' >"${marker%/*}/dirty.txt"
+  printf 'pinned source\n' >"$fake/volumes/coop/sessions/job-sources/example/repository/source.txt"
   rm -rf "$state/backups" "$state/lifecycle.lock"
   printf '%s\n' "$old_version" >"$fake/version"
   printf '200' >"$fake/readyz.code"
@@ -550,27 +583,89 @@ seed
 out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
 check "lifecycle backup succeeds" "exit=0" "$out"
 check "lifecycle backup resumes its writer" "start ryker" "$(cat "$fake/calls")"
-# Ryker waited for the worker's whole archive, Coop's 12 GB of source caches included, and
-# tenant's console answered 502 for seven minutes (2026-10-04).
+# A full snapshot must quiesce all writers and preserve the real hardlinks.
+# An earlier rollback split the private anchors from excluded public markers
+# and quarantined 29 retained sessions. Deployment snapshots remain controller-only.
 calls=$(cat "$fake/calls")
 start_line=$(grep -n ' start ryker' <<<"$calls" | head -n 1 | cut -d: -f1)
 worker_line=$(grep -n 'entrypoint tar ryker-coop' <<<"$calls" | head -n 1 | cut -d: -f1)
-if [[ -n $start_line && -n $worker_line && $start_line -lt $worker_line ]]; then
-  printf 'ok   Ryker runs again before the worker is archived\n'
+if [[ -n $start_line && -n $worker_line && $start_line -gt $worker_line ]]; then
+  printf 'ok   writers resume after the full snapshot\n'
 else
-  printf 'FAIL Ryker runs again before the worker is archived\n     calls:\n%s\n' "$calls"
+  printf 'FAIL writers resume after the full snapshot\n     calls:\n%s\n' "$calls"
   failures=$((failures + 1))
 fi
-check "the worker archive leaves out Coop's job sources" "--exclude=coop/sessions/job-sources" "$calls"
-check "the worker archive leaves out Coop's repository mirrors" "--exclude=coop/sessions/repositories" "$calls"
+check "the full snapshot stops the worker" "stop ryker-coop" "$calls"
+check "the full snapshot stops its workspace writers" "stop ryker-coop-docker" "$calls"
 check "the worker archive leaves out earlier copies of its state" "--exclude=coop/sessions.*" "$calls"
 check "the worker archive leaves out its temporary files" "--exclude=coop/tmp" "$calls"
 backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
 check "lifecycle backup includes encrypted state" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
+mkdir -p "$work/roundtrip"
+tar -xzf "$backup" -C "$work/roundtrip" worker-state.tar.gz
+tar -xzf "$work/roundtrip/worker-state.tar.gz" -C "$work/roundtrip"
+python3 - "$work/roundtrip" <<'PY'
+import os, pathlib, sys
+root = pathlib.Path(sys.argv[1]) / 'coop'
+marker = root / 'sessions/job-sources/example/repository-forks/work/.coop-fork-generation'
+anchor = root / '.local/state/coop/forks/example/generation.anchor'
+assert marker.exists(), 'backup omitted the authoritative working-copy marker'
+assert os.path.samefile(marker, anchor), 'restore split the generation hardlink'
+assert marker.stat().st_nlink == 2, 'restored identity is not its private two-link pair'
+assert (marker.parent / 'dirty.txt').read_text() == 'uncommitted work\n'
+assert (root / 'sessions/job-sources/example/repository/source.txt').read_text() == 'pinned source\n'
+PY
+check "a real archive round trip preserves generation identity and dirty work" 0 "$?"
 
 # Kept outside the backups directory, which each seed clears.
 cp "$backup" "$work/whole-backup.tar.gz"
 backup="$work/whole-backup.tar.gz"
+
+# Restoring older SQLite onto newer journals/workspaces must never mix generations.
+seed
+printf 'new receipt\n' >"$fake/volumes/ryker-coop/post-backup-receipt"
+printf 'new dirty work\n' >"$fake/volumes/coop/sessions/post-backup-work"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "full restore succeeds over newer worker state" "exit=0" "$out"
+python3 - "$fake/volumes" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+for directory, relative, content in [('coop', 'sessions/post-backup-work', 'new dirty work\n'),
+                                      ('ryker-coop', 'post-backup-receipt', 'new receipt\n')]:
+    active = root / directory
+    assert not (active / relative).exists(), 'restored custody contains newer state'
+    held = list(active.glob('.restore-held.*/' + relative))
+    assert len(held) == 1 and held[0].read_text() == content, 'replaced state was not retained for rescue'
+PY
+check "restore keeps newer state separately from active restored custody" 0 "$?"
+
+# Controller rollback must not rewind a worker that was never upgraded.
+seed
+out=$(cd "$repo" && sh scripts/compose.sh backup --controller-only 2>&1; echo "exit=$?")
+check "controller-only backup succeeds" "exit=0" "$out"
+controller_backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
+refute "controller-only archive has no worker custody" "worker-state.tar.gz" "$(tar -tzf "$controller_backup")"
+refute "controller-only backup does not stop the worker" "stop ryker-coop" "$(cat "$fake/calls")"
+refute "controller-only backup does not restart worker services" "start ryker-coop" "$(cat "$fake/calls")"
+refute "controller-only backup does not archive worker files" "entrypoint tar ryker-coop" "$(cat "$fake/calls")"
+: >"$fake/calls"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" --controller-only 2>&1; echo "exit=$?")
+check "controller-only restore accepts a full archive" "exit=0" "$out"
+refute "controller-only restore does not stop the worker" "stop ryker-coop" "$(cat "$fake/calls")"
+refute "controller-only restore does not extract worker custody" "entrypoint tar ryker-coop" "$(cat "$fake/calls")"
+refute "controller-only restore does not re-enroll the worker" "prepare_bundled_coop" "$(cat "$fake/calls")"
+
+# Old split archives remain usable for explicit controller recovery, but
+# cannot silently replace private anchors while retaining the wrong forks.
+mkdir -p "$work/split-archive"
+tar -xzf "$backup" -C "$work/split-archive"
+rm "$work/split-archive/worker-custody"
+tar -czf "$work/split.tar.gz" -C "$work/split-archive" .
+: >"$fake/calls"
+out=$(cd "$repo" && sh scripts/compose.sh restore "$work/split.tar.gz" 2>&1; echo "exit=$?")
+check "an old split worker archive is refused" "cannot safely restore worker custody" "$out"
+refute "a split archive is refused before stopping anything" " stop " "$(cat "$fake/calls")"
+
 legacy="$work/legacy-backup"
 mkdir -p "$legacy"
 tar -xzf "$backup" -C "$legacy" database.dump compose.env
@@ -769,13 +864,13 @@ check "lifecycle archive failure is reported" "exit=1" "$out"
 check "lifecycle archive failure resumes its writer" "start ryker" "$(cat "$fake/calls")"
 rm "$fake/archive.fail"
 
-# A file the running worker changed while it was archived ended every backup
-# taken during work (2026-10-04 review); a worker that cannot be read still fails.
+# All writers are stopped for a full snapshot. A changing file now means the
+# quiescence contract failed; do not publish a possibly inconsistent archive.
 seed
 touch "$fake/worker.changed"
 out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
 rm "$fake/worker.changed"
-check "a backup taken while the worker writes succeeds" "exit=0" "$out"
+check "a changing quiesced worker fails the backup" "exit=1" "$out"
 seed
 touch "$fake/worker.unreadable"
 out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
@@ -787,7 +882,7 @@ seed
 touch "$fake/controller.stopped"
 out=$(cd "$repo" && sh scripts/compose.sh backup 2>&1; echo "exit=$?")
 check "an already stopped controller can be backed up" "exit=0" "$out"
-refute "backup preserves the operator's stopped controller" "start ryker" "$(cat "$fake/calls")"
+refute "backup preserves the operator's stopped controller" " start ryker"$'\n' "$(cat "$fake/calls")"$'\n'
 rm "$fake/controller.stopped"
 
 # A worker image named in compose.env is a supplied build: on 2026-09-28 the
@@ -987,7 +1082,7 @@ mkdir -p "$state/lifecycle.lock"
 printf '%s backup\n' "$$" >"$state/lifecycle.lock/owner"
 out=$(run)
 check "a running lifecycle command refuses a deploy" "Another Ryker lifecycle command is running" "$out"
-check "a refused deploy exits 1" "exit=1" "$out"
+check "a busy deploy reports temporary contention" "exit=75" "$out"
 refute "a refused deploy builds nothing" " build " "$(cat "$fake/calls" 2>/dev/null)"
 out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
 check "a running lifecycle command refuses start" "Another Ryker lifecycle command is running" "$out"

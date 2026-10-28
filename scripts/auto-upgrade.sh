@@ -105,7 +105,7 @@ record "upgrading ${current:0:12} -> ${target:0:12}"
 previous_version=$(compose_env_value RYKER_VERSION "$env_file")
 previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
 # The backup prints the archive it wrote as its last line.
-taken=$(scripts/compose.sh backup </dev/null | tail -n 1)
+taken=$(scripts/compose.sh backup --controller-only </dev/null | tail -n 1)
 if [[ ! -f $taken ]]; then
   record "FAILED ${target:0:12}: the backup before it did not complete; nothing changed"
   echo "$target $(date +%s)" >"$upgrade_state/failed"
@@ -119,7 +119,6 @@ git merge --ff-only --quiet "$target"
 
 if ! scripts/compose.sh upgrade </dev/null; then
   echo "$target" >"$upgrade_state/failed"
-  git reset --quiet --hard "$current"
   # An upgrade that failed before it replaced Ryker (an image that did not
   # build) left the release before it serving and the database untouched:
   # only the pin goes back, and nothing written since the backup is lost.
@@ -129,11 +128,14 @@ if ! scripts/compose.sh upgrade </dev/null; then
     pin_release "$previous_version" "$previous_image"
     echo "$target $(date +%s)" >"$upgrade_state/failed"
     record "FAILED ${target:0:12}: the upgrade failed before it replaced $previous_version, which still runs"
-  elif scripts/compose.sh restore "$backup" </dev/null; then
+  elif scripts/compose.sh restore "$backup" --controller-only </dev/null; then
     record "FAILED ${target:0:12}: the upgrade failed; restored ${current:0:12} from $(basename "$backup")"
   else
     record "FAILED ${target:0:12}: the upgrade failed, and so did restoring $(basename "$backup"); the install needs a person"
   fi
+  # Restore with the target's implementation before removing it from the
+  # checkout. Worker custody never changed during a controller upgrade.
+  git reset --quiet --hard "$current"
   exit 1
 fi
 

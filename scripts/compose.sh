@@ -19,7 +19,7 @@ lock_lifecycle() {
 }
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup [--controller-only]|restore FILE [--controller-only]|uninstall|destroy" >&2
   exit 2
 }
 
@@ -381,7 +381,12 @@ case "$command" in
     install_ryker
     ;;
   restore)
-    [ "$#" -eq 2 ] || usage
+    controller_only=0
+    case $# in
+      2) ;;
+      3) [ "$3" = --controller-only ] || usage; controller_only=1 ;;
+      *) usage ;;
+    esac
     case $2 in
       /*) backup=$2 ;;
       *) backup=$caller_dir/$2 ;;
@@ -396,6 +401,19 @@ case "$command" in
        [ ! -r "$scratch/ryker-state.tar.gz" ]; then
       echo "The backup does not contain Ryker's database, key custody and encrypted files. Nothing was changed." >&2
       exit 1
+    fi
+
+    restore_worker=0
+    if [ "$controller_only" = 0 ] && [ -r "$scratch/worker-state.tar.gz" ]; then
+      if [ "$(cat "$scratch/worker-custody" 2>/dev/null || true)" != complete-v1 ]; then
+        echo "This worker archive omitted working-copy identity links. It cannot safely restore worker custody. Use --controller-only to leave the worker untouched." >&2
+        exit 1
+      fi
+      tar -tzf "$scratch/worker-state.tar.gz" >/dev/null || {
+        echo "The worker archive cannot be read. Nothing was changed." >&2
+        exit 1
+      }
+      restore_worker=1
     fi
 
     archive_version=$(compose_env_value RYKER_VERSION "$scratch/compose.env")
@@ -445,7 +463,11 @@ case "$command" in
       exit 1
     }
 
-    compose stop ryker ryker-coop ryker-coop-docker 2>/dev/null || true
+    compose stop ryker
+    if [ "$restore_worker" = 1 ]; then
+      compose stop ryker-coop
+      compose stop ryker-coop-docker
+    fi
     # Restored beside the live database, which is swapped out only once the
     # restore is whole and kept as ryker_before_restore until the next restore.
     compose exec -T database dropdb -U ryker --if-exists ryker_restoring
@@ -462,18 +484,34 @@ case "$command" in
       -c 'ALTER DATABASE ryker_restoring RENAME TO ryker' >/dev/null
     compose run --rm --no-deps -T --entrypoint tar volume-init \
       -xzf - -C /var/lib/ryker <"$scratch/ryker-state.tar.gz"
-    if [ -r "$scratch/worker-state.tar.gz" ]; then
+    if [ "$restore_worker" = 1 ]; then
       compose up --detach --no-build --wait volume-init
-      compose run --rm --no-deps -T --entrypoint tar ryker-coop \
-        -xzf - -C /var/lib coop ryker-coop <"$scratch/worker-state.tar.gz"
+      # Overlaying older SQLite onto newer journals and working copies mixes
+      # custody generations. Move current contents aside on their own volumes
+      # first; retain them for rescue, including every hardlink and dirty file.
+      # shellcheck disable=SC2016 # Evaluated inside the worker container.
+      compose run --rm --no-deps -T --entrypoint sh ryker-coop -ec '
+        for root in "$1/coop" "$1/ryker-coop"; do
+          held=$(mktemp -d "$root/.restore-held.XXXXXX")
+          for entry in "$root"/* "$root"/.[!.]* "$root"/..?*; do
+            [ -e "$entry" ] || [ -L "$entry" ] || continue
+            case ${entry##*/} in .restore-held.*) continue ;; esac
+            mv "$entry" "$held/"
+          done
+          echo "Previous worker state retained at $held" >&2
+        done
+        tar -xzf - -C "$1" coop ryker-coop
+      ' -- /var/lib <"$scratch/worker-state.tar.gz"
     fi
     if [ "$repin" = 1 ]; then
       pin_release "$archive_version" "$archive_image"
       echo "Pinned Ryker $archive_version, the release the backup was taken on."
     fi
     compose up --detach --no-build --wait ryker
-    compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
-    compose up --detach --no-build --wait ryker-coop
+    if [ "$restore_worker" = 1 ]; then
+      compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
+      compose up --detach --no-build --wait ryker-coop
+    fi
     wait_ready
     echo "The database Ryker ran on before is kept as ryker_before_restore."
     ;;
@@ -672,6 +710,12 @@ case "$command" in
     compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.doctor()'
     ;;
   backup)
+    controller_only=0
+    case $# in
+      1) ;;
+      2) [ "$2" = --controller-only ] || usage; controller_only=1 ;;
+      *) usage ;;
+    esac
     require_install
     take_lifecycle_lock backup
     backup_dir=$state_dir/backups
@@ -679,8 +723,16 @@ case "$command" in
     chmod 0700 "$backup_dir"
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-backup.XXXXXX")
     restart_controller=0
+    restart_worker=0
+    restart_worker_docker=0
     finish_backup() {
       backup_status=$?
+      if [ "$restart_worker_docker" = 1 ]; then
+        compose start ryker-coop-docker >/dev/null || backup_status=1
+      fi
+      if [ "$restart_worker" = 1 ]; then
+        compose start ryker-coop >/dev/null || backup_status=1
+      fi
       if [ "$restart_controller" = 1 ]; then
         compose start ryker >/dev/null || backup_status=1
       fi
@@ -696,32 +748,38 @@ case "$command" in
       restart_controller=1
       compose stop ryker
     fi
+    if [ "$controller_only" = 0 ]; then
+      if printf '%s\n' "$running_services" | grep -qx ryker-coop; then
+        restart_worker=1
+        compose stop ryker-coop
+      fi
+      if printf '%s\n' "$running_services" | grep -qx ryker-coop-docker; then
+        restart_worker_docker=1
+        compose stop ryker-coop-docker
+      fi
+    fi
     compose exec -T database pg_dump -U ryker -d ryker --format=custom --no-owner --no-privileges >"$scratch/database.dump"
     compose run --rm --no-deps -T --entrypoint tar volume-init \
       -czf - -C /var/lib/ryker . >"$scratch/ryker-state.tar.gz"
-    # Ryker's own state is captured, so it runs again while the worker's is archived. The worker
-    # keeps running throughout; holding Ryker for its archive kept tenant's console answering 502
-    # for seven minutes (2026-10-04). Coop downloads its source caches (job-sources,
-    # repositories) again when a job needs them, the lock and control socket belong to the
-    # running daemon, and sessions.* are earlier copies of the worker's state: 12 of tenant's 13 GB.
-    # A start that fails here is tried again on the way out, and fails the backup there.
-    if [ "$restart_controller" = 1 ] && compose start ryker >/dev/null; then
-      restart_controller=0
-    fi
-    # The worker keeps working while it is archived, and GNU tar ends with
-    # status 1 when a file changed or went while it read; that failed every
-    # backup taken during work (2026-10-04 review). Status 1 keeps the archive,
-    # status 2 fails the backup, and the worker's temporary files are left out.
-    worker_status=0
-    compose run --rm --no-deps -T --entrypoint tar ryker-coop \
-      -czf - -C /var/lib --exclude=coop/sessions/job-sources --exclude=coop/sessions/repositories \
-      --exclude=coop/sessions/control.sock --exclude=coop/sessions/lock --exclude='coop/sessions.*' \
-      --exclude=coop/tmp coop ryker-coop >"$scratch/worker-state.tar.gz" || worker_status=$?
-    [ "$worker_status" -le 1 ] || exit "$worker_status"
     cp "$env_file" "$scratch/compose.env"
-    chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/worker-state.tar.gz" "$scratch/compose.env"
+    # job-sources also holds live repository-forks. Capturing private anchors
+    # without those forks split their hardlinks on rollback and quarantined
+    # retained work. One quiesced archive preserves both halves and SQLite WAL.
+    if [ "$controller_only" = 0 ]; then
+      compose run --rm --no-deps -T --entrypoint tar ryker-coop \
+        -czf - -C /var/lib \
+        --exclude='coop/.restore-held.*' --exclude='ryker-coop/.restore-held.*' \
+        --exclude=coop/sessions/control.sock --exclude=coop/sessions/lock --exclude='coop/sessions.*' \
+        --exclude=coop/tmp coop ryker-coop >"$scratch/worker-state.tar.gz"
+      printf 'complete-v1\n' >"$scratch/worker-custody"
+    fi
+    chmod 0600 "$scratch"/*
     backup=$backup_dir/ryker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
-    write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz worker-state.tar.gz compose.env
+    if [ "$controller_only" = 1 ]; then
+      write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz compose.env
+    else
+      write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz worker-state.tar.gz worker-custody compose.env
+    fi
     echo "$backup"
     ;;
   uninstall)
