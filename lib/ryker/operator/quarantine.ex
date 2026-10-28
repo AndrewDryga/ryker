@@ -306,7 +306,7 @@ defmodule Ryker.Operator.Quarantine do
              inspection.session_id == session.id and inspection.placement_id == placement.id and
                inspection.placement_generation == placement.generation,
            %{"method" => "GET", "path" => ^path} <- inspection.payload,
-           {:ok, %{"session" => remote}} <- CoopFleet.Bridge.response(inspection.result),
+           {:ok, %{} = remote} <- CoopFleet.Bridge.response(inspection.result),
            true <-
              remote["id"] == session.coop_session_id and
                remote["revision"] == attributes.expected_revision,

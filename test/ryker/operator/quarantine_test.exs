@@ -168,7 +168,7 @@ defmodule Ryker.Operator.QuarantineTest do
   test "inspection must prove the exact remote grant before retirement is queued" do
     {session, _placement, request} = parked_session()
     inspection = Repo.get!(Command, request.inspection_command_id)
-    bad = put_in(inspection.result, ["body", "session", "external_ref"], "another-task")
+    bad = put_in(inspection.result, ["body", "external_ref"], "another-task")
     inspection |> Ecto.Changeset.change(result: bad) |> Repo.update!()
     assert Quarantine.request(request) == {:error, :quarantine_inspection_mismatch}
     assert Repo.get!(Session, session.id) == session
@@ -185,7 +185,7 @@ defmodule Ryker.Operator.QuarantineTest do
         ] do
       {session, _, request} = parked_session()
       command = Repo.get!(Command, request.inspection_command_id)
-      result = update_in(command.result, ["body", "session"], &Map.merge(&1, changes))
+      result = update_in(command.result, ["body"], &Map.merge(&1, changes))
       command |> Ecto.Changeset.change(result: result) |> Repo.update!()
       assert Quarantine.request(request) == {:error, :quarantine_inspection_mismatch}
       assert Repo.get!(Session, session.id) == session
@@ -254,14 +254,18 @@ defmodule Ryker.Operator.QuarantineTest do
 
   defp receipt(command, remote) do
     session = Repo.get!(Session, command.session_id)
-    remote = Map.merge(Ryker.Fixtures.WorkerJob.receipt(session), remote)
+    authority = Ryker.Fixtures.WorkerJob.receipt(session)
+    remote = Map.merge(authority, remote)
+    # Four authenticated live inspections could not start recovery: GET returns
+    # the session directly; only mutation responses wrap it in "session".
+    body = if command.payload["method"] == "GET", do: remote, else: %{"session" => remote}
 
     command
     |> Ecto.Changeset.change(
       status: :succeeded,
       operation_key: command.idempotency_key,
       completed_at: Repo.now!(),
-      result: %{"status" => 200, "body" => %{"session" => remote}},
+      result: %{"status" => 200, "body" => body},
       result_fingerprint: String.duplicate("b", 64)
     )
     |> Repo.update!()

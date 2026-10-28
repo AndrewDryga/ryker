@@ -572,7 +572,8 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
         "queued_prompt_bytes" => 0
       })
 
-    result = %{"status" => 200, "body" => %{"session" => remote}}
+    body = if command.payload["method"] == "GET", do: remote, else: %{"session" => remote}
+    result = %{"status" => 200, "body" => body}
 
     command
     |> Ecto.Changeset.change(
