@@ -74,6 +74,55 @@ defmodule Ryker.Records.OutcomesTest do
              {:ok, {:error, :work_knowledge_context_stale}}
   end
 
+  # Harvested 2026-10-28 from the crash investigation: source-message learning
+  # kept an ownership correction but not this tool-backed diagnosis. No tenant
+  # identity is retained. The separate outcome path must carry both certainty levels.
+  test "a later briefing recalls a saved cause and its limits without a learned topic" do
+    producer = claim_episode!("heap-cause", "Investigate engine crashes", "slack:TOUTCOME:CHEAP")
+
+    cause =
+      "Production engine crashes are caused by V8 JavaScript heap exhaustion near 2 GB despite a 4 GB task allocation."
+
+    limitation =
+      "This establishes the immediate failure mechanism; it does not identify the retaining object graph or prove a memory leak."
+
+    assert {:ok, evidence} =
+             Records.create(Records.token(producer.turn), "heap-evidence", "evidence", %{
+               "claim_id" => "heap-exhaustion",
+               "source_name" => "Task stderr",
+               "source_type" => "monitoring",
+               "target" => "production-engine",
+               "observation" =>
+                 "Exact current production engine stderr contains at least two V8 fatal JavaScript heap out-of-memory failures."
+             })
+
+    assert {:ok, finding} =
+             Records.create(Records.token(producer.turn), "heap-finding", "finding", %{
+               "status" => "explained",
+               "what" => cause,
+               "reason" => limitation,
+               "cause_evidence" => [evidence.ref],
+               "scope" => "Production engine"
+             })
+
+    complete!(producer, cause <> " " <> limitation)
+
+    reader = claim_episode!("heap-recall", "Why did the engine crash?", "slack:TOUTCOME:CHEAP")
+    assert [outcome] = Outcomes.recall(reader.episode)
+
+    assert Enum.any?(
+             outcome["records"],
+             &(&1["ref"] == finding.ref and &1["payload"]["reason"] == limitation)
+           )
+
+    assert {:ok, submission} = Inspectors.submission(reader)
+    assert submission["prompt"] =~ cause
+    assert submission["prompt"] =~ limitation
+    assert {:ok, retained} = Ryker.Memories.Cases.capture(producer.episode.id)
+    assert retained.cause == cause
+    assert retained.outcome =~ limitation
+  end
+
   test "foreign history cannot crowd an older local outcome out of the candidate limit" do
     producer =
       claim_episode!(
