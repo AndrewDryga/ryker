@@ -13,6 +13,15 @@ defmodule Ryker.CoopFleet.Command.Query do
   def by_session_id(queryable \\ all(), session_id),
     do: where(queryable, [coop_worker_commands: c], c.session_id == ^session_id)
 
+  @doc "Commands whose execution has not been conclusively settled."
+  def unsettled(queryable) do
+    where(
+      queryable,
+      [coop_worker_commands: c],
+      c.status in [:queued, :delivered, :acknowledged, :uncertain]
+    )
+  end
+
   def by_placement_id(queryable \\ all(), placement_id),
     do: where(queryable, [coop_worker_commands: c], c.placement_id == ^placement_id)
 

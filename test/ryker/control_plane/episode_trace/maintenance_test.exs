@@ -30,6 +30,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.MaintenanceTest do
              "The working copy cannot be removed because it has uncommitted changes on branch fix/readiness."
   end
 
+  test "record-only quarantine retirement never claims that the working copy was removed" do
+    session = %{
+      cleanup_session(:retained, %{})
+      | retained_reason: "quarantined_copy",
+        discarded_at: nil
+    }
+
+    assert [step] = Maintenance.steps([session])
+    assert step.summary =~ "no files were deleted"
+    assert step.summary =~ "kept"
+    refute step.title =~ "removed"
+  end
+
   test "a cleanup retry leads with its recorded error and scheduled time" do
     session = %{
       cleanup_session(:discard_pending, %{})

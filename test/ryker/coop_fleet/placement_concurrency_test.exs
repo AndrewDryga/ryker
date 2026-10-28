@@ -417,6 +417,173 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     end)
   end
 
+  # Recovery must not invert placement's worker/session lock order or wait
+  # behind retention while holding the worker that retention needs to settle.
+  test "quarantine settlement waits for its worker before locking its owner" do
+    Sandbox.unboxed_run(Repo, fn ->
+      {session, placement, worker, request} = quarantine_fixture!()
+      assert {:ok, intent} = Ryker.Operator.Quarantine.request(request)
+      command = Repo.get!(Command, intent.outcome["command_id"])
+      quarantine_receipt!(command, session, "discarded", 8)
+      poller = hold_worker(worker)
+      assert_receive {:holding, poll_backend}, 5_000
+      parent = self()
+
+      settler =
+        unboxed_task(fn ->
+          send(parent, {:settling, backend_pid()})
+          Ryker.Operator.Quarantine.settle(request.action_ref)
+        end)
+
+      try do
+        assert_receive {:settling, settle_backend}, 5_000
+        await_blocked_by(settle_backend, poll_backend)
+
+        assert {:ok, _} =
+                 Repo.transaction(fn ->
+                   Repo.query!(
+                     "SELECT 1 FROM episode_kernel_episodes WHERE id = $1 FOR UPDATE NOWAIT",
+                     [Ecto.UUID.dump!(session.episode_id)]
+                   )
+
+                   Repo.query!(
+                     "SELECT 1 FROM episode_work_sessions WHERE id = $1 FOR UPDATE NOWAIT",
+                     [Ecto.UUID.dump!(session.id)]
+                   )
+                 end)
+
+        send(poller.pid, :release)
+        assert {:ok, _} = Task.await(settler, 5_000)
+        assert Repo.get!(Session, session.id).retained_reason == "quarantined_copy"
+        assert Repo.get!(Placement, placement.id).state == :retired
+      after
+        finish!([poller, settler])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  test "quarantine refuses busy cleanup custody instead of deadlocking its worker" do
+    Sandbox.unboxed_run(Repo, fn ->
+      {session, _placement, worker, request} = quarantine_fixture!()
+
+      try do
+        assert {:ok, _} =
+                 Repo.transaction(fn ->
+                   Repo.query!("SELECT 1 FROM episode_kernel_episodes WHERE id = $1 FOR UPDATE", [
+                     Ecto.UUID.dump!(session.episode_id)
+                   ])
+
+                   Repo.query!("SELECT 1 FROM episode_work_sessions WHERE id = $1 FOR UPDATE", [
+                     Ecto.UUID.dump!(session.id)
+                   ])
+
+                   requester = unboxed_task(fn -> Ryker.Operator.Quarantine.request(request) end)
+
+                   try do
+                     assert Task.yield(requester, 5_000) ==
+                              {:ok, {:error, :quarantine_custody_busy}}
+
+                     Repo.query!("SELECT 1 FROM coop_workers WHERE id = $1 FOR UPDATE NOWAIT", [
+                       worker
+                     ])
+                   after
+                     stop_tasks([requester])
+                   end
+                 end)
+      after
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  defp quarantine_fixture! do
+    suffix = Ecto.UUID.generate()
+    worker = "worker-quarantine-#{suffix}"
+    workspace = "workspace-quarantine-#{suffix}"
+    session = session!(suffix)
+
+    job =
+      WorkerJob.build(session.external_ref, session.repository_ref)
+      |> Map.put("repository_read_only", true)
+
+    {:ok, digest} = JobSpec.digest(job)
+    session = session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+
+    session =
+      session |> Ecto.Changeset.change(coop_session_id: "remote-#{suffix}") |> Repo.update!()
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.start_wait(%{
+                 episode_key: "fleet-placement:#{suffix}",
+                 expected_turn_ref: "turn:#{suffix}",
+                 wait_ref: "wait:#{suffix}",
+                 occurred_at: Repo.now!()
+               })
+             )
+
+    authorize_and_poll!(worker, workspace)
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 workspace_ref: workspace,
+                 repository_ref: "ryker",
+                 capability_names: ["controller-tools"]
+               },
+               60
+             )
+
+    assert {:ok, inspection} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "api_request",
+               %{"method" => "GET", "path" => "/v1/sessions/#{session.coop_session_id}"},
+               "inspect:#{suffix}"
+             )
+
+    quarantine_receipt!(inspection, session, "open", 7)
+
+    request = %{
+      session_id: session.id,
+      placement_id: placement.id,
+      placement_generation: placement.generation,
+      remote_session_id: session.coop_session_id,
+      expected_revision: 7,
+      inspection_command_id: inspection.id,
+      action_ref: "quarantine:#{suffix}",
+      actor_ref: "operator:local"
+    }
+
+    {session, placement, worker, request}
+  end
+
+  defp quarantine_receipt!(command, session, state, revision) do
+    remote =
+      WorkerJob.receipt(session)
+      |> Map.merge(%{
+        "id" => session.coop_session_id,
+        "state" => state,
+        "revision" => revision,
+        "activity" => "parked",
+        "queued_turn_count" => 0,
+        "queued_prompt_bytes" => 0
+      })
+
+    result = %{"status" => 200, "body" => %{"session" => remote}}
+
+    command
+    |> Ecto.Changeset.change(
+      status: :succeeded,
+      result: result,
+      result_fingerprint: Ryker.CanonicalJSON.digest(result),
+      completed_at: Repo.now!()
+    )
+    |> Repo.update!()
+  end
+
   # Releases the held worker and lets the placement finish before the rows go.
   defp finish!([poller | _rest] = tasks) do
     send(poller.pid, :release)
@@ -527,6 +694,10 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   defp cleanup!(sessions, worker_ids) do
     session_ids = Enum.map(sessions, & &1.id)
     episode_ids = Enum.map(sessions, & &1.episode_id)
+
+    Repo.delete_all(
+      from(action in Ryker.Operator.Action, where: action.resource_ref in ^session_ids)
+    )
 
     Repo.delete_all(from(command in Command, where: command.session_id in ^session_ids))
     Repo.delete_all(from(placement in Placement, where: placement.session_id in ^session_ids))

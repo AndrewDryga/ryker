@@ -716,3 +716,34 @@ A selected task may belong to Ryker, the operator, or both. Operator prerequisit
 **For you** rather than entering the agent queue; completion releases dependent Ryker work.
 Shipped work stays pending until later evidence supports improvement, regression or insufficient
 traffic. A completed pass is an analysis receipt, not a claim that all its proposals shipped.
+
+### Retiring a quarantined worker record
+
+A quarantined record is not a deleted working copy. The local host operator can
+retire an episode-owned read-only record through `Ryker.Release.quarantine/2`.
+The worker keeps its files and history; Ryker records that retained outcome and
+leaves the episode's human question or event wait unchanged. Its next legitimate
+work trigger can create a fresh session generation. Writable copies, background
+model sessions, active work, pending publications and uncertain worker commands
+are refused by this recovery path.
+
+First inspect the exact remote session with a durable fleet `api_request` command
+(`GET /v1/sessions/<id>`) on its current placement. Keep that command's ID and the
+returned revision. Recovery requires its successful authenticated receipt to match
+the local session's external reference and saved job authority; a manually copied
+JSON response is not proof.
+
+Call the installed release with `Ryker.Release.quarantine({:request, attributes})`.
+The atom-keyed attributes are `session_id`, `placement_id`, `placement_generation`,
+`remote_session_id`, `expected_revision`, `inspection_command_id`, `actor_ref` and
+`action_ref`. Repeating the same action is idempotent; changing its request is
+refused. The request records its intent and queues record-only retirement without
+waiting for network I/O inside database locks.
+
+Call `Ryker.Release.quarantine({:settle, action_ref})` to reconcile the durable
+command. `{:ok, :waiting}` means no terminal receipt is available. A matching
+retirement receipt records `quarantined_copy_retained`; ordinary retention does
+not overwrite it or claim the files were removed. An explicit stale-revision or
+non-quarantined-session refusal restores prior custody. An uncertain response
+stays pending and cannot create a replacement until reconciled. Busy owner locks
+return `:quarantine_custody_busy`; retry the same action after its owner settles.

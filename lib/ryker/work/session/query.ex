@@ -426,6 +426,7 @@ defmodule Ryker.Work.Session.Query do
   end
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
   def lock_for_no_key_update(queryable), do: lock(queryable, "FOR NO KEY UPDATE")
   def lock_for_share_skip_locked(queryable), do: lock(queryable, "FOR SHARE SKIP LOCKED")
 

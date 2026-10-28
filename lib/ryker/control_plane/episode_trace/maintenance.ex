@@ -345,6 +345,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp retained_reason("unpublished_unmerged"),
     do: "The working copy was kept: it still holds unmerged commits."
 
+  defp retained_reason("quarantine_recovery_pending") do
+    "Ryker is waiting for the worker to retire this quarantined session's record. The working copy and its history stay on the worker."
+  end
+
+  defp retained_reason("quarantined_copy") do
+    "The worker retired the quarantined session's record. Its working copy and history were kept for recovery; no files were deleted."
+  end
+
   defp retained_reason(nil), do: "The working copy was kept. No reason was recorded."
   defp retained_reason(reason), do: "The working copy was kept: " <> human(reason) <> "."
 

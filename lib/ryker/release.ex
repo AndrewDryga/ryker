@@ -246,6 +246,27 @@ defmodule Ryker.Release do
     :ok
   end
 
+  @doc """
+  Performs one audited quarantine recovery request or reconciles its receipt.
+  Local host operators call this through the release with
+  `{:request, attributes}` or `{:settle, action_ref}`. This does not delete a
+  working copy or resume its episode. The request names the exact worker
+  revision, placement generation, actor and action.
+  """
+  @spec quarantine({:request, map()} | {:settle, String.t()}, keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def quarantine(operation, options \\ []) do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      case operation do
+        {:request, attributes} -> Operator.Quarantine.request(attributes)
+        {:settle, action_ref} -> Operator.Quarantine.settle(action_ref)
+        _invalid -> {:error, :invalid_quarantine_recovery}
+      end
+    end)
+  end
+
   defp preflight(configuration) do
     Operator.Preflight.run(
       configuration: configuration,

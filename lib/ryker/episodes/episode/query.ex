@@ -176,6 +176,7 @@ defmodule Ryker.Episodes.Episode.Query do
   end
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 
   def by_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do
     where(

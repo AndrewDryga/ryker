@@ -312,6 +312,9 @@ defmodule Ryker.Work.Custody.Sessions do
   # A conversation picked up again after its session closed takes a session kept ready for the
   # same pin, as a new conversation does, before Coop is asked to create one
   # (`ReadySessions.claim_successor_in_transaction/2`).
+  defp successor(_episode, %Session{retained_reason: "quarantine_recovery_pending"}),
+    do: {:error, :quarantine_recovery_pending}
+
   defp successor(episode, session) do
     case claim_ready_successor(episode, session) do
       {:ok, claimed} -> {:ok, claimed}

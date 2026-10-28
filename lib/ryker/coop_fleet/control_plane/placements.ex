@@ -793,7 +793,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # commands, so a poll and either could each wait for the other
   # (2026-10-04 review). They lock the workers holding the session's
   # placements first, in one order, as the poll does.
-  defp lock_holding_workers(session_id) do
+  @doc "Locks holders before an owner locks the session, matching placement and polling order."
+  def lock_holding_workers(session_id) do
     session_id
     |> Placement.Query.by_session_id()
     |> Placement.Query.select_worker_ids()

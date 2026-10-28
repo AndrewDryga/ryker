@@ -37,6 +37,9 @@ defmodule Ryker.CoopFleet.ControlPlane do
   @spec retire_session_placements(Ecto.UUID.t(), DateTime.t()) :: :ok
   defdelegate retire_session_placements(session_id, now), to: Placements
 
+  @doc "Locks a session's holders inside a transaction, before locking its local owner/session."
+  defdelegate lock_holding_workers(session_id), to: Placements
+
   @doc "Retires the placements no worker will renew."
   defdelegate retire_abandoned_placements(now, up_since), to: Placements
   defdelegate settle_orphaned_commands(now), to: Commands
