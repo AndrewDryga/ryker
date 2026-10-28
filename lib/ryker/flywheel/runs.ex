@@ -305,10 +305,7 @@ defmodule Ryker.Flywheel.Runs do
         end)
       end)
 
-    elapsed = DateTime.diff(Repo.now!(), run.inserted_at, :second)
-
-    Decimal.compare(spent, Decimal.new(run.policy["max_cost_usd"])) == :lt and
-      elapsed < run.policy["max_minutes"] * 60
+    Decimal.compare(spent, Decimal.new(run.policy["max_cost_usd"])) == :lt
   end
 
   defp source!(%Run{} = run, source),

@@ -21,7 +21,6 @@ defmodule Ryker.Flywheel.MigrationTest do
                "policy" => %{
                  "max_tasks" => 1,
                  "max_cost_usd" => "1.00",
-                 "max_minutes" => 1,
                  "allowed_kinds" => ["code"]
                }
              })

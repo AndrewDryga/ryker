@@ -235,6 +235,27 @@ defmodule Ryker.Flywheel.LedgerTest do
     assert decide(run, finding, "select") == {:error, :flywheel_budget_exhausted}
   end
 
+  test "elapsed time does not strand authorized work or erase its recorded policy" do
+    # A two-hour cutoff stopped an approved recovery with work still outstanding.
+    # Old run documents keep that historical field; time no longer revokes work.
+    run = start!("auto")
+    finding = finding!(run, "ryker")
+    recorded_policy = Map.put(run["policy"], "max_minutes", 120)
+
+    run["id"]
+    |> Run.Query.by_id()
+    |> Repo.fetch!()
+    |> Ecto.Changeset.change(
+      inserted_at: DateTime.add(Repo.now!(), -3, :hour),
+      policy: recorded_policy
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{"status" => "ready"}} = decide(run, finding, "select")
+    assert {:ok, %{"status" => "in_progress"}} = decide(run, finding, "start")
+    assert Repo.fetch!(Run.Query.by_id(run["id"])).policy == recorded_policy
+  end
+
   test "selected automatic work cannot start after its budget is exhausted" do
     run = start!("auto")
     finding = finding!(run, "ryker")
@@ -661,7 +682,6 @@ defmodule Ryker.Flywheel.LedgerTest do
     do: %{
       "max_tasks" => 3,
       "max_cost_usd" => "20.00",
-      "max_minutes" => 120,
       "allowed_kinds" => ["code", "settings", "tools", "user_action"]
     }
 

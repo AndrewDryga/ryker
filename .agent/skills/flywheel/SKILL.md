@@ -49,9 +49,11 @@ currently schedules that review or adds it to the weekly report.
 
 Use the requested period, normalized to UTC `[from, until)`. Otherwise use **since-last**;
 the first run starts seven days back. Freeze `until` at the start. State the chosen mode,
-period and limits. Honor supplied limits; otherwise use at most **3 selected tasks, $20 of
-new provider charges, and 120 minutes** per invocation. These defaults do not authorize a
-new paid account or purchase. If costs are unknown, reserve a conservative amount before
+period and limits. Honor supplied limits; otherwise use at most **3 selected tasks and $20 of
+new provider charges** per invocation. There is no elapsed-time cutoff: continue authorized
+work through verification and delivery, or until a genuine blocker or spending limit prevents
+further progress. These defaults do not authorize a new paid account or purchase. If costs are
+unknown, reserve a conservative amount before
 calling a paid provider or leave that action pending. Do not reset budgets by starting new
 passes within the same invocation. No scheduler is installed unless asked.
 

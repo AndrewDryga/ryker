@@ -13,7 +13,7 @@ The command returns a JSON document, exits unsuccessfully on refusal, and starts
 ## Start and resume
 
 ```json
-{"action":"start","request_ref":"daily-2026-10-25","mode":"suggest","from":"2026-10-18T00:00:00Z","until":"2026-10-25T00:00:00Z","sources":["episodes","feedback","diagnoses","usage","work","routing","memory","memory_reviews","settings_history","sentry","logs","metrics","evals","releases","tasks","tools","settings"],"policy":{"max_tasks":3,"max_cost_usd":"20.00","max_minutes":120,"allowed_kinds":["code","prompt","settings","tools","user_action","investigation"]}}
+{"action":"start","request_ref":"daily-2026-10-25","mode":"suggest","from":"2026-10-18T00:00:00Z","until":"2026-10-25T00:00:00Z","sources":["episodes","feedback","diagnoses","usage","work","routing","memory","memory_reviews","settings_history","sentry","logs","metrics","evals","releases","tasks","tools","settings"],"policy":{"max_tasks":3,"max_cost_usd":"20.00","allowed_kinds":["code","prompt","settings","tools","user_action","investigation"]}}
 ```
 
 For automatic continuation replace `from` with `"since_last":true`. The per-source start is
@@ -32,7 +32,7 @@ must describe the same request. A still-active run also requires its current lea
 
 The lease lasts 15 minutes. Resume with the current lease rotates it immediately; without it,
 resume is allowed only after expiry. Old writers are refused. `heartbeat` renews the current
-lease; it does not reset the invocation's time/spend limit. All remaining requests below include
+lease; it does not reset the invocation's spending or task budget. All remaining requests below include
 `"run_id":"UUID","lease_ref":"LEASE-UUID"` alongside their shown fields.
 
 ## Collect, stage, review, and record gaps
@@ -123,8 +123,9 @@ Record provider spend/reservations before more paid work. Amounts are decimal st
 
 Repeating a reference with the same amount is idempotent; a different amount is refused. Use
 another reference for an additional charge. Estimates should be conservative; the host cannot
-see a developer agent's billing account. Task count and elapsed time are also bounded by the
-run policy. The skill must honor these limits before all tool/model calls, not just selection.
+see a developer agent's billing account. Task count is also bounded by the run policy. There is
+no elapsed-time cutoff. The skill must honor spending and task limits before all tool/model
+calls, not just selection.
 
 An outcome decision includes `followup_at` (future next check) and:
 

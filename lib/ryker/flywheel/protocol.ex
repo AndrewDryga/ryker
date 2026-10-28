@@ -67,12 +67,11 @@ defmodule Ryker.Flywheel.Protocol do
         %{
           "max_tasks" => tasks,
           "max_cost_usd" => cost,
-          "max_minutes" => minutes,
           "allowed_kinds" => kinds
         } = policy
       ) do
-    Maps.exact_keys?(policy, ~w(max_tasks max_cost_usd max_minutes allowed_kinds)) and
-      integer_between?(tasks, 1, 100) and integer_between?(minutes, 1, 1440) and money?(cost) and
+    Maps.exact_keys?(policy, ~w(max_tasks max_cost_usd allowed_kinds)) and
+      integer_between?(tasks, 1, 100) and money?(cost) and
       is_list(kinds) and kinds != [] and Enum.all?(kinds, &(&1 in @kinds))
   end
 
