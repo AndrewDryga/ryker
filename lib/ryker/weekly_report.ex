@@ -19,8 +19,8 @@ defmodule Ryker.WeeklyReport do
   improvements from already-delivered public answers in this workspace. This
   uses the learning models with provider-only network access, never changes
   infrastructure, and never replaces Ryker's self-improvement Flywheel. The
-  ordinary report waits at most five minutes; an unavailable review is stated
-  explicitly. A queued report's contents never change except explicit deletion
+  ordinary report waits at most five minutes; an unavailable review is omitted.
+  A queued report's contents never change except explicit deletion
   or retention redaction of its source evidence.
 
   **Its week.** A report covers the seven days before it is sent: from the

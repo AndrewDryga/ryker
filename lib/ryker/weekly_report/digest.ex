@@ -383,10 +383,7 @@ defmodule Ryker.WeeklyReport.Digest do
 
   defp operational_review(nil), do: []
 
-  defp operational_review(%{status: :unavailable}),
-    do: [
-      "The operational review wasn't available for this report; this is not a new health check."
-    ]
+  defp operational_review(%{status: :unavailable}), do: []
 
   defp operational_review(%{status: :available, recommendations: []}),
     do: [

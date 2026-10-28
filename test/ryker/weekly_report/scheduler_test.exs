@@ -101,7 +101,9 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert Enum.map(reports(), & &1.week) == [~D[2026-10-05], ~D[2026-10-12]]
   end
 
-  test "a review may delay the report for five minutes but never replaces a frozen report" do
+  # An unavailable review added an empty status disclaimer to the weekly Slack
+  # report. Keep its diagnostic record without spending the reader's attention.
+  test "an unavailable review is omitted after five minutes without replacing the frozen report" do
     connect!(%{weekday: 1, local_time: ~T[09:00:00]})
     last_saved!(~U[2026-09-30 10:00:00.000000Z])
     review_settings = %{policy: "ryker-weekly-review", policy_digest: String.duplicate("a", 64)}
@@ -113,7 +115,11 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert {:ok, {:queued, report, _}} =
              WeeklyReport.run_once(Keyword.put(options, :now, ~U[2026-10-05 09:05:00Z]))
 
-    assert report.document["message"] =~ "operational review wasn't available"
+    assert report.document["message"] == """
+           Hey everyone 👋 Here's my weekly report for 28 Sep – 5 Oct.
+
+           It was a quiet week: nobody asked me for anything.\
+           """
 
     assert {:ok, {:waiting, _}} =
              WeeklyReport.run_once(Keyword.put(options, :now, ~U[2026-10-05 09:06:00Z]))
