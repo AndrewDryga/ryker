@@ -49,8 +49,14 @@ defmodule Ryker.Work.DispatcherTest do
     reason = {:coop_worker_capacity_unavailable, "session:queued"}
     storage = {:coop_operation_failed, "storage_unavailable", "refusing a new workspace"}
 
+    # Seven live Work requests were blocked by this controller-side
+    # reserve refusal even though the worker later had ample space.
     for failure <-
           List.duplicate(reason, 10) ++
+            List.duplicate(
+              {:coop_worker_storage_refused, "session:queued", "reserve_exhausted"},
+              10
+            ) ++
             List.duplicate({:work_generation_spent, :session_create, storage}, 10) ++
             List.duplicate(
               {:coop_error, 503, "storage_unavailable", "refusing a new workspace"},

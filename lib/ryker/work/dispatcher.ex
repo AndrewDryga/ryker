@@ -425,6 +425,7 @@ defmodule Ryker.Work.Dispatcher do
   end
 
   defp capacity_wait?({:coop_worker_capacity_unavailable, _session_id}), do: true
+  defp capacity_wait?({:coop_worker_storage_refused, _session_id, _detail}), do: true
   defp capacity_wait?({:coop_error, _status, "storage_unavailable", _detail}), do: true
 
   defp capacity_wait?(

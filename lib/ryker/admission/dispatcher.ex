@@ -98,6 +98,14 @@ defmodule Ryker.Admission.Dispatcher do
   defp dispatch_failure(
          claim,
          input_ref,
+         {:coop_worker_storage_refused, _session_id, _detail} = reason,
+         settings
+       ),
+       do: wait_for_capacity(claim, input_ref, reason, :wait, settings)
+
+  defp dispatch_failure(
+         claim,
+         input_ref,
          {:coop_error, _status, "storage_unavailable", _detail} = reason,
          settings
        ),
