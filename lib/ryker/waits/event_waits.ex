@@ -14,10 +14,12 @@ defmodule Ryker.Waits.EventWaits do
   alias Ryker.UTCDateTime
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventSubscriptions
+  alias Ryker.Waits.Inputs
 
   @spec resume_due() :: {:ok, :idle | map()} | {:error, term()}
   def resume_due do
-    with {:ok, _reconciled} <- EventSubscriptions.reconcile(),
+    with {:ok, _resumed} <- Inputs.reconcile(),
+         {:ok, _reconciled} <- EventSubscriptions.reconcile(),
          {:ok, now} <- database_now() do
       case fetch_due(now) do
         {:error, :not_found} ->

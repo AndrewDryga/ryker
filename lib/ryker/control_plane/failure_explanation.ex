@@ -396,6 +396,23 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp story(%{kind: "emisar"} = row, now), do: emisar(row, now)
   defp story(%{kind: "publication"} = row, now), do: publication(row, now)
   defp story(%{kind: "learning"} = row, now), do: learning(row, now)
+
+  defp story(%{kind: "waiting"}, _now) do
+    %{
+      title: "A received reply has not resumed its task",
+      impact: :people,
+      lede: "Ryker received the reply or event it was waiting for, but has not continued.",
+      summary: "A received reply or event has not resumed its task.",
+      happened: ["The input is saved. The task still holds the wait that input can release."],
+      affects: ["The person who asked is still waiting for the task to continue."],
+      tried: ["Ryker checks these waits automatically and resumes them from the saved input."],
+      if_left:
+        "Ryker will retry the continuation; the original messages and working copy are retained.",
+      outlook: :automatic,
+      outlook_note: "If this persists, inspect Ryker's logs for this task's wait-resume error."
+    }
+  end
+
   defp story(row, now), do: generic(row, now)
 
   # A cause is {why in one sentence, the longer why, outlook, what the outlook

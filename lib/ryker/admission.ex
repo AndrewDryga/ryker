@@ -23,11 +23,11 @@ defmodule Ryker.Admission do
   alias Ryker.Learning
   alias Ryker.LocalRouting
   alias Ryker.People
-  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Text
   alias Ryker.UTCDateTime
+  alias Ryker.Waits
   alias Ryker.Work
   require Logger
 
@@ -1088,8 +1088,13 @@ defmodule Ryker.Admission do
     existing = existing_episode(selection)
 
     with {:ok, [admitted]} <- apply_admit(admit, existing),
-         {:ok, met} <- answer_met_watches(existing, admitted.episode, context.input),
-         {:ok, resumed} <- maybe_resume_wait(context, selection, admit, admitted.episode, met) do
+         {:ok, resumed} <-
+           Waits.Inputs.resume_in_transaction(
+             admitted.episode,
+             context.input,
+             admitted.event,
+             context.input_entry
+           ) do
       transitions = [admitted | resumed]
       {:ok, transitions, transitions |> List.last() |> Map.fetch!(:episode)}
     end
@@ -1098,13 +1103,6 @@ defmodule Ryker.Admission do
   defp apply_admit(admit, %Episodes.Episode{}), do: Episodes.apply_batch_in_transaction([admit])
 
   defp apply_admit(admit, nil), do: Episodes.apply_batch_in_transaction([admit])
-
-  # A watch riding beside the wait an episode holds hears its event here; the
-  # wait itself is resumed by `maybe_resume_wait/5`.
-  defp answer_met_watches(nil, _episode, _input), do: {:ok, []}
-
-  defp answer_met_watches(%Episodes.Episode{}, episode, input),
-    do: Records.answer_met_watches_in_transaction(episode, input)
 
   defp admit_command(context, entry, selection) do
     existing = existing_episode(selection)
@@ -1124,58 +1122,6 @@ defmodule Ryker.Admission do
       revision: input.revision,
       turn_ref: turn_ref
     }
-  end
-
-  defp maybe_resume_wait(context, selection, admit, current, met) do
-    existing = existing_episode(selection)
-
-    cond do
-      is_nil(existing) or not waiting?(current) or
-          not input_after_wait?(current, context.input.occurred_at) ->
-        {:ok, []}
-
-      Records.user_resumable_wait?(current.owner_ref, context.input) ->
-        with :ok <- Records.InputRequests.associate_in_transaction(current, context.input_entry),
-             {:ok, transitions} <- resume_wait(context, admit, current),
-             :ok <-
-               Records.resolve_wait_in_transaction(current.owner_ref, context.input.event_kind) do
-          {:ok, transitions}
-        end
-
-      # V7, Andrew 2026-10-12: a person writing while the task waits on an
-      # Emisar approval wakes it now, where "never mind" used to wait up to a
-      # day. The approval stays open, since only Emisar answers it: its result
-      # still resumes the task, which waits on it again (`Ryker.Work.Validator`),
-      # and closing it would cancel the run in Emisar (`Ryker.Emisar.Approvals`).
-      person_wakes_approval?(context.input, current) ->
-        resume_wait(context, admit, current)
-
-      # A watch beside the watch the task waits on heard its event: the task
-      # wakes as it would for its own, and the wait it held stays open for its
-      # next turn. Several watches may wait together (`Ryker.Work.Validator`).
-      met != [] and Records.open_event_wait?(current.id, current.owner_ref) ->
-        resume_wait(context, admit, current)
-
-      true ->
-        {:ok, []}
-    end
-  end
-
-  defp person_wakes_approval?(%{actor: %{kind: :user}}, current),
-    do: Records.open_approval_wait?(current.id, current.owner_ref)
-
-  defp person_wakes_approval?(_input, _current), do: false
-
-  defp resume_wait(context, admit, current) do
-    Episodes.apply_batch_in_transaction([
-      %Episodes.Command.ResumeWait{
-        episode_key: current.key,
-        expected_wait: %{kind: current.owner_kind, ref: current.owner_ref},
-        occurred_at: context.input.occurred_at,
-        resolution_ref: Episodes.Command.dedupe_key(admit),
-        turn_ref: admit.turn_ref
-      }
-    ])
   end
 
   defp existing_episode(%{
@@ -1214,27 +1160,6 @@ defmodule Ryker.Admission do
     do: "shadow:#{input.native_input_id}:#{entry_id}"
 
   defp routed_native_input_id(input, _entry), do: input.native_input_id
-
-  defp waiting?(%Episodes.Episode{state: state})
-       when state in [:waiting_for_input, :waiting_for_event],
-       do: true
-
-  defp waiting?(_episode), do: false
-
-  defp input_after_wait?(%Episodes.Episode{} = episode, occurred_at) do
-    wait_mark =
-      episode.id
-      |> Episodes.Event.Query.by_episode_id()
-      |> Episodes.Event.Query.wait_marks(episode.owner_ref)
-      |> Episodes.Event.Query.ordered_by_sequence_desc()
-      |> Episodes.Event.Query.limit_to(1)
-      |> Repo.fetch()
-
-    case wait_mark do
-      {:error, :not_found} -> false
-      {:ok, event} -> DateTime.compare(occurred_at, event.occurred_at) == :gt
-    end
-  end
 
   defp persist_decision(entry, decision, decision_ref, episode) do
     entry

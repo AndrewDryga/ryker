@@ -104,6 +104,16 @@ defmodule Ryker.Episodes.Episode.Query do
 
   def ordered_by_id(queryable), do: order_by(queryable, [episode_kernel_episodes: e], asc: e.id)
 
+  @doc "Waiting requests with admitted inputs still queued, oldest first."
+  def waiting_with_queued_inputs(queryable \\ all()) do
+    where(
+      queryable,
+      [episode_kernel_episodes: e],
+      e.state in [:waiting_for_input, :waiting_for_event] and e.queued_input_refs != []
+    )
+    |> order_by([episode_kernel_episodes: e], asc: e.updated_at, asc: e.id)
+  end
+
   @doc "Episodes Work is running a turn of."
   def working_on_turns(queryable \\ all()) do
     where(

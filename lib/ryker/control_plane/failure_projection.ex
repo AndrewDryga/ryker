@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.Waits
   alias Ryker.Work
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck
@@ -36,7 +37,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   @page_size 100
   @maximum_page 100
   @kinds ~w(admission delivery emisar learning publication retention slack_incident
-            slack_interaction slack_task_card slack_thread_status stopping work)
+            slack_interaction slack_task_card slack_thread_status stopping waiting work)
 
   @doc """
   One page of every blocked item, newest first, a hundred to a page (`"page"`
@@ -78,6 +79,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Failure.Query.limit_to(deep.("work"))
       |> Repo.all()
       |> Enum.map(&work_item/1)
+
+    waiting = deep.("waiting") |> Waits.Inputs.pending() |> Enum.map(&waiting_item/1)
 
     admission =
       Ingress.Inbox.Entry.Query.blocked()
@@ -158,6 +161,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
           Enum.map(delivery_items, &delivery_item/1) ++
           retention ++
           stopping ++
+          waiting ++
           interaction_feedback ++
           incident_rooms ++
           task_cards ++
@@ -245,6 +249,15 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp failure_exact("slack_thread_status", ref), do: slack_thread_status(ref)
   defp failure_exact("work", ref), do: work(ref)
 
+  defp failure_exact("waiting", ref) do
+    with {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_key(ref)),
+         {:ok, resume} <- Waits.Inputs.fetch_pending(episode) do
+      {:ok, waiting_item(%{episode: episode, resume: resume})}
+    else
+      {:error, :not_found} -> :not_found
+    end
+  end
+
   defp failure_exact("publication", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     found = Repo.peek(Failure.Query.failing_publication(@running_publication_statuses, ref))
     if found, do: {:ok, publication_item(found)}, else: :not_found
@@ -275,6 +288,24 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   defp failure_exact(_kind, _ref), do: :not_found
+
+  defp waiting_item(%{episode: episode, resume: %{event: event}}) do
+    %{
+      action: nil,
+      attempt_count: 0,
+      detail: nil,
+      diagnosis: [],
+      destination: failure_destination(episode),
+      episode_id: episode.id,
+      episode_ref: episode.key,
+      kind: "waiting",
+      ref: episode.key,
+      source: episode.destination_transport,
+      status: :pending,
+      summary: "A reply or event arrived, but the task is still waiting.",
+      updated_at: event.inserted_at
+    }
+  end
 
   def delivery(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Operator.Delivery.fetch(ref) do

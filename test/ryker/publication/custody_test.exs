@@ -291,6 +291,7 @@ defmodule Ryker.Publication.CustodyTest do
              PublicationCustody.delivery_request(published_delivery_claim.publication)
 
     assert published_delivery.document["message"] =~ "pull/91"
+    assert published_delivery.document["message"] =~ publication_receipt["commit_sha"]
 
     assert {:ok, published_receipt} =
              DeliveryReceipt.new(
@@ -550,7 +551,7 @@ defmodule Ryker.Publication.CustodyTest do
     refute card =~ "trusted review details"
 
     assert rendered["text"] ==
-             "I can't open a draft pull request for the committed change yet."
+             "The local change is not published: the repository's checks failed on the committed change."
 
     assert card =~ "The repository's checks failed on the committed change."
     assert card =~ "Reply in this thread to ask me to fix it"
@@ -1273,6 +1274,51 @@ defmodule Ryker.Publication.CustodyTest do
     end
   end
 
+  # A retained correction was called fixed with only deployment remaining, but
+  # review refused publication and the remote draft never received the patch.
+  test "a local task completion cannot claim that its unpublished correction is delivered" do
+    %{claim: claim} = task_episode!("publication-truth")
+    correction = corrected_candidate!(claim, "publication-truth", "one")
+
+    assert correction.turn.delivery_document["message"] =~ "prepared locally"
+    assert correction.turn.delivery_document["message"] =~ "not yet updated"
+    assert correction.turn.candidate =~ "correction is committed"
+
+    published = publish_task_publication!(correction.claim, "publication-truth", "one")
+    assert {:ok, repeated} = reaccept!(correction)
+    assert repeated.turn.delivery_document == correction.turn.delivery_document
+    assert repeated.turn.delivery_fingerprint == correction.turn.delivery_fingerprint
+    assert published.status == :published
+  end
+
+  test "a publication refusal explains the concrete policy blocker in its text" do
+    %{review_request: request} =
+      task_reviewed_publication!("concrete-blocker",
+        confirmed_repository: "ryker",
+        policy_findings: [".github/workflows/check.yml — Runs on project runners."]
+      )
+
+    assert request.document["message"] =~ "not published"
+    assert request.document["message"] =~ ".github/workflows/check.yml"
+    assert request.document["message"] =~ "runs on project runners"
+  end
+
+  test "a policy finding displays change-controlled filenames as literals" do
+    for {suffix, path} <- [
+          {"link", ".github/workflows/[inspect](mailto:attacker@example.com).yml"},
+          {"delimiter", ".github/workflows/`[inspect](mailto:attacker@example.com).yml"}
+        ] do
+      %{review_request: request} =
+        task_reviewed_publication!("literal-path-#{suffix}",
+          confirmed_repository: "ryker",
+          policy_findings: ["#{path} — Runs on project runners."]
+        )
+
+      message = request.document["message"]
+      if suffix == "link", do: assert(message =~ "`#{path}`"), else: refute(message =~ path)
+    end
+  end
+
   # A correction reached nothing. Readiness refused a second publication for an
   # episode that already had one, so the corrected candidate never ran its
   # checks and never reached the pull request the host had already opened: the
@@ -1634,7 +1680,8 @@ defmodule Ryker.Publication.CustodyTest do
     authorized = review_task_publication!(publication, first, "in-flight", "one")
     assert authorized.status == :publish_pending
 
-    corrected_candidate!(first, "in-flight", "two")
+    correction = corrected_candidate!(first, "in-flight", "two")
+    assert correction.turn.delivery_document["message"] =~ "not yet updated"
 
     assert [held] = Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
     assert held.id == authorized.id

@@ -105,7 +105,7 @@ defmodule Ryker.Admission.Prompt do
     episode even when the update asks no question; do not ignore the event that closes active work.
   - A different explicit run ID or alert start identity is new work. Never merge it into an older
     completed lifecycle merely because the provider, project, alert name, wording, or arrival time is
-    similar. Start a new episode and use history_only when the offered episode is related background.
+    similar. When it needs work, start a new episode and use history_only for related background.
   - A completed episode may be continued only for a genuine follow-up to that same lifecycle or
     conversation. A new firing/start identity after completion begins linked new work.
 
@@ -117,6 +117,18 @@ defmodule Ryker.Admission.Prompt do
   provider status. This read-only investigation is useful without a custom assignment; it does not
   authorize approving a plan, performing a deployment, or operating notification controls. A routine
   successful build with a deployment button is not by itself a deployment or readiness review.
+
+  Tracking a source identity does not require starting an investigation. For an ambient automated
+  run-created, queued or planning notification with no fault, material plan or explicit assignment,
+  choose ignore: ingress retains the notification and routes later source updates independently.
+  Do not start full Work just to poll for a plan or create a wait. A later material plan, request for
+  confirmation, failed run, apply in progress or health regression merits work even if its earlier
+  creation was ignored. Keep its exact run identity; do not join a different run. A routine terminal
+  notification that establishes no changes, or a successful build that is not a deployment, can be
+  ignored quietly without active work or a human request. A completed deployment with material
+  changes still merits post-apply health follow-through when it is first seen; success alone does
+  not establish no changes. This is not evidence that an unfinished plan has no changes. Explicit requests and standing
+  assignments still apply, and updates that satisfy an existing wait must continue that work.
 
   """
 
