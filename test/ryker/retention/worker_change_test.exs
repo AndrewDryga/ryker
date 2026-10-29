@@ -687,7 +687,70 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert Repo.get!(Session, session.id).cleanup_receipt == nil
   end
 
-  test "a truncated creation journal never establishes a unique resource" do
+  test "repeated pending reads cannot hide an exact terminal create result" do
+    # Two live requests had 115 and 120 status polls before storage refusal.
+    # Counting those polls as distinct evidence blocked both despite the exact
+    # failed operation proving that neither create left a session behind.
+    for state <- ["failed", "succeeded"] do
+      worker = enroll!("polled-create-#{state}")
+      {session, remote} = unbound_created_session!("polled-create-#{state}", worker)
+
+      read =
+        Repo.one!(
+          from(c in Command,
+            where: c.session_id == ^session.id and c.kind == "reconcile_operation"
+          )
+        )
+
+      terminal = read.result["body"]
+
+      terminal =
+        if state == "failed" do
+          terminal |> Map.put("state", "failed") |> Map.drop(["resource_id", "resource_type"])
+        else
+          terminal
+        end
+
+      Repo.update!(Ecto.Changeset.change(read, result: %{read.result | "body" => terminal}))
+
+      pending =
+        terminal |> Map.put("state", "running") |> Map.drop(["resource_id", "resource_type"])
+
+      for index <- 1..120 do
+        key = "read:polled-create:#{state}:#{index}:#{session.id}"
+
+        copy = %{
+          read
+          | id: Ecto.UUID.generate(),
+            idempotency_key: key,
+            completed_at: DateTime.add(read.completed_at, index, :second),
+            result: %{read.result | "body" => pending}
+        }
+
+        fingerprint =
+          Ryker.CanonicalJSON.digest(%{
+            "idempotency_key" => key,
+            "kind" => copy.kind,
+            "payload" => copy.payload,
+            "placement_id" => copy.placement_id,
+            "version" => copy.command_version
+          })
+
+        Repo.insert!(%{copy | payload_fingerprint: fingerprint})
+      end
+
+      if state == "failed" do
+        assert Creation.resolve(session) == {:ok, :absent}
+      else
+        assert {:ok, {:created, _, id}} = Creation.resolve(session)
+        assert id == remote.coop_session_id
+      end
+
+      assert Repo.get!(Session, session.id).coop_session_id == nil
+    end
+  end
+
+  test "conflicting terminal evidence survives more than one hundred later duplicates" do
     worker = enroll!("bounded-journal")
     {session, _remote} = unbound_created_session!("bounded-journal", worker)
 
@@ -696,9 +759,16 @@ defmodule Ryker.Retention.WorkerChangeTest do
         from(c in Command, where: c.session_id == ^session.id and c.kind == "reconcile_operation")
       )
 
-    for index <- 1..100 do
+    for index <- 1..120 do
       key = "read:bounded-journal:#{index}:#{session.id}"
-      copy = %{reconciliation | id: Ecto.UUID.generate(), idempotency_key: key}
+
+      copy = %{
+        reconciliation
+        | id: Ecto.UUID.generate(),
+          idempotency_key: key,
+          completed_at: DateTime.add(reconciliation.completed_at, index, :second),
+          result: put_in(reconciliation.result, ["body", "resource_id"], "conflicting-session")
+      }
 
       fingerprint =
         Ryker.CanonicalJSON.digest(%{

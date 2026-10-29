@@ -76,8 +76,8 @@ defmodule Ryker.CoopFleet.Command.Query do
     |> ordered_by_oldest()
   end
 
-  @doc "Terminal create reconciliations on the original holder, including cleanup-only recovery."
-  def creation_reconciliations(command) do
+  @doc "Every distinct create reconciliation result on the original holder, including cleanup-only recovery."
+  def select_creation_reconciliation_results(command) do
     from(c in all(),
       join: p in Placement,
       on:
@@ -90,8 +90,8 @@ defmodule Ryker.CoopFleet.Command.Query do
       where:
         c.placement_id == ^command.placement_id or
           fragment("(?::jsonb ->> 'purpose') = 'stop_or_cleanup'", p.requirements),
-      order_by: [desc: c.completed_at, desc: c.id],
-      limit: 101
+      distinct: true,
+      select: c.result
     )
   end
 

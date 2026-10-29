@@ -94,12 +94,12 @@ defmodule Ryker.Retention.Creation do
 
     reconciliations =
       command
-      |> CoopFleet.Command.Query.creation_reconciliations()
+      |> CoopFleet.Command.Query.select_creation_reconciliation_results()
       |> Repo.all()
 
     reconciled =
       reconciliations
-      |> Enum.map(&operation(&1.result))
+      |> Enum.map(&operation/1)
       |> Enum.filter(&(same_operation?(&1, operation) and terminal?(&1)))
 
     results = if terminal?(operation), do: [operation | reconciled], else: reconciled
@@ -107,17 +107,13 @@ defmodule Ryker.Retention.Creation do
     # A refused create made nothing however often cleanup asked about it since; only an answer
     # naming an operation could say otherwise. Counting the questions first turned a worker's
     # refusal into "ambiguous" once cleanup had asked 100 times (2026-10-12, 116 asks).
-    cond do
-      refused?(command) and is_nil(operation) and
-          Enum.all?(reconciliations, &is_nil(operation(&1.result))) ->
-        :absent
-
-      length(reconciliations) > 100 ->
-        {:error, :retention_creation_ambiguous}
-
-      true ->
-        terminal_result(results, command)
-    end
+    # Repeated pending reads are one observation, not conflicting resources.
+    # Read every distinct result: a row limit hid old proof and also rejected
+    # exact terminal proof after a slow create had been polled 115 times.
+    if refused?(command) and is_nil(operation) and
+         Enum.all?(reconciliations, &is_nil(operation(&1))),
+       do: :absent,
+       else: terminal_result(results, command)
   end
 
   defp terminal_result(results, command) do
