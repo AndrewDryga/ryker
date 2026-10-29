@@ -2229,6 +2229,98 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _session, "reconcile_operation", _payload, _key, _options}
   end
 
+  # A production cancellation retried sixty times because it had no live state-tool
+  # binding and rejected the descriptor on its own already-sent frozen submit.
+  test "a stop reconciles its original submit without recreating its state-tool binding", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-stop-binding")
+    key = "ryker:work:turn:stop-binding:g1"
+
+    submission = %{
+      "contract_version" => "work-final-live-v3",
+      "context" => %{"turn_ref" => "turn-stop-binding"},
+      "input_artifact_refs" => [],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "Use the exact frozen input."
+    }
+
+    payload = %{
+      "coop_session_id" => session.coop_session_id,
+      "expected_revision" => 3,
+      "submission" => submission,
+      "submission_sha256" => CanonicalJSON.worker_digest(submission),
+      "turn_ref" => "turn-stop-binding",
+      "controller_tools" => %{
+        "endpoint" => "https://ryker.example/v1/state-tools/mcp",
+        "token_sha256" => String.duplicate("a", 64)
+      }
+    }
+
+    command = command!(session, "stop-binding", kind: "submit_turn", payload: payload, key: key)
+
+    operation = %{"id" => "submit-stop-binding", "method" => "SubmitTurn", "state" => "running"}
+    Process.put(:coop_fleet_await_result, {:ok, %{"operation" => operation}})
+
+    assert {:ok, ^operation} =
+             Client.fence_frozen_turn(
+               client,
+               session.coop_session_id,
+               key,
+               3,
+               submission,
+               nil,
+               []
+             )
+
+    assert_receive {:fleet_await, command_id}
+    assert command_id == command.id
+    assert Repo.get!(Command, command.id) == command
+
+    command =
+      complete_command!(command, :failed, nil, %{
+        "code" => "invalid_command",
+        "detail" => "frozen submission digest does not match"
+      })
+
+    assert {:ok, %{"method" => "SubmitTurn", "state" => "failed"}} =
+             Client.fence_frozen_turn(
+               client,
+               session.coop_session_id,
+               key,
+               3,
+               submission,
+               nil,
+               []
+             )
+
+    for {revision, frozen, tools} <- [
+          {4, submission, nil},
+          {3, Map.put(submission, "prompt", "Changed input."), nil},
+          {3, submission,
+           %{
+             "endpoint" => "https://ryker.example/v1/state-tools/mcp",
+             "token" => String.duplicate("b", 64) <> String.duplicate("c", 43)
+           }}
+        ] do
+      assert {:error, {:coop_worker_command_conflict, ^key}} =
+               Client.fence_frozen_turn(
+                 client,
+                 session.coop_session_id,
+                 key,
+                 revision,
+                 frozen,
+                 tools,
+                 []
+               )
+    end
+
+    assert Repo.get!(Command, command.id) == command
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
   test "a recovered review must match the original session revision and operation", %{
     client: client,
     session: session

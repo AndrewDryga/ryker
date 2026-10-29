@@ -764,7 +764,11 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert {:ok, %{document: %{"task_card" => card}}} = TaskCardProjection.build(card_record)
 
     assert card["action_needed"] ==
-             "The task stopped and needs a person. The cause is on Ryker's Failures page."
+             "The worker rejected the operation: workspace task requires an unused writable open session\n" <>
+               "Correct the condition the worker named, then retry this task."
+
+    refute card["action_needed"] =~ "coop_error"
+    refute card["action_needed"] =~ "invalid_session_state"
 
     # A person's Stop saves the sentence its control wrote, and the card keeps it.
     stop =

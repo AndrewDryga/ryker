@@ -1238,10 +1238,21 @@ defmodule Ryker.CoopFleet.Client do
   # ended; the stop's fence then carried other controller tools and was refused
   # as a conflict on every attempt (2026-10-12).
   defp fenced_command(client, command, key, payload) do
-    if Commands.never_sent?(command) or command.payload == payload,
+    if Commands.never_sent?(command) or matching_fence?(command, payload),
       do: operation_by_key(client, key, &fenced_workspace/4),
       else: {:error, {:coop_worker_command_conflict, key}}
   end
+
+  # A stop has no live state-tool binding. It reads the original command's
+  # outcome; it never submits the incomplete fence payload or changes that
+  # command. Every other frozen field must still identify the exact request.
+  defp matching_fence?(%Command{kind: "submit_turn", payload: original}, payload) do
+    original == payload or
+      (not Map.has_key?(payload, "controller_tools") and
+         Map.delete(original, "controller_tools") == payload)
+  end
+
+  defp matching_fence?(command, payload), do: command.payload == payload
 
   # A fence asks what a create did. A session Coop refused its workspace task
   # for good (a read-only session, 409 invalid_session_state) still exists and
