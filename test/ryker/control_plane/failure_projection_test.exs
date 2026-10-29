@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Actions, ConversationMemory, FailureExplanation, FailureProjection}
   alias Ryker.ControlPlane.{FailuresPage, Pages, Projection, WorkspaceProjection}
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet.{ControlPlane, Placement}
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
@@ -628,6 +628,48 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert Enum.join(explanation.cause, " ") =~ row.cause
     assert explanation.outlook == :automatic
     refute inspect(explanation) =~ detail
+  end
+
+  # A stop spent more than one hundred attempts behind one workspace refusal;
+  # the cause was visible but the rejected worker request was not identifiable.
+  test "a stop identifies its latest failed worker request without exposing its body" do
+    work = stopping_turn!("refused-request")
+    place_on_worker!(work.session)
+
+    placement = Repo.get_by!(Placement, session_id: work.session.id)
+
+    placement
+    |> Ecto.Changeset.change(
+      state: :active,
+      lease_expires_at: DateTime.add(DateTime.utc_now(), 60)
+    )
+    |> Repo.update!()
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "ensure_workspace",
+               %{"private_payload" => "never show this body"},
+               "private-request-key"
+             )
+
+    command
+    |> Ecto.Changeset.change(
+      status: :failed,
+      completed_at: DateTime.utc_now(),
+      operation_key: command.idempotency_key,
+      error: %{"code" => "invalid_session_state", "status" => 409, "detail" => "private cause"},
+      result_fingerprint: digest("worker-refusal")
+    )
+    |> Repo.update!()
+
+    assert {:ok, row} = FailureProjection.fetch("stopping", work.episode.key)
+    details = FailureExplanation.details(row)
+
+    assert %{label: "Latest failed worker request", value: "Set up the working copy"} in details
+    refute inspect(details) =~ "never show this body"
+    refute inspect(details) =~ "private-request-key"
+    refute inspect(details) =~ "private cause"
   end
 
   # Found reading Work cancellation on 2026-09-24: a stop whose worker stopped
