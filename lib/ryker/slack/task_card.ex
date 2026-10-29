@@ -25,6 +25,11 @@ defmodule Ryker.Slack.TaskCard do
     timestamps()
   end
 
+  @doc "Stable delivery metadata for this card's own message, distinct from the former shared reply."
+  @spec delivery_ref(t()) :: String.t()
+  def delivery_ref(%__MODULE__{id: id}) when is_binary(id), do: "task-card-message:#{id}"
+  def delivery_ref(_card), do: raise(ArgumentError, "invalid task card")
+
   @type t :: %__MODULE__{
           id: Ecto.UUID.t() | nil,
           record_id: Ecto.UUID.t() | nil,

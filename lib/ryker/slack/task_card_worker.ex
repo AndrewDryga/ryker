@@ -17,7 +17,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Records
-  alias Ryker.Slack.{TaskCardProjection, TaskCards}
+  alias Ryker.Slack.{TaskCard, TaskCardProjection, TaskCards}
   require Logger
 
   @default_interval_ms 1_000
@@ -43,6 +43,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   # here once more to find the card unchanged.
   @impl PollingWorker
   def woken({:episode_updated, episode_id}, _options), do: TaskCards.check_soon(episode_id)
+  def woken({:record_updated, record_id}, _options), do: TaskCards.check_offer_soon(record_id)
   def woken(_message, _options), do: :ok
 
   # Offers whose card this worker could not build: passed over until it restarts.
@@ -118,13 +119,14 @@ defmodule Ryker.Slack.TaskCardWorker do
 
   defp refresh(card, options) do
     with {:ok, projection} <- build(card),
-         :ok <- maybe_update(card, projection, options),
+         {:ok, message_ref} <- maybe_update(card, projection, options),
          {:ok, marked} <-
            TaskCards.mark(
              card.id,
              card.lease_ref,
              projection.fingerprint,
-             projection.ui_revision
+             projection.ui_revision,
+             message_ref
            ) do
       {:ok, {:updated, marked.ref}}
     else
@@ -190,20 +192,56 @@ defmodule Ryker.Slack.TaskCardWorker do
   defp permanent?(_reason), do: false
 
   defp maybe_update(
-         %{card_fingerprint: fingerprint, card_ui_revision: revision},
+         %{message_ref: message_ref, card_fingerprint: fingerprint, card_ui_revision: revision},
          %{fingerprint: fingerprint, ui_revision: revision},
          _options
        ),
-       do: :ok
+       do: {:ok, message_ref}
+
+  defp maybe_update(%{message_ref: nil} = card, projection, options) do
+    case options.api.find_message(
+           options.client,
+           card.channel_ref,
+           card.thread_ref,
+           TaskCard.delivery_ref(card)
+         ) do
+      {:ok, message_ref} ->
+        # A response-lost post may contain an older offer; update it before marking
+        # the current projection as delivered.
+        with :ok <-
+               options.api.update_message(
+                 options.client,
+                 card.channel_ref,
+                 message_ref,
+                 projection.document,
+                 TaskCard.delivery_ref(card)
+               ),
+             do: {:ok, message_ref}
+
+      :not_found ->
+        options.api.post_message(
+          options.client,
+          card.channel_ref,
+          card.thread_ref,
+          projection.document,
+          TaskCard.delivery_ref(card)
+        )
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp maybe_update(card, projection, options) do
-    options.api.update_message(
-      options.client,
-      card.channel_ref,
-      card.message_ref,
-      projection.document,
-      card.ref
-    )
+    with :ok <-
+           options.api.update_message(
+             options.client,
+             card.channel_ref,
+             card.message_ref,
+             projection.document,
+             TaskCard.delivery_ref(card)
+           ),
+         do: {:ok, card.message_ref}
   end
 
   defp defer(card, reason, options) do

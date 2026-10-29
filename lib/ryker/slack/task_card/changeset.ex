@@ -28,6 +28,9 @@ defmodule Ryker.Slack.TaskCard.Changeset do
 
   @insert_required @fields --
                      [
+                       :episode_id,
+                       :message_ref,
+                       :thread_ref,
                        :card_checked_at,
                        :card_fingerprint,
                        :card_ui_revision,
@@ -49,7 +52,7 @@ defmodule Ryker.Slack.TaskCard.Changeset do
 
   def update(%TaskCard{} = card, attributes) do
     card
-    |> cast(attributes, @fields -- [:id, :record_id, :episode_id, :ref])
+    |> cast(attributes, @fields -- [:id, :record_id, :ref])
     |> validate_card()
   end
 

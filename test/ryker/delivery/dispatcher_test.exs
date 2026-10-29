@@ -23,6 +23,7 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.Slack.Input
   alias Ryker.Slack.Mentions
   alias Ryker.Slack.Publisher, as: SlackPublisher
+  alias Ryker.Slack.TaskCards
   alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
@@ -209,7 +210,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert Repo.get!(Turn, accepted.turn.id).status == :settled
   end
 
-  test "a cited task offer is materialized from the owning episode for platform rendering" do
+  test "a cited Slack task offer keeps independent custody after the prose is delivered" do
     task =
       TaskOffer.payload(%{
         "prompt" => "Change the parser and run focused tests.",
@@ -224,17 +225,12 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     assert [{:message, request}] = Agent.get(publisher, &Enum.reverse(&1.calls))
 
-    assert request.document == %{
-             "message" => "Finished from generic delivery.",
-             "records" => [
-               %{
-                 "kind" => "task_offer",
-                 "payload" => task,
-                 "ref" => accepted.record.ref,
-                 "status" => "open"
-               }
-             ]
-           }
+    assert request.document == %{"message" => "Finished from generic delivery."}
+    assert {:ok, card} = TaskCards.ensure_one()
+    assert card.record_id == accepted.record.id
+    assert card.episode_id == nil
+    assert card.message_ref == nil
+    assert card.thread_ref == request.thread_ref
   end
 
   test "an accepted generated image reaches the publisher as verified bytes" do

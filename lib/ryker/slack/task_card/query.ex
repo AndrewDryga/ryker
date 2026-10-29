@@ -36,6 +36,9 @@ defmodule Ryker.Slack.TaskCard.Query do
       else: query
   end
 
+  def by_record_id(queryable \\ all(), id),
+    do: where(queryable, [slack_task_cards: c], c.record_id == ^id)
+
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
   def blocked(queryable \\ all()),
@@ -92,7 +95,8 @@ defmodule Ryker.Slack.TaskCard.Query do
     from(card in all(),
       where:
         card.episode_id == ^episode_id and card.workspace_ref == ^workspace_ref and
-          card.channel_ref == ^channel_ref and card.thread_ref == ^thread_ref and
+          card.channel_ref == ^channel_ref and
+          fragment("COALESCE(?, ?)", card.thread_ref, card.message_ref) == ^thread_ref and
           not is_nil(card.message_ref),
       order_by: [desc: card.inserted_at],
       limit: 1,
@@ -130,25 +134,29 @@ defmodule Ryker.Slack.TaskCard.Query do
   end
 
   @doc """
-  The oldest confirmed engineering task offer made in Slack that has no card,
-  outside `skip`, as `{record, source_turn, episode}`.
+  The oldest accepted engineering task offer made in Slack that has no card,
+  outside `skip`, as `{record, source_turn}`.
   """
   def next_uncarded_offer(skip) do
     from(record in Records.Record,
       join: source_turn in Work.Turn,
       on: source_turn.id == record.turn_id and source_turn.episode_id == record.episode_id,
-      join: episode in Episodes.Episode,
-      on: episode.id == record.confirmed_episode_id,
       left_join: card in TaskCard,
       on: card.record_id == record.id,
       where:
-        record.kind == "task_offer" and record.status == :confirmed and
+        record.kind == "task_offer" and record.status in [:open, :confirmed] and
+          source_turn.status == :settled and
+          fragment(
+            "jsonb_exists((?::jsonb)->'outcome'->'record_refs', ?)",
+            source_turn.delivery_document,
+            record.ref
+          ) and
           fragment("(?::jsonb)->>'kind' = 'engineering'", record.payload) and
           fragment("(?::jsonb)->>'transport' = 'slack'", source_turn.external_receipt) and
           is_nil(card.id) and record.id not in ^skip,
-      order_by: [asc: record.confirmed_at, asc: record.id],
+      order_by: [asc: record.inserted_at, asc: record.sequence, asc: record.id],
       limit: 1,
-      select: {record, source_turn, episode}
+      select: {record, source_turn}
     )
   end
 

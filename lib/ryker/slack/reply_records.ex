@@ -13,6 +13,7 @@ defmodule Ryker.Slack.ReplyRecords do
   alias Ryker.Behaviors
   alias Ryker.Delivery
   alias Ryker.Emisar
+  alias Ryker.Episodes
   alias Ryker.GitHub
   alias Ryker.Ingress
   alias Ryker.Memories
@@ -65,12 +66,38 @@ defmodule Ryker.Slack.ReplyRecords do
         |> Repo.all()
         |> MapSet.new()
 
+      slack? = slack_turn?(turn_id)
+
       {:ok,
        Enum.reject(records, fn record ->
-         (record.kind == "emisar_approval" and
-            (record.turn_id != turn_id or Emisar.ApprovalMessages.owns_turn?(record.turn_id))) or
+         (record.kind == "task_offer" and record.payload["kind"] == "engineering" and
+            slack?) or
+           (record.kind == "emisar_approval" and
+              (record.turn_id != turn_id or Emisar.ApprovalMessages.owns_turn?(record.turn_id))) or
            (record.kind == "publication_offer" and MapSet.member?(consumed, record.id))
        end)}
+    end
+  end
+
+  defp slack_turn?(turn_id) do
+    case Repo.fetch(Work.Turn.Query.by_id(turn_id)) do
+      {:ok, %{external_receipt: %{"transport" => transport}}} ->
+        transport == "slack"
+
+      {:ok, %{delivery_target: %{"transport" => transport}}} ->
+        transport == "slack"
+
+      {:ok, turn} ->
+        case Repo.fetch(Episodes.Episode.Query.by_id(turn.episode_id)) do
+          {:ok, episode} ->
+            Work.Custody.Delivery.answer_target(episode, turn)["transport"] == "slack"
+
+          _ ->
+            false
+        end
+
+      _ ->
+        false
     end
   end
 

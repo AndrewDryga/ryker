@@ -2,13 +2,14 @@ defmodule Ryker.Records.CardDelivery do
   @moduledoc """
   Whether one click came from the exact card this host delivered.
 
-  Every offer control is authorized against the delivering turn's external
+  Reply controls are authorized against the delivering turn's external
   receipt, which is the host's own record of where the card was posted. The
   receipt is trusted over the episode's bound destination because routing can
   join a new root into an existing episode and answer it in that root's own
   thread: the card then lives in a thread the episode is not bound to, and the
   press is still the press of the card we delivered. Only the conversation is
   held to the episode, because no card is ever confirmable from another channel.
+  Engineering task offers own independent TaskCards and check their own receipt.
   """
   alias Ryker.Episodes
   alias Ryker.Work

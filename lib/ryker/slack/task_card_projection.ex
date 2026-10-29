@@ -13,13 +13,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.{Names, TaskCard, WorkControls}
+  alias Ryker.Slack.{Names, ReplyRecords, TaskCard, WorkControls}
   alias Ryker.Slack.Renderer.Fields
   alias Ryker.StateTools
   alias Ryker.Wording
   alias Ryker.Work
 
-  @ui_revision 6
+  @ui_revision 7
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
   # Why a refused grant stopped the draft, in words: the card said "needs operator attention:
   # `publication_authorization_revoked`" (2026-09-30). The recovery is on the card itself.
@@ -94,16 +94,65 @@ defmodule Ryker.Slack.TaskCardProjection do
   def page(_record), do: {:error, :invalid_task_card}
 
   defp build_public(card) do
-    with {:ok, record} <- Repo.fetch(Records.Record.Query.by_id(card.record_id)),
-         {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(card.episode_id)) do
-      snapshot = snapshot(episode)
-      {:ok, projection} = project(record, episode, card.ref, snapshot)
-
-      if public_sources?(card, record, episode, snapshot),
-        do: {:ok, public_errors(projection, snapshot)},
-        else: {:ok, neutral(projection)}
-    else
+    case Repo.fetch(Records.Record.Query.by_id(card.record_id)) do
+      {:ok, record} -> build_record(card, record)
       {:error, :not_found} -> {:error, :task_card_source_not_found}
+    end
+  end
+
+  defp build_record(card, %{status: :open} = record) do
+    document =
+      if public_offer?(card, record),
+        do: %{"task_offer" => hd(ReplyRecords.documents("slack", record.episode_id, [record]))},
+        else: %{
+          "message" => "This task offer is unavailable until its source context can be checked."
+        }
+
+    {:ok,
+     %{document: document, fingerprint: CanonicalJSON.digest(document), ui_revision: @ui_revision}}
+  end
+
+  defp build_record(card, %{status: :confirmed} = record) do
+    case Repo.fetch(Episodes.Episode.Query.by_id(record.confirmed_episode_id)) do
+      {:ok, episode} ->
+        snapshot = snapshot(episode)
+        {:ok, projection} = project(record, episode, card.ref, snapshot)
+
+        if public_sources?(card, record, episode, snapshot),
+          do: {:ok, public_errors(projection, snapshot)},
+          else: {:ok, neutral(projection)}
+
+      {:error, :not_found} ->
+        {:error, :task_card_source_not_found}
+    end
+  end
+
+  defp build_record(_card, _record) do
+    document = %{"message" => "This task offer is no longer available."}
+
+    {:ok,
+     %{document: document, fingerprint: CanonicalJSON.digest(document), ui_revision: @ui_revision}}
+  end
+
+  defp public_offer?(card, record) do
+    with {:ok, episode, session} <- offer_owner(record),
+         true <- same_destination?(card, episode),
+         {:ok, turn} <- Repo.fetch(Work.Turn.Query.by_id(record.turn_id)),
+         true <- turn.status == :settled,
+         true <- record.ref in (get_in(turn.delivery_document, ["outcome", "record_refs"]) || []),
+         {:ok, _} <-
+           Records.DerivedContext.resolve(
+             [
+               Records.DerivedContext.delivery(Records.DerivedContext.delivery_document(turn)),
+               Records.DerivedContext.record(Records.Record.document(record))
+             ],
+             episode,
+             session.repository_ref,
+             session
+           ) do
+      true
+    else
+      _ -> false
     end
   end
 

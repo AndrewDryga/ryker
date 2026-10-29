@@ -4091,6 +4091,14 @@ defmodule Ryker.Slack.RendererTest do
       %{"task_card" => task},
       %{"incident_room" => room},
       %{"saved_entity" => entity},
+      %{
+        "task_offer" => %{
+          "kind" => "task_offer",
+          "status" => "open",
+          "ref" => "record:task_offer:preview",
+          "payload" => TaskOffer.payload(%{"title" => forged})
+        }
+      },
       %{"emisar_approval_statuses" => [review]},
       %{
         "channel_settings" => %{

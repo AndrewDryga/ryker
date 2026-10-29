@@ -435,7 +435,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
 
     # Delivered, as the offer's post was, with a receipt that names no message.
     candidate = %{"kind" => "complete"}
-    delivery = %{"message" => "Offer."}
+    delivery = %{"message" => "Offer.", "outcome" => %{"record_refs" => [offered.ref]}}
 
     producer.turn
     |> Ecto.Changeset.change(

@@ -80,6 +80,121 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     def get_publication_status(_client, _repository, _number), do: {:error, :not_used}
   end
 
+  # Two accepted offers shared one message; the first progress update erased
+  # the other Start task button (2026-10-29). Each offer owns its message for
+  # its whole lifetime, including a lost post response and a duplicate click.
+  test "starting one of two offers preserves the other offer and its own task" do
+    claim = claim_episode!()
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+
+    offers =
+      for title <- ["Fix parser retries", "Fix severity parsing"] do
+        assert {:ok, offer} =
+                 Records.create(
+                   Records.token(claim.turn),
+                   String.replace(title, " ", "-"),
+                   "task_offer",
+                   TaskOffer.payload(%{"title" => title})
+                 )
+
+        offer
+      end
+
+    reply = task_offer_reply(hd(offers).ref) |> Jason.decode!()
+    reply = put_in(reply, ["outcome", "record_refs"], Enum.map(offers, & &1.ref))
+    {:ok, work_api} = FakeWorkCoopAPI.start_link([Jason.encode!(reply)])
+    assert {:ok, _accepted} = Executor.run(claim, executor_options(work_api))
+    {:ok, slack_api} = FakeSlackAPI.start_link(render: true)
+    assert {:ok, {:delivered, :message, _ref}} = deliver_once(adapters!(slack_api))
+
+    refute Jason.encode!(hd(FakeSlackAPI.state(slack_api).posts).document) =~
+             "ryker_start_engineering_task"
+
+    for _offer <- offers do
+      assert {:ok, {:created, _ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    end
+
+    # Native chat.update had already tagged the shared reply with this card's
+    # old entity ref. Repair must never rediscover it as the independent message.
+    pending = Repo.get_by!(TaskCard, record_id: hd(offers).id)
+
+    Agent.update(slack_api, fn state ->
+      %{
+        state
+        | messages:
+            Map.put(state.messages, {"C456", "1788268000.000100", pending.ref}, "1.000001")
+      }
+    end)
+
+    # Slack accepted the first post but its response was lost. The other
+    # offer still posts while that card waits, and the retry finds its copy.
+    Agent.update(slack_api, &%{&1 | lose: [:post_message]})
+    assert {:ok, {:deferred, lost_ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    assert {:ok, {:updated, _ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    lost_card = Repo.get_by!(TaskCard, ref: lost_ref)
+
+    Repo.update_all(from(card in TaskCard, where: card.id == ^lost_card.id),
+      set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)]
+    )
+
+    assert {:ok, {:updated, ^lost_ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    assert length(FakeSlackAPI.state(slack_api).posts) == 3
+
+    [first, second] =
+      Enum.map(offers, &Repo.get_by!(TaskCard, record_id: &1.id))
+
+    assert first.message_ref != second.message_ref
+    assert first.message_ref != "1.000001"
+    assert second.message_ref != "1.000001"
+
+    [first_offer, second_offer] = offers
+
+    sibling_updates =
+      Enum.count(FakeSlackAPI.state(slack_api).updates, &(&1.message_ref == second.message_ref))
+
+    first_click = task_interaction("U123", first_offer.ref)
+    first_click = put_in(first_click, ["payload", "container", "message_ts"], first.message_ref)
+
+    assert Gateway.handle_envelope(first_click, gateway_settings()) ==
+             {:ack, {:interaction, :confirmed}}
+
+    assert Gateway.handle_envelope(first_click, gateway_settings()) ==
+             {:ack, {:interaction, :duplicate}}
+
+    refresh_card!(first, slack_api)
+
+    state = FakeSlackAPI.state(slack_api)
+
+    assert Enum.any?(state.posts, fn post ->
+             post.message_ref == second.message_ref and
+               Jason.encode!(post.document) =~ second_offer.ref
+           end)
+
+    assert Enum.count(state.updates, &(&1.message_ref == second.message_ref)) == sibling_updates
+    assert Repo.get!(Record, second_offer.id).status == :open
+    assert {:ok, sibling_projection} = TaskCardProjection.build(second)
+    assert {:ok, sibling_payload} = Renderer.render(sibling_projection.document)
+    assert Jason.encode!(sibling_payload) =~ "ryker_start_engineering_task"
+
+    assert length(
+             Repo.all(from(card in TaskCard, where: card.record_id in ^Enum.map(offers, & &1.id)))
+           ) == 2
+
+    crossed = task_interaction("U123", second_offer.ref)
+    crossed = put_in(crossed, ["payload", "container", "message_ts"], first.message_ref)
+
+    assert Gateway.handle_envelope(crossed, gateway_settings()) ==
+             {:ack, {:interaction, :invalid}}
+
+    second_click = put_in(crossed, ["payload", "container", "message_ts"], second.message_ref)
+
+    assert Gateway.handle_envelope(second_click, gateway_settings()) ==
+             {:ack, {:interaction, :confirmed}}
+
+    assert Repo.get!(Record, first_offer.id).confirmed_episode_id !=
+             Repo.get!(Record, second_offer.id).confirmed_episode_id
+  end
+
   test "a confirmed Slack task checks readiness automatically and repairs GitHub review in the same session" do
     claim = claim_episode!()
     # Structural records are installed before the fake provider runs; initialize
@@ -127,7 +242,16 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       "1788268001.000200"
     }
 
-    rendered_offer = Jason.encode!(offer_document)
+    refute Jason.encode!(offer_document) =~ "ryker_start_engineering_task"
+    assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
+
+    card_delivery_ref = TaskCard.delivery_ref(Repo.get_by!(TaskCard, ref: card_ref))
+
+    assert_receive {:slack_posted, "C456", "1788268000.000100", independent_offer,
+                    ^card_delivery_ref, "1788268001.000201"}
+
+    rendered_offer = Jason.encode!(independent_offer)
     assert rendered_offer =~ "ryker_start_engineering_task"
     assert rendered_offer =~ offer.ref
     assert rendered_offer =~ "Fix parser retries"
@@ -176,15 +300,14 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert task_claim.session.policy == "ryker-contributor"
     assert KnowledgeSnapshot.expose(task_claim, []) == :ok
 
-    assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
     assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
 
     assert_receive {
       :slack_updated,
       "C456",
-      "1788268001.000200",
+      "1788268001.000201",
       updated_document,
-      ^card_ref
+      ^card_delivery_ref
     }
 
     updated_json = Jason.encode!(updated_document)
@@ -201,12 +324,12 @@ defmodule Ryker.Slack.TaskEndToEndTest do
 
     assert %TaskCard{
              episode_id: task_episode_id,
-             message_ref: "1788268001.000200",
+             message_ref: "1788268001.000201",
              thread_ref: "1788268000.000100"
            } = card
 
     assert task_episode_id == task_episode.id
-    assert length(FakeSlackAPI.state(slack_api).posts) == 1
+    assert length(FakeSlackAPI.state(slack_api).posts) == 2
     assert length(FakeSlackAPI.state(slack_api).updates) == 1
 
     # A subtask must refresh the original card while the model turn is still
@@ -235,7 +358,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
                )
 
       refresh_card!(card, slack_api)
-      assert_receive {:slack_updated, "C456", "1788268001.000200", live_card, ^card_ref}
+      assert_receive {:slack_updated, "C456", "1788268001.000201", live_card, ^card_delivery_ref}
       rendered = Jason.encode!(live_card)
 
       # The worker has not bound its Coop session yet, so Workspace setup is the
@@ -246,7 +369,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         do: assert(rendered =~ "✓ Implementation · 1/1 subtasks"),
         else: assert(rendered =~ "▸ Implementation · 0/1 subtasks")
 
-      assert length(FakeSlackAPI.state(slack_api).posts) == 1
+      assert length(FakeSlackAPI.state(slack_api).posts) == 2
     end
 
     refresh_card!(card, slack_api)
@@ -315,7 +438,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       "1788268000.000100",
       _task_result_document,
       _task_delivery_ref,
-      "1788268001.000201"
+      "1788268001.000202"
     }
 
     Repo.update_all(from(saved in TaskCard, where: saved.id == ^card.id),
@@ -643,7 +766,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
         "container" => %{
           "channel_id" => "C456",
           "is_ephemeral" => false,
-          "message_ts" => "1788268001.000200",
+          "message_ts" => "1788268001.000201",
           "thread_ts" => "1788268000.000100",
           "type" => "message"
         },

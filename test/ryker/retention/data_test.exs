@@ -1346,6 +1346,34 @@ defmodule Ryker.Retention.DataTest do
            ) == 0
   end
 
+  # Pending offer cards have no confirmed episode. Leaving their record FK
+  # behind would stop the source's history expiry after the offer is dismissed.
+  test "an unstarted task card expires with its dismissed source record" do
+    work = settled_work!("unstarted-task-card") |> discard_session!()
+    insert_open_record!(work)
+    record = Repo.get_by!(Record, episode_id: work.episode.id)
+
+    Repo.update_all(from(saved in Record, where: saved.id == ^record.id),
+      set: [kind: "task_offer", status: :dismissed, updated_at: @old]
+    )
+
+    card =
+      Repo.insert!(%Ryker.Slack.TaskCard{
+        record_id: record.id,
+        ref: "task-card:#{record.id}",
+        workspace_ref: "T123",
+        channel_ref: "C456"
+      })
+
+    backdate_history!(work, 120)
+
+    assert {:ok, %{episode_histories: 1}} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert Repo.get(Ryker.Slack.TaskCard, card.id) == nil
+    assert Repo.get(Record, record.id) == nil
+  end
+
   test "an inert finding follows history expiry while an unanswered question still pins custody" do
     # Findings are facts, not unresolved offers: the new tool must not turn one
     # conclusion into permanent retention of the entire settled investigation.

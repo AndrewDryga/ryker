@@ -315,6 +315,8 @@ defmodule Ryker.Records.TaskOffersTest do
 
   test "crossed and undelivered controls cannot create work" do
     fixture = delivered_offer!("crossed")
+    assert TaskCards.check_offer_delivery(%{}, %{}) == {:error, :not_delivered}
+    assert TaskCards.confirm_offer(%{}) == {:error, :invalid_task_card_record}
 
     crossed =
       fixture
@@ -344,7 +346,7 @@ defmodule Ryker.Records.TaskOffersTest do
     agent = start_supervised!({Agent, fn -> %{updates: []} end})
     options = card_worker_options(agent)
 
-    assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(options)
+    card_ref = Repo.get_by!(TaskCard, record_id: fixture.record.id).ref
     card = Repo.get_by!(TaskCard, ref: card_ref)
     assert card.record_id == fixture.record.id
     assert card.episode_id == confirmation.episode.id
@@ -354,8 +356,10 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(options)
 
+    card_delivery_ref = TaskCard.delivery_ref(card)
+
     assert [
-             {"C456", "1787832001.000200", %{"task_card" => task}, ^card_ref}
+             {"C456", "1787832001.000200", %{"task_card" => task}, ^card_delivery_ref}
            ] = Agent.get(agent, & &1.updates)
 
     assert task["title"] == "Fix parser retries"
@@ -367,7 +371,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
     stored = Repo.get!(TaskCard, card.id)
     assert stored.card_fingerprint =~ ~r/\A[0-9a-f]{64}\z/
-    assert stored.card_ui_revision == 6
+    assert stored.card_ui_revision == 7
 
     assert Enum.map(task["stages"], &{&1["stage"], &1["state"]}) == [
              {"workspace_setup", "waiting"},
@@ -591,7 +595,9 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert card_ref == fixture.card.ref
 
-    assert [{"C456", message_ref, %{"task_card" => repainted}, ^card_ref}] =
+    card_delivery_ref = TaskCard.delivery_ref(fixture.card)
+
+    assert [{"C456", message_ref, %{"task_card" => repainted}, ^card_delivery_ref}] =
              Agent.get(agent, & &1.updates)
 
     assert message_ref == fixture.card.message_ref
@@ -738,7 +744,7 @@ defmodule Ryker.Records.TaskOffersTest do
     agent = start_supervised!({Agent, fn -> %{updates: []} end})
     options = card_worker_options(agent)
 
-    assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(options)
+    card_ref = Repo.get_by!(TaskCard, record_id: fixture.record.id).ref
 
     failing = %{options | api: FailingCardAPI}
     assert {:ok, {:deferred, ^card_ref}} = TaskCardWorker.run_once(failing)
@@ -1244,6 +1250,17 @@ defmodule Ryker.Records.TaskOffersTest do
                receipt
              )
 
+    for {record, index} <- Enum.with_index(records) do
+      Repo.insert!(%TaskCard{
+        record_id: record.id,
+        ref: "task-card:#{record.id}",
+        workspace_ref: "T123",
+        channel_ref: "C456",
+        thread_ref: thread_ref,
+        message_ref: "1787832001." <> String.pad_leading(Integer.to_string(index + 200), 6, "0")
+      })
+    end
+
     %{episode: settled.episode, receipt: receipt, records: records}
   end
 
@@ -1283,7 +1300,7 @@ defmodule Ryker.Records.TaskOffersTest do
   defp confirmed_card!(suffix) do
     fixture = delivered_offer!(suffix)
     assert {:ok, confirmation} = TaskOffers.confirm(confirmation(fixture))
-    assert {:ok, card} = TaskCards.ensure_one()
+    card = Repo.get_by!(TaskCard, record_id: fixture.record.id)
     %{card: card, episode: confirmation.episode}
   end
 
@@ -1507,7 +1524,7 @@ defmodule Ryker.Records.TaskOffersTest do
       record_ref: fixture.record.ref,
       target: %{
         conversation_ref: fixture.receipt["conversation_ref"],
-        message_ref: fixture.receipt["message_ref"],
+        message_ref: Repo.get_by!(TaskCard, record_id: fixture.record.id).message_ref,
         thread_ref: fixture.receipt["thread_ref"],
         transport: fixture.receipt["transport"]
       }

@@ -14,6 +14,7 @@ defmodule Ryker.Records.TaskOffers do
   alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.Slack
   alias Ryker.UTCDateTime
   alias Ryker.Work
 
@@ -45,7 +46,7 @@ defmodule Ryker.Records.TaskOffers do
 
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- fetch_and_lock_offer(attributes.record_ref),
-         :ok <- check_delivery(source_episode, source_turn, attributes.target) do
+         :ok <- check_delivery(record, source_episode, source_turn, attributes.target) do
       case record.status do
         :confirmed ->
           confirmed(record, :duplicate)
@@ -68,8 +69,25 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp check_delivery(episode, turn, target) do
-    case CardDelivery.check(episode, turn, target) do
+  defp check_delivery(record, episode, turn, target) do
+    delivery =
+      case {record.payload["kind"], episode.destination_transport} do
+        {"engineering", "slack"} ->
+          with :settled <- turn.status,
+               :ok <- Slack.TaskCards.check_offer_delivery(record, target),
+               true <- target.conversation_ref == episode.destination_conversation_ref do
+            :ok
+          else
+            false -> {:error, :mismatch}
+            {:error, reason} -> {:error, reason}
+            _ -> {:error, :not_delivered}
+          end
+
+        _ ->
+          CardDelivery.check(episode, turn, target)
+      end
+
+    case delivery do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :task_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :task_offer_not_delivered}
@@ -193,6 +211,7 @@ defmodule Ryker.Records.TaskOffers do
     |> Repo.update()
     |> case do
       {:ok, confirmed} ->
+        :ok = Slack.TaskCards.confirm_offer(confirmed)
         Records.broadcast_record_updated(confirmed)
         {:ok, confirmed}
 

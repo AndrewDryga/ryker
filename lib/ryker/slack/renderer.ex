@@ -136,6 +136,17 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
+  defp render_document(
+         %{"task_offer" => %{"kind" => "task_offer", "status" => "open"} = record} = document
+       )
+       when map_size(document) == 1 do
+    with :ok <- Records.validate([record]),
+         {:ok, blocks} <- Records.render([record]),
+         :ok <- block_count("", blocks) do
+      {:ok, %{"blocks" => blocks, "text" => "Start task: " <> escape(record["payload"]["title"])}}
+    end
+  end
+
   defp render_document(_document), do: {:error, {:invalid_slack_render, :document}}
 
   # Screen readers read this field, not the blocks. Put the answer first so

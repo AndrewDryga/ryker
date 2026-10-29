@@ -3,6 +3,7 @@ defmodule Ryker.Slack.ReplyRecordsTest do
   import Ecto.Query
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: Fixtures
+  alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -65,6 +66,46 @@ defmodule Ryker.Slack.ReplyRecordsTest do
 
     assert {:ok, [^orphan]} = ReplyRecords.fetch(claim.episode.id, [orphan.ref], claim.turn.id)
     assert {:error, _} = ReplyRecords.fetch(claim.episode.id, [offer.ref], claim.turn.id)
+  end
+
+  # A Slack task can answer a GitHub comment. Separating Slack offers must
+  # never remove the offer from that GitHub reply, where no Slack card is posted.
+  test "task offers follow the answer transport before and after its route freezes" do
+    claim = claim!()
+
+    assert {:ok, offer} =
+             Records.create(
+               Records.token(claim.turn),
+               "github-task",
+               "task_offer",
+               TaskOffer.payload()
+             )
+
+    target = %{
+      "transport" => "github",
+      "conversation_ref" => "github:main:repository:123",
+      "thread_ref" => "issue:42"
+    }
+
+    claim.turn |> Ecto.Changeset.change(delivery_target: target) |> Repo.update!()
+    assert ReplyRecords.fetch(claim.episode.id, [offer.ref], claim.turn.id) == {:ok, [offer]}
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+      set: [delivery_target: nil]
+    )
+
+    Repo.update_all(
+      from(origin in Episodes.Origin, where: origin.episode_id == ^claim.episode.id),
+      set: [
+        transport: "github",
+        conversation_ref: target["conversation_ref"],
+        thread_ref: target["thread_ref"]
+      ]
+    )
+
+    turn = Repo.get!(Turn, claim.turn.id)
+    assert Custody.Delivery.answer_target(claim.episode, turn) == target
+    assert ReplyRecords.fetch(claim.episode.id, [offer.ref], turn.id) == {:ok, [offer]}
   end
 
   test "source links use retained receipts from this episode, never foreign or retired activity" do

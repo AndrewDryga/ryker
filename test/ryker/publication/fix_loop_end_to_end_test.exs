@@ -22,7 +22,8 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Records
   alias Ryker.Records.{Record, TaskOffers}
   alias Ryker.Repo
-  alias Ryker.Slack.{Gateway, InteractionHandler, Operators, Publisher, WorkControls}
+  alias Ryker.Slack.{Gateway, InteractionHandler, Operators, Publisher}
+  alias Ryker.Slack.{TaskCard, TaskCardWorker, WorkControls}
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Session}
 
@@ -90,7 +91,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   # me doing a man in the middle." Before this every refused change posted a
   # card asking a person to reply, and nothing moved until someone did.
   test "a confirmed task's failing checks are fixed in its own session and published, without a person" do
-    {task_episode, task_session, task_api, adapters} = committed_task!()
+    {task_episode, task_session, task_api, adapters, slack_api} = committed_task!()
 
     refused =
       task_session
@@ -131,9 +132,9 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(publication_options)
     assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(publication_options)
 
-    receive_post_containing!(
-      "The repository's checks failed on the committed change. I'm fixing it now, attempt 1 of 3, and I'll check the new change when I'm done."
-    )
+    fixing = refresh_task_card!(task_episode, slack_api)
+    assert Jason.encode!(fixing) =~ "Fixing: the repository's checks failed"
+    assert Jason.encode!(fixing) =~ "attempt 1 of 3"
 
     blocked = Repo.get_by!(Publication, episode_id: task_episode.id)
     assert {blocked.status, blocked.fix_rounds} == {:blocked, 1}
@@ -190,10 +191,10 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert file["name"] == "gate-output.txt"
     assert file["data"] == String.duplicate("compiling\n", 500) <> failure
 
-    assert {:ok, {:delivered, :message, _fix_delivery_ref}} = deliver_once(adapters)
+    assert {:ok, {:delivered, :message, fix_delivery_ref}} = deliver_once(adapters)
 
-    {:slack_posted, _, _, provisional, _, _} =
-      receive_post_containing!("The change is prepared locally.")
+    assert_receive {:slack_posted, "C456", _, provisional, ^fix_delivery_ref, _}
+    assert Jason.encode!(provisional) =~ "The change is prepared locally."
 
     assert Jason.encode!(provisional) =~ "The pull request is not yet updated."
     refute Jason.encode!(provisional) =~ "Fixed the failing parser test and committed the change."
@@ -211,7 +212,9 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert published.status == :published
     assert published.pull_request_url == "https://github.com/acme/ryker/pull/91"
     assert published.fix_rounds == 1
-    receive_post_containing!("Published revision #{passed["candidate_head"]}")
+    published_card = refresh_task_card!(task_episode, slack_api)
+    assert Jason.encode!(published_card) =~ "https://github.com/acme/ryker/pull/91"
+    refute Jason.encode!(published_card) =~ "attempt 1 of 3"
 
     assert [{"ryker:publication:review:" <> _first, 7}, {second_key, 7}] =
              Agent.get(publication_coop, & &1.review_calls)
@@ -256,6 +259,8 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
 
     adapters = adapters!(slack_api)
     assert {:ok, {:delivered, :message, _offer_delivery}} = deliver_once(adapters)
+    assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
 
     assert Gateway.handle_envelope(task_interaction("U123", offer.ref), gateway_settings()) ==
              {:ack, {:interaction, :confirmed}}
@@ -287,7 +292,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert %Publication{status: :review_pending} =
              Repo.one(from(p in Publication, where: p.episode_id == ^task_episode.id))
 
-    {task_episode, Repo.get!(Session, task_session.id), task_api, adapters}
+    {task_episode, Repo.get!(Session, task_session.id), task_api, adapters, slack_api}
   end
 
   defp claim_episode! do
@@ -331,7 +336,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
         "container" => %{
           "channel_id" => "C456",
           "is_ephemeral" => false,
-          "message_ts" => "1788268001.000200",
+          "message_ts" => "1788268001.000201",
           "thread_ts" => "1788268000.000100",
           "type" => "message"
         },
@@ -438,15 +443,28 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     ]
   end
 
-  defp receive_post_containing!(expected) do
-    receive do
-      {:slack_posted, _channel, _thread, document, _delivery_ref, _message_ref} = message ->
-        if Jason.encode!(document) =~ expected,
-          do: message,
-          else: receive_post_containing!(expected)
-    after
-      1_000 -> flunk("did not receive Slack post containing #{inspect(expected)}")
-    end
+  defp refresh_task_card!(episode, slack_api) do
+    card = Repo.get_by!(TaskCard, episode_id: episode.id)
+
+    Repo.update_all(from(saved in TaskCard, where: saved.id == ^card.id),
+      set: [card_checked_at: nil]
+    )
+
+    assert {:ok, {:updated, ref}} = TaskCardWorker.run_once(card_options(slack_api))
+    assert ref == card.ref
+    delivery_ref = TaskCard.delivery_ref(card)
+    assert_receive {:slack_updated, "C456", _, document, ^delivery_ref}
+    document
+  end
+
+  defp card_options(slack_api) do
+    %{
+      api: FakeSlackAPI,
+      client: slack_api,
+      lease_seconds: 60,
+      retry_base_seconds: 1,
+      worker_ref: "fix-loop-e2e-card"
+    }
   end
 
   defp task_offer_reply(offer_ref) do

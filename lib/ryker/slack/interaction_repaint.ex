@@ -122,7 +122,7 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp task_card_document(card) do
     with {:ok, projection} <- TaskCardProjection.build(card),
-         do: {:ok, projection.document, card.ref}
+         do: {:ok, projection.document, TaskCard.delivery_ref(card)}
   end
 
   defp incident_room_document(room) do

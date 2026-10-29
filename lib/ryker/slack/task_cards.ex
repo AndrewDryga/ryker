@@ -2,8 +2,8 @@ defmodule Ryker.Slack.TaskCards do
   @moduledoc """
   Durable custody for Slack engineering-task card projections.
 
-  The confirmed task record and episode remain canonical. This module repairs
-  a missing projection after a crash, then leases in-place card refreshes. It
+  The accepted offer record and its eventual task episode remain canonical. This module repairs
+  a missing offer message after a crash, then leases in-place card refreshes. It
   never grants repository, publication, or Coop authority.
 
   Each card created, refreshed, blocked or rearmed is announced after the
@@ -23,6 +23,51 @@ defmodule Ryker.Slack.TaskCards do
   alias Ryker.Text
   alias Ryker.Work
 
+  @doc "Checks a task offer control against its independently delivered message."
+  @spec check_offer_delivery(Records.Record.t(), map()) ::
+          :ok | {:error, :mismatch | :not_delivered}
+  def check_offer_delivery(%Records.Record{id: id} = record, target)
+      when is_binary(id) and is_map(target) do
+    case Repo.fetch(TaskCard.Query.by_record_id(record.id)) do
+      {:ok, %{message_ref: message_ref} = card} when is_binary(message_ref) ->
+        delivered = %{
+          transport: "slack",
+          conversation_ref: ConversationRef.slack(card.workspace_ref, card.channel_ref),
+          thread_ref: card.thread_ref,
+          message_ref: message_ref
+        }
+
+        if delivered == target, do: :ok, else: {:error, :mismatch}
+
+      _ ->
+        {:error, :not_delivered}
+    end
+  end
+
+  def check_offer_delivery(_record, _target), do: {:error, :not_delivered}
+
+  @doc "Makes a changed offer's own card due without affecting sibling messages."
+  @spec check_offer_soon(Ecto.UUID.t()) :: :ok
+  def check_offer_soon(record_id) do
+    Repo.update_all(TaskCard.Query.by_record_id(record_id), set: [card_checked_at: nil])
+    :ok
+  end
+
+  @doc "Links an offer's existing message to its confirmed task inside the confirmation transaction."
+  @spec confirm_offer(Records.Record.t()) :: :ok | {:error, :invalid_task_card_record}
+  def confirm_offer(
+        %Records.Record{status: :confirmed, confirmed_episode_id: episode_id} = record
+      )
+      when is_binary(episode_id) do
+    Repo.update_all(TaskCard.Query.by_record_id(record.id),
+      set: [episode_id: record.confirmed_episode_id, card_checked_at: nil]
+    )
+
+    :ok
+  end
+
+  def confirm_offer(_record), do: {:error, :invalid_task_card_record}
+
   @doc """
   Makes the card of `episode_id` due at the next claim: something it shows was
   announced as changed. Unannounced itself, as no page shows when a card was
@@ -36,7 +81,7 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   @doc """
-  Makes the card of the oldest confirmed engineering task offer that has none,
+  Makes the card of the oldest accepted engineering task offer that has none,
   passing over the offers in `skip`: nil when every offer has its card. An
   offer whose card cannot be built is `{:task_card_unbuildable, record_id,
   reason}`.
@@ -148,11 +193,12 @@ defmodule Ryker.Slack.TaskCards do
     )
   end
 
-  @spec mark(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), pos_integer()) ::
+  @spec mark(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), pos_integer(), String.t()) ::
           {:ok, TaskCard.t()} | {:error, term()}
-  def mark(card_id, lease_ref, fingerprint, ui_revision) do
+  def mark(card_id, lease_ref, fingerprint, ui_revision, message_ref) do
     with {:ok, card_id} <- uuid(card_id, :card_id),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
+         :ok <- reference(message_ref, :message_ref),
          :ok <- sha256(fingerprint, :card_fingerprint),
          :ok <- bounded_integer(ui_revision, 1..1_000_000, :card_ui_revision) do
       mutate_claim(card_id, lease_ref, fn card, now ->
@@ -165,6 +211,7 @@ defmodule Ryker.Slack.TaskCards do
             card_checked_at: now,
             card_fingerprint: fingerprint,
             card_ui_revision: ui_revision,
+            message_ref: message_ref,
             last_error_code: nil,
             last_error_detail: nil,
             lease_expires_at: nil,
@@ -287,27 +334,24 @@ defmodule Ryker.Slack.TaskCards do
       {:error, :not_found} ->
         nil
 
-      {:ok,
-       {%Records.Record{} = record, %Work.Turn{} = source_turn, %Episodes.Episode{} = episode}} ->
-        insert!(record, source_turn, episode)
+      {:ok, {%Records.Record{} = record, %Work.Turn{} = source_turn}} ->
+        insert!(record, source_turn)
     end
   end
 
-  defp insert!(record, source_turn, episode) do
+  defp insert!(record, source_turn) do
     receipt = source_turn.external_receipt
 
     with {:ok, workspace_ref, channel_ref} <- slack_conversation(receipt["conversation_ref"]),
-         :ok <- reference(receipt["message_ref"], :message_ref),
-         :ok <- reference(episode.destination_thread_ref, :thread_ref) do
+         :ok <- reference(receipt["message_ref"], :message_ref) do
       attributes = %{
         attempt_count: 0,
         channel_ref: channel_ref,
-        episode_id: episode.id,
+        episode_id: record.confirmed_episode_id,
         id: Repo.generate_id(),
-        message_ref: receipt["message_ref"],
         record_id: record.id,
         ref: "task-card:#{record.id}",
-        thread_ref: episode.destination_thread_ref,
+        thread_ref: receipt["thread_ref"],
         workspace_ref: workspace_ref
       }
 
@@ -436,7 +480,7 @@ defmodule Ryker.Slack.TaskCards do
   defp task_cards_topic, do: "slack:task_cards"
 
   defp broadcast_task_card_updated(%TaskCard{id: id, episode_id: episode_id}) do
-    Ryker.Episodes.broadcast_episode_updated(episode_id)
+    Episodes.broadcast_episode_updated(episode_id)
 
     Repo.after_commit(fn ->
       Ryker.PubSub.broadcast(task_cards_topic(), {:task_card_updated, id})
