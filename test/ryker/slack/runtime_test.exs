@@ -16,7 +16,8 @@ defmodule Ryker.Slack.RuntimeTest do
     configure!("C0NONE", nil)
     configure!("C0PROD", "production")
 
-    work_profile = Runtime.options!(configuration()).handler_settings.work_profile
+    settings = Runtime.options!(configuration()).handler_settings
+    work_profile = settings.work_profile
 
     assert {:ok, %WorkProfile{} = outside} = work_profile.("T123", "slack:T123:C0NONE")
     assert outside.policy == "ryker-chat"
@@ -27,6 +28,12 @@ defmodule Ryker.Slack.RuntimeTest do
     assert {:ok, %WorkProfile{} = production} = work_profile.("T123", "slack:T123:C0PROD")
     assert production.environment_ref == "production"
     assert production.repositories == ["payments", "ledger"]
+
+    assert settings.interaction_options.work_profile.("T123", "slack:T123:C0PROD") ==
+             {:ok, production}
+
+    assert settings.interaction_options.work_profile.("T123", "slack:T123:C0NONE") ==
+             {:ok, outside}
 
     # A conversation with no setting of its own, like a direct message, runs in
     # the default environment.

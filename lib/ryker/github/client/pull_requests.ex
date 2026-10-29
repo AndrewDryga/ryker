@@ -2,7 +2,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
   @moduledoc """
   Pull requests: the exact pull request with its check state, and a review
   published only while the head it was written against is still current.
-  Coop's worker opens and updates pull requests.
+  Coop's worker opens and updates pull-request content; the host can close its own.
 
   A pull request is handed on only in the shape Ryker records: typed author,
   exact refs and head SHA, a github.com pull URL, and a merge SHA and time
@@ -40,6 +40,56 @@ defmodule Ryker.GitHub.Client.PullRequests do
          "checks_total" => checks.total,
          "checks_url" => "#{GitHub.web_url()}/#{repository}/pull/#{number}/checks"
        })}
+    end
+  end
+
+  def close_own_pull_request(client, repository, number, actor_id) do
+    with :ok <- Fields.target(repository, number),
+         true <- GitHub.id?(actor_id) || {:error, :unauthorized},
+         {:ok, pull} <- get_pull_request(client, repository, number),
+         :ok <- owned_pull(pull, repository, number, actor_id) do
+      close_pull(client, repository, number, actor_id, pull)
+    end
+  end
+
+  defp close_pull(_client, _repository, _number, _actor_id, %{"state" => "closed"} = pull),
+    do: {:ok, Map.take(pull, ~w(number state url))}
+
+  defp close_pull(client, repository, number, actor_id, %{"state" => "open"}) do
+    with {:ok, response} <-
+           Transport.request(client, :patch, "/repos/#{repository}/pulls/#{number}", %{
+             "state" => "closed"
+           }) do
+      closed_response(response, repository, number, actor_id)
+    end
+  end
+
+  defp closed_response(%{body: body, status: 200}, repository, number, actor_id) do
+    with {:ok, pull} <- pull_request(body),
+         :ok <- owned_pull(pull, repository, number, actor_id),
+         true <-
+           pull["state"] == "closed" ||
+             {:error, {:github_action_unavailable, :close_unconfirmed}} do
+      {:ok, Map.take(pull, ~w(number state url))}
+    end
+  end
+
+  defp closed_response(response, _repository, _number, _actor_id), do: Transport.error(response)
+
+  defp owned_pull(pull, repository, number, actor_id) do
+    cond do
+      pull["number"] != number or
+          pull["url"] != "#{GitHub.web_url()}/#{repository}/pull/#{number}" ->
+        {:error, {:github_action_unavailable, :pull_request_identity}}
+
+      pull["author_id"] != actor_id or pull["author_type"] != "Bot" ->
+        {:error, {:github_action_unavailable, :not_owned}}
+
+      pull["merged"] ->
+        {:error, {:github_action_unavailable, :already_merged}}
+
+      true ->
+        :ok
     end
   end
 

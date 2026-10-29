@@ -604,6 +604,14 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
         client: :directory,
         directory: Directory,
         records: Records,
+        work_profile: fn _workspace, _conversation ->
+          {:ok,
+           %{
+             policy: "conversation-read-only",
+             policy_digest: @policy_digest,
+             repository_ref: "ryker"
+           }}
+        end,
         answer_input_request: &InputRequests.answer/1
       },
       effective_settings: &installation_participation/2,

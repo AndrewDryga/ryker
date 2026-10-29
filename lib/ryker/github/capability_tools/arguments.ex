@@ -96,6 +96,19 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   def repository_context_document(_arguments), do: {:error, :invalid_arguments}
 
+  @spec close_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
+  def close_document(%{} = arguments) do
+    with true <- Maps.exact_keys?(arguments, ["number"], @optional_repository),
+         {:ok, repository} <- repository_argument(arguments["repository"]),
+         number when is_integer(number) and number > 0 <- arguments["number"] do
+      {:ok, %{number: number, repository: repository}}
+    else
+      _invalid -> {:error, :invalid_arguments}
+    end
+  end
+
+  def close_document(_arguments), do: {:error, :invalid_arguments}
+
   @spec ci_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def ci_document(%{} = arguments) do
     with true <- Maps.exact_keys?(arguments, @ci_fields, @optional_repository),

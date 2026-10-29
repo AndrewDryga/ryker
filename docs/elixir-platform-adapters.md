@@ -92,6 +92,15 @@ or omitted parents remain explicitly unavailable/partial. Search attaches up to 
 only to the current subject's hit. Other subjects do not acquire access through the current-subject
 reader. Subject-only and changed-file reads remain focused.
 
+`close_github_pull_request` closes a PR Ryker opened when requested or superseded by authorized
+replacement work. It uses the session's writable repository and, for GitHub conversations, the
+bound subject. The host reads GitHub's live author and requires the configured Ryker bot's numeric
+identity and Bot type; neither the model nor a branch name can establish ownership. A dedicated
+repository-scoped token requests only pull-request write permission. Human PRs, other bots, merged
+PRs, companion repositories and shadow work are refused. Already-closed own PRs return their
+confirmed state without another write, so a lost response can be retried. Closure preserves branches,
+commits and publication history; the existing webhook/poll lifecycle records the closed state.
+
 ## Outbound delivery
 
 A visible Work result becomes an immutable `delivery_pending` row. A reaction admission atomically

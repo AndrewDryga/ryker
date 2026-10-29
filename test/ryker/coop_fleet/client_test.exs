@@ -3151,6 +3151,103 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, "fence_operation", _, _, _}
   end
 
+  # Close can refuse workspace authority before journaling a native operation.
+  # Replaying that failed fleet command forever cannot reach a repaired worker.
+  test "a definitive close refusal survives an absent native operation as failure", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote:close-refusal")
+    missing = {:error, {:coop_error, 404, "operation_not_found", "No operation."}}
+
+    for {status, http, code} <- [
+          {:failed, 409, "invalid_session_state"},
+          {:failed, 409, "revision_conflict"},
+          {:uncertain, 409, "invalid_session_state"},
+          {:failed, 503, "invalid_session_state"},
+          {:failed, 409, "operation_uncertain"}
+        ] do
+      key = "close-refusal:#{status}:#{http}:#{code}"
+
+      command =
+        command!(session, key,
+          kind: "close_session",
+          payload: %{"coop_session_id" => session.coop_session_id, "expected_revision" => 3},
+          key: key
+        )
+        |> complete_command!(status, nil, %{
+          "code" => code,
+          "status" => http,
+          "detail" => "The recorded refusal."
+        })
+
+      Process.put(:coop_fleet_reconcile_result, missing)
+
+      if status == :failed and http == 409 and code != "operation_uncertain" do
+        assert {:ok, operation} = Client.operation_by_key(client, key)
+        assert operation["state"] == "failed"
+        assert operation["method"] == "CloseSession"
+        assert operation["error_code"] == code
+        refute Map.has_key?(operation, "resource_id")
+      else
+        assert Client.operation_by_key(client, key) == missing
+      end
+
+      native = %{"id" => "native-close", "method" => "CloseSession", "state" => "running"}
+      Process.put(:coop_fleet_reconcile_result, native)
+      assert Client.operation_by_key(client, key) == {:ok, native}
+
+      for error <- [
+            {:error, {:coop_unavailable, :timeout}},
+            {:error, {:coop_error, 404, "session_not_found", "No session."}}
+          ] do
+        Process.put(:coop_fleet_reconcile_result, error)
+        assert Client.operation_by_key(client, key) == error
+      end
+
+      assert Repo.get!(Command, command.id) == command
+    end
+  end
+
+  test "an absent operation cannot turn unrelated command evidence into a close refusal", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote:close-refusal-owner")
+    missing = {:error, {:coop_error, 404, "operation_not_found", "No operation."}}
+    Process.put(:coop_fleet_reconcile_result, missing)
+
+    for variant <- [:other_kind, :other_session, :other_operation] do
+      key = "close-refusal:#{variant}"
+      kind = if variant == :other_kind, do: "plan_discard", else: "close_session"
+
+      remote =
+        if variant == :other_session, do: "remote:someone-else", else: session.coop_session_id
+
+      command =
+        command!(session, key,
+          kind: kind,
+          payload: %{"coop_session_id" => remote, "expected_revision" => 3},
+          key: key
+        )
+        |> complete_command!(:failed, nil, %{
+          "code" => "invalid_session_state",
+          "status" => 409,
+          "detail" => "Refused."
+        })
+
+      command =
+        if variant == :other_operation do
+          command |> Ecto.Changeset.change(operation_key: "other-operation") |> Repo.update!()
+        else
+          command
+        end
+
+      assert Client.operation_by_key(client, key) == missing
+      assert Repo.get!(Command, command.id) == command
+    end
+  end
+
   # The worker gave the session up: its placement was replaced and its lease
   # ran out a minute ago.
   defp replaced_placement!(placement_id) do
