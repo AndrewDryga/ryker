@@ -302,6 +302,49 @@ defmodule Ryker.Operator.QuarantineTest do
     assert Repo.aggregate(Command.Query.by_session_id(session.id), :count) == 1
   end
 
+  test "retired unused pools can retain quarantined copies without creating work" do
+    # Four unused ready sessions remained blocked after rollback damaged their
+    # workspace anchors. They have no message owner and must keep their files.
+    for kind <- [:work, :admission] do
+      {session, placement, request} = parked_session()
+      placement |> Ecto.Changeset.change(episode_id: nil) |> Repo.update!()
+
+      session
+      |> Ecto.Changeset.change(
+        episode_id: nil,
+        execution_kind: kind,
+        ready_state: :retired,
+        cleanup_status: :blocked,
+        cleanup_blocked_from: :close_pending,
+        cleanup_last_error_code: "retention_generation_spent"
+      )
+      |> Repo.update!()
+
+      assert {:ok, intent} = Quarantine.request(request)
+      command = Repo.get!(Command, intent.outcome["command_id"])
+
+      receipt(command, %{"id" => session.coop_session_id, "state" => "discarded", "revision" => 8})
+
+      assert {:ok, _} = Quarantine.settle(request.action_ref)
+      saved = Repo.get!(Session, session.id)
+      assert saved.ready_state == :retired
+      assert saved.retained_reason == "quarantined_copy"
+      assert is_nil(saved.discarded_at)
+      assert is_nil(saved.episode_id)
+      assert is_nil(saved.admission_input_id)
+    end
+  end
+
+  test "a pool session that may still be handed to work cannot be retired" do
+    for state <- [:starting, :ready] do
+      {session, placement, request} = parked_session()
+      placement |> Ecto.Changeset.change(episode_id: nil) |> Repo.update!()
+      session |> Ecto.Changeset.change(episode_id: nil, ready_state: state) |> Repo.update!()
+      assert Quarantine.request(request) == {:error, :quarantine_owner_unsupported}
+      assert Repo.aggregate(Command.Query.by_session_id(session.id), :count) == 1
+    end
+  end
+
   test "background model ownership cannot be retired through work recovery" do
     {_, _, request} = parked_session()
 

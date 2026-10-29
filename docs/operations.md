@@ -720,7 +720,8 @@ traffic. A completed pass is an analysis receipt, not a claim that all its propo
 ### Retiring a quarantined worker record
 
 A quarantined record is not a deleted working copy. The local host operator can
-retire an episode-owned read-only record through `Ryker.Release.quarantine/2`.
+retire an episode-owned read-only record through `Ryker.Release.quarantine/2`,
+or a retired, unused Work or routing pool record with no message or model-run owner.
 The worker keeps its files and history; Ryker records that retained outcome and
 leaves the episode's human question or event wait unchanged. Its next legitimate
 work trigger can create a fresh session generation. Writable copies, background

@@ -73,7 +73,7 @@ defmodule Ryker.Operator.Quarantine do
   end
 
   defp verify_local_custody!(session, attributes) do
-    unless session.execution_kind == :work and not is_nil(session.episode_id),
+    unless supported_owner?(session),
       do: Repo.rollback(:quarantine_owner_unsupported)
 
     if session.episode_id &&
@@ -91,6 +91,28 @@ defmodule Ryker.Operator.Quarantine do
     unless source_free_or_read_only?(session), do: Repo.rollback(:quarantine_checkpoint_required)
     exact_placement!(session, attributes)
   end
+
+  defp supported_owner?(%Work.Session{execution_kind: :work, episode_id: id})
+       when is_binary(id),
+       do: true
+
+  # A retired, never-claimed pool session has no request to resume or abandon.
+  # Its worker must still prove the exact parked, empty, quarantined copy.
+  defp supported_owner?(%Work.Session{
+         execution_kind: kind,
+         ready_state: :retired,
+         episode_id: nil,
+         admission_input_id: nil,
+         learning_run_id: nil,
+         improvement_run_id: nil,
+         knowledge_run_id: nil,
+         weekly_review_id: nil,
+         completion_review_id: nil
+       })
+       when kind in [:work, :admission],
+       do: true
+
+  defp supported_owner?(_session), do: false
 
   defp exact_placement!(session, attributes) do
     placement =
