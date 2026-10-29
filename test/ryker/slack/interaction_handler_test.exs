@@ -341,7 +341,18 @@ defmodule Ryker.Slack.InteractionHandlerTest do
         action_value: "record:input_request:question|1"
     }
 
-    assert InteractionHandler.handle(interaction, options(["U123"])) ==
+    # A production choice lost its environment and repositories, started fresh
+    # work, and asked the operator to reconnect repositories already available.
+    profile = %{
+      policy: "question-read",
+      policy_digest: String.duplicate("a", 64),
+      repository_ref: "app"
+    }
+
+    options =
+      Map.put(options(["U123"]), :work_profile, fn "T123", "slack:T123:C456" -> {:ok, profile} end)
+
+    assert InteractionHandler.handle(interaction, options) ==
              {:ok, %{input_ref: "ingress-input:choice", outcome: :recorded}}
 
     assert_receive {:input_answered, answer}
@@ -349,6 +360,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
     assert answer.choice_index == 1
     assert answer.record_ref == "record:input_request:question"
     assert answer.response_ref == "interaction:engineering"
+    assert Map.get(answer, :work_profile) == profile
   end
 
   test "submit without a choice asks for a selection without answering the question" do
@@ -795,6 +807,7 @@ defmodule Ryker.Slack.InteractionHandlerTest do
         send(observer, {:input_answered, attributes})
         {:ok, %{input_ref: "ingress-input:choice", status: :recorded}}
       end,
+      work_profile: fn _workspace, _conversation -> {:ok, nil} end,
       client: %{allowed: %{observer: self(), users: MapSet.new(allowed_users)}},
       confirm_automation: fn attributes ->
         send(observer, {:automation_confirmed, attributes})

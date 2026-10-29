@@ -28,7 +28,8 @@ defmodule Ryker.Records.InputRequests do
     :occurred_at,
     :record_ref,
     :response_ref,
-    :target
+    :target,
+    :work_profile
   ]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
 
@@ -147,9 +148,15 @@ defmodule Ryker.Records.InputRequests do
 
   defp record_answer(%Record{status: :open} = record, episode, turn, attributes) do
     with :ok <- current_wait?(episode, record.ref),
+         {:ok, profile} <- Ingress.WorkProfile.prepare(attributes.work_profile),
+         :ok <- answer_scope(turn, profile),
          {:ok, choice} <- choice(record, attributes.choice_index),
          {:ok, input} <- input(record, choice, attributes),
-         {:ok, inbox_receipt} <- Ingress.Inbox.record(input),
+         {:ok, inbox_receipt} <-
+           Ingress.Inbox.record(input,
+             execution_mode: episode.execution_mode,
+             work_profile: profile
+           ),
          {:ok, response} <- persist_response(record, inbox_receipt.entry, choice, attributes),
          {:ok, record} <- Repo.update(Record.Changeset.answer(record, Repo.now!())),
          :ok <-
@@ -174,6 +181,20 @@ defmodule Ryker.Records.InputRequests do
 
   defp record_answer(%Record{}, _episode, _turn, _attributes),
     do: Repo.rollback(:input_request_stale)
+
+  # A button used to drop the adapter's placement, excluding the waiting work
+  # from routing and asking the person to reconnect repositories it already had.
+  # A changed channel environment must not redirect the answer into other work.
+  defp answer_scope(turn, profile) do
+    scope = %{
+      environment_ref: profile && profile.environment_ref,
+      emisar_connection_ref: profile && profile.emisar_connection_ref
+    }
+
+    query = Work.Session.Query.by_id(turn.session_id) |> Work.Session.Query.with_pin(scope)
+
+    if Repo.exists?(query), do: :ok, else: {:error, :input_request_scope_mismatch}
+  end
 
   defp duplicate(response, record, attributes) do
     if response.response_ref == attributes.response_ref and

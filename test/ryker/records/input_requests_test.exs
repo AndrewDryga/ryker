@@ -245,11 +245,12 @@ defmodule Ryker.Records.InputRequestsTest do
   # one and "quick_reply · unrelated" for another, so the request kept waiting for an answer it
   # had and the answer became a request of its own. An answer to Ryker's question goes to the work
   # that asked it, and no model decides that.
-  for transport <- [:control_plane, :slack] do
+  for transport <- [:control_plane, :slack], scoped? <- [false, true] do
     @tag isolation: "REPEATABLE READ"
-    test "an answer on a #{transport} question card resumes the request that asked it, without routing" do
+    test "an answer on a #{transport} question card resumes its request without routing (environment: #{scoped?})" do
       transport = unquote(transport)
-      fixture = delivered_question!(transport)
+      profile = if unquote(scoped?), do: environment_profile()
+      fixture = delivered_question!(transport, nil, profile)
       assert fixture.episode.state == :waiting_for_input
 
       assert {:ok, answer} =
@@ -258,6 +259,10 @@ defmodule Ryker.Records.InputRequestsTest do
                  |> Map.put(:actor_ref, answering_actor(transport))
                  |> Map.put(:occurred_at, DateTime.add(DateTime.utc_now(), 1, :second))
                )
+
+      assert {:ok, entry} = Inbox.fetch(answer.input_ref)
+      expected_profile = profile && Ryker.Ingress.WorkProfile.document(profile)
+      assert entry.work_profile == expected_profile
 
       assert {:ok, %{entry: claimed, lease_ref: lease_ref}} =
                Inbox.claim_next("executor:answer", DateTime.add(@now, 5, :second), 300)
@@ -284,6 +289,25 @@ defmodule Ryker.Records.InputRequestsTest do
       assert Repo.get!(Ryker.Episodes.Episode, fixture.episode.id).state == :working
       assert FakeCoopAPI.state(routing).submit_count == 0
       assert FakeCoopAPI.state(routing).create_keys == []
+    end
+  end
+
+  test "a question answer cannot move into a different environment or Emisar account" do
+    # The production button lost its profile and started unrelated work. Refuse
+    # a scope change before consuming the question, even if the channel moved.
+    profile = environment_profile()
+    fixture = delivered_question!(:slack, nil, profile)
+
+    for other <- [
+          nil,
+          %{profile | environment_ref: "other"},
+          %{profile | emisar_connection_ref: "emisar:other"}
+        ] do
+      attributes = Map.put(answer(fixture, 0, "wrong-scope"), :work_profile, other)
+      assert InputRequests.answer(attributes) == {:error, :input_request_scope_mismatch}
+      assert Repo.get!(Record, fixture.record.id).status == :open
+      assert Repo.aggregate(Response, :count) == 0
+      assert Repo.aggregate(Inbox.Entry, :count) == 0
     end
   end
 
@@ -489,7 +513,7 @@ defmodule Ryker.Records.InputRequestsTest do
     (String.to_integer(seconds) * 1_000_000 + String.to_integer(fraction)) * 4
   end
 
-  defp delivered_question!(transport \\ :slack, delivery_thread_ref \\ nil) do
+  defp delivered_question!(transport \\ :slack, delivery_thread_ref \\ nil, profile \\ nil) do
     episode_id = Ecto.UUID.generate()
     destination = destination(transport)
     delivery_thread_ref = delivery_thread_ref || destination.thread_ref
@@ -506,8 +530,24 @@ defmodule Ryker.Records.InputRequestsTest do
 
     assert {:ok, transition} = Episodes.apply(command)
 
+    placement =
+      if profile do
+        {:ok, placement} = Ryker.Ingress.WorkProfile.policy_for(profile, :standard)
+
+        placement
+        |> Map.take([:environment_ref, :repository_context, :repository_ref])
+        |> Map.to_list()
+      else
+        []
+      end
+
     assert {:ok, _session} =
-             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+             WorkSessions.pin_episode(
+               episode_id,
+               "ryker-read",
+               String.duplicate("a", 64),
+               placement
+             )
 
     assert {:ok, claim} = Custody.claim_next("worker:question", 60, :work)
 
@@ -640,7 +680,24 @@ defmodule Ryker.Records.InputRequestsTest do
                receipt
              )
 
-    %{episode: settled.episode, receipt: receipt, record: record}
+    %{episode: settled.episode, receipt: receipt, record: record, work_profile: profile}
+  end
+
+  defp environment_profile do
+    # Keep the real failure's shape: one environment containing several repos,
+    # with the repositories for subsequent tasks mounted beside the default.
+    policy = %{policy: "ryker-read", policy_digest: String.duplicate("a", 64)}
+    classes = %{conversational: policy, standard: policy, deep: policy}
+
+    {:ok, profile} =
+      Ryker.Ingress.WorkProfile.new(%{
+        environment_ref: "staging",
+        parallel_goal_limit: 2,
+        repositories: ["core", "server", "infra"],
+        policies: %{"core" => classes, "server" => classes, "infra" => classes}
+      })
+
+    profile
   end
 
   defp destination(:slack) do
@@ -671,6 +728,7 @@ defmodule Ryker.Records.InputRequestsTest do
       occurred_at: DateTime.add(@now, 3, :second),
       record_ref: fixture.record.ref,
       response_ref: "interaction:#{response_suffix}",
+      work_profile: Map.get(fixture, :work_profile),
       target: %{
         conversation_ref: fixture.receipt["conversation_ref"],
         message_ref: fixture.receipt["message_ref"],

@@ -18,6 +18,7 @@ defmodule Ryker.Slack.InteractionHandler do
     :input_request_not_delivered,
     :input_request_not_found,
     :input_request_stale,
+    :input_request_scope_mismatch,
     :task_offer_delivery_mismatch,
     :task_offer_not_delivered,
     :task_offer_not_found,
@@ -535,16 +536,22 @@ defmodule Ryker.Slack.InteractionHandler do
          options
        )
        when is_integer(choice_index) do
-    case options.answer_input_request.(%{
-           actor_ref: interaction.actor_ref,
-           choice_index: choice_index,
-           occurred_at: interaction.occurred_at,
-           record_ref: record_ref(interaction.action_value),
-           response_ref: interaction.event_ref,
-           target: target(interaction)
-         }) do
-      {:ok, answer} -> {:ok, %{input_ref: answer.input_ref, outcome: answer.status}}
-      {:error, reason} -> {:error, reason}
+    with {:ok, profile} <-
+           options.work_profile.(
+             interaction.workspace_ref,
+             ConversationRef.slack(interaction.workspace_ref, interaction.channel_ref)
+           ),
+         {:ok, answer} <-
+           options.answer_input_request.(%{
+             actor_ref: interaction.actor_ref,
+             choice_index: choice_index,
+             occurred_at: interaction.occurred_at,
+             record_ref: record_ref(interaction.action_value),
+             response_ref: interaction.event_ref,
+             target: target(interaction),
+             work_profile: profile
+           }) do
+      {:ok, %{input_ref: answer.input_ref, outcome: answer.status}}
     end
   end
 
