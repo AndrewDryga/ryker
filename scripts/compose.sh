@@ -153,9 +153,36 @@ require_published_head() {
 # and every worker upgrade there waited ten minutes for them and gave up
 # (2026-10-16). Ryker.ComposeWorkerUpgradeTest runs this query.
 worker_commands_in_flight() {
-  compose exec -T database psql -X -U ryker -d ryker -Atc \
-    "SELECT count(*) FROM coop_worker_commands AS command WHERE command.worker_id = 'ryker-compose' AND command.status IN ('delivered', 'acknowledged') AND EXISTS (SELECT 1 FROM coop_session_placements AS placement WHERE placement.session_id = command.session_id AND placement.generation = command.placement_generation AND placement.state NOT IN ('replaced', 'retired'))" \
-    2>/dev/null | tr -d '[:space:]'
+  count=$(compose exec -T database psql -X -v ON_ERROR_STOP=1 -U ryker -d ryker -Atc \
+    "SELECT count(*) FROM coop_worker_commands AS command WHERE command.worker_id = 'ryker-compose' AND command.status IN ('delivered', 'acknowledged') AND EXISTS (SELECT 1 FROM coop_session_placements AS placement WHERE placement.session_id = command.session_id AND placement.generation = command.placement_generation AND placement.state NOT IN ('replaced', 'retired'))") || return 1
+  count=$(printf '%s' "$count" | tr -d '[:space:]')
+  case $count in '' | *[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$count"
+}
+
+# This invocation releases only its own exact drain. A later operator decision survives.
+finish_worker_upgrade() {
+  result=$?
+  trap - EXIT
+  if [ -n "${worker_drain_at:-}" ]; then
+    if ! compose exec -T ryker /opt/ryker/bin/ryker eval \
+      "case Ryker.Release.resume_worker_upgrade(\"ryker-compose\", \"$worker_drain_owner\", \"$worker_drain_at\") do {:ok, _} -> :ok; error -> IO.inspect(error); System.halt(1) end"; then
+      echo "Could not release this upgrade's drain. Inspect the worker before resuming it." >&2
+      result=1
+    fi
+  fi
+  release_lifecycle_lock
+  exit "$result"
+}
+
+worker_native_quiescence() {
+  # Only the state volume is exposed, read-only, with neither a Docker socket nor network.
+  # Settings initialization uses only disposable memory, never the worker's agent credentials.
+  # The candidate CLI understands the previous schema without starting or migrating the daemon.
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,size=8m -e HOME=/tmp -e COOP_CONFIG_DIR=/tmp/agents -e TMPDIR=/tmp \
+    --mount "type=volume,source=$worker_state_volume,target=/var/lib/coop,readonly" \
+    --entrypoint coop "$image" sessions quiescence --state /var/lib/coop/sessions --json
 }
 
 # Keeps the running worker image and the one before it, the way back, and
@@ -615,18 +642,52 @@ case "$command" in
     # Docker daemon it builds boxes with. The environment wins over the file.
     env RYKER_COOP_IMAGE="$image" docker compose --env-file "$env_file" run --rm --no-deps -T \
       --entrypoint sh ryker-coop -s <"$repository/deploy/compose/coop/prewarm.sh"
+    worker_container=$(compose ps --quiet ryker-coop)
+    [ -n "$worker_container" ] || { echo "Cannot inspect the running worker." >&2; exit 1; }
+    worker_state_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/coop"}}{{.Name}}{{end}}{{end}}' "$worker_container")
+    case $worker_state_volume in
+      '' | *[!A-Za-z0-9_.-]*) echo "Cannot identify the worker's state volume." >&2; exit 1 ;;
+    esac
+    worker_drain_owner="operator:worker-upgrade:$(openssl rand -hex 16)"
+    worker_drain_at=
+    trap finish_worker_upgrade EXIT
+    trap 'exit 1' HUP INT TERM
+    drain=$(compose exec -T ryker /opt/ryker/bin/ryker eval \
+      "case Ryker.Release.worker_lifecycle(:drain, \"ryker-compose\", \"$worker_drain_owner\") do {:ok, %{\"status\" => \"draining\", \"drain_requested_at\" => at}} -> IO.puts(\"RYKER_UPGRADE_DRAIN=\" <> DateTime.to_iso8601(at)); error -> IO.inspect(error); System.halt(1) end") || {
+      echo "Cannot acquire an upgrade drain; the previous worker is still running." >&2
+      exit 1
+    }
+    worker_drain_at=$(printf '%s\n' "$drain" | sed -n 's/^RYKER_UPGRADE_DRAIN=//p')
+    case $worker_drain_at in
+      '' | *[!0-9TZ.:+-]*) echo "The upgrade drain receipt is invalid; inspect the worker before resuming it." >&2; worker_drain_at=; exit 1 ;;
+    esac
     deadline=$(($(date +%s) + ${RYKER_WORKER_IDLE_TIMEOUT:-600}))
-    while busy=$(worker_commands_in_flight) && [ "${busy:-0}" != 0 ]; do
+    while :; do
+      busy=$(worker_commands_in_flight) || { echo "Cannot count the worker's commands; refusing to restart it." >&2; exit 1; }
+      if [ "$busy" = 0 ]; then
+        if native=$(worker_native_quiescence); then
+          [ -n "$native" ] || { echo "The native work check returned no evidence." >&2; exit 1; }
+          break
+        else
+          native_status=$?
+          if [ "$native_status" != 3 ]; then
+            echo "Cannot inspect native worker work; refusing to restart it." >&2
+            exit 1
+          fi
+        fi
+        echo "Waiting for native worker work: $native"
+      else
+        echo "Waiting for the worker's $busy commands in flight."
+      fi
       if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "The worker is still carrying out $busy commands; it runs ${replaced:-nothing} still. Run worker-upgrade again later." >&2
+        echo "The worker is still carrying out $busy commands or native work; it runs ${replaced:-nothing} still. Run worker-upgrade again later." >&2
         exit 1
       fi
-      echo "Waiting for the worker's $busy commands in flight."
       sleep 10
     done
-    pin_value RYKER_COOP_IMAGE "$image"
-    compose up --detach --no-build --wait --no-deps ryker-coop
+    env RYKER_COOP_IMAGE="$image" docker compose --env-file "$env_file" up --detach --no-build --wait --no-deps ryker-coop
     wait_ready
+    pin_value RYKER_COOP_IMAGE "$image"
     remove_older_worker_images "$image" "$replaced"
     echo "The worker runs $image; it ran ${replaced:-nothing}, which stays as the way back."
     ;;

@@ -1120,6 +1120,117 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.get!(Placement, placement.id).lease_expires_at == before
   end
 
+  # A worker upgrade interrupted a model turn after its submit command had succeeded.
+  # Drain must hold new submissions even on existing placements, without starving completion reads.
+  test "draining holds new work before the delivery limit while existing work can settle" do
+    authorize_and_poll!("worker-a")
+    placement = place!("drain-delivery")
+
+    assert {:ok, old} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "submit_turn",
+               turn_payload("already-running"),
+               "drain:already-running"
+             )
+
+    assert {:ok, %{"commands" => [_]}} =
+             ControlPlane.handle_poll_certificate(
+               "worker-a",
+               poll("worker-a", "workspace-main", "before-drain")
+             )
+
+    assert {:ok, %{worker: drained}} =
+             WorkerLifecycle.drain("worker-a", "operator:worker-upgrade:delivery-test")
+
+    for index <- 1..101 do
+      assert {:ok, _} =
+               ControlPlane.enqueue_command(
+                 placement.id,
+                 "submit_turn",
+                 turn_payload("held-#{index}"),
+                 "drain:held:#{index}"
+               )
+    end
+
+    assert {:ok, read} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_turn",
+               %{"coop_session_id" => "native-session", "coop_turn_id" => "native-turn"},
+               "drain:read"
+             )
+
+    assert {:ok, close} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "close_session",
+               %{"coop_session_id" => "native-session", "expected_revision" => 1},
+               "drain:close"
+             )
+
+    settling =
+      for {kind, method, path} <- [
+            {"read", "HEAD", "/v1/sessions/native-session"},
+            {"validation", "POST", "/v1/sessions/native-session/turns/native-turn/validation"},
+            {"cancel", "POST", "/v1/sessions/native-session/turns/native-turn/cancel"}
+          ] do
+        assert {:ok, command} =
+                 ControlPlane.enqueue_command(
+                   placement.id,
+                   "api_request",
+                   %{"method" => method, "path" => path, "body" => %{}},
+                   "drain:api:#{kind}"
+                 )
+
+        command.id
+      end
+
+    assert {:ok, mutation} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "api_request",
+               %{
+                 "method" => "POST",
+                 "path" => "/v1/sessions/native-session/prepare",
+                 "body" => %{}
+               },
+               "drain:api:prepare"
+             )
+
+    assert {:ok, response} =
+             ControlPlane.handle_poll_certificate(
+               "worker-a",
+               poll("worker-a", "workspace-main", "during-drain")
+             )
+
+    assert Enum.sort(Enum.map(response["commands"], & &1["command_id"])) ==
+             Enum.sort([old.id, read.id] ++ settling)
+
+    assert Repo.get!(Command, close.id).delivered_at == nil
+    assert Repo.get!(Command, mutation.id).delivered_at == nil
+
+    assert WorkerLifecycle.resume("worker-a", "operator:other") ==
+             {:error, :coop_worker_upgrade_in_progress}
+
+    assert Repo.get!(Command, mutation.id).delivered_at == nil
+
+    assert {:ok, _} =
+             WorkerLifecycle.resume_if_drained_by(
+               "worker-a",
+               "operator:worker-upgrade:delivery-test",
+               drained.drain_requested_at
+             )
+
+    assert {:ok, resumed} =
+             ControlPlane.handle_poll_certificate(
+               "worker-a",
+               poll("worker-a", "workspace-main", "after-drain")
+             )
+
+    assert length(resumed["commands"]) == 100
+  end
+
   test "commands redeliver until acknowledgement and exact results reconcile once" do
     authorize_and_poll!("worker-a")
     placement = place!("command-redelivery")

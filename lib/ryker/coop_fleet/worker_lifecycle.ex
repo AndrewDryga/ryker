@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   @moduledoc """
   Operator-owned drain, resume, and revocation custody for one Coop worker.
 
-  Drain stops new placement while allowing already leased work to finish.
+  Drain stops new placement and undelivered mutations while already leased work finishes.
   Revocation immediately invalidates central placement/state authority, every
   client certificate, and every unused enrollment token. The first operator
   decision remains the durable audit identity on exact retries.
@@ -29,12 +29,33 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     end
   end
 
+  @doc "Resume only the exact drain an upgrade acquired; leave another operator's decision intact."
+  @spec resume_if_drained_by(String.t(), String.t(), DateTime.t()) ::
+          {:ok, result()} | {:error, term()}
+  def resume_if_drained_by(worker_id, operator_ref, %DateTime{} = requested_at) do
+    with :ok <- reference(worker_id, :worker_id),
+         :ok <- reference(operator_ref, :operator_ref) do
+      Repo.transaction(fn -> resume_owned_drain_locked(worker_id, operator_ref, requested_at) end)
+    end
+  end
+
   @spec revoke(String.t(), String.t()) :: {:ok, result()} | {:error, term()}
   def revoke(worker_id, operator_ref) do
     with :ok <- reference(worker_id, :worker_id),
          :ok <- reference(operator_ref, :operator_ref) do
       Repo.transaction(fn -> revoke_locked(worker_id, operator_ref) end)
     end
+  end
+
+  defp resume_owned_drain_locked(worker_id, operator_ref, requested_at) do
+    worker = fetch_and_lock_worker!(worker_id)
+
+    unless worker.drain_requested_by == operator_ref and
+             worker.drain_requested_at == requested_at do
+      Repo.rollback(:coop_worker_drain_changed)
+    end
+
+    resume_locked(worker)
   end
 
   defp drain_locked(worker_id, operator_ref) do
@@ -60,9 +81,18 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     end
   end
 
-  defp resume_locked(worker_id) do
+  defp resume_locked(worker_id) when is_binary(worker_id) do
     worker = fetch_and_lock_worker!(worker_id)
 
+    if is_binary(worker.drain_requested_by) and
+         String.starts_with?(worker.drain_requested_by, "operator:worker-upgrade:") do
+      Repo.rollback(:coop_worker_upgrade_in_progress)
+    end
+
+    resume_locked(worker)
+  end
+
+  defp resume_locked(%Worker{} = worker) do
     cond do
       worker.state == :revoked ->
         Repo.rollback(:coop_worker_revoked)

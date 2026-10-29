@@ -132,13 +132,28 @@ defmodule Ryker.Release do
         result = %{
           "state" => Atom.to_string(worker.state),
           "status" => Atom.to_string(status),
-          "worker_id" => worker.id
+          "worker_id" => worker.id,
+          "drain_requested_at" => worker.drain_requested_at,
+          "drain_requested_by" => worker.drain_requested_by
         }
 
         report(settings, result)
         {:ok, result}
       end
     end)
+  end
+
+  @doc "Resume only the drain acquired by this worker upgrade, identified by operator and timestamp."
+  @spec resume_worker_upgrade(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def resume_worker_upgrade(worker_id, operator_ref, requested_at, options \\ []) do
+    settings = settings!(options)
+
+    with {:ok, timestamp, 0} <- DateTime.from_iso8601(requested_at) do
+      with_repo!(settings, fn _repo ->
+        CoopFleet.WorkerLifecycle.resume_if_drained_by(worker_id, operator_ref, timestamp)
+      end)
+    end
   end
 
   @doc """

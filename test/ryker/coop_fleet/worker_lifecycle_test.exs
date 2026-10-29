@@ -37,6 +37,57 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
     assert resumed.drain_requested_by == nil
   end
 
+  test "upgrade cleanup cannot resume another operator's drain or a newer drain" do
+    enroll_manual!("worker-guard", "guard-certificate")
+    assert {:ok, %{worker: first}} = WorkerLifecycle.drain("worker-guard", "operator:upgrade")
+
+    assert WorkerLifecycle.resume_if_drained_by(
+             "worker-guard",
+             "operator:other",
+             first.drain_requested_at
+           ) == {:error, :coop_worker_drain_changed}
+
+    assert {:ok, %{status: :resumed}} =
+             WorkerLifecycle.resume_if_drained_by(
+               "worker-guard",
+               "operator:upgrade",
+               first.drain_requested_at
+             )
+
+    assert {:ok, %{worker: second}} = WorkerLifecycle.drain("worker-guard", "operator:upgrade")
+
+    assert WorkerLifecycle.resume_if_drained_by(
+             "worker-guard",
+             "operator:upgrade",
+             DateTime.add(second.drain_requested_at, -1, :second)
+           ) == {:error, :coop_worker_drain_changed}
+
+    assert Repo.get!(Worker, "worker-guard").drain_requested_at == second.drain_requested_at
+  end
+
+  # Otherwise a console or CLI resume can admit a turn between the idle snapshot and restart.
+  test "ordinary resume cannot reopen an upgrade drain before its owner finishes" do
+    enroll_manual!("worker-upgrade-guard", "upgrade-guard-certificate")
+    owner = "operator:worker-upgrade:exclusive-test"
+    assert {:ok, %{worker: drained}} = WorkerLifecycle.drain("worker-upgrade-guard", owner)
+
+    assert WorkerLifecycle.resume("worker-upgrade-guard", "operator:other") ==
+             {:error, :coop_worker_upgrade_in_progress}
+
+    assert WorkerLifecycle.resume("worker-upgrade-guard", owner) ==
+             {:error, :coop_worker_upgrade_in_progress}
+
+    assert Repo.get!(Worker, "worker-upgrade-guard").drain_requested_at ==
+             drained.drain_requested_at
+
+    assert {:ok, %{status: :resumed}} =
+             WorkerLifecycle.resume_if_drained_by(
+               "worker-upgrade-guard",
+               owner,
+               drained.drain_requested_at
+             )
+  end
+
   test "revocation invalidates every certificate, bootstrap token, placement, and renewal path" do
     certificate = "worker-revoke-certificate"
     digest = enroll_manual!("worker-revoke", certificate)

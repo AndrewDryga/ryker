@@ -225,10 +225,21 @@ image is built from (that Dockerfile, the worker's entrypoint and `Box.Dockerfil
 any of them reaches every install even with the same Coop), copies the model sign-in aside
 in the worker's volume (`agents.pre-*`, the newest two kept), prepares the new worker's box on the
 live worker's volumes and Docker daemon while that worker keeps working
-(`deploy/compose/coop/prewarm.sh`), waits up to ten minutes for the commands the worker is carrying
-out (`RYKER_WORKER_IDLE_TIMEOUT`), then pins the image and replaces only the worker, which is back in
-seconds. It keeps the image it replaced as the way back and removes older worker images. Run it on
-the host of each install, after `git pull`.
+(`deploy/compose/coop/prewarm.sh`), then acquires an audited fleet drain. New submissions and cleanup
+mutations wait while existing commands, model turns and validation finish. The candidate image reads
+the live session store through a read-only volume with no network or Docker socket; an unavailable
+inspection fails the upgrade instead of claiming the worker is idle. It waits up to ten minutes
+(`RYKER_WORKER_IDLE_TIMEOUT`), replaces only the worker, verifies readiness, and then pins the new
+image. Graceful shutdown still joins runtime cleanup. On success or failure it resumes only the exact
+drain this invocation acquired; a pre-existing or newer operator drain is never cleared. It keeps the
+image it replaced as the way back and removes older worker images. Run it on the host of each install,
+after `git pull`.
+
+An ordinary resume refuses an upgrade-owned drain so that it cannot start a turn between the
+idle inspection and replacement. If the upgrader was killed without running its cleanup, first
+confirm that process has stopped. Then release the abandoned drain with
+`Ryker.Release.resume_worker_upgrade/3` inside the controller, using that worker's recorded ID,
+`drain_requested_by` and exact `drain_requested_at` timestamp. A mismatched identity is refused.
 
 An install on another machine can upgrade itself instead, with nobody on its host:
 `scripts/install-auto-upgrade.sh` installs a launch agent there that runs `scripts/auto-upgrade.sh`

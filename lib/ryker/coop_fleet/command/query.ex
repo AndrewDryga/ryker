@@ -1,7 +1,7 @@
 defmodule Ryker.CoopFleet.Command.Query do
   @moduledoc "Commands Ryker queued for its workers, for every read of `coop_worker_commands`."
   use Ryker, :query
-  alias Ryker.CoopFleet.{Command, Placement}
+  alias Ryker.CoopFleet.{Command, Placement, Worker}
   alias Ryker.WeeklyReport
   alias Ryker.Work
 
@@ -146,6 +146,26 @@ defmodule Ryker.CoopFleet.Command.Query do
       where:
         c.kind != "prepare_session" or is_nil(c.delivered_at) or c.delivered_at > ^prepare_cutoff,
       where: not like(c.idempotency_key, ^reads) or c.inserted_at > ^read_cutoff
+    )
+  end
+
+  @doc "Hold new mutations while drained, but deliver reads, settlement and already leased commands."
+  def allowed_while_draining(queryable) do
+    settling =
+      ~w(get_review get_review_gate_output get_checkpoint_bundle get_session get_session_evidence get_turn get_output_artifact get_changes get_changes_page reconcile_operation validate_candidate cancel_turn)
+
+    from(c in queryable,
+      join: w in Worker,
+      on: w.id == c.worker_id,
+      where:
+        is_nil(w.drain_requested_at) or not is_nil(c.delivered_at) or c.kind in ^settling or
+          (c.kind == "api_request" and
+             (fragment("?::jsonb ->> 'method' IN ('GET', 'HEAD')", c.payload) or
+                fragment(
+                  "(?::jsonb ->> 'method' = 'POST') AND (?::jsonb ->> 'path') ~ '^/v1/sessions/[^/]+/turns/[^/]+/(validation|cancel)$'",
+                  c.payload,
+                  c.payload
+                )))
     )
   end
 

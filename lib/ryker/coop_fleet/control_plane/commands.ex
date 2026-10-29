@@ -594,6 +594,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     commands =
       worker_id
       |> waiting(now)
+      |> Command.Query.allowed_while_draining()
       |> Command.Query.ordered_by_oldest()
       |> Command.Query.limit_to(100)
       |> Command.Query.lock_next_free()

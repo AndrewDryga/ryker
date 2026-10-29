@@ -215,9 +215,30 @@ case " $* " in
   *" logs "*) echo "fake container log line" ;;
   *" ps --all --quiet ryker "*) [[ -f $fake/running.image ]] && echo fake-ryker-container ;;
   *" inspect --format {{.Config.Image}} fake-ryker-container "*) cat "$fake/running.image" ;;
+  *"worker_lifecycle(:drain"*)
+    [[ -f $fake/drain.fail ]] && exit 1
+    echo "RYKER_UPGRADE_DRAIN=2026-10-28T23:59:00.000000Z"
+    ;;
+  *"resume_worker_upgrade("*) [[ -f $fake/resume.fail ]] && exit 1 ;;
+  *" inspect --format "*".Mounts"*) echo ryker-coop-state ;;
+  *" ps --quiet ryker-coop "*) [[ -f $fake/worker.image ]] && echo fake-worker-container ;;
   *" ps --all --quiet ryker-coop "*) [[ -f $fake/worker.image ]] && echo fake-worker-container ;;
   *" inspect --format {{.Config.Image}} fake-worker-container "*) cat "$fake/worker.image" ;;
-  *" exec -T database psql "*"coop_worker_commands"*) cat "$fake/inflight" 2>/dev/null || echo 0 ;;
+  *" sessions quiescence "*)
+    # Real candidate inspection failed before this isolation: config startup chmodded the
+    # mounted agent directory, which is correctly read-only (2026-10-28 container check).
+    [[ " $* " == *" -e HOME=/tmp -e COOP_CONFIG_DIR=/tmp/agents -e TMPDIR=/tmp "* &&
+       " $* " == *" --tmpfs /tmp:rw,noexec,nosuid,size=8m "* ]] || {
+      echo "make agent directory owner-only: read-only file system" >&2; exit 1;
+    }
+    [[ -f $fake/quiescence.fail ]] && exit 1
+    if [[ -f $fake/quiescence ]]; then cat "$fake/quiescence"; exit 3; fi
+    echo '{"active_turns":0,"active_operations":0,"active_sessions":0,"idle":true}'
+    ;;
+  *" exec -T database psql "*"coop_worker_commands"*)
+    [[ -f $fake/inflight.fail ]] && exit 1
+    cat "$fake/inflight" 2>/dev/null || echo 0
+    ;;
   *" ps --status running --services "*)
     [[ -f $fake/controller.stopped ]] || echo "ryker"
     printf 'ryker-coop\nryker-coop-docker\n'
@@ -244,7 +265,7 @@ seed() {
   rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down" \
     "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists" \
     "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail" "$fake/models.fail" \
-    "$fake/worker.image" "$fake/inflight" "$fake/prewarm.env" "$fake/live.calls" "$fake/live.fail"
+    "$fake/worker.image" "$fake/inflight" "$fake/inflight.fail" "$fake/quiescence" "$fake/quiescence.fail" "$fake/drain.fail" "$fake/resume.fail" "$fake/prewarm.env" "$fake/live.calls" "$fake/live.fail"
   touch "$fake/controller.running"
   mkdir -p "$fake/volumes/coop/sessions/job-sources/example/repository-forks/work" \
     "$fake/volumes/coop/sessions/job-sources/example/repository" \
@@ -1012,6 +1033,10 @@ check "named for the Coop it pins" "ryker-coop:1234abcd-" "$worker_pinned"
 check "it keeps the model sign-in aside" "cp -a agents agents.pre-1234abcd-" "$calls"
 check "it prepares the new worker's box with the new image" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$fake/prewarm.env")"
 check "it pins the new worker" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
+check "it acquires an audited drain before replacing the worker" 'worker_lifecycle(:drain' "$calls"
+check "it releases only its own drain" 'resume_worker_upgrade(' "$calls"
+check "it inspects native work using a read-only state volume" 'type=volume,source=ryker-coop-state,target=/var/lib/coop,readonly' "$calls"
+check "the native inspection has no network" 'run --rm --network none --read-only' "$calls"
 check "it restarts only the worker" "up --detach --no-build --wait --no-deps ryker-coop" "$calls"
 check "it removes a worker image older than the one it replaced" "image rm ryker-coop:older" "$calls"
 refute "it keeps the worker it replaced" "image rm ryker-coop:old"$'\n' "$calls"$'\n'
@@ -1032,11 +1057,49 @@ check "a worker carrying out commands is not swapped" "still carrying out 2 comm
 check "and the upgrade fails" "exit=1" "$out"
 refute "and keeps the worker's pin" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 refute "and restarts nothing" "up --detach" "$(cat "$fake/calls")"
+# The command returned 202 while its model turn still ran: a worker upgrade cancelled that
+# turn on 2026-10-28. Neither an accepted HTTP request nor a failed read proves an idle worker.
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+printf '%s\n' '{"active_turns":1,"active_operations":0,"active_sessions":1,"idle":false}' >"$fake/quiescence"
+worker_upgrade
+check "an asynchronous turn prevents a worker restart" "exit=1" "$out"
+refute "a running model keeps the previous worker" "up --detach" "$calls"
+refute "a running model keeps the previous pin" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
+for failure in inflight.fail quiescence.fail; do
+  seed
+  printf 'ryker-coop:old\n' >"$fake/worker.image"
+  touch "$fake/$failure"
+  worker_upgrade
+  check "unavailable $failure refuses the upgrade" "exit=1" "$out"
+  refute "unavailable $failure restarts nothing" "up --detach" "$calls"
+done
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+: >"$fake/inflight"
+worker_upgrade
+check "an empty command count refuses the upgrade" "exit=1" "$out"
+refute "an empty command count restarts nothing" "up --detach" "$calls"
 seed
 printf '%s\n' "$worker_pinned" >"$fake/worker.image"
 worker_upgrade
 check "a worker on the pin already is left alone" "The worker already runs $worker_pinned" "$out"
 refute "and nothing is built or restarted" "up --detach" "$calls"
+
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+touch "$fake/drain.fail"
+worker_upgrade
+check "an existing or unavailable drain refuses the upgrade" "exit=1" "$out"
+refute "an unowned drain is never resumed" 'resume_worker_upgrade(' "$calls"
+refute "without a drain the worker is not restarted" 'up --detach' "$calls"
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+touch "$fake/up.fail"
+worker_upgrade
+check "an unsuccessful replacement fails the upgrade" "exit=1" "$out"
+refute "an unsuccessful replacement does not pin its image" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
+check "an unsuccessful replacement releases its own drain" 'resume_worker_upgrade(' "$calls"
 
 # The worker image is named for everything built into it, not only the Coop it pins. On 2026-10-17
 # a change to the box Dockerfile with the same Coop reached no install that had built that Coop's
