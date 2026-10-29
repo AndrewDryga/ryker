@@ -1065,14 +1065,47 @@ defmodule Ryker.CoopFleet.Client do
 
       {:ok, %Command{} = command} ->
         with {:ok, session} <- fetch_command_session(command),
-             {:ok, result} <-
-               execute_read(client, session, "reconcile_operation", %{"operation_key" => key}),
+             {:ok, result} <- reconcile_command_operation(client, session, command, key),
              {:ok, operation} <- operation_result(result),
              :ok <- ensure_workspace.(client, command, operation, key) do
           {:ok, operation}
         end
     end
   end
+
+  defp reconcile_command_operation(client, session, command, key) do
+    case execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
+      {:error, {:coop_error, 404, "operation_not_found", _detail}} = error ->
+        missing_close_operation(command, session, key, error)
+
+      result ->
+        result
+    end
+  end
+
+  # Workspace/revision checks may refuse Close before its native operation is
+  # journaled. The saved terminal worker refusal is still a failed attempt:
+  # advance cleanup's generation instead of replaying that refusal forever.
+  # This is no proof that the runtime stopped or that the session closed.
+  defp missing_close_operation(
+         %Command{
+           status: :failed,
+           kind: "close_session",
+           error: %{"status" => 409, "code" => code}
+         } =
+           command,
+         session,
+         key,
+         error
+       )
+       when code in ["invalid_session_state", "revision_conflict"] do
+    if command.operation_key == key and command.idempotency_key == key and
+         command.payload["coop_session_id"] == session.coop_session_id,
+       do: {:ok, worker_rejected_operation(command)},
+       else: error
+  end
+
+  defp missing_close_operation(_command, _session, _key, error), do: error
 
   @impl true
   def get_output_artifact(client, coop_session_id, coop_turn_id, artifact_id) do
@@ -1707,6 +1740,7 @@ defmodule Ryker.CoopFleet.Client do
 
   defp operation_method("create_session"), do: "CreateRemoteSession"
   defp operation_method("submit_turn"), do: "SubmitTurn"
+  defp operation_method("close_session"), do: "CloseSession"
 
   defp controller_tools_descriptor(%{"endpoint" => endpoint, "token" => token}) do
     %{"endpoint" => endpoint, "token_sha256" => Crypto.sha256_hex(token)}
