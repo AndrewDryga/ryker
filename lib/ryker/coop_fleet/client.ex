@@ -1031,12 +1031,7 @@ defmodule Ryker.CoopFleet.Client do
         :not_found
 
       {:ok, %Command{status: :succeeded} = command} ->
-        with {:ok, body} <-
-               Bridge.command_response(
-                 command,
-                 client.bridge_options[:body_root],
-                 client.bridge_options[:checkpoint_key]
-               ),
+        with {:ok, body} <- saved_operation_response(client, command, key),
              {:ok, operation} <- operation_result(body),
              {:ok, operation} <- reconcile_waiting_operation(client, command, operation, key),
              :ok <- ensure_workspace.(client, command, operation, key) do
@@ -1073,6 +1068,45 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
+  defp saved_operation_response(client, command, key) do
+    case Bridge.command_response(
+           command,
+           client.bridge_options[:body_root],
+           client.bridge_options[:checkpoint_key]
+         ) do
+      {:error, reason} -> reconcile_delivered_refusal(client, command, key, reason)
+      result -> result
+    end
+  end
+
+  # The generic worker reports completed HTTP transport, including a 409. A
+  # saved HTTP refusal is not a native operation receipt: look up that exact
+  # operation before deciding whether this mutation failed without one.
+  defp reconcile_delivered_refusal(
+         client,
+         %Command{status: :succeeded, kind: kind} = command,
+         key,
+         {:coop_error, 409, code, detail} = reason
+       )
+       when kind in ["submit_turn", "cancel_turn", "close_session"] and
+              code in ["invalid_session_state", "revision_conflict"] do
+    with {:ok, session} <- fetch_command_session(command),
+         true <- exact_operation_owner?(command, session, key) do
+      case execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
+        {:error, {:coop_error, 404, "operation_not_found", _detail}} ->
+          {:ok, failed_operation(kind, "fleet-command:#{command.id}", code, detail)}
+
+        result ->
+          result
+      end
+    else
+      false -> {:error, reason}
+      {:error, failure_reason} -> {:error, failure_reason}
+    end
+  end
+
+  defp reconcile_delivered_refusal(_client, _command, _key, reason), do: {:error, reason}
+
   defp reconcile_command_operation(client, session, command, key) do
     case execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
       {:error, {:coop_error, 404, "operation_not_found", _detail}} = error ->
@@ -1099,13 +1133,18 @@ defmodule Ryker.CoopFleet.Client do
          error
        )
        when code in ["invalid_session_state", "revision_conflict"] do
-    if command.operation_key == key and command.idempotency_key == key and
-         command.payload["coop_session_id"] == session.coop_session_id,
-       do: {:ok, worker_rejected_operation(command)},
-       else: error
+    if exact_operation_owner?(command, session, key),
+      do: {:ok, worker_rejected_operation(command)},
+      else: error
   end
 
   defp missing_close_operation(_command, _session, _key, error), do: error
+
+  defp exact_operation_owner?(command, session, key) do
+    is_binary(session.coop_session_id) and session.coop_session_id != "" and
+      command.operation_key == key and command.idempotency_key == key and
+      command.payload["coop_session_id"] == session.coop_session_id
+  end
 
   @impl true
   def get_output_artifact(client, coop_session_id, coop_turn_id, artifact_id) do
@@ -1741,6 +1780,7 @@ defmodule Ryker.CoopFleet.Client do
   defp operation_method("create_session"), do: "CreateRemoteSession"
   defp operation_method("submit_turn"), do: "SubmitTurn"
   defp operation_method("close_session"), do: "CloseSession"
+  defp operation_method("cancel_turn"), do: "CancelTurn"
 
   defp controller_tools_descriptor(%{"endpoint" => endpoint, "token" => token}) do
     %{"endpoint" => endpoint, "token_sha256" => Crypto.sha256_hex(token)}

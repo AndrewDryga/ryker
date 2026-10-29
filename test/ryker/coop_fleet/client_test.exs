@@ -3151,6 +3151,97 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, "fence_operation", _, _, _}
   end
 
+  # The generic worker records successful transport even when Coop rejects the
+  # request: TestGenericAPIReportsHTTPFailureWithoutReinterpretingIt in Coop
+  # preserves this exact 409 envelope. Replaying its HTTP error stranded a
+  # production stop for more than one hundred attempts before native lookup.
+  test "a delivered HTTP refusal is reconciled without rewriting its successful transport", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote:http-refusal")
+    missing = {:error, {:coop_error, 404, "operation_not_found", "No operation."}}
+
+    for {kind, method} <- [
+          {"submit_turn", "SubmitTurn"},
+          {"cancel_turn", "CancelTurn"},
+          {"close_session", "CloseSession"}
+        ],
+        code <- ["invalid_session_state", "revision_conflict"] do
+      key = "http-refusal:#{kind}:#{code}"
+
+      command =
+        command!(session, key,
+          kind: kind,
+          payload: %{"coop_session_id" => session.coop_session_id, "expected_revision" => 3},
+          key: key
+        )
+        |> complete_http_refusal!(409, code)
+
+      Process.put(:coop_fleet_reconcile_result, missing)
+      assert {:ok, operation} = Client.operation_by_key(client, key)
+      assert operation["state"] == "failed"
+      assert operation["method"] == method
+      assert operation["error_code"] == code
+      refute Map.has_key?(operation, "resource_id")
+
+      native = %{"id" => "native-refusal", "method" => method, "state" => "uncertain"}
+      Process.put(:coop_fleet_reconcile_result, native)
+      assert Client.operation_by_key(client, key) == {:ok, native}
+
+      outage = {:error, {:coop_unavailable, :timeout}}
+      Process.put(:coop_fleet_reconcile_result, outage)
+      assert Client.operation_by_key(client, key) == outage
+      assert Repo.get!(Command, command.id) == command
+    end
+  end
+
+  test "a saved HTTP refusal cannot reconcile another request or an uncertain outcome", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote:http-refusal-owner")
+
+    Process.put(
+      :coop_fleet_reconcile_result,
+      {:error, {:coop_error, 404, "operation_not_found", "No operation."}}
+    )
+
+    for {variant, kind, http, code} <- [
+          {:other_kind, "get_session", 409, "invalid_session_state"},
+          {:other_session, "submit_turn", 409, "invalid_session_state"},
+          {:other_operation, "close_session", 409, "invalid_session_state"},
+          {:uncertain, "cancel_turn", 409, "operation_uncertain"},
+          {:outage, "submit_turn", 503, "invalid_session_state"}
+        ] do
+      key = "http-refusal:#{variant}"
+
+      remote =
+        if variant == :other_session, do: "remote:someone-else", else: session.coop_session_id
+
+      command =
+        command!(session, key,
+          kind: kind,
+          payload: %{"coop_session_id" => remote, "expected_revision" => 3},
+          key: key
+        )
+        |> complete_http_refusal!(http, code)
+
+      command =
+        if variant == :other_operation do
+          command |> Ecto.Changeset.change(operation_key: "other-operation") |> Repo.update!()
+        else
+          command
+        end
+
+      assert Client.operation_by_key(client, key) ==
+               {:error, {:coop_error, http, code, "changed"}}
+
+      assert Repo.get!(Command, command.id) == command
+      refute_receive {:fleet_command, _, "reconcile_operation", _, _, _}
+    end
+  end
+
   # Close can refuse workspace authority before journaling a native operation.
   # Replaying that failed fleet command forever cannot reach a repaired worker.
   test "a definitive close refusal survives an absent native operation as failure", %{
@@ -3544,6 +3635,17 @@ defmodule Ryker.CoopFleet.ClientTest do
              )
 
     command
+  end
+
+  defp complete_http_refusal!(command, status, code) do
+    completed =
+      complete_command!(command, :succeeded, %{
+        "error" => %{"code" => code, "detail" => "changed"}
+      })
+
+    completed
+    |> Ecto.Changeset.change(result: Map.put(completed.result, "status", status))
+    |> Repo.update!()
   end
 
   defp complete_command!(command, status, result, command_error \\ nil) do

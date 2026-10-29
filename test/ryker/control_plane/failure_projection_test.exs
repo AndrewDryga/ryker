@@ -670,6 +670,33 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     refute inspect(details) =~ "never show this body"
     refute inspect(details) =~ "private-request-key"
     refute inspect(details) =~ "private cause"
+
+    assert {:ok, delivered} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "close_session",
+               %{"private_payload" => "never show this body"},
+               "private-http-request-key"
+             )
+
+    delivered
+    |> Ecto.Changeset.change(
+      status: :succeeded,
+      completed_at: DateTime.utc_now(),
+      operation_key: delivered.idempotency_key,
+      result: %{
+        "status" => 409,
+        "body" => %{"error" => %{"code" => "revision_conflict", "detail" => "private cause"}}
+      },
+      result_fingerprint: digest("delivered-http-refusal")
+    )
+    |> Repo.update!()
+
+    assert {:ok, row} = FailureProjection.fetch("stopping", work.episode.key)
+
+    assert %{label: "Latest failed worker request", value: "Close the working session"} in FailureExplanation.details(
+             row
+           )
   end
 
   # Found reading Work cancellation on 2026-09-24: a stop whose worker stopped
