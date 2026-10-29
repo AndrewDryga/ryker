@@ -13,8 +13,8 @@ defmodule Ryker.Publication.Followups.Delivery do
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Ingress
-  alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
+  alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Repo
   alias Ryker.Waits
   alias Ryker.Work

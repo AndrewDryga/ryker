@@ -55,8 +55,8 @@ defmodule Ryker.Waits.Inputs do
     end
   end
 
-  @doc "The earliest queued input that can resume this exact wait, or `{:error, :not_found}`."
-  def fetch_resume(%Episodes.Episode{} = episode) do
+  # The earliest queued input that can resume this exact wait.
+  defp fetch_resume(%Episodes.Episode{} = episode) do
     found =
       episode.id
       |> Episodes.Event.Query.by_episode_id()
@@ -75,7 +75,7 @@ defmodule Ryker.Waits.Inputs do
     if found, do: {:ok, found}, else: {:error, :not_found}
   end
 
-  def fetch_resume(_episode), do: {:error, :not_found}
+  defp fetch_resume(_episode), do: {:error, :not_found}
 
   @doc "Reconciles retained inputs stranded by an earlier admission path, once per wait."
   def reconcile do

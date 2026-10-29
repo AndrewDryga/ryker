@@ -191,7 +191,12 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert file["data"] == String.duplicate("compiling\n", 500) <> failure
 
     assert {:ok, {:delivered, :message, _fix_delivery_ref}} = deliver_once(adapters)
-    receive_post_containing!("Fixed the failing parser test and committed the change.")
+
+    {:slack_posted, _, _, provisional, _, _} =
+      receive_post_containing!("The change is prepared locally.")
+
+    assert Jason.encode!(provisional) =~ "The pull request is not yet updated."
+    refute Jason.encode!(provisional) =~ "Fixed the failing parser test and committed the change."
 
     # The fixed commit is reviewed by the ordinary path and becomes the draft.
     rearmed = Repo.get!(Publication, blocked.id)
@@ -206,6 +211,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert published.status == :published
     assert published.pull_request_url == "https://github.com/acme/ryker/pull/91"
     assert published.fix_rounds == 1
+    receive_post_containing!("Published revision #{passed["candidate_head"]}")
 
     assert [{"ryker:publication:review:" <> _first, 7}, {second_key, 7}] =
              Agent.get(publication_coop, & &1.review_calls)

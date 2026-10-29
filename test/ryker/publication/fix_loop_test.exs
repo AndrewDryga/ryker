@@ -292,9 +292,10 @@ defmodule Ryker.Publication.FixLoopTest do
       %{claim: claim, request: request, blocked: blocked, admitted: admitted} =
         refuse!(suffix, overrides)
 
-      assert request.document["message"] ==
-               "I can't open a draft pull request for the committed change yet.",
-             suffix
+      message = request.document["message"]
+      assert message =~ "The local change is not published:", suffix
+      assert message =~ "the safety scan flagged 1 issue in the change", suffix
+      assert message =~ "File `lib/token.ex` may contain a credential.", suffix
 
       assert [%{"kind" => "publication_review"}] = request.document["records"]
       assert blocked.status == :blocked
