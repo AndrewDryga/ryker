@@ -336,15 +336,12 @@ defmodule Ryker.Knowledge do
     creates = Enum.filter(proposals, &(&1["action"] == "create"))
     topic_keys = Enum.map(creates, & &1["topic_key"])
 
-    anchors =
-      creates
-      |> Enum.flat_map(& &1["anchors"])
-      |> then(&KnowledgeAnchors.keys(scope_key(scope), &1))
+    titles = Enum.map(creates, & &1["title"])
 
     known =
       scope
       |> scope_key()
-      |> ConversationKnowledge.Query.matching_topics_or_anchors(topic_keys, anchors)
+      |> ConversationKnowledge.Query.matching_topics_or_titles(topic_keys, titles)
       |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
       |> ConversationKnowledge.Query.kept()
       |> ConversationKnowledge.Query.ordered_by_id()
@@ -394,9 +391,6 @@ defmodule Ryker.Knowledge do
       same_title =
         recall_locked(entry, entry.repository_ref, {:title, proposal["title"]}, 8, "writable")
 
-      anchored =
-        recall_locked(entry, entry.repository_ref, {:anchors, proposal["anchors"]}, 8, "writable")
-
       threads =
         entries
         |> Enum.filter(&(&1.id in proposal["source_input_ids"]))
@@ -404,11 +398,9 @@ defmodule Ryker.Knowledge do
 
       replies = recall_locked(entry, entry.repository_ref, {:threads, threads}, 8, "writable")
 
-      exact ++
-        Enum.reject(
-          anchored ++ replies ++ same_title,
-          &MapSet.member?(offered_refs, &1["source_ref"])
-        )
+      # A host or alert definition can concern independent subjects. Keep those anchors
+      # in discovery; direct reply context still catches a parent learned after preparation.
+      exact ++ Enum.reject(replies ++ same_title, &MapSet.member?(offered_refs, &1["source_ref"]))
     end)
     |> Enum.uniq_by(& &1["source_ref"])
     |> Enum.take(8)

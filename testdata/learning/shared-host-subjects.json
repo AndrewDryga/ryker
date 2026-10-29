@@ -1,0 +1,27 @@
+{
+  "provenance": "Projected fields from two retained distinct alert subjects incorrectly matched through one shared host. Hosts and region are pseudonymized; deterministic host-contract fixtures provide source custody.",
+  "existing": {
+    "topic_key": "region-a-traefik-reload-burst-2026-10-28-0121",
+    "title": "Region A Traefik reload burst alerts resolved on 28 October 2026",
+    "summary": "Grafana reported more than 10 Traefik configuration reloads in 15 minutes across nomad-hst02 through nomad-hst01. Alerts began at 01:21:20 UTC on 28 October 2026 for nomad-hst03, nomad-hst04 and nomad-hst01, and at 01:23:20 UTC for nomad-hst02 and nomad-hst05. All five alerts resolved at 01:31:20 UTC. The cause and any application impact remain unconfirmed.",
+    "topics": [
+      "traefik",
+      "region-a-nomad"
+    ],
+    "anchors": [
+      "nomad-hst01"
+    ]
+  },
+  "proposed": {
+    "topic_key": "nomad-hst01-reboot-alert-2026-10-27-1912",
+    "title": "nomad-hst01 recent reboot alert on 27 October 2026",
+    "summary": "Grafana reported uptime below 10 minutes on nomad-hst01, with a recent reboot alert starting at 19:12:50 UTC on 27 October 2026. Whether the reboot was planned, its cause, and alert resolution remain unconfirmed.",
+    "topics": [
+      "nomad-hst01",
+      "node-reboot"
+    ],
+    "anchors": [
+      "nomad-hst01"
+    ]
+  }
+}

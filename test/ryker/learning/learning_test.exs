@@ -386,7 +386,7 @@ defmodule Ryker.Learning.LearningTest do
              )
   end
 
-  test "renaming an unavailable subject with the same exact anchor cannot create a duplicate" do
+  test "renaming an unavailable subject with the same title cannot create a duplicate" do
     [first, second] = Fixtures.inputs!()
     assert {:ok, initial} = Learning.prepare([first.id], @policy)
     document = Jason.decode!(result([first]))
@@ -414,7 +414,12 @@ defmodule Ryker.Learning.LearningTest do
     assert fresh.knowledge == []
 
     renamed =
-      Map.merge(proposal, %{"topic_key" => "another-name", "source_input_ids" => [second.id]})
+      Map.merge(proposal, %{
+        "topic_key" => "another-name",
+        "title" => "  " <> String.upcase(proposal["title"]) <> "  ",
+        "anchors" => [],
+        "source_input_ids" => [second.id]
+      })
 
     assert Fixtures.accept(
              fresh.id,
@@ -828,6 +833,66 @@ defmodule Ryker.Learning.LearningTest do
 
     assert {:ok, _} = Fixtures.accept(pending.id, Jason.encode!(proposed), %{})
     assert Repo.aggregate(KnowledgeRevision, :count) == 2
+  end
+
+  # A recovered six-subject batch was rejected again because two separate proxy alerts
+  # mentioned the same host. The contract explicitly permits many subjects per resource.
+  for {count, unavailable} <- [{1, false}, {9, false}, {1, true}] do
+    @head_count count
+    @unavailable unavailable
+    test "shared host with #{count} subjects and unavailable=#{unavailable} cannot veto a distinct subject" do
+      [first, second] = Fixtures.inputs!()
+      subjects = "testdata/learning/shared-host-subjects.json" |> File.read!() |> Jason.decode!()
+      assert {:ok, pending} = Learning.prepare([second.id], @policy)
+      assert pending.knowledge == []
+
+      for n <- 1..@head_count do
+        proposal =
+          subjects["existing"]
+          |> Map.merge(%{"target_ref" => nil, "expected_version" => 0})
+          |> Map.update!("topic_key", &(&1 <> "-#{n}"))
+          |> Map.update!("title", &(&1 <> " #{n}"))
+
+        assert Repo.transaction(fn ->
+                 Knowledge.record_sources_in_transaction([first], proposal, [], %{
+                   result_ref: "host-contract-test:shared-host:#{n}",
+                   source_dependencies: LearningSources.for_entry(first),
+                   omissions: []
+                 })
+               end) == {:ok, :ok}
+      end
+
+      if @unavailable do
+        assert Repo.transaction(fn ->
+                 Observations.receive_in_transaction(%{
+                   first
+                   | id: Ecto.UUID.generate(),
+                     revision: first.revision + 1,
+                     event_kind: :delete
+                 })
+               end) == {:ok, :ok}
+
+        assert Knowledge.context(
+                 second,
+                 second.repository_ref,
+                 {:anchors, subjects["existing"]["anchors"]}
+               ) == []
+      else
+        assert Knowledge.context(
+                 second,
+                 second.repository_ref,
+                 {:anchors, subjects["existing"]["anchors"]}
+               ) != []
+      end
+
+      document = Jason.decode!(result([second]))
+
+      document =
+        put_in(document, ["updates"], [Map.merge(hd(document["updates"]), subjects["proposed"])])
+
+      assert {:ok, _} = Fixtures.accept(pending.id, Jason.encode!(document), %{})
+      assert Repo.aggregate(KnowledgeRevision, :count) == @head_count + 1
+    end
   end
 
   test "a renamed create is checked against unoffered existing subjects before it writes" do

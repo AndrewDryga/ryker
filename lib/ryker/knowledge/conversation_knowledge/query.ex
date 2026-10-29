@@ -204,13 +204,18 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
     )
   end
 
-  @doc "Topics of `scope_key` with any of `topic_keys` or sharing an anchor with `anchor_keys`."
-  def matching_topics_or_anchors(scope_key, topic_keys, anchor_keys) do
+  @doc "Topics of `scope_key` with an exact proposed key or normalized full title."
+  def matching_topics_or_titles(scope_key, topic_keys, titles) do
     where(
       all(),
       [conversation_knowledge: k],
       k.scope_key == ^scope_key and
-        (k.topic_key in ^topic_keys or fragment("? && ?::text[]", k.anchor_keys, ^anchor_keys))
+        (k.topic_key in ^topic_keys or
+           fragment(
+             "lower(btrim(?::jsonb ->> 'title')) IN (SELECT lower(btrim(candidate)) FROM unnest(?::text[]) AS candidate)",
+             k.state,
+             ^titles
+           ))
     )
   end
 

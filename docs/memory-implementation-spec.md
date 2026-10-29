@@ -77,14 +77,16 @@ for updates. Empty updates means no durable change. `defer` retains an explanati
 reference; it does not create a topic. A contradictory statement about the same subject updates
 that subject's history rather than automatically creating another one.
 
-Before accepting any create, run one host-owned matching pass using its title, topic terms,
-anchors, and eligible original source. If this finds an unoffered plausible existing topic,
-reject the candidate as `learning_match_required`, pin those topic IDs in the batch's next
-judgment, and ask for update/create/defer with those alternatives visible. This consumes the
-same batch's judgment budget. A create can pass after the relevant alternatives were considered;
-low similarity is not itself proof of novelty. No unlimited model-driven search loop.
-Recheck the direct threads of that proposal's contributing source inputs too: another batch may
-have learned the parent's topic after this judgment's briefing was frozen.
+Before accepting a create, recheck exact scoped topic keys and normalized full titles under
+that scope's creation lock. A used key must be updated or replaced with a genuinely distinct
+key. An unoffered exact-title candidate requires one fresh judgment with that topic visible;
+this consumes the same batch's budget. The matching pass and unavailable-target guard use the
+same key/title boundary. Source validity and current update versions are still mandatory.
+Generic anchors and vocabulary remain discovery clues in the briefing, not create vetoes:
+independent incidents can share a host or alert definition. They cannot force more model calls
+or make a subject unavailable merely by overlapping. Recheck the contributing inputs' direct
+threads for a parent learned after preparation; offer that authorized context once for a fresh
+judgment, without forcing a merge or rewriting the earlier prompt.
 
 Fresh attempts include bounded static host feedback for a rejected anchor, matching collision or
 invalid result shape. Count this feedback inside the same prompt budget. Do not echo the rejected
