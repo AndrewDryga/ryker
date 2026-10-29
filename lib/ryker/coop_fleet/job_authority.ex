@@ -151,7 +151,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
     do: {:ok, job}
 
   defp rechecked(job, _pinned, snapshot, reader),
-    do: job |> Map.delete("check") |> with_check(snapshot, reader)
+    do: with_check(job, snapshot, reader)
 
   defp source_commits(%{"source" => source}), do: commits(source)
 

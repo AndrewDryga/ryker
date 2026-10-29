@@ -946,6 +946,14 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       assert {:ok, pinned} = JobAuthority.ensure_pinned(session, nil, prepare)
       assert pinned.worker_job_document["repository_read_only"]
       assert Enum.map(pinned.worker_job_document["companions"], & &1["name"]) == ["library"]
+
+      # Three live conversations were blocked before a model could start when
+      # their repository advanced: refreshing a read-only job deleted its check.
+      moved = String.duplicate("2", 40)
+      assert {:ok, refreshed} = JobAuthority.ensure_pinned(pinned, nil, prepared_at(moved))
+      assert commits(refreshed) == [moved, moved]
+      assert refreshed.worker_job_document["check"] == %{"argv" => [], "environment" => %{}}
+      assert JobAuthority.validate(refreshed) == {:ok, refreshed}
     end
   end
 
