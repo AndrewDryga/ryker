@@ -1,0 +1,216 @@
+{
+  "provenance": "Normalized Slack notification bodies harvested from ten routine deployment trajectories, one failed rollout and one completed material deployment on 2026-10-29. Tenant, workspace, bot, actor, run, build and revision identities are pseudonyms. The ten pairs have identical normalized structure after substitution; only attachment timestamps differ. Templates losslessly factor that repetition. Expected actions are regression criteria, not recorded human ratings. Context is a controlled ambient channel without existing work; this is an input replay, not replay of the entire historical routing briefing.",
+  "templates": [
+    {
+      "attachments": [
+        {
+          "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000",
+          "author_name": "api-team_pseudonym",
+          "color": "5c4ee5",
+          "fallback": "Run run-fixture",
+          "footer": "HCP Terraform",
+          "footer_icon": "https://app.terraform.io/favicon.ico",
+          "id": 1,
+          "pretext": "Run notification for <https://app.terraform.io/app/Acme/tenant-apps|Acme/tenant-apps>",
+          "text": "CI apply \u2014 1111111111111111111111111111111111111111 \u2014 GitHub 90000000001/1",
+          "title": "Run run-fixture",
+          "title_link": "https://app.terraform.io/app/Acme/tenant-apps/runs/run-fixture",
+          "ts": 0
+        },
+        {
+          "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000",
+          "author_name": "api-team_pseudonym",
+          "color": "6a7786",
+          "fallback": "Run run-fixture - Run Created",
+          "id": 2,
+          "title": "Run Created",
+          "ts": 0
+        }
+      ],
+      "blocks": [],
+      "bot_id": "B-TERRAFORM",
+      "files": [],
+      "slack_event_kind": "message",
+      "subtype": "bot_message",
+      "text": ""
+    },
+    {
+      "attachments": [
+        {
+          "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000",
+          "author_name": "api-team_pseudonym",
+          "color": "5c4ee5",
+          "fallback": "Run run-fixture",
+          "footer": "HCP Terraform",
+          "footer_icon": "https://app.terraform.io/favicon.ico",
+          "id": 1,
+          "pretext": "Run notification for <https://app.terraform.io/app/Acme/tenant-apps|Acme/tenant-apps>",
+          "text": "CI apply \u2014 1111111111111111111111111111111111111111 \u2014 GitHub 90000000001/1",
+          "title": "Run run-fixture",
+          "title_link": "https://app.terraform.io/app/Acme/tenant-apps/runs/run-fixture",
+          "ts": 0
+        },
+        {
+          "color": "2eb039",
+          "fallback": "Run run-fixture - Run Planned and Finished",
+          "id": 2,
+          "title": "Run Planned and Finished",
+          "ts": 0
+        }
+      ],
+      "blocks": [],
+      "bot_id": "B-TERRAFORM",
+      "files": [],
+      "slack_event_kind": "message",
+      "subtype": "bot_message",
+      "text": ""
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "created_at": 1793285275,
+      "finished_at": 1793285356
+    },
+    {
+      "index": 2,
+      "created_at": 1793284053,
+      "finished_at": 1793284102
+    },
+    {
+      "index": 3,
+      "created_at": 1793280554,
+      "finished_at": 1793280600
+    },
+    {
+      "index": 4,
+      "created_at": 1793279238,
+      "finished_at": 1793279287
+    },
+    {
+      "index": 5,
+      "created_at": 1793279090,
+      "finished_at": 1793279138
+    },
+    {
+      "index": 6,
+      "created_at": 1793278837,
+      "finished_at": 1793278876
+    },
+    {
+      "index": 7,
+      "created_at": 1793277322,
+      "finished_at": 1793277371
+    },
+    {
+      "index": 8,
+      "created_at": 1793276042,
+      "finished_at": 1793276078
+    },
+    {
+      "index": 9,
+      "created_at": 1793274903,
+      "finished_at": 1793274944
+    },
+    {
+      "index": 10,
+      "created_at": 1793274110,
+      "finished_at": 1793274158
+    }
+  ],
+  "controls": [
+    {
+      "attachments": [
+        {
+          "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000",
+          "author_name": "api-team_pseudonym",
+          "color": "5c4ee5",
+          "fallback": "Run run-control",
+          "footer": "HCP Terraform",
+          "footer_icon": "https://app.terraform.io/favicon.ico",
+          "id": 1,
+          "pretext": "Run notification for <https://app.terraform.io/app/Acme/tenant-cloud|Acme/tenant-cloud>",
+          "text": "CI apply \u2014 2222222222222222222222222222222222222222 \u2014 GitHub 90000000002/1",
+          "title": "Run run-control",
+          "title_link": "https://app.terraform.io/app/Acme/tenant-cloud/runs/run-control",
+          "ts": 1793276044
+        },
+        {
+          "color": "fa8f37",
+          "fallback": "Run run-control - Run Planned - Needs Confirmation",
+          "id": 2,
+          "title": "Run Planned - Needs Confirmation",
+          "ts": 1793276230
+        }
+      ],
+      "blocks": [],
+      "bot_id": "B-TERRAFORM",
+      "files": [],
+      "slack_event_kind": "message",
+      "subtype": "bot_message",
+      "text": ""
+    },
+    {
+      "attachments": [
+        {
+          "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000",
+          "author_name": "api-team_pseudonym",
+          "color": "5c4ee5",
+          "fallback": "Run run-control",
+          "footer": "HCP Terraform",
+          "footer_icon": "https://app.terraform.io/favicon.ico",
+          "id": 1,
+          "pretext": "Run notification for <https://app.terraform.io/app/Acme/tenant-cloud|Acme/tenant-cloud>",
+          "text": "CI apply \u2014 2222222222222222222222222222222222222222 \u2014 GitHub 90000000002/1",
+          "title": "Run run-control",
+          "title_link": "https://app.terraform.io/app/Acme/tenant-cloud/runs/run-control",
+          "ts": 1793276044
+        },
+        {
+          "color": "c84034",
+          "fallback": "Run run-control - Run Errored",
+          "id": 2,
+          "title": "Run Errored",
+          "ts": 1793276848
+        }
+      ],
+      "blocks": [],
+      "bot_id": "B-TERRAFORM",
+      "files": [],
+      "slack_event_kind": "message",
+      "subtype": "bot_message",
+      "text": ""
+    },
+    {
+      "attachments": [
+        {
+          "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000",
+          "author_name": "api-team_pseudonym",
+          "color": "5c4ee5",
+          "fallback": "Run run-fixture",
+          "footer": "HCP Terraform",
+          "footer_icon": "https://app.terraform.io/favicon.ico",
+          "id": 1,
+          "pretext": "Run notification for <https://app.terraform.io/app/Acme/tenant-apps|Acme/tenant-apps>",
+          "text": "CI apply \u2014 1111111111111111111111111111111111111111 \u2014 GitHub 90000000001/1",
+          "title": "Run run-fixture",
+          "title_link": "https://app.terraform.io/app/Acme/tenant-apps/runs/run-fixture",
+          "ts": 1793233728
+        },
+        {
+          "color": "2eb039",
+          "fallback": "Run run-fixture - Run Applied",
+          "id": 2,
+          "title": "Run Applied",
+          "ts": 1793234106
+        }
+      ],
+      "blocks": [],
+      "bot_id": "B-TERRAFORM",
+      "files": [],
+      "slack_event_kind": "message",
+      "subtype": "bot_message",
+      "text": ""
+    }
+  ]
+}

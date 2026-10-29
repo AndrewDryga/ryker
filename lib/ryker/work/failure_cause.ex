@@ -18,6 +18,8 @@ defmodule Ryker.Work.FailureCause do
   # tuple, wherever the retry ladder nested it. An unterminated literal is a
   # truncated detail, and a half sentence is not a cause.
   @coop_refusal ~r/:coop_operation_failed, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
+  @coop_uncertain ~r/:coop_operation_uncertain, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
+  @coop_workspace_refusal ~r/:coop_error,\s*409,\s*"(?:invalid_session_state|idempotency_conflict|session_cleanup_error)",\s*"((?:[^"\\]|\\.)*)"/
 
   # A provider that limits the worker's model account keeps its own sentence,
   # which says whether it is a moment's throttle or a usage cap, and until
@@ -179,7 +181,14 @@ defmodule Ryker.Work.FailureCause do
           | nil
   def explain(detail) when is_binary(detail) do
     cond do
-      refusal = coop_refusal(detail) ->
+      uncertain = provider_sentence(@coop_uncertain, detail) ->
+        %{
+          cause: "The worker could not confirm the operation: " <> uncertain,
+          next_step:
+            "Resolve the condition the worker named; Ryker keeps reconciling the same operation."
+        }
+
+      refusal = coop_refusal(detail) || provider_sentence(@coop_workspace_refusal, detail) ->
         %{
           cause: "The worker rejected the operation: " <> refusal,
           next_step: "Correct the condition the worker named, then retry this task."

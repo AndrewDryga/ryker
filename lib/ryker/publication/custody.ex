@@ -88,6 +88,32 @@ defmodule Ryker.Publication.Custody do
 
   def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
 
+  @doc "Whether this task turn's new local candidate lacks verified publication."
+  @spec task_review_pending?(Episodes.Episode.t(), Work.Session.t(), Work.Turn.t()) :: boolean()
+  def task_review_pending?(
+        %Episodes.Episode{} = episode,
+        %Work.Session{workspace_task: %{"offer_ref" => task_ref}, repository_ref: repository},
+        %Work.Turn{} = turn
+      )
+      when is_binary(repository) do
+    case fetch_confirmed_task_readiness(episode, turn, task_ref) do
+      {:ok, _readiness} -> task_publication_unverified?(episode, turn)
+      {:error, :not_found} -> false
+    end
+  end
+
+  def task_review_pending?(_episode, _session, _turn), do: false
+
+  defp task_publication_unverified?(episode, turn) do
+    case fetch_and_lock_episode_publication(episode.id) do
+      {:error, :not_found} ->
+        true
+
+      {:ok, publication} ->
+        not unchanged_since_published?(publication, turn)
+    end
+  end
+
   defp fetch_confirmed_task_readiness(episode, turn, task_ref),
     do: Repo.fetch(Records.Record.Query.task_readiness(episode.id, turn.id, task_ref))
 
@@ -348,7 +374,9 @@ defmodule Ryker.Publication.Custody do
 
   def delivery_request(%Publication{status: :published_ready} = publication) do
     receipt = publication.publication_receipt
-    message = "Published draft pull request: #{receipt["pull_request_url"]}"
+
+    message =
+      "Published revision #{receipt["commit_sha"]} to #{receipt["pull_request_url"]}. Merging and deploying remain separate steps."
 
     delivery_request(
       publication,
@@ -373,8 +401,27 @@ defmodule Ryker.Publication.Custody do
         exhausted
 
       true ->
-        "I can't open a draft pull request for the committed change yet."
+        reasons = Enum.join(Review.refusal(publication.review_document), "; ")
+
+        findings =
+          publication.review_document["policy_findings"]
+          |> Review.findings()
+          |> Enum.take(3)
+          |> Enum.flat_map(fn
+            {path, problem} -> [finding_notice(path, problem)]
+            :unrecognized -> []
+          end)
+
+        Enum.join(["The local change is not published: #{reasons}." | findings], " ")
     end
+  end
+
+  # A repository controls its filenames. They must remain literal in both
+  # Slack and GitHub Markdown, including the delimiter itself.
+  defp finding_notice(path, problem) do
+    if String.contains?(path, ["`", "\n", "\r"]),
+      do: "A file #{problem}.",
+      else: "File `#{path}` #{problem}."
   end
 
   def confirm_delivery(publication_ref, lease_ref, external_receipt) do

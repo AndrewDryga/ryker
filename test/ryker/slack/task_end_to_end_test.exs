@@ -542,7 +542,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
               _}
            ] = GitHubRequester.requests(github)
 
-    assert reply_body =~ "Covered the nil retry state and updated the published review branch."
+    assert reply_body =~ "The change is prepared locally. The pull request is not yet updated."
+    refute reply_body =~ "Covered the nil retry state and updated the published review branch."
     refute_post_containing("Covered the nil retry state")
 
     assert %Turn{status: :settled, external_receipt: final_receipt} =
@@ -591,6 +592,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     # instead of opening a second draft for the same task.
     assert [_first_request, corrected_request] = Agent.get(draft_publisher, & &1.requests)
     assert corrected_request["expected_head"] == published.commit_sha
+    assert updated.commit_sha == corrected_request["candidate_head"]
     assert corrected_request["pull_request_number"] == 91
     assert "refs/heads/" <> corrected_request["branch"] == published.branch_ref
 

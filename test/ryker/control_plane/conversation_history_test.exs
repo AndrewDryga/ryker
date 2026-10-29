@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.Decision
+  alias Ryker.Artifacts
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, TranscriptCursor}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes
@@ -63,6 +64,32 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     reacted = Enum.find(traversed, &(&1.identity == history.reacted_input))
     assert [%{emoji_name: "eyes"}] = reacted.reactions
     assert reacted.actor == :operator
+  end
+
+  test "selected attachments survive a page containing unselected charts and worker images" do
+    # Local charts double the possible retained files per turn. Reading only
+    # five per reply dropped selected files from a full transcript window.
+    {:ok, %{entry: entry}} = send!(@conversation_id, "Show the chart history", 1)
+    base = accepted_reply!(entry, @conversation_id)
+
+    replies =
+      for index <- 2..102 do
+        images = for slot <- 1..10, do: retained_image(index, slot)
+        ref = List.last(images)["id"]
+        turn = clone_reply!(base, index, [ref])
+
+        for batch <- Enum.chunk_every(images, 5) do
+          assert {:ok, _artifacts} = Artifacts.Outputs.put_many(turn.id, batch)
+        end
+
+        place!(:reply, turn, DateTime.add(@epoch, index, :second))
+        {turn, ref}
+      end
+
+    {last_turn, selected_ref} = List.last(replies)
+    assert {:ok, page} = ConversationProjection.history(@conversation_id, nil, 200)
+    reply = Enum.find(page.messages, &(&1[:turn_id] == last_turn.id))
+    assert [%{ref: ^selected_ref, status: "available"}] = reply.attachments
   end
 
   test "page boundaries split exact timestamp ties without skipping or repeating" do
@@ -801,9 +828,25 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     settled.turn
   end
 
-  defp clone_reply!(turn, 1), do: Repo.get!(Turn, turn.id)
+  defp retained_image(index, slot) do
+    source = if slot <= 5, do: "worker", else: "chart"
+    ref = "artifact:#{source}:#{index}:#{slot}"
+    data = <<137, 80, 78, 71, 13, 10, 26, 10>> <> ref
 
-  defp clone_reply!(turn, index) do
+    %{
+      "id" => ref,
+      "name" => String.pad_leading(to_string(index), 3, "0") <> "-#{slot}.png",
+      "media_type" => "image/png",
+      "bytes" => byte_size(data),
+      "sha256" => digest(data),
+      "data" => data
+    }
+  end
+
+  defp clone_reply!(turn, index, artifact_refs \\ [])
+  defp clone_reply!(turn, 1, _artifact_refs), do: Repo.get!(Turn, turn.id)
+
+  defp clone_reply!(turn, index, artifact_refs) do
     id = Ecto.UUID.generate()
 
     %{
@@ -815,7 +858,11 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
         delivery_ref: "delivery:history:#{index}",
         delivery_document: %{
           "message" => "Reply #{index} from a cloned accepted turn.",
-          "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+          "outcome" => %{
+            "artifact_refs" => artifact_refs,
+            "record_refs" => [],
+            "state" => "complete"
+          }
         },
         external_receipt: %{
           "conversation_ref" => conversation_ref(),

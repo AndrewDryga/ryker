@@ -81,6 +81,12 @@ defmodule Ryker.Publication.Followups do
   @doc "Admits a leased lifecycle event's wakeup into its source task, once."
   defdelegate admit_wakeup(event_ref, lease_ref), to: Delivery
 
+  @doc "Waits satisfied by retained successful checks that the old host never admitted."
+  defdelegate pending_waits(limit, episode_id \\ nil), to: Delivery
+
+  @doc "Resumes one retained check without changing or redelivering its original notice."
+  defdelegate resume_retained_wait(event_ref), to: Delivery
+
   @doc "The message a pending lifecycle event posts in its publication's conversation."
   defdelegate delivery_request(event), to: Delivery
 

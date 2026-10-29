@@ -509,6 +509,23 @@ defmodule Ryker.Records do
 
   def open_event_wait?(_episode_id, _wait_ref), do: false
 
+  @doc "Whether an input meets a side watch while an event wait owns the task."
+  @spec matching_side_watch?(Episodes.Episode.t(), Ingress.Input.t()) :: boolean()
+  def matching_side_watch?(%Episodes.Episode{} = episode, %Ingress.Input{} = input) do
+    if open_event_wait?(episode.id, episode.owner_ref) do
+      episode.id
+      |> Record.Query.by_episode_id()
+      |> Record.Query.by_kind("event_wait")
+      |> Record.Query.open()
+      |> Repo.all()
+      |> Enum.any?(&met_watch?(&1, episode.owner_ref, input))
+    else
+      false
+    end
+  end
+
+  def matching_side_watch?(_episode, _input), do: false
+
   defp met_watch?(
          %Record{payload: %{"event_matcher" => %{"type" => "source_event"}}} = record,
          owner_ref,

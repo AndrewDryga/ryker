@@ -61,6 +61,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "one-outage-two-channels-joins-one-episode",
                "ordinary-thread-question-gets-natural-answer",
                "proactive-deployment-reviews-plan-before-human-approval",
+               "recurring-dead-letter-investigation-identifies-next-evidence",
                "rivals-engineering-task-offer",
                "similar-alert-different-environment-stays-separate",
                "terraform-run-update-stays-in-one-session",

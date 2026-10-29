@@ -1067,6 +1067,7 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <- exact_episode(episode, episode_id),
          {:ok, session, turn} <- fetch_and_lock_turn_after_episode(episode_id, turn_ref),
          {:ok, result} <- accepted_intent_result(turn),
+         result = publication_delivery_result(episode, session, turn, result),
          {:continue, command, attributes} <-
            prepare_result_acceptance(
              episode,
@@ -1111,6 +1112,32 @@ defmodule Ryker.Work.Custody.Turns do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  # The candidate and validation verdict remain exact historical inputs. The
+  # first delivery is host-owned: local completion precedes asynchronous review
+  # and publication, so it cannot promise a remote change. A replay uses the
+  # delivery frozen at acceptance, even after that publication later finishes.
+  defp publication_delivery_result(_episode, _session, %Turn{result_ref: ref} = turn, result)
+       when is_binary(ref),
+       do: %{result | delivery_document: turn.delivery_document}
+
+  defp publication_delivery_result(
+         episode,
+         session,
+         turn,
+         %Result{delivery: :reply, continuation: %{"kind" => "complete"}} = result
+       ) do
+    if Publication.Custody.task_review_pending?(episode, session, turn) do
+      message =
+        "The change is prepared locally. The pull request is not yet updated. I'm checking publication and will report the published revision or the blocker."
+
+      %{result | delivery_document: Map.put(result.delivery_document, "message", message)}
+    else
+      result
+    end
+  end
+
+  defp publication_delivery_result(_episode, _session, _turn, result), do: result
 
   defp prepare_result_acceptance(
          episode,

@@ -1,9 +1,42 @@
 defmodule Ryker.Publication.LifecycleEvent.Query do
   @moduledoc "What happened to each published change, for every read of `episode_publication_lifecycle_events`."
   use Ryker, :query
-  alias Ryker.Publication.LifecycleEvent
+  alias Ryker.Episodes
+  alias Ryker.Publication.{LifecycleEvent, Publication}
 
   def all, do: from(events in LifecycleEvent, as: :episode_publication_lifecycle_events)
+
+  @doc "Successful checks the old host retained without admitting, for tasks still waiting."
+  def suppressed_checks(episode_id \\ nil) do
+    query =
+      all()
+      |> join(:inner, [episode_publication_lifecycle_events: v], e in Episodes.Episode,
+        as: :episode_kernel_episodes,
+        on: e.id == v.episode_id
+      )
+      |> join(:inner, [episode_publication_lifecycle_events: v], p in Publication,
+        as: :episode_publications,
+        on: p.id == v.publication_id
+      )
+      |> where(
+        [episode_publication_lifecycle_events: v, episode_kernel_episodes: e],
+        v.kind == :checks and v.state == :succeeded and v.wakeup_state == :none and
+          e.state in [:waiting_for_input, :waiting_for_event]
+      )
+      |> order_by([episode_publication_lifecycle_events: v], asc: v.occurred_at, asc: v.id)
+      |> select(
+        [
+          episode_publication_lifecycle_events: v,
+          episode_kernel_episodes: e,
+          episode_publications: p
+        ],
+        %{event: v, episode: e, publication: p}
+      )
+
+    if is_binary(episode_id),
+      do: where(query, [episode_kernel_episodes: e], e.id == ^episode_id),
+      else: query
+  end
 
   def by_id(queryable \\ all(), id),
     do: where(queryable, [episode_publication_lifecycle_events: e], e.id == ^id)

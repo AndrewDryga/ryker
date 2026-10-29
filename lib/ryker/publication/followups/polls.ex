@@ -263,6 +263,7 @@ defmodule Ryker.Publication.Followups.Polls do
   # diagnostic access after its IAM change. It grants no deploy or mutation
   # authority. The lifecycle key makes each transition one wakeup.
   defp lifecycle_wakeup?(:checks, :failed), do: true
+  defp lifecycle_wakeup?(:checks, :succeeded), do: true
   defp lifecycle_wakeup?(:merged, :succeeded), do: true
   defp lifecycle_wakeup?(_kind, _state), do: false
 

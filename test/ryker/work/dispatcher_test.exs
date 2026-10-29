@@ -664,6 +664,36 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.next_attempt_at != nil
   end
 
+  # One production stop retried more than forty times while its visible error
+  # named only the cancellation wrapper, hiding the actionable refusal inside it.
+  test "an unresolved cancellation retains its cause without losing stop custody" do
+    command = create_episode!("cancellation-cause")
+    assert {:ok, claim} = Custody.claim_next("worker:prepare-cancellation", 60, :work)
+
+    assert {:ok, _requested} =
+             Custody.request_block(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               "Reconcile the exact remote stop before blocking."
+             )
+
+    reason =
+      {:work_cancellation_unresolved,
+       {:turn_submit_fence, {:error, {:coop_worker_command_conflict, "command:recorded"}}}}
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.last_error_code == "coop_worker_command_conflict"
+    assert turn.last_error_detail == Ryker.ErrorDetail.detail(reason)
+    assert turn.status == :cancel_pending
+    assert turn.cancellation_intent["action"] == "block"
+    assert turn.lease_ref == nil
+    assert turn.next_attempt_at != nil
+  end
+
   test "an irreducibly uncertain mutation first enters remote-stop custody" do
     command = create_episode!("blocked")
     reason = {:coop_operation_uncertain, "operation_uncertain", "outcome is unknown"}

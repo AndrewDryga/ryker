@@ -2,6 +2,7 @@ defmodule Ryker.Publication.FollowupsTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
   alias Ryker.Continuity
+  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -16,6 +17,8 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.Memories.{CaseRecord, Cases}
   alias Ryker.Publication.{Custody, Followup, FollowupExecutor, Followups, LifecycleEvent}
   alias Ryker.Publication.Publication
+  alias Ryker.Records
+  alias Ryker.Waits.EventWaits
   alias Ryker.Work.Cancellation
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.DeliveryReceipt
@@ -55,6 +58,273 @@ defmodule Ryker.Publication.FollowupsTest do
 
   # The next check of a follow-up that is never checked again.
   @never ~U[9999-01-01 00:00:00.000000Z]
+
+  # Harvested 2026-10-29: a person's request to resolve PR conflicts sat behind
+  # Ryker's own question for eleven hours. A second task stayed on its CI wait
+  # after the retry passed and the PR merged. Receiving the event is not resuming it.
+  test "a person's PR feedback resumes the question it answers exactly once" do
+    %{episode: episode} = publication_wait!("feedback-wait", :input)
+    input = %{feedback_input("feedback-wait") | occurred_at: Repo.now!(), event_kind: :message}
+    assert {:ok, %{event: event}} = Followups.observe_github_feedback(input)
+    assert {:ok, claim} = Followups.claim_delivery("feedback-wait", 60)
+    assert {:ok, _} = Followups.admit_wakeup(event.ref, claim.lease_ref)
+
+    current = Repo.get!(Episodes.Episode, episode.id)
+    assert current.state == :working
+    assert current.owner_ref == "turn:publication-feedback:#{event.id}"
+    assert Repo.get_by!(Records.Record, ref: episode.owner_ref).status == :answered
+    assert {:ok, _} = Followups.admit_wakeup(event.ref, claim.lease_ref)
+    assert Repo.get!(Episodes.Episode, episode.id).semantic_version == current.semantic_version
+  end
+
+  for {kind, checks, merged} <- [{:checks, "passing", false}, {:merged, "passing", true}] do
+    test "a #{kind} event resumes the exact publication wait" do
+      %{episode: episode, publication: publication} =
+        publication_wait!("lifecycle-wait-#{unquote(kind)}", :event)
+
+      assert {:ok, claim} = Followups.claim_poll("lifecycle-wait-#{unquote(kind)}", 60)
+      merge_sha = if unquote(merged), do: String.duplicate("b", 40)
+      status = lifecycle_status(publication, unquote(checks), unquote(merged), merge_sha)
+      assert {:ok, _} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+      event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: unquote(kind))
+      assert event.wakeup_state == :pending
+      deliver_pending!()
+
+      current = Repo.get!(Episodes.Episode, episode.id)
+      assert current.state == :working
+      assert current.owner_ref == "turn:publication-verification:#{event.id}"
+      assert Repo.get_by!(Records.Record, ref: episode.owner_ref).status == :answered
+    end
+  end
+
+  test "bot feedback does not answer a person's outstanding question" do
+    %{episode: episode} = publication_wait!("bot-question", :input)
+
+    input = %{
+      feedback_input("bot-question")
+      | occurred_at: Repo.now!(),
+        actor: %{kind: :bot, ref: "checks-bot"}
+    }
+
+    assert {:ok, %{event: event}} = Followups.observe_github_feedback(input)
+    assert {:ok, claim} = Followups.claim_delivery("bot-question", 60)
+    assert {:ok, _} = Followups.admit_wakeup(event.ref, claim.lease_ref)
+    assert Repo.get!(Episodes.Episode, episode.id).state == :waiting_for_input
+    assert Repo.get_by!(Records.Record, ref: episode.owner_ref).status == :open
+  end
+
+  # The check can finish while the continuation is still deciding how to wait.
+  # Dropping it then strands the promise just as surely as dropping it in a wait.
+  test "a passing check remains queued when its task is already running" do
+    %{episode: episode, publication: publication} = publication_wait!("running-check", :event)
+
+    assert {:ok, trigger} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode.id,
+                 episode_key: episode.key,
+                 native_input_id: "running-check-trigger",
+                 occurred_at: Repo.now!(),
+                 payload: %{"text" => "Continue checking the pull request."},
+                 turn_ref: "running-check-turn",
+                 destination: %{
+                   transport: episode.destination_transport,
+                   conversation_ref: episode.destination_conversation_ref,
+                   thread_ref: episode.destination_thread_ref
+                 }
+               })
+             )
+
+    assert {:ok, resumed} =
+             Episodes.apply(%Command.ResumeWait{
+               episode_key: episode.key,
+               expected_wait: %{kind: episode.owner_kind, ref: episode.owner_ref},
+               occurred_at: Repo.now!(),
+               resolution_ref: trigger.event.dedupe_key,
+               turn_ref: "running-check-turn"
+             })
+
+    assert {:ok, claim} = Followups.claim_poll("running-check", 60)
+    status = lifecycle_status(publication, "passing", false)
+    assert {:ok, _} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+    deliver_pending!()
+
+    current = Repo.get!(Episodes.Episode, episode.id)
+    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
+    assert event.wakeup_state == :admitted
+    assert current.owner_ref == resumed.episode.owner_ref
+    assert length(current.queued_input_refs) == length(resumed.episode.queued_input_refs) + 1
+  end
+
+  test "an already admitted human reply is visible and reconciled without rewriting its history" do
+    %{episode: episode} = publication_wait!("stranded-reply", :input)
+    input = %{feedback_input("stranded-reply") | occurred_at: Repo.now!(), event_kind: :message}
+
+    # The old publication path admitted exactly this input but never resumed
+    # its wait. A release must recover retained work, not only fix new arrivals.
+    assert {:ok, admitted} =
+             Episodes.apply(%Command.AdmitInput{
+               actor_ref: Input.actor_ref(input),
+               destination: %{
+                 transport: episode.destination_transport,
+                 conversation_ref: episode.destination_conversation_ref,
+                 thread_ref: episode.destination_thread_ref
+               },
+               episode_id: episode.id,
+               episode_key: episode.key,
+               native_input_id: input.native_input_id,
+               occurred_at: input.occurred_at,
+               payload: Input.document(input),
+               revision: input.revision,
+               turn_ref: "stranded-reply-turn"
+             })
+
+    assert {:ok, failures} = FailureProjection.list(%{})
+    failure = Enum.find(failures, &(&1.kind == "waiting" and &1.episode_id == episode.id))
+    assert failure
+    assert {:ok, detail} = FailureProjection.fetch("waiting", episode.key)
+    assert detail.episode_id == episode.id
+    assert FailureExplanation.explain(failure).outlook == :automatic
+    assert {:ok, _} = EventWaits.resume_due()
+    current = Repo.get!(Episodes.Episode, episode.id)
+    assert current.state == :working
+    assert current.owner_ref == "stranded-reply-turn"
+    assert Repo.get!(Event, admitted.event.id) == admitted.event
+    assert {:ok, _} = EventWaits.resume_due()
+    assert Repo.get!(Episodes.Episode, episode.id).semantic_version == current.semantic_version
+    assert {:ok, failures} = FailureProjection.list(%{})
+    refute Enum.any?(failures, &(&1.kind == "waiting" and &1.episode_id == episode.id))
+  end
+
+  test "an old successful check without an admitted input resumes without redelivering its notice" do
+    %{episode: episode, publication: publication} = publication_wait!("old-success", :event)
+    assert {:ok, claim} = Followups.claim_poll("old-success", 60)
+    status = lifecycle_status(publication, "passing", false)
+    assert {:ok, _} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
+    # The pre-fix host stored successful checks as history only.
+    Repo.update!(Ecto.Changeset.change(event, wakeup_state: :none))
+    deliver_pending!()
+    original = Repo.get!(LifecycleEvent, event.id)
+    assert Repo.get!(Episodes.Episode, episode.id).queued_input_refs == []
+    assert original.delivery_state == :delivered
+
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert Enum.any?(failures, &(&1.kind == "waiting" and &1.episode_id == episode.id))
+    assert {:ok, _} = EventWaits.resume_due()
+    current = Repo.get!(Episodes.Episode, episode.id)
+    assert current.state == :working
+    recovered = Repo.get!(LifecycleEvent, event.id)
+    assert recovered.wakeup_state == :admitted
+    assert recovered.delivery_receipt == original.delivery_receipt
+    assert recovered.occurred_at == original.occurred_at
+    assert recovered.observation == original.observation
+    assert recovered.delivery_state == :delivered
+    assert {:ok, _} = EventWaits.resume_due()
+    assert Repo.get!(Episodes.Episode, episode.id).semantic_version == current.semantic_version
+  end
+
+  test "a successful CI side watch resumes a task waiting primarily for its merge" do
+    %{episode: episode, publication: publication, side: side} =
+      publication_wait!("side-check", :event, %{"kind" => "checks"})
+
+    owner = Repo.get_by!(Records.Record, ref: episode.owner_ref)
+    assert {:ok, claim} = Followups.claim_poll("side-check", 60)
+    status = lifecycle_status(publication, "passing", false)
+    assert {:ok, _} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+    deliver_pending!()
+
+    assert Repo.get!(Episodes.Episode, episode.id).state == :working
+    assert Repo.get!(Records.Record, side.id).status == :answered
+    assert Repo.get!(Records.Record, owner.id).status == :open
+  end
+
+  defp publication_wait!(suffix, kind, side_match \\ nil) do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.published!(suffix,
+        github_repository: "octo/feedback-equivalence",
+        pull_request_number: 74
+      )
+
+    assert {:ok, active} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode.id,
+                 episode_key: episode.key,
+                 native_input_id: "wait-input:#{suffix}",
+                 turn_ref: "wait-turn:#{suffix}",
+                 occurred_at: Repo.now!(),
+                 payload: %{"text" => "Continue reviewing this change."},
+                 destination: %{
+                   transport: episode.destination_transport,
+                   conversation_ref: episode.destination_conversation_ref,
+                   thread_ref: episode.destination_thread_ref
+                 }
+               })
+             )
+
+    assert {:ok, claim} = WorkCustody.claim_next("wait:#{suffix}", 60, :work)
+
+    {record_kind, payload} =
+      case kind do
+        :input ->
+          {"input_request",
+           %{"question" => "Which review finding should be addressed?", "choices" => []}}
+
+        :event ->
+          {"event_wait",
+           %{
+             "kind" => "source_event",
+             "deadline_at" => nil,
+             "verification" =>
+               "Read the check result for this pull request and finish its review.",
+             "event_matcher" => %{
+               "type" => "source_event",
+               "source_kind" => "system",
+               "poll_after" => nil,
+               "on_timeout" => nil,
+               "match" => %{
+                 "kind" => "publication_lifecycle",
+                 "publication" => %{"head_sha" => publication.commit_sha}
+               }
+             }
+           }}
+      end
+
+    payload =
+      if side_match,
+        do: put_in(payload, ["event_matcher", "match", "lifecycle"], %{"kind" => "merged"}),
+        else: payload
+
+    assert {:ok, wait} =
+             Records.create(Records.token(claim.turn), "wait:#{suffix}", record_kind, payload)
+
+    side =
+      if side_match do
+        side_payload = put_in(payload, ["event_matcher", "match", "lifecycle"], side_match)
+
+        assert {:ok, side} =
+                 Records.create(
+                   Records.token(claim.turn),
+                   "side:#{suffix}",
+                   "event_wait",
+                   side_payload
+                 )
+
+        side
+      end
+
+    assert {:ok, waiting} =
+             Episodes.apply(%Command.StartWait{
+               episode_key: episode.key,
+               expected_turn_ref: active.episode.owner_ref,
+               kind: kind,
+               wait_ref: wait.ref,
+               occurred_at: Repo.now!()
+             })
+
+    %{episode: waiting.episode, publication: publication, claim: claim, side: side}
+  end
 
   test "merging a task's pull request resumes its remaining verification exactly once" do
     # Access was granted by a merged change, but the task never checked it:

@@ -13,9 +13,10 @@ defmodule Ryker.Publication.Followups.Delivery do
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.{Leases, Store}
-  alias Ryker.Publication.{LifecycleEvent, Publication}
   alias Ryker.Repo
+  alias Ryker.Waits
   alias Ryker.Work
 
   def admit_wakeup(event_ref, lease_ref) do
@@ -24,6 +25,74 @@ defmodule Ryker.Publication.Followups.Delivery do
       Store.transaction(fn -> admit_wakeup_locked(event_ref, lease_ref) end)
     end
   end
+
+  @doc false
+  def pending_waits(limit, episode_id \\ nil)
+
+  def pending_waits(limit, episode_id)
+      when (is_nil(limit) or (is_integer(limit) and limit > 0)) and
+             (is_nil(episode_id) or is_binary(episode_id)) do
+    episode_id
+    |> LifecycleEvent.Query.suppressed_checks()
+    |> Repo.all()
+    |> Enum.flat_map(&retained_wait/1)
+    |> Enum.sort_by(&DateTime.to_unix(&1.resume.event.inserted_at, :microsecond), :desc)
+    |> take_pending(limit)
+  end
+
+  def pending_waits(_limit, _episode_id), do: []
+
+  defp take_pending(rows, nil), do: rows
+  defp take_pending(rows, limit), do: Enum.take(rows, limit)
+
+  defp retained_wait(%{event: event, episode: episode, publication: publication}) do
+    if same_observed_pull_request?(event, publication) do
+      input = wakeup_input(publication, episode, event)
+
+      if Waits.Inputs.resumable?(episode, input),
+        do: [%{episode: episode, resume: %{event: event, input: input}}],
+        else: []
+    else
+      []
+    end
+  end
+
+  defp same_observed_pull_request?(event, publication) do
+    event.observation["head_sha"] == publication.commit_sha and
+      event.observation["number"] == publication.pull_request_number and
+      event.observation["url"] == publication.pull_request_url
+  end
+
+  @doc false
+  def resume_retained_wait(event_ref) do
+    with :ok <- Store.reference(event_ref, :event_ref) do
+      Store.transaction(fn -> resume_retained_wait_locked(event_ref) end)
+    end
+  end
+
+  defp resume_retained_wait_locked(event_ref) do
+    case lock_wakeup(event_ref) do
+      {:ok, event, episode} -> resume_suppressed_check(event, episode)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp resume_suppressed_check(
+         %LifecycleEvent{kind: :checks, state: :succeeded, wakeup_state: :none} = event,
+         episode
+       ) do
+    publication = Repo.fetch!(Publication.Query.by_id(event.publication_id))
+
+    case retained_wait(%{event: event, episode: episode, publication: publication}) do
+      [%{resume: %{input: input}}] ->
+        admit_input(event, publication, input, admit_command(episode, input, event), Repo.now!())
+
+      [] ->
+        :idle
+    end
+  end
+
+  defp resume_suppressed_check(_event, _episode), do: :idle
 
   def delivery_request(%LifecycleEvent{delivery_state: :pending} = event) do
     case Repo.fetch(Publication.Query.by_id(event.publication_id)) do
@@ -45,14 +114,31 @@ defmodule Ryker.Publication.Followups.Delivery do
   # --- the wakeup -----------------------------------------------------------
 
   defp admit_wakeup_locked(event_ref, lease_ref) do
-    now = Repo.now!()
-
-    with {:ok, event} <- Store.fetch_and_lock_lifecycle_event(event_ref),
+    with {:ok, event, _episode} <- lock_wakeup(event_ref),
+         now = Repo.now!(),
          :ok <- Leases.live_event_lease(event, lease_ref, now) do
       admit_wakeup_event(event, now)
     else
       {:error, :not_found} -> Repo.rollback(:publication_lifecycle_event_not_found)
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # Admission owns the conversation before the episode. Polls lock the follow-up
+  # before its lifecycle event; use that order too, including retained recovery.
+  defp lock_wakeup(event_ref) do
+    with {:ok, event} <- Repo.fetch(LifecycleEvent.Query.by_ref(event_ref)),
+         {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(event.episode_id)),
+         :ok <-
+           Episodes.ConversationLock.lock(%{
+             transport: episode.destination_transport,
+             conversation_ref: episode.destination_conversation_ref
+           }),
+         {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode.key) do
+      _followup = Store.fetch_and_lock_followup!(event.publication_id)
+
+      with {:ok, event} <- Store.fetch_and_lock_lifecycle_event(event_ref),
+           do: {:ok, event, episode}
     end
   end
 
@@ -62,19 +148,39 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   defp admit_wakeup_event(%LifecycleEvent{wakeup_state: :pending} = event, now) do
     publication = Repo.fetch!(Publication.Query.by_id(event.publication_id))
+
     episode = Repo.fetch!(Episodes.Episode.Query.by_id(event.episode_id))
+
     input = wakeup_input(publication, episode, event)
     command = admit_command(episode, input, event)
 
+    # Passing CI resumes a promised check, but does not create new work for a
+    # completed task. Its lifecycle event remains visible in either case.
+    if event.kind == :checks and event.state == :succeeded and episode.state != :working and
+         not Waits.Inputs.resumable?(episode, input) do
+      Store.update_event!(event, %{wakeup_state: :none}, now)
+    else
+      admit_input(event, publication, input, command, now)
+    end
+  end
+
+  defp admit_input(event, publication, input, command, now) do
     case Episodes.apply_batch_in_transaction([command]) do
       {:ok, [transition]} ->
-        case Work.Custody.resume_blocked_in_transaction(
-               transition.episode,
-               transition.event.dedupe_key
-             ) do
-          {:ok, _episode} ->
-            record_wakeup_admission(event, publication, command, transition, now)
-
+        with {:ok, _resumed} <-
+               Waits.Inputs.resume_in_transaction(
+                 transition.episode,
+                 input,
+                 transition.event,
+                 nil
+               ),
+             {:ok, _episode} <-
+               Work.Custody.resume_blocked_in_transaction(
+                 transition.episode,
+                 transition.event.dedupe_key
+               ) do
+          record_wakeup_admission(event, publication, command, transition, now)
+        else
           {:error, reason} ->
             Repo.rollback(reason)
         end
@@ -158,7 +264,7 @@ defmodule Ryker.Publication.Followups.Delivery do
               "publication" => %{
                 "branch_ref" => publication.branch_ref,
                 "head_sha" => publication.commit_sha,
-                "merge_sha" => publication_followup_merge(publication.id),
+                "merge_sha" => publication_event_merge(publication.id, event),
                 "pull_request_number" => publication.pull_request_number,
                 "pull_request_url" => publication.pull_request_url,
                 "repository" => publication.repository
@@ -188,10 +294,16 @@ defmodule Ryker.Publication.Followups.Delivery do
   # A red check asks the agent to finish its own change; a deployment or
   # Terraform signal asks it to verify one that already shipped. Naming the two
   # differently is what keeps a correction from being reported as a verification.
-  defp wakeup_request(%LifecycleEvent{kind: :checks}),
+  defp wakeup_request(%LifecycleEvent{kind: :checks, state: :failed}),
     do: %{
       "correction_request" =>
         "The checks on this exact pull request are failing. Fix them inside the task's existing scope and update the same branch, or say precisely what is blocking them. Do not widen the task, and do not merge or deploy."
+    }
+
+  defp wakeup_request(%LifecycleEvent{kind: :checks, state: :succeeded}),
+    do: %{
+      "verification_request" =>
+        "The checks on this exact pull request passed. Complete the promised check review using the saved check evidence. This is not merge or deployment evidence and grants no new authority."
     }
 
   defp wakeup_request(%LifecycleEvent{kind: :merged}),
@@ -258,8 +370,15 @@ defmodule Ryker.Publication.Followups.Delivery do
   defp feedback_source(%{"source" => %{"kind" => kind, "ref" => ref}}),
     do: %{kind: kind, ref: ref}
 
-  defp publication_followup_merge(publication_id),
-    do: Store.fetch_and_lock_followup!(publication_id).merge_sha
+  # A retained check must not acquire a merge learned after its occurrence.
+  defp publication_event_merge(_publication_id, %LifecycleEvent{
+         kind: kind,
+         observation: observation
+       })
+       when kind in [:checks, :merged], do: observation["merge_sha"]
+
+  defp publication_event_merge(publication_id, _event),
+    do: Repo.fetch!(Followup.Query.by_publication_id(publication_id)).merge_sha
 
   # --- the message and its receipt ------------------------------------------
 

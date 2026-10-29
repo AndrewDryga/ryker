@@ -383,7 +383,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     turn_ids
     |> Artifacts.OutputArtifact.Query.by_turn_ids()
     |> Artifacts.OutputArtifact.Query.ordered_by_name()
-    |> Artifacts.OutputArtifact.Query.limit_to(@page_maximum * 5)
+    # Both history and refresh bound their turn set. Each turn can retain
+    # five worker images plus five charts, while its reply selects at most five.
+    |> Artifacts.OutputArtifact.Query.limit_to(length(turn_ids) * 10)
     |> Artifacts.OutputArtifact.Query.select_listing()
     |> Repo.all()
     |> Map.new(&{{&1.turn_id, &1.ref}, output_artifact(&1, conversation_id)})
