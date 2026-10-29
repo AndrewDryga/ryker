@@ -4,6 +4,36 @@ defmodule Ryker.Work.FailureCauseTest do
   use ExUnit.Case, async: true
   alias Ryker.Work.FailureCause
 
+  # A retained task retried its stop dozens of times while the page hid the
+  # worker's saved uncertain-operation refusal behind a generic wrapper.
+  test "an uncertain cancellation keeps the worker's reason distinct from a rejected operation" do
+    refusal =
+      "legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace"
+
+    detail =
+      inspect(
+        {:work_cancellation_unresolved,
+         {:coop_operation_uncertain, "operation_uncertain", refusal}}
+      )
+
+    assert %{cause: cause} = FailureCause.explain(detail)
+    assert cause == "The worker could not confirm the operation: " <> refusal
+    refute cause =~ "rejected"
+  end
+
+  test "a recorded workspace refusal remains visible inside a cancellation fence" do
+    fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
+
+    detail =
+      "{:work_cancellation_unresolved, {:turn_submit_fence, {:error, " <>
+        fixture["error_detail"] <> "}}}"
+
+    assert FailureCause.cause(detail) =~
+             "legacy remote session has no immutable fork ownership proof"
+
+    refute FailureCause.cause(detail) =~ ":coop_error"
+  end
+
   test "a failure's cause is in words, or nil when Ryker can name none" do
     assert FailureCause.cause("coop_worker_command_timeout: placement 7") ==
              "The worker did not take or finish one of this task's commands in time."

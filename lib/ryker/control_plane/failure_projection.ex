@@ -657,6 +657,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # worker, which the explanation reads from the attached worker facts.
   defp stopping_item({%Work.Turn{} = turn, %Episodes.Episode{} = episode}) do
     %{
+      cause: Work.FailureCause.cause(turn.last_error_detail),
       action: nil,
       attempt_count: turn.cancel_attempt_count,
       detail: Operator.FailureDetail.project(turn.last_error_detail),

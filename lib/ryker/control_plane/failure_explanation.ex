@@ -704,7 +704,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp stopping_cause(%{worker: %{id: id} = worker} = row, now) do
     if holder_reporting?(worker, now) do
       cause(
-        "Its worker #{id} is reporting but has not confirmed the run stopped.",
+        row[:cause] || "Its worker #{id} is reporting but has not confirmed the run stopped.",
         "Each attempt ended with \"#{words(row.summary)}\".",
         :automatic,
         "Ryker keeps asking worker #{id}; the stop finishes as soon as it answers."

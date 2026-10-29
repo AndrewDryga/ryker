@@ -599,6 +599,37 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     assert brief.explained
   end
 
+  # A stop retried 29 times with a reporting worker, but the page omitted the
+  # same saved cause decoder ordinary work failures already used.
+  test "a reporting worker's unresolved stop shows its saved refusal without raw diagnostics" do
+    work = stopping_turn!("refused-stop")
+    place_on_worker!(work.session)
+
+    detail =
+      inspect(
+        {:work_cancellation_unresolved,
+         {:coop_operation_failed, "invalid_session_state",
+          "legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace"}}
+      )
+
+    work.turn
+    |> Ecto.Changeset.change(
+      last_error_code: "work_cancellation_unresolved",
+      last_error_detail: detail
+    )
+    |> Repo.update!()
+
+    assert {:ok, row} = FailureProjection.fetch("stopping", work.episode.key)
+
+    assert row.cause ==
+             "The worker rejected the operation: legacy remote session has no immutable fork ownership proof; recreate the session after preserving its workspace"
+
+    explanation = FailureExplanation.explain(row)
+    assert Enum.join(explanation.cause, " ") =~ row.cause
+    assert explanation.outlook == :automatic
+    refute inspect(explanation) =~ detail
+  end
+
   # Found reading Work cancellation on 2026-09-24: a stop whose worker stopped
   # reporting was deferred once a minute forever and listed nowhere, while its
   # task card read "stopping" and its request waited behind it. A stop still
