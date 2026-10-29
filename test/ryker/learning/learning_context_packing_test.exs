@@ -101,6 +101,82 @@ defmodule Ryker.Learning.LearningContextPackingTest do
     assert Repo.aggregate(LearningRun, :count) == 2
   end
 
+  test "successive create-check corrections keep every required alternative in the next briefing" do
+    # A live sixteen-input batch spent all three starts alternating between two
+    # omitted topics. Each correction replaced the previous one, so the next
+    # briefing forgot an alternative the model had already been asked to assess.
+    %{entries: entries, heads: [first, second]} = setup_topics!(10, 17)
+    ids = Enum.map(entries, & &1.id)
+    assert {:ok, original} = Learning.prepare(ids, @policy)
+
+    # Crowd the bounded context with the harvested topic's prose. These are
+    # host selection mechanics, not fabricated model judgments.
+    topic = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("topics") |> hd()
+
+    for index <- 1..10 do
+      seed_topic!(Map.put(topic, "topic_key", "crowded-topic-#{index}"), entries)
+    end
+
+    Repo.update!(
+      Ecto.Changeset.change(original,
+        status: :rejected,
+        error_code: "learning_match_required",
+        match_refs: ["knowledge:#{first.id}"]
+      )
+    )
+
+    assert {:ok, retry} = Learning.prepare(ids, @policy)
+    assert Enum.any?(retry.knowledge, &(&1["source_ref"] == "knowledge:#{first.id}"))
+
+    Repo.update!(
+      Ecto.Changeset.change(retry,
+        status: :rejected,
+        error_code: "learning_match_required",
+        match_refs: ["knowledge:#{second.id}"]
+      )
+    )
+
+    assert {:ok, final} = Learning.prepare(ids, @policy)
+    offered = Enum.map(final.knowledge, & &1["source_ref"])
+    assert "knowledge:#{first.id}" in offered
+    assert "knowledge:#{second.id}" in offered
+    assert length(offered) <= 8
+  end
+
+  test "required alternatives beyond the context limit stop before another model start" do
+    %{entries: entries} = setup_topics!(10, 17)
+    ids = Enum.map(entries, & &1.id)
+    assert {:ok, original} = Learning.prepare(ids, @policy)
+    topic = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("topics") |> hd()
+
+    refs =
+      for index <- 1..9 do
+        head = seed_topic!(Map.put(topic, "topic_key", "required-topic-#{index}"), entries)
+        "knowledge:#{head.id}"
+      end
+
+    Repo.update!(
+      Ecto.Changeset.change(original,
+        status: :rejected,
+        error_code: "learning_match_required",
+        match_refs: Enum.take(refs, 8)
+      )
+    )
+
+    assert {:ok, retry} = Learning.prepare(ids, @policy)
+
+    Repo.update!(
+      Ecto.Changeset.change(retry,
+        status: :rejected,
+        error_code: "learning_match_required",
+        match_refs: [List.last(refs)]
+      )
+    )
+
+    assert Learning.prepare(ids, @policy) == {:error, :learning_capacity_exceeded}
+    assert Repo.aggregate(LearningRun, :count) == 2
+  end
+
   @tag :slow
   test "an affordable priority topic is not displaced when the next topic exceeds the remaining capacity" do
     %{entries: entries, heads: [priority, later], selected: selected} = setup_topics!(9_981, 17)

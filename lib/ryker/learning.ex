@@ -763,8 +763,26 @@ defmodule Ryker.Learning do
 
     settings
     |> Map.put(:retry_topic_keys, keys)
-    |> Map.put(:retry_match_refs, if(existing, do: existing.match_refs, else: []))
+    |> Map.put(:retry_match_refs, retry_match_refs(existing))
     |> Map.put(:retry_feedback, retry_feedback(retry_error_code(existing, settings)))
+  end
+
+  defp retry_match_refs(nil), do: []
+
+  defp retry_match_refs(%LearningRun{} = existing) do
+    # Keep corrections from this exact frozen request. Replacing the previous
+    # match made a live batch alternate between omitted topics until it spent
+    # every start. A new manifest or policy must not inherit old source context.
+    existing.batch_key
+    |> LearningRun.Query.by_batch_key()
+    |> LearningRun.Query.by_policy(existing.policy, existing.policy_digest)
+    |> LearningRun.Query.by_error_code("learning_match_required")
+    |> LearningRun.Query.unpruned()
+    |> LearningRun.Query.ordered_by_generation_desc()
+    |> LearningRun.Query.select_match_refs()
+    |> Repo.all()
+    |> List.flatten()
+    |> Enum.uniq()
   end
 
   # Retiring an undisclosed manifest is not a newer model judgment. A later
@@ -872,6 +890,8 @@ defmodule Ryker.Learning do
   defp select_knowledge!(entries, settings) do
     entry = hd(entries)
     search = Knowledge.KnowledgeAnchors.source_texts(entries)
+
+    if length(settings.retry_match_refs) > 8, do: Repo.rollback(:learning_capacity_exceeded)
 
     matches =
       Knowledge.context(
