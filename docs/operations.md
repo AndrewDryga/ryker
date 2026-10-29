@@ -695,8 +695,8 @@ evidence retrieval, follow-through, interruptions and cost. It reviews real traj
 apparently successful work, then proposes changes to Ryker's code, prompts, settings and tools.
 Ryker's own reliability repairs are in scope, but do not substitute for that behavioral review.
 Recommendations to change the infrastructure Ryker monitors belong to a separate operational
-review. A weekly version of that review is not currently scheduled or included in the weekly
-report; the existing report composes saved facts without a model turn.
+review. When weekly reporting is enabled, its advisory model review contributes
+operational recommendations from saved evidence, as described below.
 The [skill](../.agent/skills/flywheel/SKILL.md) documents the workflow; its
 [operator protocol](../.agent/skills/flywheel/references/commands.md) documents each command.
 
@@ -768,8 +768,8 @@ These are historical suggestions, not a new live health check.
 One frozen review owns its single model turn and resumes that same operation
 through restarts or uncertain responses. Disabling or reconfiguring reporting
 prevents new submissions while the existing remote custody is reconciled.
-The ordinary report waits at most five minutes and says when the review was
-unavailable. Later results never rewrite a queued report. Explicit forgetting
+The ordinary report waits at most five minutes and omits unavailable review
+content. Later results never rewrite a queued report. Explicit forgetting
 and retention redact copied review/report content while preserving delivery
 and stop receipts. A preview never starts a model review.
 
