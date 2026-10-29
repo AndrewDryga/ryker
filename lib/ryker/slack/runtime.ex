@@ -414,6 +414,7 @@ defmodule Ryker.Slack.Runtime do
       interaction_handler: InteractionHandler,
       interaction_options: %{
         answer_input_request: &Records.InputRequests.answer/1,
+        work_profile: work_profile(default_environment, environments, fallback_work_profile),
         approve_publication: &Publication.Custody.approve/1,
         approve_task_publication: &WorkControls.approve_publication/1,
         recover_task_publication: &WorkControls.recover_publication/2,

@@ -43,6 +43,11 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
       {:ok, %{"attempt" => attempt, "run_id" => run_id, "status" => "cancelling"}}
     end
 
+    def close_own_pull_request(client, repository, number, actor_id) do
+      send(client, {:close_pull, repository, number, actor_id})
+      {:ok, %{"number" => number, "state" => "closed"}}
+    end
+
     def submit_review(client, repository, number, sha, event, body, comments) do
       send(client, {:submit_review, repository, number, sha, event, body, comments})
       {:ok, %{"commit_id" => sha, "review_id" => 77}}
@@ -81,6 +86,82 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
   defmodule MissingSubjectAPI do
     def read_context(_client, %{section: "subject"}), do: {:error, :offline}
     def read_context(_client, _request), do: {:ok, %{"items" => [], "next_cursor" => nil}}
+  end
+
+  # A superseded PR remained open because no host tool could close it.
+  test "own pull request cleanup is offered and bound to the configured bot identity" do
+    options = put_in(context_options(), [:clients, "github-main", :ryker_actor_id], 99)
+    tool = Enum.find(CapabilityTools.list(options), &(&1["name"] == "close_github_pull_request"))
+    assert tool
+    assert tool["inputSchema"]["required"] == ["number"]
+
+    assert {:ok, %{"state" => "closed"}} =
+             CapabilityTools.call(
+               "close_github_pull_request",
+               %{"number" => 42},
+               slack_work_binding(),
+               options
+             )
+
+    assert_received {:close_pull, "octo/example", 42, 99}
+
+    assert CapabilityTools.call(
+             "close_github_pull_request",
+             %{"number" => 42},
+             slack_work_binding(),
+             context_options()
+           ) == {:error, "unauthorized"}
+
+    assert CapabilityTools.call(
+             "close_github_pull_request",
+             %{"number" => 43},
+             work_binding(),
+             options
+           ) == {:error, "unauthorized"}
+
+    assert CapabilityTools.call(
+             "close_github_pull_request",
+             %{"number" => 42, "repository" => "elsewhere"},
+             slack_work_binding(),
+             options
+           ) == {:error, "unauthorized"}
+
+    assert CapabilityTools.call(
+             "close_github_pull_request",
+             %{"number" => 42, "ryker_actor_id" => 1},
+             slack_work_binding(),
+             options
+           ) == {:error, "invalid_arguments"}
+
+    refute_received {:close_pull, _, _, _}
+  end
+
+  test "closing cannot write through a companion repository or an observe-only turn" do
+    options = put_in(context_options(), [:clients, "github-main", :ryker_actor_id], 99)
+    binding = environment_work_binding("other", ["repo-main"])
+
+    assert CapabilityTools.call(
+             "close_github_pull_request",
+             %{"number" => 42, "repository" => "repo-main"},
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
+    for transport <- ~w(slack github control_plane) do
+      assert Ryker.StateTools.ToolVisibility.visible?(
+               "close_github_pull_request",
+               transport,
+               :live
+             )
+
+      refute Ryker.StateTools.ToolVisibility.visible?(
+               "close_github_pull_request",
+               transport,
+               :shadow
+             )
+    end
+
+    refute_received {:close_pull, _, _, _}
   end
 
   test "subject lookup failures retain the existing model-facing error contract" do

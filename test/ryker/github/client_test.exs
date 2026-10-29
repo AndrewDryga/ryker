@@ -483,6 +483,73 @@ defmodule Ryker.GitHub.ClientTest do
              {:error, {:github_protocol_error, :search_repository}}
   end
 
+  # Ryker left its superseded PR open and sent the cleanup back to a person
+  # because the host exposed no close capability (2026-10-29).
+  test "Ryker can close its own pull request and retry without another write" do
+    pull = pull_request_document()
+    closed = Map.put(pull, "state", "closed")
+
+    {:ok, requester} =
+      FakeRequester.start([response(200, pull), response(200, closed), response(200, closed)])
+
+    github = client(requester)
+
+    assert {:ok, receipt} = Client.close_own_pull_request(github, "octo/example", 42, 99)
+    assert receipt == %{"number" => 42, "state" => "closed", "url" => pull["html_url"]}
+    assert Client.close_own_pull_request(github, "octo/example", 42, 99) == {:ok, receipt}
+
+    assert [
+             {:get, "/repos/octo/example/pulls/42", nil, _},
+             {:patch, "/repos/octo/example/pulls/42", %{"state" => "closed"}, _},
+             {:get, "/repos/octo/example/pulls/42", nil, _}
+           ] = FakeRequester.requests(requester)
+  end
+
+  test "closing refuses a human or another bot before writing" do
+    for user <- [%{"id" => 100, "type" => "Bot"}, %{"id" => 99, "type" => "User"}] do
+      pull = Map.put(pull_request_document(), "user", user)
+      {:ok, requester} = FakeRequester.start([response(200, pull)])
+
+      assert Client.close_own_pull_request(client(requester), "octo/example", 42, 99) ==
+               {:error, {:github_action_unavailable, :not_owned}}
+
+      assert [{:get, _, nil, _}] = FakeRequester.requests(requester)
+    end
+  end
+
+  test "closing refuses merged or crossed pull requests and unconfirmed writes" do
+    pull = pull_request_document()
+
+    merged =
+      Map.merge(pull, %{
+        "merged" => true,
+        "state" => "closed",
+        "merge_commit_sha" => String.duplicate("b", 40),
+        "merged_at" => "2026-10-29T12:00:00Z"
+      })
+
+    for {document, reason} <- [
+          {merged, :already_merged},
+          {Map.put(pull, "number", 43), :pull_request_identity},
+          {Map.put(pull, "html_url", "https://github.com/octo/other/pull/42"),
+           :pull_request_identity}
+        ] do
+      {:ok, requester} = FakeRequester.start([response(200, document)])
+
+      assert Client.close_own_pull_request(client(requester), "octo/example", 42, 99) ==
+               {:error, {:github_action_unavailable, reason}}
+
+      assert [{:get, _, nil, _}] = FakeRequester.requests(requester)
+    end
+
+    for reply <- [response(200, pull), response(403, %{"message" => "Forbidden"})] do
+      {:ok, requester} = FakeRequester.start([response(200, pull), reply])
+
+      assert {:error, _reason} =
+               Client.close_own_pull_request(client(requester), "octo/example", 42, 99)
+    end
+  end
+
   test "reads one exact draft pull request" do
     sha = String.duplicate("a", 40)
 

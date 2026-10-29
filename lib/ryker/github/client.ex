@@ -84,6 +84,11 @@ defmodule Ryker.GitHub.Client do
   @impl true
   defdelegate get_publication_status(client, repository, number), to: PullRequests
 
+  @doc "Closes only a pull request whose live author is the configured Ryker bot."
+  @spec close_own_pull_request(t(), String.t(), pos_integer(), pos_integer()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate close_own_pull_request(client, repository, number, actor_id), to: PullRequests
+
   @doc "Publishes one review tied to the exact pull-request head SHA."
   @spec submit_review(t(), String.t(), pos_integer(), String.t(), String.t(), String.t(), [map()]) ::
           {:ok, map()} | {:error, term()}

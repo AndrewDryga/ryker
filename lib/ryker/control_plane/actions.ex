@@ -658,7 +658,8 @@ defmodule Ryker.ControlPlane.Actions do
       occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
       response_ref: request.ref,
-      target: target
+      target: target,
+      work_profile: request.work_profile
     })
   end
 
