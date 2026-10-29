@@ -13,6 +13,9 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   Scenarios are `Ryker.Evals.LearningRunner.scenarios/0`, haproxy by default;
   each needs its own empty database.
 
+  `--probe` also requires `RYKER_EVAL_JUDGE_TARGET`. Execution and answer quality
+  are reported separately; a probe passes only when both do.
+
   Create and migrate the explicitly disposable database first. This task starts
   only Repo and Finch, not Ryker workers or transports. It refuses nonempty
   databases and existing report files. Failed run custody remains in PostgreSQL;
@@ -20,7 +23,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   """
   use Mix.Task
   alias Ryker.Coop.Client
-  alias Ryker.Evals.{Job, LearningRunner}
+  alias Ryker.Evals.{Job, LearningQuality, LearningRunner}
   alias Ryker.Evals.Runtime, as: EvalRuntime
   alias Ryker.Repo
 
@@ -31,6 +34,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     options = parse_options!(arguments)
     scenario = Keyword.get(options, :scenario, "haproxy")
     validate_options!(options, scenario)
+    judge_job = judge_job!(options[:probe])
     client = start_client!(options)
 
     settings = %{
@@ -38,11 +42,24 @@ defmodule Mix.Tasks.Ryker.LearningEval do
       api: Client,
       client: client,
       job: client.job,
-      probe_question: if(options[:probe], do: probe_question(scenario))
+      probe: if(options[:probe], do: LearningQuality.probe(scenario)),
+      judge: if(judge_job, do: %{client: %{client | job: judge_job}, job: judge_job})
     }
 
     execute(options, scenario, settings)
   end
+
+  defp judge_job!(true) do
+    case Job.new(:judge, System.get_env("RYKER_EVAL_JUDGE_TARGET")) do
+      {:ok, job} ->
+        job
+
+      {:error, _reason} ->
+        Mix.raise("--probe requires RYKER_EVAL_JUDGE_TARGET for answer quality")
+    end
+  end
+
+  defp judge_job!(_probe), do: nil
 
   defp parse_options!(arguments) do
     keys = [:database, :target, :results]
@@ -126,7 +143,7 @@ defmodule Mix.Tasks.Ryker.LearningEval do
 
         unless match?({:ok, %{passed: true}}, result) do
           Mix.raise(
-            "learning structural qualification failed; inspect report and retained custody"
+            "learning qualification failed; inspect execution, answer quality and retained custody"
           )
         end
       after
@@ -135,23 +152,6 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     else
       {:error, reason} -> Mix.raise("learning evaluation refused: #{inspect(reason)}")
     end
-  end
-
-  # Authored evaluation questions, deliberately separate from harvested inputs.
-  defp probe_question("haproxy") do
-    "What do we know about the website HAProxy OOM on nomad-hst01, and what does the later resolved alert establish or leave unverified? Answer from the conversation history; do not run infrastructure checks."
-  end
-
-  defp probe_question("auth-memory-recurrence") do
-    "What is the latest recorded state of auth/auth resident-memory pressure on nomad-hst02, and how does it relate to the earlier firing and resolved alerts? Answer from the conversation history, distinguish separate occurrences, and do not inspect live infrastructure."
-  end
-
-  defp probe_question("draft-keep") do
-    "What did the team decide about keeping draft-ai-suggestions, and why? Answer from the conversation history; do not change code or inspect live systems."
-  end
-
-  defp probe_question("starfall-correction") do
-    "Was the Starfall release stuck, and what did the team clarify about how updates happen? Answer from the conversation history, distinguish the initial concern from the later clarification, and do not inspect live systems."
   end
 
   @doc false

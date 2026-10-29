@@ -12,7 +12,7 @@ defmodule Ryker.Evals.LearningRunner do
   alias Ryker.CanonicalJSON
   alias Ryker.Config
   alias Ryker.Crypto
-  alias Ryker.Evals.{Evidence, Job, LearningProbe, SessionCleanup}
+  alias Ryker.Evals.{Evidence, Job, LearningProbe, LearningQuality, SessionCleanup}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
@@ -31,13 +31,13 @@ defmodule Ryker.Evals.LearningRunner do
     schedules event_waits state_tools coop_worker_gateway)a
 
   @scenarios ~w(haproxy auth-memory-recurrence draft-keep unoffered-draft-match
-    starfall-correction chatter one-off-request people)
+    starfall-correction chatter one-off-request people relative-dates exact-values)
 
   @doc "The recorded scenarios `recorded_sequence/1` reads, the first the default."
   @spec scenarios() :: [String.t()]
   def scenarios, do: @scenarios
 
-  @doc "Loads exact harvested sources, never the fixture's recorded model answers."
+  @doc "Loads original inputs or labelled captured promises, never expected learning results."
   def recorded_sequence(scenario \\ "haproxy")
 
   def recorded_sequence("haproxy"),
@@ -49,6 +49,24 @@ defmodule Ryker.Evals.LearningRunner do
       :same_topic,
       :later_occurrence
     ])
+  end
+
+  def recorded_sequence("exact-values"), do: recorded_sequence("auth-memory-recurrence")
+
+  def recorded_sequence("relative-dates") do
+    path = "testdata/slack/terraform-deployment-reply.json"
+    bytes = File.read!(path)
+    fixture = Jason.decode!(bytes)
+
+    [
+      %{
+        input: retained_reply_input(fixture),
+        expectation: :new_topic,
+        fixture: path,
+        fixture_sha256: Crypto.sha256_hex(bytes),
+        adapter: :retained_reply
+      }
+    ]
   end
 
   def recorded_sequence("draft-keep"),
@@ -143,10 +161,7 @@ defmodule Ryker.Evals.LearningRunner do
       steps = execute(sequence, settings, polls, [])
       learned = length(steps) == length(sequence) and Enum.all?(steps, & &1.passed)
 
-      probe =
-        if learned and options[:probe_question] do
-          LearningProbe.run(options.probe_question, settings, hd(steps).input_id)
-        end
+      probe = run_probe(learned, options, settings, sequence, steps)
 
       %{rows: [[database]]} = Repo.query!("SELECT current_database()")
 
@@ -157,10 +172,13 @@ defmodule Ryker.Evals.LearningRunner do
          job_digest: options.job.digest,
          execution: if(options.api == Ryker.Coop.Client, do: "live_model", else: "host_plumbing"),
          transformation:
-           "Original input bodies, identities and event times retained; learning uses silent shadow admission, removed transport capabilities, an empty-workspace evaluation job and current ingestion receipts. Only the optional, separately labelled Work probe creates an episode with inert delivery.",
+           "Source bodies and event times retained. Each step identifies whether its envelope is original or a retained-reply transport adapter. Learning uses silent shadow admission, removed transport capabilities, an empty-workspace evaluation job and current ingestion receipts. Only the optional, separately labelled Work probe creates an episode with inert delivery.",
          semantic_review:
-           "required; structural checks do not prove the model's factual interpretation",
-         passed: learned and (is_nil(probe) or probe.passed),
+           "Factual review of intermediate learned summaries is required; their checks are structural only. The held-out answer's assessment, when requested, is work_probe.answer_quality.",
+         qualification:
+           if(options[:probe], do: :memory_answer_quality, else: :learning_execution),
+         execution_passed: learned and (is_nil(probe) or probe.execution_passed),
+         passed: learned and probe_passed?(options[:probe], probe),
          work_probe: probe,
          unrun_inputs:
            sequence
@@ -170,6 +188,17 @@ defmodule Ryker.Evals.LearningRunner do
        })}
     end
   end
+
+  defp run_probe(true, %{probe: %{question: _question}} = options, settings, sequence, steps) do
+    sources = Enum.map(sequence, & &1.input)
+    LearningProbe.run(options.probe, settings, hd(steps).input_id, sources, options[:judge])
+  end
+
+  defp run_probe(_learned, _options, _settings, _sequence, _steps), do: nil
+
+  defp probe_passed?(nil, _probe), do: true
+  defp probe_passed?(_requested, nil), do: false
+  defp probe_passed?(_requested, probe), do: probe.passed
 
   @doc false
   def retained_report,
@@ -213,9 +242,8 @@ defmodule Ryker.Evals.LearningRunner do
       poll_interval(options) not in 0..60_000 or step_delay(options) not in 0..60 ->
         :learning_eval_invalid_poll_interval
 
-      options[:probe_question] != nil and
-          not (is_binary(options.probe_question) and byte_size(options.probe_question) in 1..4000) ->
-        :learning_eval_invalid_probe_question
+      options[:probe] != nil and not LearningQuality.valid?(options.probe) ->
+        :learning_eval_invalid_probe
 
       true ->
         nil
@@ -276,10 +304,46 @@ defmodule Ryker.Evals.LearningRunner do
     with {:ok, bytes} <- File.read(step.fixture),
          true <- Crypto.sha256_hex(bytes) == step.fixture_sha256,
          {:ok, fixture} <- Jason.decode(bytes) do
-      step.input in Map.get(fixture, "inputs", [fixture["input"]])
+      matches_fixture?(step, fixture)
     else
       _ -> false
     end
+  end
+
+  defp matches_fixture?(%{adapter: :retained_reply} = step, fixture),
+    do: step.input == retained_reply_input(fixture)
+
+  defp matches_fixture?(step, fixture),
+    do: step.input in Map.get(fixture, "inputs", [fixture["input"]])
+
+  # This is a captured accepted answer, not proof of publication or an original Slack envelope.
+  # Only the transport identity is constructed for the isolated replay; the
+  # message and acceptance time remain exactly those of the retained reply.
+  defp retained_reply_input(fixture) do
+    source = fixture["source"]
+    ref = "learning-eval:retained-reply:#{source["turn_id"]}"
+
+    %{
+      "id" => source["turn_id"],
+      "dedupe_key" => ref,
+      "event_ref" => ref,
+      "event_fingerprint" => Crypto.sha256_hex(ref),
+      "source_kind" => "slack",
+      "source_ref" => "T0TENANT001",
+      "native_input_id" => ref,
+      "source_item_ref" => nil,
+      "actor_kind" => "bot",
+      "actor_ref" => "B0TENANTBT1",
+      "event_kind" => "message",
+      "revision" => 1,
+      "content" => %{"text" => fixture["candidate"]["message"]},
+      "destination_transport" => "slack",
+      "destination_conversation_ref" => "slack:T0TENANT001:C0TENANTENG",
+      "destination_thread_ref" => ref,
+      "repository_ref" => nil,
+      "occurred_at" => source["accepted_at"],
+      "execution_mode" => "live"
+    }
   end
 
   defp concurrent_fixture_valid?(%{expectation: :matched_topic} = step) do
@@ -314,6 +378,7 @@ defmodule Ryker.Evals.LearningRunner do
       input_id: entry.id,
       fixture: step.fixture,
       fixture_sha256: step.fixture_sha256,
+      adapter: Map.get(step, :adapter, :original_input),
       original_input_sha256: CanonicalJSON.digest(step.input),
       content_sha256: CanonicalJSON.digest(entry.content),
       occurred_at: DateTime.to_iso8601(entry.occurred_at),

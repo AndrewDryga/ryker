@@ -11,7 +11,7 @@ defmodule Ryker.Evals.LearningProbe do
   alias Ryker.{Admission, CanonicalJSON, Repo}
   alias Ryker.Admission.Decision
   alias Ryker.Delivery.Adapters
-  alias Ryker.Evals.{Evidence, SessionCleanup, SlackDeliveryPublisher}
+  alias Ryker.Evals.{Evidence, LearningQuality, SessionCleanup, SlackDeliveryPublisher}
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeExposure
@@ -19,7 +19,8 @@ defmodule Ryker.Evals.LearningProbe do
   alias Ryker.Work.{Session, Turn}
 
   @doc false
-  def run(question, settings, source_id) do
+  def run(probe, settings, source_id, sources, judge_options) do
+    question = probe.question
     source = Repo.get!(Entry, source_id)
     before_runs = Repo.aggregate(LearningRun, :count)
     # The state the world's inert publishers keep (`Ryker.Evals.DeliveryPublisher`).
@@ -38,6 +39,18 @@ defmodule Ryker.Evals.LearningProbe do
       session = Repo.get!(Session, turn.session_id)
       exposures = Repo.all(from(e in KnowledgeExposure, where: e.session_id == ^session.id))
 
+      execution_passed =
+        turn.status == :settled and turn.delivered_at != nil and exposures != [] and
+          cleanup == :discarded and Repo.aggregate(LearningRun, :count) == before_runs
+
+      answer_quality =
+        if execution_passed do
+          answer = (turn.delivery_document || %{})["message"]
+          LearningQuality.assess(probe, sources, answer, judge_options)
+        else
+          %{status: :unassessed, checks: [], reason: :execution_failed, judgment: nil}
+        end
+
       %{
         provenance: "authored held-out question; not a recorded source or expected model answer",
         scope:
@@ -45,8 +58,7 @@ defmodule Ryker.Evals.LearningProbe do
         proof: "ordinary Work automatic recall and validation; inert delivery only",
         not_qualified: [
           "explicit search_memory invocation",
-          "cross-channel recall",
-          "answer accuracy"
+          "cross-channel recall"
         ],
         question: question,
         question_sha256: CanonicalJSON.digest(question),
@@ -57,10 +69,9 @@ defmodule Ryker.Evals.LearningProbe do
         turn: Evidence.record(turn),
         session: Evidence.record(session),
         knowledge_exposures: Enum.map(exposures, &Evidence.record/1),
-        semantic_review: "required; inspect the answer against the original source chronology",
-        passed:
-          turn.status == :settled and turn.delivered_at != nil and exposures != [] and
-            cleanup == :discarded and Repo.aggregate(LearningRun, :count) == before_runs
+        execution_passed: execution_passed,
+        answer_quality: answer_quality,
+        passed: execution_passed and answer_quality.status == :passed
       }
     after
       Agent.stop(publisher)

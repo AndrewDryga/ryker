@@ -453,15 +453,42 @@ removed transport capabilities, replacement evaluation authority, and current in
 By default no episode or response is created. No production publisher is ever configured.
 
 Add `--probe` to ask one authored held-out question after every learning batch has settled.
+Set `RYKER_EVAL_JUDGE_TARGET` explicitly; the command refuses to start a probe without it.
 It uses normal Admission and Work custody, the production briefing and validator, and the
 existing inert Slack evaluation publisher. The question is not harvested and is never fed to
 the learning dispatcher. Its episode is deliberately live-mode: production shadow Work forbids
 answers. This does not give it a public publisher, infrastructure tools, or write authority.
 The report retains the exact Work submission, knowledge exposures, candidate, validation,
-inert receipt and proof-bearing cleanup. Its structural check requires recalled knowledge and
-a settled answer; factual accuracy still needs review against the harvested chronology.
+inert receipt and proof-bearing cleanup. `execution_passed` requires recalled knowledge, a
+settled answer and completed cleanup. `answer_quality` separately checks required exact values
+and asks the existing isolated quality judge to assess meaning against the original source
+inputs. Learned summaries and prior model answers are not treated as truth. Missing required
+values fail before a judge call; a missing judgment, unavailable answer or failed judge cleanup
+leaves correctness `unassessed`. A probe's `passed` requires successful execution and a passing
+answer assessment. Reports without a probe are explicitly `learning_execution` qualification;
+their structural pass makes no claim about answer accuracy. Older saved reports retain their
+original meaning and are not upgraded by these checks.
 This qualifies only automatic recall in the same conversation, not explicit `search_memory`
 invocation, cross-channel recall, model routing, or delivery to a real Slack workspace.
+
+Two focused cases cover loss during learning and later recall:
+
+- `--scenario relative-dates --probe` reuses the exact accepted message and acceptance time in
+  `testdata/slack/terraform-deployment-reply.json`. The reply promises a deadline of "tomorrow at
+  10:30 UTC" on September 9, 2026; the later answer must identify September 10, 2026 at 10:30 UTC,
+  distinguish the separate fallback check, and not invent completed monitoring. Its Slack
+  envelope is a labelled `retained_reply` replay adapter, not a harvested input envelope.
+  This checks an explicitly UTC promise; it does not qualify ambiguous speaker timezones.
+- `--scenario exact-values --probe` reuses all three inputs from
+  `retained-auth-memory-recurrence.json`. After successive updates, the answer must preserve
+  the 95% threshold, resident-memory-plus-swap accounting, the first occurrence's exact start
+  and resolution times, and the later occurrence's start with no invented recovery.
+
+The questions, required values and rubrics are evaluator-only and never enter learning inputs.
+Offline tests mutate constructed answers to prove the evaluator rejects wrong values and
+unsupported claims; they do not establish model quality. Run these two scenarios with fresh
+model calls to qualify a learning or recall change. The model's source interpretation can still
+be wrong even when every exact token is present, so exact checks alone never constitute a pass.
 
 The new private report contains public frozen prompts, exact candidate bodies (including malformed
 ones), producer and validation identities, topic revisions, available provider usage/timestamps,

@@ -2,7 +2,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
   use Ryker.DataCase, async: false
   alias Mix.Tasks.Ryker.LearningEval
   alias Ryker.Config
-  alias Ryker.Evals.{Job, LearningRunner}
+  alias Ryker.Evals.{Job, LearningQuality, LearningRunner}
   alias Ryker.Ingress.RecallText
   alias Ryker.TestSupport.FakeCoopAPI, as: Fake
 
@@ -98,6 +98,8 @@ defmodule Ryker.Evals.LearningRunnerTest do
           Access.at(0),
           "document"
         ])
+
+      body = Map.put(body, "message", Fake.state(client)[:eval_probe_message] || body["message"])
 
       Agent.update(client, &%{&1 | candidates: [Jason.encode!(body)], turn: nil})
 
@@ -221,12 +223,96 @@ defmodule Ryker.Evals.LearningRunnerTest do
   end
 
   @tag isolation: "REPEATABLE READ"
+  test "a completed memory replay fails qualification when the source-grounded judge rejects its answer",
+       %{
+         options: options
+       } do
+    options =
+      Map.merge(options, %{probe: LearningQuality.probe("haproxy"), judge: judge_options([false])})
+
+    assert {:ok, report} = LearningRunner.run(LearningRunner.recorded_sequence(), options)
+    assert report.execution_passed
+    assert report.work_probe.execution_passed
+    assert report.work_probe.answer_quality.status == :failed
+    assert report.qualification == :memory_answer_quality
+    refute report.passed
+  end
+
+  for {scenario, answer, criteria} <- [
+        {"relative-dates",
+         "The reply promised 2026-09-10 at 10:30 UTC; completion is unverified.", 2},
+        {"exact-values",
+         "Resident memory plus swap exceed 95% of the limit, excluding reclaimable file cache. On 2026-09-02, the first occurrence started 06:54:40 UTC and resolved 07:13:40 UTC. The later occurrence started 07:52:40 UTC; its recovery is unverified.",
+         3}
+      ] do
+    @tag isolation: "REPEATABLE READ"
+    test "#{scenario} reaches ordinary Work and requires both execution and answer checks", %{
+      options: options
+    } do
+      # Constructed provider output exercises the evaluator. Fresh model runs
+      # separately establish whether the original inputs are understood.
+      Agent.update(options.client, &Map.put(&1, :eval_probe_message, unquote(answer)))
+
+      options =
+        Map.merge(options, %{
+          probe: LearningQuality.probe(unquote(scenario)),
+          judge: judge_options(List.duplicate(true, unquote(criteria)))
+        })
+
+      sequence = LearningRunner.recorded_sequence(unquote(scenario))
+      assert {:ok, report} = LearningRunner.run(sequence, options)
+      assert report.execution_passed, inspect(report.steps)
+      assert report.work_probe.answer_quality.status == :passed
+      assert report.passed
+
+      assert Enum.map(report.steps, & &1.occurred_at) ==
+               Enum.map(sequence, &String.replace(&1.input["occurred_at"], ~r/Z?$/, "Z"))
+    end
+  end
+
+  @tag isolation: "REPEATABLE READ"
+  test "a delivered answer with recalled knowledge is not an answer-quality pass", %{
+    options: options
+  } do
+    # The probe used to pass its unrelated host-fixture reply merely because
+    # some knowledge reached Work. That can qualify a completely wrong answer.
+    options = Map.put(options, :probe, %{question: "What happened to the Host OOM kills alert?"})
+    assert {:ok, report} = LearningRunner.run(LearningRunner.recorded_sequence(), options)
+
+    refute report.passed
+    assert report.execution_passed
+    assert report.work_probe.execution_passed
+    assert report.work_probe.answer_quality.status == :unassessed
+  end
+
+  defp judge_options(values) do
+    criteria =
+      Enum.with_index(values, fn passed, index ->
+        %{"index" => index, "passed" => passed, "reason" => "Constructed evaluator verdict."}
+      end)
+
+    {:ok, fake} =
+      Fake.start_link([
+        Jason.encode!(%{"criteria" => criteria, "overall_pass" => Enum.all?(values)})
+      ])
+
+    %{
+      api: Fake,
+      client: fake,
+      job: elem(Job.new(:judge, "codex:fixture/low@eval"), 1),
+      max_polls: 2,
+      poll_interval_ms: 0,
+      sleep: fn _milliseconds -> :ok end
+    }
+  end
+
+  @tag isolation: "REPEATABLE READ"
   test "held-out Work receives learned topics through the ordinary briefing, never as training",
        %{options: options} do
-    options = Map.put(options, :probe_question, "What happened to the Host OOM kills alert?")
+    options = Map.put(options, :probe, %{question: "What happened to the Host OOM kills alert?"})
     assert {:ok, report} = LearningRunner.run(LearningRunner.recorded_sequence(), options)
     probe = report.work_probe
-    assert report.passed, inspect(probe, pretty: true, limit: :infinity)
+    assert report.execution_passed, inspect(probe, pretty: true, limit: :infinity)
     assert probe.provenance =~ "authored"
     assert probe.proof =~ "automatic recall"
     assert "explicit search_memory invocation" in probe.not_qualified
@@ -252,7 +338,8 @@ defmodule Ryker.Evals.LearningRunnerTest do
                "knowledge"
              ])
 
-    assert Jason.encode!(probe) =~ "required; inspect the answer"
+    assert probe.answer_quality.status == :unassessed
+    refute probe.passed
   end
 
   setup do
