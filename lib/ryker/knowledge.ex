@@ -389,10 +389,10 @@ defmodule Ryker.Knowledge do
           "writable"
         )
 
-      subject = Enum.join([proposal["title"] | proposal["topics"]], " ")
-
-      related =
-        recall_locked(entry, entry.repository_ref, {:related, subject}, 8, "writable")
+      # Fuzzy vocabulary ranks briefing suggestions; it does not establish subject identity.
+      # Broad OR matches made distinct alerts consume every retry on unrelated displaced heads.
+      same_title =
+        recall_locked(entry, entry.repository_ref, {:title, proposal["title"]}, 8, "writable")
 
       anchored =
         recall_locked(entry, entry.repository_ref, {:anchors, proposal["anchors"]}, 8, "writable")
@@ -406,7 +406,7 @@ defmodule Ryker.Knowledge do
 
       exact ++
         Enum.reject(
-          anchored ++ replies ++ related,
+          anchored ++ replies ++ same_title,
           &MapSet.member?(offered_refs, &1["source_ref"])
         )
     end)
@@ -522,6 +522,17 @@ defmodule Ryker.Knowledge do
     |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
     |> ConversationKnowledge.Query.by_anchor_keys(keys)
     |> ConversationKnowledge.Query.ordered_by_latest_source_at_desc()
+    |> ConversationKnowledge.Query.limit_to(limit)
+    |> ConversationKnowledge.Query.lock_for_share()
+    |> Repo.all()
+  end
+
+  defp select_items(query, scope, {:title, title}, limit) when is_binary(title) do
+    query
+    |> ConversationKnowledge.Query.by_title(title)
+    |> ConversationKnowledge.Query.by_scope_key(scope_key(scope))
+    |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
+    |> ConversationKnowledge.Query.ordered_by_id()
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
     |> Repo.all()

@@ -805,6 +805,31 @@ defmodule Ryker.Learning.LearningTest do
     assert Repo.get!(LearningRun, missing.id).result == candidate
   end
 
+  # Two recovered learning batches spent their added starts on unrelated alert topics,
+  # displaced one after another by broad OR matches for "monitoring" and the same month.
+  test "unrelated alert subjects do not become mandatory matches through shared vocabulary" do
+    [first, second] = Fixtures.inputs!()
+    subjects = "testdata/learning/distinct-alert-subjects.json" |> File.read!() |> Jason.decode!()
+    assert {:ok, initial} = Learning.prepare([first.id], @policy)
+    assert {:ok, pending} = Learning.prepare([second.id], @policy)
+    assert pending.knowledge == []
+
+    existing = Jason.decode!(result([first]))
+
+    existing =
+      put_in(existing, ["updates"], [Map.merge(hd(existing["updates"]), subjects["existing"])])
+
+    assert {:ok, _} = Fixtures.accept(initial.id, Jason.encode!(existing), %{})
+
+    proposed = Jason.decode!(result([second]))
+
+    proposed =
+      put_in(proposed, ["updates"], [Map.merge(hd(proposed["updates"]), subjects["proposed"])])
+
+    assert {:ok, _} = Fixtures.accept(pending.id, Jason.encode!(proposed), %{})
+    assert Repo.aggregate(KnowledgeRevision, :count) == 2
+  end
+
   test "a renamed create is checked against unoffered existing subjects before it writes" do
     # Host-contract mutation of the recorded lifecycle inputs: the subject is
     # unchanged but the proposed key differs. This isolates matching, not model quality.
@@ -835,6 +860,7 @@ defmodule Ryker.Learning.LearningTest do
     renamed =
       Map.merge(proposal, %{
         "topic_key" => "renamed-initiative",
+        "title" => "  EARLIER initiative  ",
         "source_input_ids" => [second.id]
       })
 

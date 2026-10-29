@@ -187,6 +187,15 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   def by_topic_keys(queryable, topic_keys),
     do: where(queryable, [conversation_knowledge: k], k.topic_key in ^topic_keys)
 
+  @doc "An unchanged subject title remains a create alternative even when its key was renamed."
+  def by_title(queryable, title) do
+    where(
+      queryable,
+      [conversation_knowledge: k],
+      fragment("lower(btrim(?::jsonb ->> 'title')) = lower(btrim(?))", k.state, ^title)
+    )
+  end
+
   def by_anchor_keys(queryable, keys) do
     where(
       queryable,

@@ -1,0 +1,23 @@
+{
+  "provenance": "Projected subject fields from a retained learning create and the unrelated topic demanded by its host guard. Tenant region and hosts are pseudonymized; source custody is supplied by the deterministic test fixture.",
+  "existing": {
+    "topic_key": "region-a-cassandra-database-node-1-observability-alerts-2026-10-28-162130",
+    "title": "cassandra-database-node-1 observability alerts resolved on 28 October 2026",
+    "summary": "Grafana reported cassandra-node-exporter unreachable on cassandra-database-node-1 from 16:21:30 UTC and cassandra-vector unreachable from 16:22:30 UTC on 28 October 2026. Both alerts resolved at 16:23:30 UTC. The underlying cause and Cassandra application health remain unconfirmed.",
+    "topics": [
+      "cassandra",
+      "monitoring",
+      "infrastructure"
+    ]
+  },
+  "proposed": {
+    "topic_key": "region-a-nomad-autopilot-unhealthy-2026-10-27-185340",
+    "title": "Region A Nomad autopilot alert resolved on 27 October 2026",
+    "summary": "Grafana reported a critical Nomad raft/autopilot health alert for nomad-agent on nomad-node-3 from 18:53:40 to 19:14:40 UTC on 27 October 2026. The alert indicated unhealthy raft quorum or a server and resolved after 21 minutes. The underlying cause and application recovery remain unconfirmed.",
+    "topics": [
+      "nomad",
+      "monitoring",
+      "infrastructure"
+    ]
+  }
+}
