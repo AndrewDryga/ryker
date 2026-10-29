@@ -76,9 +76,9 @@ defmodule Ryker.StateTools.WorkStateTools do
     # Coop derives output artifact identities while it is completing the
     # provider turn. Those bytes cannot exist in Ryker before this
     # in-turn preflight. FinalPreflight excludes only those late-issued refs;
-    # the terminal Work validator requires every ref in Coop's exact manifest,
-    # then fetches and digest-checks the bytes before accepting the result or
-    # creating delivery custody.
+    # the terminal Work validator requires every ref in Coop's exact manifest
+    # or this turn's already verified local charts, then fetches and
+    # digest-checks worker bytes before creating delivery custody.
     with {:accept, %{final: final}} <-
            Work.Validator.validate(candidate_json, validation_context, Repo.now!()),
          :ok <- Delivery.Presentation.validate(binding.episode, binding.turn, final),

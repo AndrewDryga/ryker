@@ -68,7 +68,13 @@ defmodule Ryker.Work.Executor.Validation do
          final,
          result
        ) do
-    case Delivery.Presentation.validate(claim.episode, claim.turn, final) do
+    selected = Enum.filter(artifacts, &(&1["id"] in final.artifact_refs))
+
+    check =
+      with {:ok, _metadata} <- Artifacts.Outputs.prepare_metadata(selected),
+           do: Delivery.Presentation.validate(claim.episode, claim.turn, final)
+
+    case check do
       :ok ->
         ensure_final_preflight(
           claim,
@@ -85,6 +91,18 @@ defmodule Ryker.Work.Executor.Validation do
           sha256,
           attempt,
           {:reject, [Validator.presentation_violation(reason)]},
+          nil
+        )
+
+      {:error, {:invalid_work_output_artifacts, _field}} ->
+        prepare_validation(
+          claim,
+          sha256,
+          attempt,
+          {:reject,
+           [
+             "Select at most five distinct chart or image attachments totaling no more than 8 MiB, then call validate_final again."
+           ]},
           nil
         )
 

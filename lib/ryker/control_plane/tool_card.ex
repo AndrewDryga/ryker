@@ -75,6 +75,9 @@ defmodule Ryker.ControlPlane.ToolCard do
   end
 
   @tools %{
+    "render_chart" =>
+      {"Create a chart", "Chart created",
+       "Draws the supplied observations as a chart for the reply."},
     "cite_source" =>
       {"Record evidence", "Evidence recorded", "Keeps a source-linked observation for this work."},
     "record_finding" =>

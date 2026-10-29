@@ -5,6 +5,7 @@ defmodule Ryker.StateTools.Catalog do
   alias Ryker.JSONSchema
   alias Ryker.Records
   alias Ryker.Schedules
+  alias Ryker.StateTools.ChartTools
   alias Ryker.Work
 
   @maximum_automation_proposals 4
@@ -23,6 +24,7 @@ defmodule Ryker.StateTools.Catalog do
       get_work_state_tool(),
       cite_source_tool(),
       record_finding_tool(),
+      ChartTools.tool(),
       request_input_tool(),
       if(:event_waits in capabilities, do: wait_for_tool()),
       list_automations_tool(),

@@ -532,7 +532,10 @@ defmodule Ryker.Work.PromptTest do
     # only prose about a filename, not the requested image.
     instructions = normalized_instructions()
 
-    assert instructions =~ "When the request asks you to create or attach an image"
+    assert instructions =~ "For a data chart, use render_chart when advertised"
+    assert instructions =~ "include its returned artifact_ref in outcome.artifact_refs"
+    assert instructions =~ "Never invent measurements or replace missing data with zero"
+    assert instructions =~ "When the request asks you to create or attach an illustration"
     assert instructions =~ "invoke the runtime's image-generation tool"
     assert instructions =~ "before composing the final candidate"
     assert instructions =~ "Text that merely names a PNG is not an image"

@@ -48,6 +48,7 @@ defmodule Ryker.StateTools.RouterTest do
              "get_work_state",
              "cite_source",
              "record_finding",
+             "render_chart",
              "request_input",
              "wait_for",
              "list_automations",
@@ -2403,7 +2404,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 20
+    assert length(names) == 21
 
     automation =
       list.resp_body

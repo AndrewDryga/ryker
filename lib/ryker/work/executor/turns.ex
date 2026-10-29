@@ -186,7 +186,7 @@ defmodule Ryker.Work.Executor.Turns do
          left
        )
        when is_map(candidate) do
-    with {:ok, artifacts} <- output_artifact_metadata(remote_turn) do
+    with {:ok, artifacts} <- output_artifact_metadata(claim.turn.id, remote_turn) do
       handle_candidate(claim, candidate, artifacts, settings, left)
     end
   end
@@ -311,7 +311,7 @@ defmodule Ryker.Work.Executor.Turns do
          _evidence <- capture_session_evidence(claim, settings),
          :ok <- Ryker.Accounting.observe_work(claim, remote_turn),
          {:ok, remote_session} <- accepted_remote_session(claim, settings),
-         {:ok, artifacts} <- output_artifact_metadata(remote_turn),
+         {:ok, artifacts} <- output_artifact_metadata(claim.turn.id, remote_turn),
          {:ok, _stored} <- retain_selected_artifacts(claim, artifacts, settings),
          {:ok, checkpoint} <- checkpoint_accepted_workspace(claim, remote_session, settings),
          :ok <- ensure_checkpoint_publication_offer(claim, checkpoint),
@@ -533,16 +533,14 @@ defmodule Ryker.Work.Executor.Turns do
     end
   end
 
-  defp output_artifact_metadata(remote_turn) do
-    remote_turn
-    |> Map.get("output_artifacts", [])
-    |> Artifacts.Outputs.prepare_metadata()
-  end
+  defp output_artifact_metadata(turn_id, remote_turn),
+    do: Artifacts.Outputs.combined_metadata(turn_id, Map.get(remote_turn, "output_artifacts", []))
 
   defp retain_selected_artifacts(claim, metadata, settings) do
     with {:ok, refs} <- accepted_artifact_refs(claim.turn.validation_intent),
          {:ok, selected} <- select_artifact_metadata(metadata, refs),
          selected <- lab_generated_artifacts(claim, metadata, selected),
+         selected <- Enum.reject(selected, &String.starts_with?(&1["id"], "artifact:chart:")),
          {:ok, fetched} <- fetch_output_artifacts(claim, selected, settings) do
       Artifacts.Outputs.put_many(claim.turn.id, fetched)
     end

@@ -1,9 +1,10 @@
 defmodule Ryker.Artifacts.OutputArtifact do
   @moduledoc """
-  One content-verified image retained from an accepted Coop turn.
+  One content-verified image retained for a Work turn.
 
   The opaque reference is scoped to its Work turn. Raw bytes never come from
-  model JSON and cannot select a platform destination.
+  model JSON and cannot select a platform destination. The controller stores
+  rendered charts immediately; worker images are fetched at turn completion.
   """
   use Ryker, :schema
 

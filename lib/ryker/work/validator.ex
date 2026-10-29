@@ -704,7 +704,9 @@ defmodule Ryker.Work.Validator do
     do: {:error, {:invalid_work_validation_context, :artifact_refs}}
 
   defp prepare_artifact_metadata(values, artifact_refs)
-       when is_list(values) and length(values) <= 5 do
+       when is_list(values) and length(values) <= 10 do
+    # Up to five worker images plus five local charts may be available. The
+    # final still selects at most five, with one shared delivery byte bound.
     prepared =
       Enum.map(values, fn
         %{"id" => id, "name" => name} = value when map_size(value) == 2 ->

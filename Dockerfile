@@ -105,10 +105,22 @@ RUN git clone --depth 1 --branch "$WHISPER_CPP_VERSION" https://github.com/ggml-
 RUN curl -fsSL --retry 3 -o /opt/whisper/ggml-base.bin "$WHISPER_MODEL_URL" \
  && echo "$WHISPER_MODEL_SHA256  /opt/whisper/ggml-base.bin" | sha256sum -c -
 
+# Native Vega-Lite rendering, with version- and checksum-pinned wheels for both
+# supported Linux architectures. No browser, Node service or external chart API.
+FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS charts
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3-venv ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY priv/charts/requirements.txt /tmp/chart-requirements.txt
+RUN python3 -m venv /opt/ryker-charts \
+ && /opt/ryker-charts/bin/pip install --no-cache-dir --disable-pip-version-check \
+      --only-binary=:all: --require-hashes -r /tmp/chart-requirements.txt
+
 FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 \
+ && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 python3 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 1000 ryker \
  && useradd --uid 1000 --gid ryker --home-dir /var/lib/ryker --create-home --shell /usr/sbin/nologin ryker
@@ -120,6 +132,7 @@ WORKDIR /opt/ryker
 COPY --from=build /build/_build/prod/rel/ryker ./
 COPY --from=ffmpeg /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=whisper /opt/whisper /opt/whisper
+COPY --from=charts /opt/ryker-charts /opt/ryker-charts
 COPY deploy/compose/entrypoint.sh /usr/local/bin/ryker-entrypoint
 COPY deploy/compose/gateway-pki.sh /usr/local/bin/ryker-gateway-pki
 

@@ -1,5 +1,5 @@
 defmodule Ryker.Slack.ArtifactEndToEndTest do
-  use Ryker.DataCase, async: true
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.Artifacts.Outputs
@@ -7,8 +7,10 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Publisher
+  alias Ryker.StateTools
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Custody, Executor, Turn}
 
@@ -16,6 +18,59 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
   @old ~U[2020-01-01 00:00:00.000000Z]
   @policy_digest String.duplicate("a", 64)
   @png <<137, 80, 78, 71, 13, 10, 26, 10, "generated-latency-chart">>
+
+  @tag :tmp_dir
+  test "a controller chart reaches Slack without being fetched from the worker", %{
+    tmp_dir: directory
+  } do
+    on_exit(fn -> File.rm_rf!(directory) end)
+    claim = claim_episode!()
+    renderer = Path.join(directory, "renderer.py")
+    image = Application.app_dir(:ryker, "priv/static/brand/avatar.png")
+
+    File.write!(
+      renderer,
+      "import sys\nsys.stdin.readline()\nsys.stdout.buffer.write(open(#{Jason.encode!(image)},'rb').read())\n"
+    )
+
+    binding = %{
+      episode: claim.episode,
+      session: claim.session,
+      turn: claim.turn,
+      state_token: Records.token(claim.turn)
+    }
+
+    arguments = %{
+      "type" => "bar",
+      "title" => "Measured latency",
+      "x_label" => "Sample",
+      "y_label" => "Latency (ms)",
+      "data" => [%{"x" => "A", "y" => 10}]
+    }
+
+    assert {:ok, %{"artifact_ref" => ref}} =
+             StateTools.ChartTools.render_chart(arguments, binding,
+               python: System.find_executable("python3"),
+               renderer: renderer
+             )
+
+    # The worker has no output manifest and cannot serve this reference.
+    {:ok, work_api} = FakeWorkCoopAPI.start_link([artifact_reply(ref)])
+    assert {:ok, accepted} = Executor.run(claim, executor_options(work_api))
+    assert accepted.turn.status == :delivery_pending
+
+    {:ok, slack_api} =
+      FakeSlackAPI.start_link(observer: self(), message_ref: fn _n -> "1788265001.000200" end)
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             deliver_once(adapters!(slack_api), "chart")
+
+    assert_receive {:slack_uploaded, "C456", "1788265000.000100", _document, _delivery_ref,
+                    [file]}
+
+    assert file.data == File.read!(image)
+    assert file.title == "Measured latency.png"
+  end
 
   test "a lost Slack artifact response reconciles one verified Coop image exactly once" do
     accepted = accept_artifact_reply!()

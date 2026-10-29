@@ -253,8 +253,14 @@ test-db-ready:
 
 # The checks that need no test database, side by side; dev-check runs them
 # before the suite, so a format slip fails in half a minute, not six.
+.PHONY: chart-check
+chart-check:
+	python3 -m venv _build/charts
+	_build/charts/bin/python3 -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r priv/charts/requirements.txt
+	PYTHONDONTWRITEBYTECODE=1 _build/charts/bin/python3 -m unittest discover -s test/charts -p '*_test.py'
+
 static-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-static control-plane-js-check shellcheck
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-static control-plane-js-check shellcheck chart-check
 
 # The commit and deploy gate: everything deterministic that the suite itself
 # proves, minus the `slow` capacity tests, and nothing that is already inside

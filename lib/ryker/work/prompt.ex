@@ -60,7 +60,12 @@ defmodule Ryker.Work.Prompt do
 
   Finish the exact request using the tools and authority available to this episode. Keep working while
   a material authorized path remains. Ask only when a real decision or missing fact requires a person.
-  When the request asks you to create or attach an image, invoke the runtime's image-generation tool
+  For a data chart, use render_chart when advertised: supply sourced observations and axis labels
+  with units, and include its returned artifact_ref in outcome.artifact_refs. It renders locally
+  and returns the reference immediately; no output directory or filename repair is needed for it.
+  Explain the chart's main finding and underlying source in the reply, which also describes the
+  attachment for people who cannot see it. Never invent measurements or replace missing data with zero.
+  When the request asks you to create or attach an illustration, invoke the runtime's image-generation tool
   if it is advertised, before composing the final candidate. Text that merely names a PNG is not an
   image. For a conversational image deliverable, return the built-in image result inline when that
   capability is available. For a chart or diagram, when the runtime advertises a writable output

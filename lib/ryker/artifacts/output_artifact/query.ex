@@ -17,6 +17,19 @@ defmodule Ryker.Artifacts.OutputArtifact.Query do
   def by_turn_ids(queryable \\ all(), turn_ids),
     do: where(queryable, [work_output_artifacts: a], a.turn_id in ^turn_ids)
 
+  def charts(queryable),
+    do: where(queryable, [work_output_artifacts: a], like(a.ref, "artifact:chart:%"))
+
+  def select_metadata(queryable) do
+    select(queryable, [work_output_artifacts: a], %{
+      "id" => a.ref,
+      "name" => a.name,
+      "media_type" => a.media_type,
+      "sha256" => a.sha256,
+      "bytes" => a.byte_size
+    })
+  end
+
   def ordered_by_name(queryable),
     do: order_by(queryable, [work_output_artifacts: a], asc: a.name, asc: a.ref)
 

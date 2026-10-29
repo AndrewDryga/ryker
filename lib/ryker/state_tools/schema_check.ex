@@ -7,7 +7,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   alias Ryker.Wording
 
   # Validates tool arguments against the exact JSON-schema subset the catalog
-  # emits (anyOf, oneOf, const, enum, object, array, string, integer, boolean,
+  # emits (anyOf, oneOf, const, enum, object, array, string, integer, number, boolean,
   # null). The catalog is the one the caller advertised, so a tool it withheld
   # is not configured here either.
 
@@ -149,6 +149,10 @@ defmodule Ryker.StateTools.SchemaCheck do
       value <= Map.get(schema, "maximum", value)
   end
 
+  defp valid_schema_value?(%{"type" => "number"} = schema, value) when is_number(value) do
+    value >= Map.get(schema, "minimum", value) and value <= Map.get(schema, "maximum", value)
+  end
+
   defp valid_schema_value?(%{"type" => "boolean"}, value), do: is_boolean(value)
   defp valid_schema_value?(%{"type" => "null"}, value), do: is_nil(value)
   defp valid_schema_value?(schema, _value) when map_size(schema) == 0, do: true
@@ -277,7 +281,8 @@ defmodule Ryker.StateTools.SchemaCheck do
     end
   end
 
-  defp issues(%{"type" => "integer"} = schema, value, path) when is_integer(value) do
+  defp issues(%{"type" => type} = schema, value, path)
+       when (type == "integer" and is_integer(value)) or (type == "number" and is_number(value)) do
     cond do
       value < Map.get(schema, "minimum", value) ->
         [issue(path, "minimum", "must be at least #{schema["minimum"]}")]
@@ -307,7 +312,11 @@ defmodule Ryker.StateTools.SchemaCheck do
   # string, or the proposal shape whose fields it nearly has); a value of no
   # branch's type is one issue naming the types it may be.
   defp branch_issues(schemas, value, path) do
-    case Enum.filter(schemas, &(json_type(&1) == value_type(value))) do
+    case Enum.filter(
+           schemas,
+           &(json_type(&1) == value_type(value) or
+               (json_type(&1) == "number" and is_number(value)))
+         ) do
       [] ->
         types = schemas |> Enum.map(&json_type/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
         [issue(path, "type", "must be " <> Enum.map_join(types, " or ", &article/1))]
@@ -328,6 +337,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp value_type(value) when is_list(value), do: "array"
   defp value_type(value) when is_binary(value), do: "string"
   defp value_type(value) when is_integer(value), do: "integer"
+  defp value_type(value) when is_float(value), do: "number"
   defp value_type(value) when is_boolean(value), do: "boolean"
   defp value_type(nil), do: "null"
   defp value_type(_value), do: nil
@@ -336,6 +346,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp article("array"), do: "an array"
   defp article("string"), do: "a string"
   defp article("integer"), do: "an integer"
+  defp article("number"), do: "a number"
   defp article("boolean"), do: "true or false"
   defp article("null"), do: "null"
   defp article(type), do: type

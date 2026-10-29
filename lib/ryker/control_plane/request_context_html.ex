@@ -163,6 +163,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "Reads what this request has recorded so far, such as findings, goals and waits.",
     "cite_source" => "Saves where a piece of evidence came from, so the answer can point to it.",
     "record_finding" => "Records a conclusion of the investigation and the evidence behind it.",
+    "render_chart" => "Draws the supplied observations as a chart for the reply.",
     "request_input" => "Asks a person a question and waits for the answer.",
     "wait_for" => "Pauses the work until an event arrives or a deadline passes.",
     "list_automations" => "Lists the automations Ryker runs, such as scheduled checks.",

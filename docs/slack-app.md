@@ -79,7 +79,14 @@ To read voice with a larger model, point `RYKER_WHISPER_URL` at a whisper.cpp se
 ("Voice messages" in [`operations.md`](operations.md)); `RYKER_WHISPER_MODEL` swaps the bundled
 model file only where Ryker runs outside Compose.
 
-When a user explicitly asks for an image or chart, the agent may create up to five PNG, JPEG, WebP,
+For a requested data chart, `render_chart` draws line, bar, histogram, heatmap, and scatter charts
+locally with Vega-Lite, Ryker's palette and bundled IBM Plex fonts. It takes inline observations
+and labelled axes with units, then returns an attachment reference immediately. The controller
+renders it, so workers need no chart packages, and no observations go to an external chart service.
+The reply summarizes the result and cites the underlying observations; Slack also uses that reply
+as the image's accessible description. The tool is available for live Slack and console replies.
+
+When a user explicitly asks for another image or diagram, the agent may create up to five PNG, JPEG, WebP,
 or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores
 the bytes outside the text transcript and exposes content-addressed metadata only after the turn is
 terminal. Ryker accepts only visuals explicitly referenced by that turn's strict response,
@@ -89,7 +96,16 @@ Slack response can be reconciled without a duplicate upload. Slack shares an upl
 completes, so an attempt that has not seen the share yet leaves the uploaded files' IDs with the reply,
 and the next attempt waits for that share instead of uploading the images again. Images are
 presentation artifacts; charts do not become evidence unless their underlying observations are
-separately sourced.
+separately sourced. A reply may combine local charts and worker images, up to five attachments
+and 8 MiB total. Repeating the same chart request in one turn reuses its existing reference.
+
+The Docker image includes the checksum-pinned `vl-convert-python` renderer. For development,
+`make chart-check` installs it under `_build/charts` and runs its offline rendering checks;
+set `RYKER_CHART_PYTHON` to that directory's absolute `bin/python3` path when running Ryker
+outside Docker. Each chart accepts at most 500 observations, six series and 24 categories per
+axis, and rendering stops after 15 seconds. The controller renders one chart at a time;
+parallel calls receive a retryable busy result. It accepts values and labels, never raw Vega
+expressions, data URLs or file paths. Its bundled converter also disables external data loading.
 
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
 dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names

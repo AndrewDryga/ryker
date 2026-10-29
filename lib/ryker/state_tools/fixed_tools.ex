@@ -2,7 +2,8 @@ defmodule Ryker.StateTools.FixedTools do
   @moduledoc false
   alias Ryker.Episodes
   alias Ryker.Records
-  alias Ryker.StateTools.{AutomationTools, Capabilities, Catalog, ErrorCode, EvidenceTools}
+  alias Ryker.StateTools.{AutomationTools, Capabilities, Catalog, ChartTools}
+  alias Ryker.StateTools.{ErrorCode, EvidenceTools}
   alias Ryker.StateTools.{MemoryTools, RecordWriter, SchemaCheck, TaskTools, WorkStateTools}
   alias Ryker.Work
   require Logger
@@ -12,6 +13,7 @@ defmodule Ryker.StateTools.FixedTools do
     get_work_state
     cite_source
     record_finding
+    render_chart
     request_input
     wait_for
     list_automations
@@ -45,6 +47,7 @@ defmodule Ryker.StateTools.FixedTools do
     |> Catalog.tools(Work.Final.json_schema(mode))
     |> Enum.reject(fn tool ->
       not Work.Contract.fixed_tool_allowed?(mode, tool["name"]) or
+        (tool["name"] == "render_chart" and not chart_surface?(options)) or
         (tool["name"] in @confirmation_tools and not confirmation_surface?(options))
     end)
   end
@@ -104,6 +107,9 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp dispatch("record_finding", arguments, binding),
     do: EvidenceTools.record_finding(arguments, binding)
+
+  defp dispatch("render_chart", arguments, binding),
+    do: ChartTools.render_chart(arguments, binding)
 
   defp dispatch("wait_for", arguments, binding), do: EvidenceTools.wait_for(arguments, binding)
 
@@ -227,6 +233,13 @@ defmodule Ryker.StateTools.FixedTools do
        do: transport in ["slack", "control_plane", "github"] and execution_mode == :live
 
   defp confirmation_surface?(_options), do: true
+
+  defp chart_surface?(options) when is_list(options), do: chart_surface?(Map.new(options))
+
+  defp chart_surface?(%{binding: %{episode: %Episodes.Episode{} = episode}}),
+    do: Ryker.Artifacts.Outputs.delivery_supported?(episode)
+
+  defp chart_surface?(_options), do: true
 
   defp capabilities(options) when is_list(options) do
     if Keyword.keyword?(options),

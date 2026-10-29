@@ -155,6 +155,100 @@
           "name": "record_finding"
         },
         {
+          "description": "Create a PNG chart from observed inline data. type: line (x is an ISO date or timestamp, y a number), bar (x category, y number), histogram (x numeric samples), heatmap (x/y categories, value number), scatter (x/y numbers). Optional series groups line, bar or scatter points; use it on every row or none, at most six series. At most 500 rows and 24 categories per axis. Bar rows must be unique by x/series and heatmap rows by x/y; aggregate observations explicitly before rendering. title describes the chart; x_label and y_label include units, and histogram y_label describes the count. Keep heatmap value units in the title. Returns artifact_ref immediately: include it in the final outcome.artifact_refs. Summarize the result and cite the underlying observations in the reply, which also supplies the attachment's accessible description. A chart itself is not evidence. No URLs, code, file paths or external service are needed.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "data": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "series": {
+                      "maxLength": 100,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "value": {
+                      "maximum": 1.0e15,
+                      "minimum": -1.0e15,
+                      "type": "number"
+                    },
+                    "x": {
+                      "anyOf": [
+                        {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "maximum": 1.0e15,
+                          "minimum": -1.0e15,
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "y": {
+                      "anyOf": [
+                        {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "maximum": 1.0e15,
+                          "minimum": -1.0e15,
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "x"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 500,
+                "minItems": 1,
+                "type": "array"
+              },
+              "title": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "line",
+                  "bar",
+                  "histogram",
+                  "heatmap",
+                  "scatter"
+                ],
+                "type": "string"
+              },
+              "x_label": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "y_label": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "title",
+              "x_label",
+              "y_label",
+              "data"
+            ],
+            "type": "object"
+          },
+          "name": "render_chart"
+        },
+        {
           "description": "Record one durable question for a material human decision or missing fact. Ask the whole question in the final reply: people see the reply and, under it, only the answer choices; context and question text here are kept for the record. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
           "inputSchema": {
             "additionalProperties": false,

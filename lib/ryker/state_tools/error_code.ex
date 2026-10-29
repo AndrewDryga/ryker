@@ -14,6 +14,28 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:unauthorized), do: "unauthorized"
   def code(:invalid_arguments), do: "invalid_arguments"
 
+  def code({:invalid_chart, path, rule}),
+    do: "invalid_arguments: #{path} #{rule}. No chart was created."
+
+  def code(:chart_limit_reached) do
+    "chart_limit_reached: this turn already has five charts or 8 MiB of chart images. Reuse the returned artifact_refs."
+  end
+
+  def code(:chart_renderer_unavailable),
+    do: "chart_renderer_unavailable: local chart rendering is not installed."
+
+  def code(:chart_renderer_busy) do
+    "chart_renderer_busy: another chart is rendering. Retry after it finishes; no chart was created by this call."
+  end
+
+  def code(:chart_render_failed) do
+    "chart_render_failed: no chart was created; simplify the chart or report that rendering failed."
+  end
+
+  def code(:chart_render_timeout) do
+    "chart_render_timeout: rendering exceeded its time limit; simplify the chart or report that rendering failed."
+  end
+
   def code(:invalid_automation_source) do
     "invalid_arguments: source_kind must name an authenticated input adapter: github, slack, or webhook. Terraform and Grafana are vendors, not input adapters. A notification posted in Slack uses slack. Read a real matching notification before choosing its exact content filter; do not invent filter fields or silently subscribe to every message."
   end
@@ -222,6 +244,19 @@ defmodule Ryker.StateTools.ErrorCode do
 
   defp explanation("not_configured"),
     do: "Ryker refused the call because this tool is not set up here."
+
+  defp explanation("chart_limit_reached"),
+    do: "This reply has reached its chart count or file size limit."
+
+  defp explanation("chart_renderer_unavailable"),
+    do: "Local chart rendering is not installed."
+
+  defp explanation("chart_renderer_busy"), do: "Another chart is being drawn. Try again shortly."
+
+  defp explanation("chart_render_failed"), do: "Ryker could not draw the chart."
+
+  defp explanation("chart_render_timeout"),
+    do: "Creating the chart took too long and was stopped."
 
   defp explanation("not_found"), do: "Ryker could not find what the call referred to."
 

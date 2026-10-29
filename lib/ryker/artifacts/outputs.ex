@@ -1,10 +1,11 @@
 defmodule Ryker.Artifacts.Outputs do
   @moduledoc """
-  Verified output images retained for one accepted Work turn.
+  Verified output images retained for one Work turn.
 
   Coop exposes metadata on the turn and bytes through a separate owner-only
   endpoint. This module requires both views to agree before durable delivery
-  can reference the artifact.
+  can reference the artifact. Locally rendered charts use the same checked
+  store under a reserved identity; only the accepted final selects delivery.
   """
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
@@ -17,6 +18,28 @@ defmodule Ryker.Artifacts.Outputs do
   @maximum_bytes 8 * 1_024 * 1_024
   @media_types ~w(image/png image/jpeg image/webp image/gif)
   @fields ~w(bytes id media_type name sha256)
+
+  @doc "Metadata of locally rendered charts already retained for this turn."
+  @spec chart_metadata(Ecto.UUID.t()) :: [map()]
+  def chart_metadata(turn_id) do
+    OutputArtifact.Query.by_turn_id(turn_id)
+    |> OutputArtifact.Query.charts()
+    |> OutputArtifact.Query.ordered_by_name()
+    |> OutputArtifact.Query.select_metadata()
+    |> Repo.all()
+  end
+
+  @doc "Combine the worker's manifest with verified local charts, reserving local identities."
+  @spec combined_metadata(Ecto.UUID.t(), term()) :: {:ok, [map()]} | {:error, term()}
+  def combined_metadata(turn_id, remote) do
+    with {:ok, metadata} <- prepare_metadata(remote),
+         false <- Enum.any?(metadata, &String.starts_with?(&1["id"], "artifact:chart:")) do
+      {:ok, metadata ++ chart_metadata(turn_id)}
+    else
+      true -> {:error, {:invalid_work_output_artifacts, :reserved_ref}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @spec delivery_supported?(map()) :: boolean()
   def delivery_supported?(episode) do

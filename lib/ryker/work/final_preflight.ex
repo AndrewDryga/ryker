@@ -25,7 +25,7 @@ defmodule Ryker.Work.FinalPreflight do
     CanonicalJSON.digest(%{
       "episode_semantic_version" => semantic_version,
       "guidance_requirements" => guidance_requirements(turn_id),
-      "output_artifacts" => "validated_from_coop_terminal_manifest",
+      "output_artifacts" => "validated_from_turn_artifact_manifests",
       "records" =>
         Map.merge(
           Records.validation_records(episode_id),
@@ -46,7 +46,8 @@ defmodule Ryker.Work.FinalPreflight do
   # The provider knows only the saved filename while it is still inside the
   # turn. Coop derives the immutable artifact ID from the bytes when that
   # prompt ends. The terminal validator binds every returned ID to Coop's exact
-  # manifest and digest-checks the bytes, so the in-turn preflight deliberately
+  # manifest or a local chart already retained for this turn and digest-checks
+  # the worker bytes, so the in-turn preflight deliberately
   # covers every final field except this one late host-issued identity.
   defp normalize_output_artifact_refs(
          %{"outcome" => %{"artifact_refs" => refs} = outcome} = candidate
