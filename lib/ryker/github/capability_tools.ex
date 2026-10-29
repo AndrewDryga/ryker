@@ -104,6 +104,20 @@ defmodule Ryker.GitHub.CapabilityTools do
       },
       %{
         "description" =>
+          "Close a pull request Ryker opened when the user asks to close it or authorized replacement work supersedes it. Supply its number in this session's repository. The host checks the live author against Ryker's configured bot identity and refuses other authors, merged PRs, and read-only companion repositories. A successful receipt confirms closed state; retrying an already closed own PR is safe. This preserves the branch and commits.",
+        "inputSchema" => %{
+          "additionalProperties" => false,
+          "properties" => %{
+            "number" => %{"minimum" => 1, "type" => "integer"},
+            "repository" => repository_property()
+          },
+          "required" => ["number"],
+          "type" => "object"
+        },
+        "name" => "close_github_pull_request"
+      },
+      %{
+        "description" =>
           "Submit one consolidated native GitHub review tied to an exact pull-request head SHA. Inline comments require path, line, side and actionable body. Approval is a separate repository grant.",
         "inputSchema" => %{
           "additionalProperties" => false,
@@ -254,6 +268,32 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   def call("cancel_github_ci", arguments, binding, options),
     do: call_ci(:cancel, arguments, binding, options)
+
+  def call("close_github_pull_request", arguments, binding, options) do
+    options = options!(options)
+
+    with {:ok, arguments} <- Arguments.close_document(arguments),
+         {:ok, current, configured} <-
+           Authority.mutation_repository_target(binding, options, arguments.repository),
+         :ok <- Authority.number_authorized(binding, current, arguments.number),
+         :ok <- Authority.grant(configured, "read"),
+         true <- GitHub.id?(configured.ryker_actor_id) || {:error, :unauthorized},
+         true <- Adapter.implements?(configured.api, close_own_pull_request: 4),
+         {:ok, result} <-
+           configured.api.close_own_pull_request(
+             configured.close_client,
+             configured.repository_full_name,
+             arguments.number,
+             configured.ryker_actor_id
+           ) do
+      {:ok, result}
+    else
+      false -> {:error, "temporarily_unavailable"}
+      {:error, reason} -> {:error, error_code(reason)}
+    end
+  rescue
+    error -> raised("close_github_pull_request", error, __STACKTRACE__)
+  end
 
   def call("submit_github_review", arguments, binding, options) do
     options = options!(options)
@@ -552,6 +592,8 @@ defmodule Ryker.GitHub.CapabilityTools do
         ci_client: Map.get(configured, :ci_client, client),
         ci_rerun_client: Map.get(configured, :ci_rerun_client, client),
         client: client,
+        close_client: Map.get(configured, :close_client, client),
+        ryker_actor_id: Map.get(configured, :ryker_actor_id),
         grants: MapSet.new(Map.get(configured, :grants, ["read"])),
         repository_full_name: repository,
         repository_id: repository_id,

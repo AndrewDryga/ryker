@@ -1,5 +1,5 @@
 defmodule Ryker.Publication.GitHubStatus do
-  @moduledoc "Read-only routing for publication follow-up; Coop owns every Git and PR write."
+  @moduledoc "Read-only routing for publication follow-up; Coop owns Git writes and PR content; GitHub capabilities can close own PRs."
 
   def get_publication_status(%{repositories: repositories}, github_repository, number)
       when is_map(repositories) and is_binary(github_repository) and is_integer(number) and

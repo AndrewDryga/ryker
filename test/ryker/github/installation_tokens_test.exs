@@ -314,6 +314,23 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     assert length(Agent.get(requester, & &1.calls)) == 3
   end
 
+  test "closing an own PR receives no contents or issue write permission" do
+    {provider, requester} =
+      provider_with([
+        token_response("close-token", DateTime.add(@now, 3_600, :second))
+      ])
+
+    assert InstallationTokens.token(provider, "github-main", :pull_request_close) ==
+             {:ok, "close-token"}
+
+    assert [{:post, _path, document, _headers}] = Agent.get(requester, & &1.calls)
+
+    assert document == %{
+             "permissions" => %{"pull_requests" => "write"},
+             "repository_ids" => [99]
+           }
+  end
+
   test "source acquisition receives only repository contents read access" do
     {provider, requester} =
       provider_with([
