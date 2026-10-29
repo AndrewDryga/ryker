@@ -160,17 +160,21 @@ worker_commands_in_flight() {
   printf '%s\n' "$count"
 }
 
-# This invocation releases only its own exact drain. A later operator decision survives.
+# This invocation releases only its own exact drain.
+release_worker_upgrade_drain() {
+  [ -n "${worker_drain_at:-}" ] || return 0
+  if ! compose exec -T ryker /opt/ryker/bin/ryker eval \
+    "case Ryker.Release.resume_worker_upgrade(\"ryker-compose\", \"$worker_drain_owner\", \"$worker_drain_at\") do {:ok, _} -> :ok; error -> IO.inspect(error); System.halt(1) end"; then
+    echo "Could not release this upgrade's drain. Inspect the worker before resuming it." >&2
+    return 1
+  fi
+  worker_drain_at=
+}
+
 finish_worker_upgrade() {
   result=$?
   trap - EXIT
-  if [ -n "${worker_drain_at:-}" ]; then
-    if ! compose exec -T ryker /opt/ryker/bin/ryker eval \
-      "case Ryker.Release.resume_worker_upgrade(\"ryker-compose\", \"$worker_drain_owner\", \"$worker_drain_at\") do {:ok, _} -> :ok; error -> IO.inspect(error); System.halt(1) end"; then
-      echo "Could not release this upgrade's drain. Inspect the worker before resuming it." >&2
-      result=1
-    fi
-  fi
+  release_worker_upgrade_drain || result=1
   release_lifecycle_lock
   exit "$result"
 }
@@ -626,6 +630,7 @@ case "$command" in
     fi
     replaced=$(running_worker_image)
     if [ "$replaced" = "$image" ]; then
+      wait_ready
       pin_value RYKER_COOP_IMAGE "$image"
       echo "The worker already runs $image."
       exit 0
@@ -686,7 +691,13 @@ case "$command" in
       sleep 10
     done
     env RYKER_COOP_IMAGE="$image" docker compose --env-file "$env_file" up --detach --no-build --wait --no-deps ryker-coop
-    wait_ready
+    # Controller readiness requires eligible capacity. A healthy replacement must resume
+    # first, then its next heartbeat makes it eligible again.
+    release_worker_upgrade_drain
+    if ! wait_ready; then
+      echo "The replacement worker runs $image, but controller readiness failed; the old pin is retained. Inspect it before another upgrade." >&2
+      exit 1
+    fi
     pin_value RYKER_COOP_IMAGE "$image"
     remove_older_worker_images "$image" "$replaced"
     echo "The worker runs $image; it ran ${replaced:-nothing}, which stays as the way back."

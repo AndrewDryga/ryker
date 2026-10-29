@@ -99,7 +99,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/healthz":
             self.respond(200, "ok\n")
         elif self.path == "/readyz":
-            self.respond(int(read("readyz.code", "200")), read("readyz.body", "ready\n"))
+            if read("worker.drained"):
+                self.respond(503, "not ready: no_eligible_workers\n")
+            else:
+                self.respond(int(read("readyz.code", "200")), read("readyz.body", "ready\n"))
         else:
             self.respond(404, "not found\n")
 
@@ -217,9 +220,13 @@ case " $* " in
   *" inspect --format {{.Config.Image}} fake-ryker-container "*) cat "$fake/running.image" ;;
   *"worker_lifecycle(:drain"*)
     [[ -f $fake/drain.fail ]] && exit 1
+    printf drained >"$fake/worker.drained"
     echo "RYKER_UPGRADE_DRAIN=2026-10-28T23:59:00.000000Z"
     ;;
-  *"resume_worker_upgrade("*) [[ -f $fake/resume.fail ]] && exit 1 ;;
+  *"resume_worker_upgrade("*)
+    [[ -f $fake/resume.fail ]] && exit 1
+    rm -f "$fake/worker.drained"
+    ;;
   *" inspect --format "*".Mounts"*) echo ryker-coop-state ;;
   *" ps --quiet ryker-coop "*) [[ -f $fake/worker.image ]] && echo fake-worker-container ;;
   *" ps --all --quiet ryker-coop "*) [[ -f $fake/worker.image ]] && echo fake-worker-container ;;
@@ -265,7 +272,7 @@ seed() {
   rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down" \
     "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists" \
     "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail" "$fake/models.fail" \
-    "$fake/worker.image" "$fake/inflight" "$fake/inflight.fail" "$fake/quiescence" "$fake/quiescence.fail" "$fake/drain.fail" "$fake/resume.fail" "$fake/prewarm.env" "$fake/live.calls" "$fake/live.fail"
+    "$fake/worker.image" "$fake/inflight" "$fake/inflight.fail" "$fake/quiescence" "$fake/quiescence.fail" "$fake/drain.fail" "$fake/resume.fail" "$fake/worker.drained" "$fake/prewarm.env" "$fake/live.calls" "$fake/live.fail"
   touch "$fake/controller.running"
   mkdir -p "$fake/volumes/coop/sessions/job-sources/example/repository-forks/work" \
     "$fake/volumes/coop/sessions/job-sources/example/repository" \
@@ -1027,7 +1034,9 @@ printf 'ryker-coop:old\n' >"$fake/worker.image"
 printf 'ryker-coop:%s\n' 1234abcd old older >"$fake/images"
 touch "$fake/image.missing"
 worker_upgrade
-check "a worker upgrade succeeds" "exit=0" "$out"
+# On October 29 the only worker was healthy but still drained: the controller correctly
+# refused readiness, so the upgrade waited three minutes then failed instead of resuming it.
+check "a worker upgrade resumes capacity before checking controller readiness" "exit=0" "$out"
 check "it builds the pinned Coop's worker" "deploy/compose/coop/Dockerfile --tag $worker_pinned" "$calls"
 check "named for the Coop it pins" "ryker-coop:1234abcd-" "$worker_pinned"
 check "it keeps the model sign-in aside" "cp -a agents agents.pre-1234abcd-" "$calls"
@@ -1085,6 +1094,12 @@ printf '%s\n' "$worker_pinned" >"$fake/worker.image"
 worker_upgrade
 check "a worker on the pin already is left alone" "The worker already runs $worker_pinned" "$out"
 refute "and nothing is built or restarted" "up --detach" "$calls"
+seed
+printf '%s\n' "$worker_pinned" >"$fake/worker.image"
+printf '503' >"$fake/readyz.code"
+worker_upgrade
+check "an already running worker still requires readiness" "exit=1" "$out"
+refute "an unready existing worker is not pinned" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 
 seed
 printf 'ryker-coop:old\n' >"$fake/worker.image"
@@ -1100,6 +1115,19 @@ worker_upgrade
 check "an unsuccessful replacement fails the upgrade" "exit=1" "$out"
 refute "an unsuccessful replacement does not pin its image" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 check "an unsuccessful replacement releases its own drain" 'resume_worker_upgrade(' "$calls"
+
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+touch "$fake/resume.fail"
+worker_upgrade
+check "a failed drain release fails the upgrade" "Could not release this upgrade's drain" "$out"
+refute "a failed drain release leaves the old pin" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+printf '503' >"$fake/readyz.code"
+worker_upgrade
+check "readiness failure names the worker actually running" "The replacement worker runs $worker_pinned" "$out"
+refute "readiness failure retains the old pin" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 
 # The worker image is named for everything built into it, not only the Coop it pins. On 2026-10-17
 # a change to the box Dockerfile with the same Coop reached no install that had built that Coop's
