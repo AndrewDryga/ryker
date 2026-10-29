@@ -476,7 +476,19 @@ defmodule Ryker.Work.Dispatcher do
   defp reported_reason({:work_completion_blocked, _receipt, reason}), do: reported_reason(reason)
   defp reported_reason(reason), do: reason
 
+  defp describe_error({:work_cancellation_unresolved, reason} = failure) do
+    {ErrorDetail.code(cancellation_cause(reason), :work_cancellation_unresolved),
+     ErrorDetail.detail(failure)}
+  end
+
   defp describe_error(reason), do: ErrorDetail.describe(reason, :work_execution_failed)
+
+  defp cancellation_cause({phase, reason})
+       when phase in [:session_create_fence, :turn_submit_fence, :fence_idempotency_conflict],
+       do: cancellation_cause(reason)
+
+  defp cancellation_cause({:error, reason}), do: cancellation_cause(reason)
+  defp cancellation_cause(reason), do: reason
 
   defp settings(options) when is_list(options) do
     allowed = [
