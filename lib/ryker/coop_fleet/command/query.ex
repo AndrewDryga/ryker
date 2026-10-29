@@ -18,6 +18,16 @@ defmodule Ryker.CoopFleet.Command.Query do
   def by_session_ids(queryable \\ all(), session_ids),
     do: where(queryable, [coop_worker_commands: c], c.session_id in ^session_ids)
 
+  @doc "The latest saved failed command for this session, selecting no request or response body."
+  def last_failed_kind(session_id) do
+    from(c in by_session_id(session_id),
+      where: c.status == :failed,
+      order_by: [desc: c.completed_at, desc: c.id],
+      limit: 1,
+      select: c.kind
+    )
+  end
+
   @doc "Copied weekly-review bodies whose owner was revoked and has durable remote stop proof."
   def stopped_revoked_weekly(queryable \\ all()) do
     from(c in queryable,

@@ -275,7 +275,13 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Failure.Query.by_episode_key(ref)
       |> Repo.peek()
 
-    if found, do: {:ok, stopping_item(found)}, else: :not_found
+    if found do
+      {turn, _episode} = found
+      failed_kind = turn.session_id |> CoopFleet.Command.Query.last_failed_kind() |> Repo.peek()
+      {:ok, Map.put(stopping_item(found), :last_failed_worker_request, failed_kind)}
+    else
+      :not_found
+    end
   end
 
   defp failure_exact("learning", ref) do

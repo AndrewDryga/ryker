@@ -44,6 +44,31 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   @github_settings "/integrations/github"
   @emisar_settings "/integrations/emisar"
   @workers "/working-copies"
+  @worker_requests %{
+    "api_request" => "Call the worker",
+    "cancel_turn" => "Cancel the model turn",
+    "checkpoint_workspace" => "Save the working copy",
+    "close_session" => "Close the working session",
+    "create_session" => "Create a working session",
+    "discard_session" => "Clean up the working session",
+    "ensure_workspace" => "Set up the working copy",
+    "fence_operation" => "Check whether a request ran",
+    "get_checkpoint_bundle" => "Read the saved working copy",
+    "get_changes" => "Read working-copy changes",
+    "get_changes_page" => "Read working-copy changes",
+    "get_output_artifact" => "Read the model's saved output",
+    "get_review" => "Read the saved review",
+    "get_review_gate_output" => "Read review check output",
+    "get_session" => "Read the working session",
+    "get_session_evidence" => "Read working-session evidence",
+    "get_turn" => "Read the model turn",
+    "plan_discard" => "Plan working-copy cleanup",
+    "prepare_session" => "Prepare the working session",
+    "reconcile_operation" => "Check the worker operation",
+    "run_review" => "Review the working copy",
+    "submit_turn" => "Start a model turn",
+    "validate_candidate" => "Validate the model's answer"
+  }
 
   @doc "The explanation of one failure row, read at `now`."
   @spec explain(map(), DateTime.t()) :: map()
@@ -186,6 +211,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     [
       fact("Slack said", row[:provider_error]),
       fact("Worker response", http_status(row[:diagnosis])),
+      fact("Latest failed worker request", @worker_requests[row[:last_failed_worker_request]]),
       fact("Stopped at", stopped_step(row)),
       fact("Worker now", worker_now(Map.get(row, :worker))),
       person("Pressed by", row[:pressed_by])
