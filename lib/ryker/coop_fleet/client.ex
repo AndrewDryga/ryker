@@ -805,12 +805,23 @@ defmodule Ryker.CoopFleet.Client do
        }),
        do: {:error, {:coop_error, 0, code, detail}}
 
-  defp publication_operation(_client, _placement, _command, _session_id, %{
-         "method" => "PublishReview",
-         "state" => state
-       })
-       when state in ~w(reserved running uncertain),
-       do: {:error, {:coop_unavailable, "Publication has not completed on its owning worker."}}
+  defp publication_operation(
+         _client,
+         _placement,
+         _command,
+         _session_id,
+         %{
+           "method" => "PublishReview",
+           "state" => state
+         } = operation
+       )
+       when state in ~w(reserved running uncertain) do
+    reason =
+      Ryker.PublicationRetry.reason(operation) ||
+        {:coop_unavailable, "Publication has not completed on its owning worker."}
+
+    {:error, reason}
+  end
 
   defp publication_operation(_client, _placement, _command, _session_id, _response),
     do: {:error, {:coop_protocol_error, :publication_operation}}

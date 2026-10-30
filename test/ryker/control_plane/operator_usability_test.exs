@@ -353,6 +353,28 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert LazyHTML.attribute(retry, "class") == ["ui-button primary"]
   end
 
+  test "a pending publication names the worker stage and keeps automatic recovery" do
+    row = %{
+      kind: "publication",
+      ref: "publication:one",
+      episode_ref: "episode:one",
+      episode_id: @request_one,
+      action: nil,
+      attempt_count: 48,
+      source: "ryker",
+      status: :publish_pending,
+      summary: "publication_worker_retry",
+      updated_at: nil,
+      diagnosis: Ryker.PublicationRetry.diagnosis("publication_grant_failed", 503)
+    }
+
+    explanation = FailureExplanation.explain(row, @now)
+    assert explanation.outlook == :automatic
+    assert explanation.summary =~ "requesting a fresh publication token"
+    assert Enum.join(explanation.cause, " ") =~ "HTTP 503"
+    assert inspect(explanation.next) =~ "retries the same publication"
+  end
+
   test "a stuck publication says why it is stuck" do
     # The first screenshot of the new Publishing rows showed three of them
     # reading "No recognized error explanation is available in the saved

@@ -74,6 +74,29 @@ defmodule Ryker.StateTools.RelatedPublicationsTest do
     assert state["records"] == []
   end
 
+  test "the model can read a publication retry diagnosis without relaying worker logs",
+       %{claim: claim, published: published} do
+    change!(published.publication,
+      last_error_code: "publication_worker_retry",
+      last_error_detail: ~s({:publication_worker_retry, "publication_grant_failed", 503})
+    )
+
+    assert {:ok, %{"related_publications" => [related]}} = work_state(claim)
+
+    assert related["latest_failure"] == %{
+             "code" => "publication_grant_failed",
+             "http_status" => 503,
+             "stage" => "requesting a fresh publication token"
+           }
+
+    refute Jason.encode!(related) =~ "PRIVATE-"
+
+    change!(published.publication, last_error_detail: "PRIVATE-provider-body")
+    assert {:ok, %{"related_publications" => [withheld]}} = work_state(claim)
+    assert withheld["latest_failure"] == nil
+    refute Jason.encode!(withheld) =~ "PRIVATE-"
+  end
+
   # The same diagnostic omission made a task ask a person to relay its own
   # refusal. A linked followup must be able to explain the saved refusal too,
   # without gaining publication authority or reading outside its frozen scope.

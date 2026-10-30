@@ -2416,6 +2416,20 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp publishing_configured?(%{configured: true}), do: true
   defp publishing_configured?(_publishing), do: false
 
+  defp publication_cause(%{
+         summary: "publication_worker_retry",
+         diagnosis: %{stage: stage, http_status: status}
+       }) do
+    response = if status == 0, do: "", else: " The request returned HTTP #{status}."
+
+    cause(
+      "The worker failed while #{stage}.",
+      "The worker's latest saved publication failure was while #{stage}." <> response,
+      :automatic,
+      "Ryker retains the reviewed commit and retries the same publication. No new task or policy approval is needed."
+    )
+  end
+
   defp publication_cause(%{summary: "publication_repository_not_configured"} = row) do
     if publishing_configured?(row[:publishing]) do
       cause(

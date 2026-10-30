@@ -17,7 +17,7 @@ defmodule Ryker.Operator.FailureDetail do
         %{http_status: String.to_integer(status), code: code}
 
       _unrecognized ->
-        nil
+        Ryker.PublicationRetry.facts(detail)
     end
   end
 

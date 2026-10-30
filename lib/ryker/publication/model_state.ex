@@ -64,6 +64,7 @@ defmodule Ryker.Publication.ModelState do
     %{
       "existing_pull_request" => existing_pull_request(publication),
       "followup" => followup_document(followup),
+      "latest_failure" => latest_failure(publication),
       "published_at" => datetime(publication.published_at),
       "published_revision" => published_revision(publication),
       "ref" => publication.ref,
@@ -73,6 +74,18 @@ defmodule Ryker.Publication.ModelState do
       "status" => Atom.to_string(publication.status)
     }
   end
+
+  defp latest_failure(%Publication{
+         last_error_code: "publication_worker_retry",
+         last_error_detail: detail
+       }) do
+    case Ryker.PublicationRetry.facts(detail) do
+      nil -> nil
+      facts -> Map.new(facts, fn {key, value} -> {Atom.to_string(key), value} end)
+    end
+  end
+
+  defp latest_failure(_publication), do: nil
 
   defp published_revision(%Publication{publication_receipt: %{} = receipt} = publication) do
     if receipt["repository"] == publication.repository and

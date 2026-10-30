@@ -1698,6 +1698,25 @@ defmodule Ryker.CoopFleet.ClientTest do
                publication_body()
              )
 
+    # Dozens of checks reported only coop_unavailable after a real publish failure.
+    # Keep the worker's finite diagnosis without copying provider payloads or starting a new PR.
+    Process.put(
+      :publication_operation,
+      Map.merge(running["operation"], %{
+        "error_code" => "publication_grant_failed",
+        "error_detail" => "Publication stage: grant. HTTP status: 503."
+      })
+    )
+
+    assert Client.publish_review(
+             client,
+             session.coop_session_id,
+             owner.idempotency_key,
+             "review-op",
+             key,
+             publication_body()
+           ) == {:error, {:publication_worker_retry, "publication_grant_failed", 503}}
+
     replaced_placement!(owner.placement_id)
 
     Process.put(:publication_operation, response["operation"])
@@ -1724,7 +1743,9 @@ defmodule Ryker.CoopFleet.ClientTest do
         )
       )
 
-    assert [_first_reconcile | after_lapse] = lookups
+    assert [first_reconcile, retry_reconcile | after_lapse] = lookups
+    assert first_reconcile.placement_generation == owner.placement_generation
+    assert retry_reconcile.placement_generation == owner.placement_generation
     assert after_lapse != []
     assert Enum.all?(after_lapse, &(&1.worker_id == owner.worker_id))
     assert Enum.all?(after_lapse, &(&1.placement_generation > owner.placement_generation))

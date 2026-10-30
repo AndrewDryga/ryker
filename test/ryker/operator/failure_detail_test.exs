@@ -2,6 +2,21 @@ defmodule Ryker.Operator.FailureDetailTest do
   use ExUnit.Case, async: true
   alias Ryker.Operator.FailureDetail
 
+  test "pending publication exposes its safe retry stage without raw diagnostics" do
+    assert FailureDetail.facts(~s({:publication_worker_retry, "publication_grant_failed", 503})) ==
+             %{
+               code: "publication_grant_failed",
+               http_status: 503,
+               stage: "requesting a fresh publication token"
+             }
+
+    assert FailureDetail.facts(~s({:publication_worker_retry, "secret_payload", 503})) == nil
+
+    assert FailureDetail.facts(
+             ~s({:publication_worker_retry, "publication_grant_failed", 503, "private-body"})
+           ) == nil
+  end
+
   test "recorded cleanup errors expose known facts without copying provider payloads" do
     fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
 
