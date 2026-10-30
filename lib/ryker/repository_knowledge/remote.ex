@@ -17,6 +17,10 @@ defmodule Ryker.RepositoryKnowledge.Remote do
   @doc "Every entry of the tree at `commit`: GitHub's recursive tree, bounded."
   @callback tree(binding(), repository(), String.t()) :: {:ok, [map()]} | {:error, term()}
 
+  @doc "Up to 30 recent commit subjects at the exact pinned head, with merge markers."
+  @callback recent_commits(binding(), repository(), String.t()) ::
+              {:ok, [map()]} | {:error, term()}
+
   @doc """
   The text of one file at `ref`, or `:not_found`. A file Ryker cannot read,
   over 1 MB, not text or not a file at all, is `{:error, :source_unavailable}`;

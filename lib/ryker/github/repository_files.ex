@@ -11,6 +11,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   alias Ryker.Delivery
   alias Ryker.GitHub.Client.Transport
   alias Ryker.GitHub.InstallationTokens
+  alias Ryker.Text
 
   @headers [
     {"accept", "application/vnd.github+json"},
@@ -88,6 +89,48 @@ defmodule Ryker.GitHub.RepositoryFiles do
     do: {:error, :repository_too_large}
 
   defp tree_entries({:error, reason}), do: {:error, reason}
+
+  @impl Ryker.RepositoryKnowledge.Remote
+  def recent_commits(binding, repository, head) do
+    query = URI.encode_query(%{"sha" => head, "per_page" => 30})
+    path = "/repos/#{repository.github_repository}/commits?#{query}"
+    with {:ok, client} <- client(binding.name), do: client |> get(path) |> commit_subjects()
+  end
+
+  defp commit_subjects({:ok, %{status: 200, body: commits}})
+       when is_list(commits) and length(commits) <= 30 do
+    Enum.reduce_while(commits, {:ok, []}, fn value, {:ok, subjects} ->
+      case commit_subject(value) do
+        {:ok, subject} -> {:cont, {:ok, subjects ++ [subject]}}
+        :empty -> {:cont, {:ok, subjects}}
+        :error -> {:halt, {:error, {:github_onboarding, :response}}}
+      end
+    end)
+  end
+
+  defp commit_subjects({:ok, %{status: status} = response}) when status in @refused,
+    do: refused(response)
+
+  defp commit_subjects({:error, reason}), do: {:error, reason}
+  defp commit_subjects(_response), do: {:error, {:github_onboarding, :response}}
+
+  defp commit_subject(%{"sha" => sha, "commit" => %{"message" => message}, "parents" => parents})
+       when is_binary(sha) and is_binary(message) and is_list(parents) do
+    with {:ok, sha} <- commit(sha),
+         [subject | _] <- String.split(message, "\n", parts: 2),
+         true <- String.valid?(subject) do
+      if String.trim(subject) == "" do
+        :empty
+      else
+        subject = Text.cut(subject, 800)
+        {:ok, %{"sha" => sha, "subject" => subject, "merge" => length(parents) > 1}}
+      end
+    else
+      _ -> :error
+    end
+  end
+
+  defp commit_subject(_commit), do: :error
 
   @impl Ryker.RepositoryKnowledge.Remote
   def read(binding, repository, path, ref) do

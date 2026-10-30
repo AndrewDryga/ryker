@@ -97,6 +97,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     defdelegate head(binding, repository), to: FakeGitHubRepository
     defdelegate tree(binding, repository, commit), to: FakeGitHubRepository
+    defdelegate recent_commits(binding, repository, commit), to: FakeGitHubRepository
     defdelegate changes(binding, repository, base, head), to: FakeGitHubRepository
 
     def read(binding, repository, path, ref) do
@@ -249,7 +250,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     # cites. Nothing is written there, and a RYKER.md the repository holds is
     # never asked for by name.
     assert FakeGitHubRepository.calls() |> Enum.map(&call_kind/1) |> Enum.uniq() |> Enum.sort() ==
-             [:head, :read, :tree]
+             [:head, :read, :recent_commits, :tree]
 
     refute Enum.any?(FakeGitHubRepository.calls(), &match?({:read, "RYKER.md", _ref}, &1))
 
@@ -305,6 +306,49 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     # Written once: nothing is due until tomorrow's check.
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
+  # Structural variation of a recorded answer using real public commit subjects,
+  # not a claim that a model already inferred this convention for the fixture repo.
+  test "a naming observation keeps the history supplied to its run even after a new push" do
+    history =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+
+    refs = history |> Enum.take(2) |> Enum.map(& &1["sha"])
+    observed = %{"rule" => "Use an imperative subject.", "source_commits" => refs}
+    result = answer() |> Map.put("conventions", [observed]) |> Jason.encode!()
+    github!(recent_commits: history)
+    ready!()
+    coop = coop!([result])
+    step_until_submitted!(coop)
+
+    FakeGitHubRepository.update(&%{&1 | head: @pushed, recent_commits: []})
+    assert {:ok, :written} in drain(settings(coop))
+
+    [run] = runs()
+    assert Prompt.recent_commits(run.prompt) == history
+    assert run.manifest["recent_commits"] == length(history)
+    assert run.source_commit == @head
+    assert run.dropped_count == 0
+    entry = Inspectors.repository_knowledge("emisar")
+    assert entry.document =~ "Observed in recent commits, not a documented requirement"
+    assert entry.document =~ hd(history)["subject"]
+
+    assert Enum.filter(FakeGitHubRepository.calls(), &(call_kind(&1) == :recent_commits)) ==
+             [{:recent_commits, @head}]
+  end
+
+  test "unavailable commit history waits before submitting knowledge with missing evidence" do
+    github!(errors: %{recent_commits: {:error, {:github_onboarding, :rate_limited}}})
+    ready!()
+    coop = coop!([answer_json()])
+    drain(settings(coop), 3)
+    assert runs() == []
+    assert Map.get(FakeCoopAPI.state(coop), :submissions, []) == []
+
+    FakeGitHubRepository.update(&%{&1 | errors: %{}})
+    retry_due!()
+    assert {:ok, :written} in drain(settings(coop))
   end
 
   # Mirroring a large repository before its session can be created can take

@@ -100,7 +100,10 @@ written in the file it cites, nothing is pinned to a commit, and it says what th
 for, what is in it, where to start and how to build it. The knowledge prompt has no live eval:
 one would stage a case's repository as the job's read-only checkout, as a world scenario that
 captured a repository is staged (`Ryker.Evals.WorldSource`), and nothing stages the knowledge
-cases.
+cases. `commit-history.json` separately holds subjects harvested from this public repository;
+host tests use them to check that a run freezes its history, rejects invented or merge-commit
+citations, and labels observed naming habits. These structural tests do not measure whether a
+model correctly infers a naming convention.
 
 For customer-facing Slack, incident, memory, or response-contract changes, run:
 

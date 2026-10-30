@@ -12,11 +12,10 @@ defmodule Ryker.ControlPlane.KnowledgeDocument do
   is the title of the row that holds it, so it is not repeated inside.
   """
   alias Ryker.ControlPlane.SlackMarkdown
-  alias Ryker.GitHub
+  alias Ryker.{GitHub, MarkdownCode}
 
   @heading ~r/\A(\#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*\z/u
   @fence ~r/\A[ \t]*```/u
-  @code_span ~r/(`[^`\n]+`)/u
   @relative_link ~r/\[([^\]\n]+)\]\((?!https?:|mailto:|#)([^\s)]+)\)/u
 
   @typedoc "Where a link to a repository path goes: its GitHub name and the commit it was read at."
@@ -81,11 +80,11 @@ defmodule Ryker.ControlPlane.KnowledgeDocument do
   # repository itself, opens that path on GitHub at the knowledge's commit.
   # Code is left as it was written.
   defp linked(text, source) do
-    @code_span
-    |> Regex.split(text, include_captures: true)
+    text
+    |> MarkdownCode.split()
     |> Enum.map_join(fn
-      "`" <> _ = code -> code
-      words -> Regex.replace(@relative_link, words, &link(&1, &2, &3, source))
+      {:text, words} -> Regex.replace(@relative_link, words, &link(&1, &2, &3, source))
+      {_kind, code} -> code
     end)
   end
 

@@ -209,6 +209,36 @@ defmodule Ryker.RepositoryKnowledge.PromptTest do
     assert "None of the 90 top-level entries, cut for length." in request["context"]["omitted"]
   end
 
+  test "commit naming can cite observed history without inventing a source file" do
+    history =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+
+    refs = history |> Enum.take(2) |> Enum.map(& &1["sha"])
+    # A structural answer variation tests the host contract, not model quality.
+    observed = %{
+      "rule" => "Use an imperative subject without a type prefix.",
+      "source_commits" => refs
+    }
+
+    result = Map.put(answer(), "conventions", [observed])
+    schema = JSV.build!(Prompt.output_schema())
+    assert {:ok, _valid} = JSV.validate(result, schema)
+    assert {:ok, _valid} = JSV.validate(answer(), schema)
+    assert {:ok, parsed} = Prompt.parse(Jason.encode!(result))
+    assert hd(parsed.conventions).source_commits == refs
+
+    for invalid <- [[], [hd(refs), hd(refs)], ["made-up"], Enum.take(refs, 1)] do
+      result = put_in(result, ["conventions", Access.at(0), "source_commits"], invalid)
+      assert Prompt.parse(Jason.encode!(result)) == {:error, :invalid_repository_knowledge}
+    end
+
+    request = Prompt.build(Map.put(facts(), :recent_commits, history))
+    assert request["context"]["recent_commits"] == history
+    assert request["instructions"] =~ "commitlint"
+    assert request["instructions"] =~ "documented rules take precedence"
+    assert request["instructions"] =~ "source_commits"
+  end
+
   defp long_path(n), do: String.duplicate("deeply/nested/", 280) <> "file-#{n}.md"
 
   defp facts(entries \\ entries!("emisar")) do

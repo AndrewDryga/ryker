@@ -4,7 +4,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
   session reads the repository at the run's commit, and an offered answer is
   checked against the contract and then against the repository itself: the
   tree at the run's commit and the files its commands cite
-  (`Ryker.RepositoryKnowledge.Document.verify/3`). Only an answer that leaves
+  (`Ryker.RepositoryKnowledge.Document.verify/4`). Only an answer that leaves
   something real is accepted; any other ends the run, and the next start is
   told why.
   """
@@ -89,8 +89,9 @@ defmodule Ryker.RepositoryKnowledge.Executor do
            Coop.RunStep.with_lease_kept(__MODULE__, claim, settings, fn ->
              read_cited(settings, binding, repository, run.source_commit, answer)
            end),
+         history = Prompt.recent_commits(run.prompt),
          {:ok, _kept, dropped, document} <-
-           Document.keep(answer, tree, sources, run.source_commit, Date.utc_today()) do
+           Document.keep(answer, tree, sources, history, run.source_commit, Date.utc_today()) do
       with {:ok, _run} <- Custody.record_document(claim, run.id, document, dropped),
            do: {:ok, document}
     else

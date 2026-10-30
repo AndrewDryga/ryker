@@ -20,6 +20,7 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
           head: Keyword.fetch!(options, :head),
           tree: Keyword.fetch!(options, :tree),
           files: Keyword.get(options, :files, %{}),
+          recent_commits: Keyword.get(options, :recent_commits, []),
           changes: %{},
           errors: Keyword.get(options, :errors, %{}),
           calls: []
@@ -51,6 +52,10 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
       {:ok, Enum.map(state.tree, fn {path, type} -> %{"path" => path, "type" => type} end)}
     end)
   end
+
+  @impl Ryker.RepositoryKnowledge.Remote
+  def recent_commits(_binding, _repository, commit),
+    do: call({:recent_commits, commit}, &{:ok, &1.recent_commits})
 
   @impl Ryker.RepositoryKnowledge.Remote
   def read(_binding, _repository, path, ref) do

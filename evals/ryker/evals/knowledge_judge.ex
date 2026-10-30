@@ -10,7 +10,7 @@ defmodule Ryker.Evals.KnowledgeJudge do
   `replay/1` runs the answer through the host's own check and render, as
   `Ryker.RepositoryKnowledge.Executor` does:
   `Ryker.RepositoryKnowledge.Prompt.parse/1`, then
-  `Ryker.RepositoryKnowledge.Document.verify/3` against the tree and the
+  `Ryker.RepositoryKnowledge.Document.verify/4` against the tree and the
   cited files, then `Document.render/3`.
 
   `judge/2` scores any answer for a case's repository: every path it names
@@ -32,7 +32,6 @@ defmodule Ryker.Evals.KnowledgeJudge do
   alias Ryker.RepositoryKnowledge.{Document, Prompt}
 
   @root "testdata/repository_knowledge"
-  @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
   # A purpose shorter than this says nothing a teammate can use; the outline
   # takes a README paragraph as words from the same count.
   @purpose_words 8
@@ -74,13 +73,22 @@ defmodule Ryker.Evals.KnowledgeJudge do
   """
   @spec prompt(map()) :: String.t()
   def prompt(%{run: run, tree: tree}) do
-    tree
-    |> Prompt.for_tree(%{
+    context = Jason.decode!(run["prompt"])["context"]
+
+    repository = %{
       name: run["repository"],
       default_branch: run["default_branch"],
       commit: run["commit"],
-      current_document: Jason.decode!(run["prompt"])["context"]["current_document"]
-    })
+      current_document: context["current_document"]
+    }
+
+    repository =
+      if Map.has_key?(context, "recent_commits"),
+        do: Map.put(repository, :recent_commits, context["recent_commits"]),
+        else: repository
+
+    tree
+    |> Prompt.for_tree(repository)
     |> Prompt.render()
   end
 
@@ -90,7 +98,7 @@ defmodule Ryker.Evals.KnowledgeJudge do
 
   @doc """
   The host's check and render of `result` against the case's repository: the
-  answer as `Prompt.parse/1` reads it, what `Document.verify/3` keeps of it
+  answer as `Prompt.parse/1` reads it, what `Document.verify/4` keeps of it
   given the cited files the case holds, how many items it dropped, and the
   RYKER.md `Document.render/3` writes from what it kept.
   """
@@ -98,8 +106,9 @@ defmodule Ryker.Evals.KnowledgeJudge do
   def check(recorded, result, %Date{} = date) do
     with {:ok, answer} <- Prompt.parse(result),
          sources = Map.take(recorded.sources, Document.cited_sources(answer, recorded.tree)),
+         history = Prompt.recent_commits(recorded.run["prompt"]),
          {:ok, kept, dropped, document} <-
-           Document.keep(answer, recorded.tree, sources, recorded.run["commit"], date) do
+           Document.keep(answer, recorded.tree, sources, history, recorded.run["commit"], date) do
       {:ok, %{answer: answer, kept: kept, dropped: dropped, document: document}}
     end
   end
@@ -118,6 +127,7 @@ defmodule Ryker.Evals.KnowledgeJudge do
 
         findings = %{
           missing_paths: missing_paths(checked.answer, recorded.tree),
+          unsupported_conventions: unsupported_conventions(checked.answer, checked.kept),
           uncited_commands: uncited,
           pinned: pinned(checked.document, recorded.run["commit"]),
           not_useful: not_useful(checked.kept, recorded.tree)
@@ -140,12 +150,23 @@ defmodule Ryker.Evals.KnowledgeJudge do
   defp semantic_review,
     do: "required; structural checks do not prove the purpose and descriptions are right"
 
+  defp unsupported_conventions(answer, kept) do
+    supported = for %{source_commits: refs} <- kept.conventions, do: refs
+
+    for %{source_commits: refs, rule: rule} <- answer.conventions,
+        refs not in supported,
+        do: rule
+  end
+
   defp missing_paths(answer, tree) do
     named =
       Enum.map(answer.components, &{&1.path, nil}) ++
         Enum.map(answer.where_to_look, &{&1.path, nil}) ++
         Enum.map(answer.deploy_release, &{&1.source_file, nil}) ++
-        Enum.map(answer.conventions, &{&1.source_file, :blob}) ++
+        Enum.flat_map(answer.conventions, fn
+          %{source_file: file} -> [{file, :blob}]
+          %{source_commits: _} -> []
+        end) ++
         Enum.map(answer.build_test_run, &{&1.source_file, :blob})
 
     for {path, only} <- named, not located?(tree, path, only), uniq: true, do: path
@@ -207,15 +228,8 @@ defmodule Ryker.Evals.KnowledgeJudge do
     |> Enum.filter(&is_binary/1)
   end
 
-  # A key file that is not a README, CONTRIBUTING or agent guidance: a build
-  # file or a CI workflow.
   defp build_files?(tree) do
-    Enum.any?(tree, fn {path, kind} ->
-      name = Path.basename(path)
-
-      kind == :blob and Document.key_file?(path) and name not in @guidance_names and
-        not String.starts_with?(String.upcase(name), ["README", "CONTRIBUTING"])
-    end)
+    Enum.any?(tree, fn {path, kind} -> kind == :blob and Document.build_file?(path) end)
   end
 
   defp checked_on(run) do

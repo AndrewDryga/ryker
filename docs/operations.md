@@ -267,6 +267,14 @@ A worker image built another way, for example from a Coop checkout ahead of the 
 Coop refuses. Inside the worker's own Docker, the entrypoint removes the box bases of older Coop
 builds and the images nothing is tagged as.
 
+Repository knowledge checks contributor guidance, commitlint/commitizen configuration,
+commit-message hooks and CI/release checks for commit naming rules. It also reads up to 30 recent
+commit subjects at the same pinned default-branch commit. Written rules cite their source file;
+habits inferred from history are labeled as observations, with two or three actual examples,
+never as enforced requirements. Merge commits cannot support those observations. The sample is
+saved with the run, so later commits do not change the evidence for an existing document. Changes
+to naming configuration or commit-message hooks trigger the usual knowledge refresh.
+
 Repository knowledge runs with filtered networking: the model reaches its provider and nothing
 else. Coop takes a filtered job only on a Docker daemon that `coop net setup` qualified, so the
 worker's entrypoint runs it before the worker connects, and the worker's image carries the Docker

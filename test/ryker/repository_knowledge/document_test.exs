@@ -6,6 +6,42 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
   @commit "783fc4801d274d5ee05feb3fbc5c70981b1bbd7a"
   @date ~D[2026-09-27]
 
+  test "commit naming checks and hooks are key files that trigger a knowledge refresh" do
+    for path <- [
+          "commitlint.config.cjs",
+          ".commitlintrc.json",
+          ".husky/commit-msg",
+          "lefthook.yml",
+          ".gitmessage",
+          ".cz.toml"
+        ] do
+      assert Document.key_file?(path), path
+      refute Document.key_file?("vendor/tool/" <> path)
+    end
+  end
+
+  test "observed naming cites only the frozen non-merge sample and stays distinct from written rules" do
+    history =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+
+    refs = history |> Enum.take(2) |> Enum.map(& &1["sha"])
+    # Proposed rule over real history tests evidence custody, not a model's quality.
+    observed = %{rule: "Use imperative subjects without a type prefix.", source_commits: refs}
+    parsed = %{answer() | conventions: answer().conventions ++ [observed]}
+    assert {:ok, kept, 0} = Document.verify(parsed, tree!("emisar"), sources!("emisar"), history)
+    assert {:ok, document} = Document.render(kept, @commit, @date)
+    assert document =~ "Observed in recent commits, not a documented requirement:"
+    assert document =~ hd(history)["subject"]
+    assert document =~ "From [AGENTS.md](AGENTS.md)"
+
+    for sample <- [[], Enum.drop(history, 1), Enum.map(history, &Map.put(&1, "merge", true))] do
+      assert {:ok, checked, 1} =
+               Document.verify(parsed, tree!("emisar"), sources!("emisar"), sample)
+
+      assert checked.conventions == answer().conventions |> Enum.map(&Map.put(&1, :kind, :blob))
+    end
+  end
+
   # Andrew, 2026-09-27: "everything is hash-pinned for some reason, even paths
   # to folders". Setup linked every path to
   # github.com/<repo>/blob/<commit>/<path>, so a merged RYKER.md pointed at an
@@ -90,7 +126,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
         &(&1 ++ [%{rule: "Be nice.", source_file: "CODE_OF_CONDUCT.md"}])
       )
 
-    assert {:ok, kept, 6} = Document.verify(invented, tree!("emisar"), sources!("emisar"))
+    assert {:ok, kept, 6} = Document.verify(invented, tree!("emisar"), sources!("emisar"), [])
 
     assert Enum.map(kept.components, & &1.path) ==
              Enum.map(answer.components, &canonical(&1.path))
@@ -117,7 +153,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
         build_test_run: [%{command: "make test", what_it_does: "Tests.", source_file: "Makefile"}]
     }
 
-    assert Document.verify(answer, tree!("emisar"), sources!("emisar")) ==
+    assert Document.verify(answer, tree!("emisar"), sources!("emisar"), []) ==
              {:error, :repository_knowledge_unusable}
   end
 
@@ -281,7 +317,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentTest do
   end
 
   defp verified!(answer) do
-    {:ok, kept, 0} = Document.verify(answer, tree!("emisar"), sources!("emisar"))
+    {:ok, kept, 0} = Document.verify(answer, tree!("emisar"), sources!("emisar"), [])
     kept
   end
 

@@ -4,22 +4,23 @@ defmodule Ryker.RepositoryKnowledge.Document do
   from that check alone.
 
   A model's answer (`Ryker.RepositoryKnowledge.Prompt.parse/1`) is an input,
-  not the document. `verify/3` keeps each path that exists in the tree at the
+  not the document. `verify/4` keeps each path that exists in the tree at the
   commit the model read and each command written in the file it cites, and
   drops the rest; an answer with nothing left that points into the
   repository is refused. `render/3` writes the document from what was kept:
   plain relative links, which work on GitHub and never go stale, and one
-  provenance line, the only place the commit appears.
+  provenance line. Commit-style observations also retain their sampled source commits.
 
   `outline/4` is the fallback when no model could finish reading the
   repository: the file list, marked as an outline, never an invented
   command.
   """
-  alias Ryker.Wording
+  alias Ryker.{MarkdownCode, Wording}
 
   @vendored ~w(node_modules vendor deps _build third_party)
   @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
   @build_names ~w(Makefile GNUmakefile mix.exs go.mod go.work package.json Cargo.toml pyproject.toml Gemfile Dockerfile)
+  @commit_guidance ~w(.czrc .cz.json .cz.toml .gitmessage .gitmessage.txt .gitmessage.md lefthook.yml lefthook.yaml .pre-commit-config.yaml .pre-commit-config.yml)
   @shell_operators ["&&", "||", ";", "|", ">", "<", "`", "$("]
   # What `repository_knowledge` and its runs keep of a document: what a Work
   # turn's briefing carries whole (`Ryker.Work.SubmissionBuilder`). A document
@@ -34,7 +35,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
   # -- The tree --------------------------------------------------------------------
 
   @doc """
-  The tree as `verify/3` reads it, from GitHub's recursive tree entries: each
+  The tree as `verify/4` reads it, from GitHub's recursive tree entries: each
   path, a directory (`:tree`) or a file (`:blob`). Submodules are neither.
   """
   @spec tree([map()]) :: tree()
@@ -103,14 +104,26 @@ defmodule Ryker.RepositoryKnowledge.Document do
     not Enum.any?(segments, &(&1 in @vendored)) and
       (String.starts_with?(String.upcase(name), "README") or
          String.starts_with?(String.upcase(name), "CONTRIBUTING") or
-         name in @guidance_names or name in @build_names or
+         name in @guidance_names or name in @build_names or commit_guidance?(name) or
+         String.ends_with?(path, "/commit-msg") or
          String.starts_with?(path, ".github/workflows/"))
+  end
+
+  defp commit_guidance?(name) do
+    name in @commit_guidance or
+      String.starts_with?(name, [".commitlintrc", "commitlint.config.", "cz.config."])
+  end
+
+  @doc "Whether a key file defines building, testing, running or CI rather than guidance alone."
+  def build_file?(path) do
+    key_file?(path) and
+      (Path.basename(path) in @build_names or String.starts_with?(path, ".github/workflows/"))
   end
 
   # -- Checking an answer --------------------------------------------------------
 
   @doc """
-  The files `verify/3` needs the text of: each file a command cites that
+  The files `verify/4` needs the text of: each file a command cites that
   exists in the tree.
   """
   @spec cited_sources(map(), tree()) :: [String.t()]
@@ -136,9 +149,9 @@ defmodule Ryker.RepositoryKnowledge.Document do
   Returns the kept answer, with each path in its canonical form and its
   kind, and how many items were dropped.
   """
-  @spec verify(map(), tree(), %{String.t() => String.t()}) ::
+  @spec verify(map(), tree(), %{String.t() => String.t()}, [map()]) ::
           {:ok, map(), non_neg_integer()} | {:error, :repository_knowledge_unusable}
-  def verify(answer, tree, sources) do
+  def verify(answer, tree, sources, history) do
     components =
       answer.components
       |> keep(&locate_item(&1, tree, :path))
@@ -156,7 +169,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
       |> Enum.uniq_by(& &1.command)
 
     deploy = keep(answer.deploy_release, &locate_item(&1, tree, :source_file))
-    conventions = keep(answer.conventions, &locate_item(&1, tree, :source_file, :blob))
+    conventions = keep(answer.conventions, &check_convention(&1, tree, history))
     where_to_look = keep(answer.where_to_look, &locate_item(&1, tree, :path))
 
     kept = %{
@@ -180,6 +193,19 @@ defmodule Ryker.RepositoryKnowledge.Document do
       do: {:error, :repository_knowledge_unusable},
       else: {:ok, kept, dropped}
   end
+
+  defp check_convention(%{source_commits: refs} = item, _tree, history) do
+    eligible =
+      for %{"sha" => sha, "merge" => false} = commit <- history, into: %{}, do: {sha, commit}
+
+    examples = Enum.map(refs, &eligible[&1])
+
+    if Enum.all?(examples, &is_map/1),
+      do: {:ok, Map.put(item, :examples, examples)},
+      else: :error
+  end
+
+  defp check_convention(item, tree, _history), do: locate_item(item, tree, :source_file, :blob)
 
   defp keep(items, check) do
     Enum.flat_map(items, fn item ->
@@ -358,21 +384,21 @@ defmodule Ryker.RepositoryKnowledge.Document do
 
   @doc """
   What Ryker keeps of an answer and the RYKER.md it writes from that: the
-  answer checked against the tree and the files it cites (`verify/3`), then
+  answer checked against the tree and the files it cites (`verify/4`), then
   rendered at `commit` on `date` (`render/3`), with how many items were
   dropped. The lane and `Ryker.Evals.KnowledgeJudge` both go through it, so a
   recorded answer is judged the way the lane keeps one (2026-10-04 review).
   """
-  @spec keep(map(), map(), map(), String.t(), Date.t()) ::
+  @spec keep(map(), map(), map(), [map()], String.t(), Date.t()) ::
           {:ok, map(), non_neg_integer(), String.t()} | {:error, atom()}
-  def keep(answer, tree, sources, commit, %Date{} = date) do
-    with {:ok, kept, dropped} <- verify(answer, tree, sources),
+  def keep(answer, tree, sources, history, commit, %Date{} = date) do
+    with {:ok, kept, dropped} <- verify(answer, tree, sources, history),
          {:ok, document} <- render(kept, commit, date),
          do: {:ok, kept, dropped, document}
   end
 
   @doc """
-  RYKER.md from a checked answer (`verify/3`): the provenance line, then a
+  RYKER.md from a checked answer (`verify/4`): the provenance line, then a
   section for each part the answer holds, every path a plain relative link.
   Ryker keeps at most #{@maximum_bytes} bytes of it, and an answer that
   renders larger is refused as unusable.
@@ -400,7 +426,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
       list(
         "Build, test and run",
         answer.build_test_run,
-        &"- #{code(&1.command)} — #{sentence(&1.what_it_does)} From #{link(&1.source_file, :blob)}."
+        &"- #{MarkdownCode.wrap(&1.command)} — #{sentence(&1.what_it_does)} From #{link(&1.source_file, :blob)}."
       ),
       list(
         "Deploy and release",
@@ -410,7 +436,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
       list(
         "Conventions",
         answer.conventions,
-        &"- #{sentence(&1.rule)} From #{link(&1.source_file, :blob)}."
+        &convention/1
       ),
       list(
         "Where to look",
@@ -423,6 +449,15 @@ defmodule Ryker.RepositoryKnowledge.Document do
     |> Enum.join("\n\n")
     |> Kernel.<>("\n")
   end
+
+  defp convention(%{examples: examples, rule: rule}) do
+    subjects = Enum.map_join(examples, "; ", &MarkdownCode.wrap(&1["subject"]))
+
+    "- Observed in recent commits, not a documented requirement: #{sentence(rule)} Examples: #{subjects}."
+  end
+
+  defp convention(%{source_file: file, rule: rule}),
+    do: "- #{sentence(rule)} From #{link(file, :blob)}."
 
   @doc """
   The fallback RYKER.md when no model could finish reading the repository:
@@ -534,10 +569,6 @@ defmodule Ryker.RepositoryKnowledge.Document do
   end
 
   defp escape_link_text(text), do: String.replace(text, ~r/([\[\]\\])/, "\\\\\\1")
-
-  defp code(command) do
-    if String.contains?(command, "`"), do: "`` #{command} ``", else: "`#{command}`"
-  end
 
   defp sentence(text) do
     text = String.trim(text)

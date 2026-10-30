@@ -121,6 +121,91 @@ defmodule Ryker.GitHub.RepositoryFilesTest do
              {:error, {:github_onboarding, :rate_limited}}
   end
 
+  test "commit history is pinned, bounded and contains only the evidence knowledge needs" do
+    history =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+
+    head = hd(history)["sha"]
+    # GitHub protocol wrapper around unchanged subjects harvested from git.
+    body =
+      Enum.map(history, fn commit ->
+        %{
+          "sha" => commit["sha"],
+          "commit" => %{"message" => commit["subject"] <> "\n\nBody is not a subject."},
+          "parents" => if(commit["merge"], do: [%{}, %{}], else: [%{}]),
+          "author" => %{"email" => "not-in-context@example.invalid"}
+        }
+      end)
+
+    path = "/repos/acme/widget/commits?per_page=30&sha=#{head}"
+    RecordedGitHub.reply([{:get, path, ok(200, body)}])
+    assert RepositoryFiles.recent_commits(@binding, @repository, head) == {:ok, history}
+  end
+
+  test "a history read failure cannot masquerade as an empty sample" do
+    path = "/repos/acme/widget/commits?per_page=30&sha=#{@head}"
+
+    RecordedGitHub.reply([
+      {:get, path, ok(429, %{"message" => "Too many requests"}, [{"retry-after", "30"}])},
+      {:get, path, ok(502, %{})},
+      {:get, path, ok(200, [%{"sha" => "not-a-commit"}])},
+      {:get, path,
+       ok(200, [%{"sha" => nil, "commit" => %{"message" => "subject"}, "parents" => []}])}
+    ])
+
+    assert RepositoryFiles.recent_commits(@binding, @repository, @head) ==
+             {:error, {:github_onboarding, :rate_limited}}
+
+    for _invalid <- 1..3 do
+      assert RepositoryFiles.recent_commits(@binding, @repository, @head) ==
+               {:error, {:github_onboarding, :response}}
+    end
+  end
+
+  test "long subjects stay valid UTF-8 and an oversized history response is refused" do
+    # Boundary variation of a real subject; not a captured GitHub or model response.
+    commit =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+      |> hd()
+
+    subject = commit["subject"] <> String.duplicate("é", 800)
+    body = %{"sha" => commit["sha"], "commit" => %{"message" => subject}, "parents" => [%{}]}
+    path = "/repos/acme/widget/commits?per_page=30&sha=#{@head}"
+
+    RecordedGitHub.reply([
+      {:get, path, ok(200, [body])},
+      {:get, path, ok(200, List.duplicate(body, 31))}
+    ])
+
+    assert {:ok, [%{"subject" => shortened}]} =
+             RepositoryFiles.recent_commits(@binding, @repository, @head)
+
+    assert String.valid?(shortened)
+    assert byte_size(shortened) <= 800
+    assert String.ends_with?(shortened, "…")
+
+    assert RepositoryFiles.recent_commits(@binding, @repository, @head) ==
+             {:error, {:github_onboarding, :response}}
+  end
+
+  # Git permits --allow-empty-message. A valid empty subject in the sample must not
+  # hold every knowledge refresh until thirty newer commits push it out of the window.
+  test "a valid commit without a subject does not block repository knowledge" do
+    history =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+
+    [first, second | _] = history
+
+    envelope = fn commit, subject ->
+      %{"sha" => commit["sha"], "commit" => %{"message" => subject}, "parents" => [%{}]}
+    end
+
+    path = "/repos/acme/widget/commits?per_page=30&sha=#{@head}"
+    body = [envelope.(first, ""), envelope.(second, second["subject"])]
+    RecordedGitHub.reply([{:get, path, ok(200, body)}])
+    assert RepositoryFiles.recent_commits(@binding, @repository, @head) == {:ok, [second]}
+  end
+
   # -- Helpers ---------------------------------------------------------------------
 
   # GitHub's contents API: the file base64-encoded, wrapped every 60

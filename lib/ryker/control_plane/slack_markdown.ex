@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.SlackMarkdown do
   @moduledoc "Small, HTML-inert renderer for the formatting used in Slack messages."
   alias Ryker.ControlPlane.Kit
-  alias Ryker.Slack
+  alias Ryker.{MarkdownCode, Slack}
 
-  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|\[[^\]\r\n]{1,120}\]\(slack-(?:user|channel|usergroup|broadcast):[A-Za-z0-9_.:-]{1,1024}\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
+  @tokens ~r/(#{MarkdownCode.pattern()}|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|\[[^\]\r\n]{1,120}\]\(slack-(?:user|channel|usergroup|broadcast):[A-Za-z0-9_.:-]{1,1024}\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u
 
   @doc """
@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   def render(text, workspace \\ Slack.Names.workspace())
       when is_binary(text) do
     @tokens
-    |> Regex.split(text, include_captures: true)
+    |> Regex.split(text, include_captures: true, on: :first)
     |> Enum.map(fn part ->
       if Regex.match?(@tokens, part),
         do: token(part, workspace),
@@ -81,13 +81,15 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   @doc "HTML-inert Markdown for human-facing answers and public progress."
   def preview(text, workspace \\ Slack.Names.workspace()) when is_binary(text) do
-    ~r/(```[\s\S]*?```)/u
-    |> Regex.split(text, include_captures: true)
+    text
+    |> MarkdownCode.split()
+    |> Enum.chunk_by(&match?({:block, _}, &1))
     |> Enum.map(fn
-      "```" <> _ = code ->
-        token(code)
+      [{:block, _} | _] = blocks ->
+        Enum.map(blocks, fn {:block, code} -> token(code) end)
 
-      prose ->
+      parts ->
+        prose = Enum.map_join(parts, &elem(&1, 1))
         prose |> String.split(~r/\n\s*\n/u, trim: true) |> Enum.map(&paragraph(&1, workspace))
     end)
   end
@@ -230,6 +232,8 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   # A fence's first word names the block's language ("```sh"); it is not
   # code. The block scrolls inside itself (.md-code) so a long line never
   # widens the page it sits on.
+  defp token("````" <> _ = text), do: inline_code(text)
+
   defp token("```" <> text) do
     {language, code} = text |> String.slice(0..-4//1) |> fence()
 
@@ -245,8 +249,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     ]
   end
 
-  defp token("`" <> text),
-    do: ["<code>", Plug.HTML.html_escape(String.slice(text, 0..-2//1)), "</code>"]
+  defp token("`" <> _ = text), do: inline_code(text)
 
   defp token("<http" <> _ = text) do
     [url | labels] = text |> String.slice(1..-2//1) |> String.split("|", parts: 2)
@@ -275,6 +278,9 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   end
 
   defp token(text), do: Plug.HTML.html_escape(text)
+
+  defp inline_code(text),
+    do: ["<code>", text |> MarkdownCode.contents() |> Plug.HTML.html_escape(), "</code>"]
 
   defp fence(body) do
     case Regex.run(~r/\A([A-Za-z0-9_+.#-]*)\n(.*)\z/s, body) do

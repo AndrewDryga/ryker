@@ -24,7 +24,16 @@ defmodule Ryker.Evals.KnowledgeJudgeTest do
       # The tree is the one the lane read: as many entries, and the same top
       # level and key files in the prompt the model was given.
       assert map_size(recorded.tree) == run["manifest"]["tree_entries"]
-      assert context(KnowledgeJudge.prompt(recorded)) == context(run["prompt"])
+      # Current discovery also includes commit-message hooks/configuration.
+      # The frozen prompt stays unchanged; its files remain in the expanded current map.
+      current = context(KnowledgeJudge.prompt(recorded))
+      historical = context(run["prompt"])
+
+      assert Map.drop(current, ["key_files", "omitted"]) ==
+               Map.drop(historical, ["key_files", "omitted"])
+
+      assert historical["key_files"] -- current["key_files"] == []
+      assert Enum.all?(current["key_files"], &Document.key_file?/1)
 
       assert {:ok, replayed} = KnowledgeJudge.replay(recorded)
 
@@ -69,6 +78,27 @@ defmodule Ryker.Evals.KnowledgeJudgeTest do
 
   # The judge's cases below edit a recorded answer by hand; they test the
   # judge, not the model.
+
+  test "the judge rejects a naming observation whose commits were absent from its prompt" do
+    recorded = load!("ryker")
+
+    history =
+      Jason.decode!(File.read!("testdata/repository_knowledge/commit-history.json"))["commits"]
+
+    rule = "Use an imperative subject."
+    observed = %{"rule" => rule, "source_commits" => Enum.map(Enum.take(history, 2), & &1["sha"])}
+    result = edit(recorded, &Map.put(&1, "conventions", [observed]))
+    verdict = KnowledgeJudge.judge(recorded, result)
+    refute verdict.passed
+    assert verdict.findings.unsupported_conventions == [rule]
+
+    # Supply the same real sample to this structural case, without editing the captured fixture.
+    prompt = put_in(Jason.decode!(recorded.run["prompt"]), ["context", "recent_commits"], history)
+    recorded = put_in(recorded.run["prompt"], Jason.encode!(prompt))
+    verdict = KnowledgeJudge.judge(recorded, result)
+    assert verdict.passed
+    assert context(KnowledgeJudge.prompt(recorded))["recent_commits"] == history
+  end
 
   # Andrew, 2026-09-27: "everything is hash-pinned for some reason, even
   # paths to folders". The host keeps a description with a pinned link, so
@@ -137,6 +167,10 @@ defmodule Ryker.Evals.KnowledgeJudgeTest do
     # A repository with nothing to build owes no command.
     test = load!("test")
     assert Jason.decode!(test.run["result"])["build_test_run"] == []
+    assert KnowledgeJudge.judge(test, test.run["result"]).passed
+
+    # A naming template adds guidance, not a build system.
+    test = %{test | tree: Map.put(test.tree, ".gitmessage", :blob)}
     assert KnowledgeJudge.judge(test, test.run["result"]).passed
   end
 

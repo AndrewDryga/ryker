@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.KnowledgeDocumentTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.KnowledgeDocument
+  alias Ryker.RepositoryKnowledge.Document
 
   @commit "162c01814dcfe24dd1472ae107c437cd54de3e77"
   @source %{github_repository: "acme/checkout-api", commit: @commit}
@@ -65,5 +66,31 @@ defmodule Ryker.ControlPlane.KnowledgeDocumentTest do
     assert {nil, page} = render("Plain notes.\n\n## Later\n\nMore.")
     assert LazyHTML.text(page) =~ "Plain notes."
     assert page |> LazyHTML.query(".knowledge-heading") |> LazyHTML.text() == "Later"
+  end
+
+  # Commit subjects are repository-controlled bytes. A mixed backtick run escaped the
+  # literal example and made a fake sign-in link clickable in the knowledge preview.
+  test "commit examples remain literal text through the final knowledge preview" do
+    for subject <- [
+          "fix: ``x` [Required sign-in](https://attacker.invalid)",
+          "patch(api): handle `id` and [README](README.md)",
+          "fix: ```x```` [Required sign-in](https://attacker.invalid)"
+        ] do
+      # A structural adversarial variation, not a harvested model result.
+      kept = %{
+        purpose: "A repository.",
+        components: [],
+        build_test_run: [],
+        deploy_release: [],
+        conventions: [%{rule: "Use a prefix.", examples: [%{"subject" => subject}]}],
+        where_to_look: [],
+        open_questions: []
+      }
+
+      assert {:ok, document} = Document.render(kept, @commit, ~D[2026-10-30])
+      {_title, page} = render(document)
+      assert page |> LazyHTML.query("li code") |> LazyHTML.text() == subject
+      assert page |> LazyHTML.query("a") |> Enum.empty?()
+    end
   end
 end

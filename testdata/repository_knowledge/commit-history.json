@@ -1,0 +1,30 @@
+{
+  "source": "Read-only git log -5 at c14a34974 in the public AndrewDryga/ryker repository, 2026-10-30. Subjects and commit identities are unchanged; no model output is claimed.",
+  "commits": [
+    {
+      "sha": "c14a34974aa4eb4306dd6323a1420763a15cc45c",
+      "subject": "Keep edited-source Slack replies with an out-of-date note",
+      "merge": false
+    },
+    {
+      "sha": "73da076b471eb3fca72e865b79159492705114b8",
+      "subject": "Give each engineering task offer its own Slack message",
+      "merge": false
+    },
+    {
+      "sha": "4200a09cef69bc5055456f73de2cc098320abb64",
+      "subject": "Reconcile HTTP refusals carried by completed worker requests",
+      "merge": false
+    },
+    {
+      "sha": "5d50344542b4b7d438af093937260f0bd0385bc4",
+      "subject": "Integrate latest worker diagnostics before chart release",
+      "merge": true
+    },
+    {
+      "sha": "21bfaa3f55d708e072590f6fd8f7f6dbc28bd606",
+      "subject": "Identify the latest failed worker request in stop diagnostics",
+      "merge": false
+    }
+  ]
+}

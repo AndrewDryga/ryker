@@ -201,10 +201,11 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     result =
       with {:ok, head} <- remote.head(binding, repository),
            {:ok, entries} <- remote.tree(binding, repository, head),
+           {:ok, history} <- remote.recent_commits(binding, repository, head),
            {:ok, run} <-
              Custody.prepare(
                claim,
-               attempt(claim.entry, repository, binding, policy, head, entries)
+               attempt(claim.entry, repository, binding, policy, head, entries, history)
              ),
            do: Custody.begin_execution(claim, run.id)
 
@@ -215,7 +216,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     end
   end
 
-  defp attempt(entry, repository, binding, policy, head, entries) do
+  defp attempt(entry, repository, binding, policy, head, entries, history) do
     tree = Document.tree(entries)
 
     # What Ryker wrote last is worth keeping in the words it has only when a
@@ -229,6 +230,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
           name: repository.github_repository,
           default_branch: repository.base_branch,
           commit: head,
+          recent_commits: history,
           current_document: kept
         },
         Custody.retry?(entry)
@@ -247,6 +249,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
       manifest: %{
         "bytes" => byte_size(prompt),
         "tree_entries" => map_size(tree),
+        "recent_commits" => length(request["context"]["recent_commits"]),
         "top_level" => length(request["context"]["top_level"]),
         "key_files" => length(request["context"]["key_files"]),
         "current_document" => is_binary(request["context"]["current_document"]),

@@ -2,6 +2,17 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.SlackMarkdown
 
+  test "inline code preserves surrounding emphasis and link labels" do
+    html = SlackMarkdown.render("**Status `ready`**") |> IO.iodata_to_binary()
+    assert html == "<strong>Status <code>ready</code></strong>"
+
+    html =
+      SlackMarkdown.render("[`README`](https://example.invalid/README)") |> IO.iodata_to_binary()
+
+    assert html =~ ~s(href="https://example.invalid/README")
+    assert html =~ "`README`</a>"
+  end
+
   test "Slack alert dates and underscored identifiers remain readable" do
     # The OOM source rendered raw date syntax and italicized half of CONSTRAINT_MEMCG.
     text =
