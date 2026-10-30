@@ -24,6 +24,24 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   def authorize_session(_destination, _session), do: @stale
 
+  @doc "A source edit may annotate an existing reply; it never makes old context reusable."
+  def edited_sources_visible?(%Episodes.Episode{} = destination, %Work.Session{} = session) do
+    with true <- Repo.in_transaction?(),
+         true <- exposure_counts_attested?(session),
+         true <- session.environment_ref == Work.EnvironmentContext.ref(destination),
+         :ok <- Behaviors.GuidanceSnapshot.authorize_session(destination, session),
+         :ok <- Work.PersonalizationSnapshot.authorize_session(destination, session),
+         {:ok, scope} <-
+           Learning.Observations.fetch_and_lock_scope(destination, session.repository_ref) do
+      sources = session_sources(session.id)
+      Learning.LearningSources.edited_sources_visible?(sources, scope)
+    else
+      _ -> false
+    end
+  end
+
+  def edited_sources_visible?(_destination, _session), do: false
+
   @doc "Record an explicit read's source custody for this exact native session, without copying its text."
   def expose(claim, documents), do: expose_documents(claim, documents, :explicit)
 

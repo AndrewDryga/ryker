@@ -691,6 +691,87 @@ defmodule Ryker.Learning.LearningSources do
 
   def validated_disclosures(_, _, _), do: :error
 
+  @doc """
+  Whether only ordinary source edits prevent an old, already delivered reply
+  from retaining its original words with an out-of-date notice. This never
+  authorizes these receipts for model context or a new delivery.
+  """
+  def edited_sources_visible?(sources, scope) when is_list(sources) do
+    with true <- sources != [] and Enum.all?(sources, &valid_shape?/1),
+         {^sources, roots} <- resolve([sources]) do
+      notes =
+        roots
+        |> Enum.map(& &1["observation_id"])
+        |> Enum.uniq()
+        |> ConversationObservation.Query.by_ids()
+        |> ConversationObservation.Query.ordered_by_id()
+        |> ConversationObservation.Query.lock_for_share()
+        |> Repo.all()
+        |> Observations.authorized_notes(scope)
+        |> Map.new(&{&1.id, &1})
+
+      entries =
+        notes
+        |> Map.values()
+        |> Enum.map(& &1.source_input_id)
+        |> Ingress.Inbox.Entry.Query.by_ids()
+        |> Repo.all()
+        |> Map.new(&{&1.id, &1})
+
+      cutoff = horizon_cutoff()
+
+      states =
+        Enum.map(roots, &historical_source_state(&1, notes, entries, scope, cutoff))
+
+      :edited in states and :unavailable not in states
+    else
+      _ -> false
+    end
+  end
+
+  def edited_sources_visible?(_sources, _scope), do: false
+
+  defp historical_source_state(receipt, notes, entries, scope, cutoff) do
+    source = notes[receipt["observation_id"]]
+    input_only = MapSet.new()
+
+    cond do
+      valid_receipt?(receipt, source, scope, cutoff, input_only) -> :current
+      visible_edit?(receipt, source, entries, scope, cutoff) -> :edited
+      true -> :unavailable
+    end
+  end
+
+  defp visible_edit?(receipt, %ConversationObservation{} = source, entries, scope, cutoff) do
+    source_updated_at = DateTime.to_iso8601(source.updated_at)
+
+    is_nil(source.forgotten_at) and source.revision > receipt["revision"] and
+      source.workspace_ref == scope.workspace_ref and
+      not String.starts_with?(source.source_result_ref || "", "source-conflict:") and
+      same_source_origin?(receipt, source) and
+      unexpired?(receipt["retained_at"], cutoff) and unexpired?(source_updated_at, cutoff) and
+      current_edit?(entries[source.source_input_id], source)
+  end
+
+  defp visible_edit?(_receipt, _source, _entries, _scope, _cutoff), do: false
+
+  # Authenticated ingress advances the source before routing decides what to
+  # do with the edit. Its pending state does not withdraw a historical answer.
+  defp current_edit?(%Ingress.Inbox.Entry{operational_pruned_at: nil} = entry, source) do
+    entry.event_kind != :delete and is_map(entry.content) and entry.revision == source.revision and
+      entry.event_fingerprint == source.source_fingerprint
+  end
+
+  defp current_edit?(_entry, _source), do: false
+
+  defp same_source_origin?(receipt, source) do
+    source.workspace_ref == receipt["workspace_ref"] and
+      source.transport == receipt["transport"] and
+      source.conversation_ref == receipt["conversation_ref"] and
+      source.repository_ref == receipt["repository_ref"] and
+      Atom.to_string(source.visibility) == receipt["visibility"]
+  end
+
   defp source_keys(sources), do: MapSet.new(sources, &source_key/1)
   defp source_key(source), do: {source["observation_id"], source["source_input_id"]}
 

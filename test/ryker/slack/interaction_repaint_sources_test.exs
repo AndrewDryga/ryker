@@ -2,7 +2,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   # The confirmed-post projection uses the workspace-scoped Slack name cache.
   use Ryker.DataCase, async: false
   alias Ryker.Behaviors.Behavior
-  alias Ryker.{CanonicalJSON, Episodes, Repo}
+  alias Ryker.{CanonicalJSON, Config, Episodes, Repo}
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -29,6 +29,62 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
 
     defp assert_renderable(document) do
       {:ok, _} = Renderer.render(document)
+    end
+  end
+
+  test "an authenticated edit keeps the old answer while routing is still pending" do
+    # Source custody advances on ingress, before admission decides what to do
+    # with the edit. That window must not erase a successfully delivered reply.
+    fixture = fixture!(:structured)
+    edited = edited_source!(fixture.source)
+
+    edited
+    |> Ecto.Changeset.change(
+      status: :pending,
+      decision_ref: nil,
+      decision_fingerprint: nil,
+      decision_action: nil,
+      decision_document: nil,
+      episode_id: nil
+    )
+    |> Repo.update!()
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert document["message"] == fixture.turn.delivery_document["message"]
+    assert document["source_notice"] == "changed"
+  end
+
+  for expired <- [:receipt, :source] do
+    test "an edit cannot revive an expired #{expired}" do
+      # A newer edit is not permission to republish older information whose
+      # retained lifetime ended; the out-of-date display must honor both clocks.
+      Config.put_override(:retention, %{conversation_memory_seconds: 3600})
+      fixture = fixture!(:structured)
+      edited_source!(fixture.source)
+      expired_at = DateTime.add(Repo.now!(), -7200)
+
+      case unquote(expired) do
+        :receipt ->
+          exposure =
+            Repo.get_by!(Ryker.Learning.SourceExposure,
+              session_id: fixture.claim.session.id,
+              observation_id: fixture.source.id
+            )
+
+          receipt = Map.put(exposure.receipt, "retained_at", DateTime.to_iso8601(expired_at))
+          exposure |> Ecto.Changeset.change(receipt: receipt) |> Repo.update!()
+
+        :source ->
+          ConversationObservation
+          |> Repo.get!(fixture.source.id)
+          |> Ecto.Changeset.change(updated_at: expired_at)
+          |> Repo.update!()
+      end
+
+      assert repaint(fixture.audit) == :ok
+      assert_received {:updated, _, _, document, _}
+      assert_neutral(document)
     end
   end
 
@@ -66,6 +122,45 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   end
 
   for shape <- [:simple, :structured] do
+    test "an edited source keeps the delivered #{shape} answer with an out-of-date note" do
+      # A reported repaint erased a useful delivered answer. This source-edit
+      # regression preserves the historical answer under the new policy, while still
+      # refusing to reuse its old source revision for new model work.
+      fixture = fixture!(unquote(shape))
+      edited_source!(fixture.source)
+
+      assert KnowledgeSnapshot.authorize_session(fixture.claim.episode, fixture.claim.session) ==
+               {:error, :work_knowledge_context_stale}
+
+      assert repaint(fixture.audit) == :ok
+      assert_received {:updated, _, _, document, delivery}
+      assert document["message"] == fixture.turn.delivery_document["message"]
+      assert document["source_notice"] == "changed"
+      assert delivery == fixture.turn.delivery_ref
+      if unquote(shape) == :structured, do: assert(length(document["records"]) == 1)
+      assert {:ok, rendered} = Renderer.render(document)
+
+      assert List.last(rendered["blocks"]) == %{
+               "type" => "context",
+               "elements" => [
+                 %{
+                   "type" => "mrkdwn",
+                   "text" =>
+                     "Some information behind this reply has changed. It may be out of date."
+                 }
+               ]
+             }
+
+      assert String.starts_with?(
+               rendered["text"],
+               "Some information behind this reply has changed."
+             )
+
+      assert repaint(fixture.audit) == :ok
+      assert_received {:updated, _, _, ^document, ^delivery}
+      assert Repo.get!(Turn, fixture.turn.id).delivery_document == fixture.turn.delivery_document
+    end
+
     test "repainting a withdrawn #{shape} reply replaces its old source text" do
       # Reuse the actual privacy-probe answer and citation, with an explicitly
       # structural delivered receipt. The live revoked answer was NOT sent.
@@ -81,6 +176,158 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
 
       assert Repo.get!(Turn, fixture.turn.id).delivery_document == fixture.turn.delivery_document
     end
+  end
+
+  for status <- [:open, :answered] do
+    test "a source edit preserves question details in the #{status} state without live controls" do
+      # Structural UI variants of the harvested reply, not a generated model fixture.
+      # Dropping all records erased the choices and the receipt of an accepted answer.
+      fixture = fixture!(:structured)
+      choices = ["Keep the reply and add a note", "Replace the reply"]
+      payload = %{"question" => "How should outdated replies appear?", "choices" => choices}
+
+      fixture.record
+      |> Ecto.Changeset.change(
+        kind: "input_request",
+        payload: payload,
+        payload_fingerprint: CanonicalJSON.digest(payload),
+        status: unquote(status)
+      )
+      |> Repo.update!()
+
+      if unquote(status) == :answered do
+        fixture.source
+        |> Ecto.Changeset.change(actor_kind: :user, actor_ref: "slack:user:U0FIXTURE")
+        |> Repo.update!()
+
+        Repo.insert!(%Records.Response{
+          record_id: fixture.record.id,
+          inbox_entry_id: fixture.source.id,
+          response_ref: "response:#{fixture.record.id}",
+          actor_ref: "slack:user:U0FIXTURE",
+          choice_index: 0,
+          choice: hd(choices),
+          occurred_at: Repo.now!()
+        })
+      end
+
+      edited_source!(fixture.source)
+      assert repaint(fixture.audit) == :ok
+      assert_received {:updated, _, _, document, _}
+      assert [%{"kind" => "input_request"}] = document["records"]
+      assert {:ok, rendered} = Renderer.render(document)
+      refute Enum.any?(rendered["blocks"], &(&1["type"] in ["actions", "input"]))
+      assert inspect(rendered["blocks"]) =~ hd(choices)
+
+      if unquote(status) == :open do
+        assert inspect(rendered["blocks"]) =~ List.last(choices)
+      else
+        assert rendered["text"] =~ "Answered"
+        assert rendered["text"] =~ hd(choices)
+      end
+    end
+  end
+
+  test "one source edit cannot expose another record producer's forgotten context" do
+    # Replies can cite an earlier session's records. Each producer must retain
+    # its own authority; an unrelated edit cannot excuse that source's removal.
+    fixture = fixture!(:structured)
+    other = fixture!(:structured, fixture.source.source_ref)
+
+    other_receipt = Map.put(other.turn.external_receipt, "message_ref", "1787832002.000200")
+
+    other.turn
+    |> Ecto.Changeset.change(
+      external_receipt: other_receipt,
+      external_receipt_fingerprint: CanonicalJSON.digest(other_receipt)
+    )
+    |> Repo.update!()
+
+    session =
+      Repo.insert!(%Session{
+        episode_id: fixture.claim.episode.id,
+        generation: 2,
+        policy: fixture.claim.session.policy,
+        policy_digest: fixture.claim.session.policy_digest,
+        repository_ref: fixture.claim.session.repository_ref,
+        environment_ref: fixture.claim.session.environment_ref,
+        external_ref: "other-producer:#{fixture.claim.session.id}"
+      })
+
+    turn =
+      Repo.insert!(%Turn{
+        episode_id: fixture.claim.episode.id,
+        session_id: session.id,
+        turn_ref: "other-producer:#{fixture.turn.id}",
+        status: :pending
+      })
+
+    source =
+      other.source.id |> then(&Repo.get!(ConversationObservation, &1)) |> Observations.document()
+
+    producer = %{fixture.claim | session: session, turn: turn}
+    assert KnowledgeSnapshot.expose(producer, [source]) == :ok
+
+    fixture.record
+    |> Ecto.Changeset.change(turn_id: turn.id)
+    |> Repo.update!()
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, original, _}
+    assert original["message"] == fixture.turn.delivery_document["message"]
+
+    edited_source!(fixture.source)
+    KnowledgeFixtures.forget!(other.source)
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert_neutral(document)
+  end
+
+  test "an edited source that was subsequently forgotten still withdraws the reply" do
+    fixture = fixture!(:structured)
+    edited_source!(fixture.source)
+    KnowledgeFixtures.forget!(fixture.source)
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert_neutral(document)
+  end
+
+  test "an edited source that was deleted still withdraws the reply" do
+    fixture = fixture!(:structured)
+    edited = edited_source!(fixture.source)
+    KnowledgeFixtures.revoke!(edited)
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert_neutral(document)
+  end
+
+  test "an edit cannot preserve a reply whose source moved out of its audience" do
+    fixture = fixture!(:structured)
+    edited_source!(fixture.source)
+
+    ConversationObservation
+    |> Repo.get!(fixture.source.id)
+    |> Ecto.Changeset.change(conversation_ref: "slack:T0TENANT001:CPRIVATE", visibility: :private)
+    |> Repo.update!()
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert_neutral(document)
+  end
+
+  test "a source edit cannot restore a pruned answer" do
+    fixture = fixture!(:structured)
+    edited_source!(fixture.source)
+
+    fixture.turn
+    |> Ecto.Changeset.change(operational_pruned_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert_neutral(document)
   end
 
   test "an untracked producer cannot republish an old reply" do
@@ -547,6 +794,28 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
   end
 
   defp repaint(audit), do: InteractionRepaint.repaint(audit, %{api: API, client: self()})
+
+  defp edited_source!(source) do
+    id = Ecto.UUID.generate()
+
+    edited =
+      source
+      |> Map.from_struct()
+      |> Map.drop([:__meta__, :inserted_at, :updated_at])
+      |> Map.merge(%{
+        id: id,
+        dedupe_key: "edited:#{id}",
+        event_ref: "edited:#{id}",
+        decision_ref: "edited-decision:#{id}",
+        event_fingerprint: CanonicalJSON.digest([source.event_fingerprint, id]),
+        revision: source.revision + 1
+      })
+      |> then(&struct!(Ryker.Ingress.Inbox.Entry, &1))
+      |> Repo.insert!()
+
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(edited) end) == {:ok, :ok}
+    edited
+  end
 
   defp assert_neutral(document) do
     refute document["message"] == @captured["candidate"]["message"]

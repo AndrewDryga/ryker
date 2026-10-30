@@ -18,7 +18,7 @@ defmodule Ryker.Slack.Renderer do
     * `SavedEntityCard` — schedules, rules, preferences, guidance, memories
     * `Records` and `Offers` — the records attached to a reply
   """
-  import Ryker.Slack.Renderer.Blocks, only: [escape: 1, message_blocks: 1]
+  import Ryker.Slack.Renderer.Blocks, only: [context: 1, escape: 1, message_blocks: 1]
   alias Ryker.Reference
   alias Ryker.Slack.Mentions
   alias Ryker.Slack.Renderer.{ChannelCards, ChannelSetup, EmisarReview, Records}
@@ -33,6 +33,7 @@ defmodule Ryker.Slack.Renderer do
   # repainted. The blocks carry the whole message and the text is what a
   # notification shows, so it stays well inside Slack's count.
   @maximum_text_characters 3_000
+  @changed_source_notice "Some information behind this reply has changed. It may be out of date."
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(document) do
@@ -51,6 +52,22 @@ defmodule Ryker.Slack.Renderer do
       |> String.replace(~r/(?:<[^>]*|&[^;\s]*)\z/u, "")
       |> String.trim_trailing()
       |> Kernel.<>("…")
+    end
+  end
+
+  defp render_document(%{"source_notice" => "changed"} = document) do
+    document = Map.delete(document, "source_notice")
+
+    with {:ok, rendered} <- render_reply(document, :read_only),
+         true <- length(rendered["blocks"]) < @maximum_blocks do
+      {:ok,
+       %{
+         "blocks" => rendered["blocks"] ++ [context(@changed_source_notice)],
+         "text" => @changed_source_notice <> "\n\n" <> rendered["text"]
+       }}
+    else
+      false -> {:error, {:invalid_slack_render, :blocks}}
+      error -> error
     end
   end
 
@@ -84,28 +101,45 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  defp render_document(%{"message" => message} = document) when map_size(document) == 1,
-    do: render_document(%{"message" => message, "records" => []})
+  defp render_document(%{"message" => _message} = document),
+    do: render_reply(document, :interactive)
+
+  defp render_document(
+         %{"task_offer" => %{"kind" => "task_offer", "status" => "open"} = record} = document
+       )
+       when map_size(document) == 1 do
+    with :ok <- Records.validate([record]),
+         {:ok, blocks} <- Records.render([record]),
+         :ok <- block_count("", blocks) do
+      {:ok, %{"blocks" => blocks, "text" => "Start task: " <> escape(record["payload"]["title"])}}
+    end
+  end
+
+  defp render_document(_document), do: {:error, {:invalid_slack_render, :document}}
+
+  defp render_reply(%{"message" => message} = document, mode) when map_size(document) == 1,
+    do: render_reply(%{"message" => message, "records" => []}, mode)
 
   # A message without cards that names someone: the publisher added the
   # delivery's mention authority to it.
-  defp render_document(%{"message" => message, "slack_mentions" => authority} = document)
+  defp render_reply(%{"message" => message, "slack_mentions" => authority} = document, mode)
        when map_size(document) == 2 do
-    render_document(%{"message" => message, "records" => [], "slack_mentions" => authority})
+    render_reply(%{"message" => message, "records" => [], "slack_mentions" => authority}, mode)
   end
 
-  defp render_document(
+  defp render_reply(
          %{
            "message" => message,
            "records" => records,
            "slack_mentions" => authority
-         } = document
+         } = document,
+         mode
        )
        when map_size(document) == 3 do
     with :ok <- message(message),
          :ok <- Records.validate(records),
          {:ok, text} <- Mentions.render(message, authority),
-         {:ok, record_blocks} <- Records.render(records),
+         {:ok, record_blocks} <- Records.render(records, mode),
          :ok <- block_count(text, record_blocks) do
       {:ok,
        %{
@@ -121,11 +155,11 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  defp render_document(%{"message" => message, "records" => records} = document)
+  defp render_reply(%{"message" => message, "records" => records} = document, mode)
        when map_size(document) == 2 do
     with :ok <- message(message),
          :ok <- Records.validate(records),
-         {:ok, record_blocks} <- Records.render(records),
+         {:ok, record_blocks} <- Records.render(records, mode),
          text = escape(message),
          :ok <- block_count(text, record_blocks) do
       {:ok,
@@ -136,18 +170,7 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  defp render_document(
-         %{"task_offer" => %{"kind" => "task_offer", "status" => "open"} = record} = document
-       )
-       when map_size(document) == 1 do
-    with :ok <- Records.validate([record]),
-         {:ok, blocks} <- Records.render([record]),
-         :ok <- block_count("", blocks) do
-      {:ok, %{"blocks" => blocks, "text" => "Start task: " <> escape(record["payload"]["title"])}}
-    end
-  end
-
-  defp render_document(_document), do: {:error, {:invalid_slack_render, :document}}
+  defp render_reply(_document, _mode), do: {:error, {:invalid_slack_render, :document}}
 
   # Screen readers read this field, not the blocks. Put the answer first so
   # the notification bound cannot hide it behind a long original question.

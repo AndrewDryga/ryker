@@ -205,6 +205,14 @@ or publish internal decision reasons. Preserve the original reply and human
 answers. Quiet checks update the same message through durable repaint custody;
 normal replies for changed outcomes keep their existing delivery path.
 
+An ordinary edit to an otherwise available source keeps the exact original
+reply text with a small note: “Some information behind this reply has changed.
+It may be out of date.” Keep its read-only record details and accepted-answer
+receipts; remove controls that act on outdated context. Deleted, forgotten,
+inaccessible or unproven sources still prevent
+republication. This display-only exception never makes an old source revision
+valid for new model work, and it promises no unscheduled follow-up.
+
 ### Questions and answers
 
 The reply asks the question, once (Andrew, 2026-10-04: "in the reply"). The card under it adds

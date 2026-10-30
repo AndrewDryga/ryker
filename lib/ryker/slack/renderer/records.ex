@@ -50,14 +50,17 @@ defmodule Ryker.Slack.Renderer.Records do
 
   def validate(_values), do: {:error, {:invalid_slack_render, :records}}
 
-  @spec render([map()]) :: {:ok, [map()]} | {:error, term()}
-  def render(records) do
+  @spec render([map()], :interactive | :read_only) :: {:ok, [map()]} | {:error, term()}
+  def render(records, mode \\ :interactive) do
     result =
       records
       |> Enum.chunk_by(&open_approval?/1)
-      |> render_each(&render_chunk/1)
+      |> render_each(&render_chunk(&1, mode))
 
-    with {:ok, blocks} <- result, do: {:ok, blocks ++ source_blocks(records)}
+    with {:ok, blocks} <- result do
+      blocks = blocks ++ source_blocks(records)
+      {:ok, if(mode == :read_only, do: read_only_blocks(blocks), else: blocks)}
+    end
   end
 
   @doc "Answered-question receipts for accessible text, after `render/1` validates the records."
@@ -102,13 +105,34 @@ defmodule Ryker.Slack.Renderer.Records do
 
   # Approvals asked for together are shown together, so the ones that share
   # their action are one card (`EmisarReview`).
-  defp render_chunk([first | _rest] = chunk) do
+  defp render_chunk([first | _rest] = chunk, mode) do
     if open_approval?(first) do
       with {:ok, approvals} <- prepared_approvals(chunk),
            do: {:ok, EmisarReview.approval_blocks(approvals)}
     else
-      render_each(chunk, &render_record/1)
+      render_each(chunk, &render_record_mode(&1, mode))
     end
+  end
+
+  defp render_record_mode(record, mode) do
+    with {:ok, blocks} <- render_record(record) do
+      case {mode, record} do
+        {:read_only, %{"kind" => "input_request", "status" => "open", "payload" => payload}} ->
+          choices =
+            Enum.map(payload["choices"], &%{"type" => "section", "text" => plain_text(&1)})
+
+          {:ok, choices}
+
+        _ ->
+          {:ok, blocks}
+      end
+    end
+  end
+
+  defp read_only_blocks(blocks) do
+    blocks
+    |> Enum.reject(&(&1["type"] in ["actions", "input"]))
+    |> Enum.map(&Map.delete(&1, "accessory"))
   end
 
   defp prepared_approvals(records) do

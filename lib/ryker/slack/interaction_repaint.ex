@@ -161,6 +161,9 @@ defmodule Ryker.Slack.InteractionRepaint do
         :public ->
           result
 
+        :outdated ->
+          outdated_document(turn, document, delivery_ref)
+
         # Ryker could not check the sources this time: the session is in use,
         # usually by the turn the typed answer being repainted for has just
         # started, or its sources could not be gathered. The worker checks
@@ -173,6 +176,13 @@ defmodule Ryker.Slack.InteractionRepaint do
           withdrawn(delivery_ref, Map.get(options, :withdraw, true))
       end
     end
+  end
+
+  defp outdated_document(turn, document, delivery_ref) do
+    document = Map.put(document, "message", turn.delivery_document["message"])
+
+    with {:ok, document} <- with_mentions(document, turn),
+         do: {:ok, Map.put(document, "source_notice", "changed"), delivery_ref}
   end
 
   defp withdrawn(delivery_ref, true) do
@@ -192,21 +202,42 @@ defmodule Ryker.Slack.InteractionRepaint do
              ConversationRef.slack(audit.workspace_ref, audit.channel_ref),
          {:ok, %Work.Session{episode_id: owner} = session} <-
            fetch_source_row(Work.Session.Query.by_id(turn.session_id)),
-         true <- owner == episode.id,
-         {:ok, _} <-
-           Records.DerivedContext.resolve(
-             repaint_sources(turn, document),
-             episode,
-             session.repository_ref,
-             session
-           ) do
-      :public
+         true <- owner == episode.id do
+      source_status(turn, document, episode, session)
     else
       # Only a source that is gone, or a receipt that is not this reply's,
       # withdraws it; any other error is Ryker's and is checked again.
       {:error, :work_knowledge_context_stale} -> :withdrawn
       {:error, reason} -> {:error, reason}
       _refused -> :withdrawn
+    end
+  end
+
+  defp source_status(turn, document, episode, session) do
+    sources = repaint_sources(turn, document)
+
+    case Records.DerivedContext.resolve(
+           sources,
+           episode,
+           session.repository_ref,
+           session
+         ) do
+      {:ok, _} ->
+        :public
+
+      {:error, :work_knowledge_context_stale} ->
+        if is_nil(turn.operational_pruned_at) and is_binary(turn.result_ref) and
+             Records.DerivedContext.visible_for_repaint?(
+               sources,
+               episode,
+               session.repository_ref,
+               session
+             ),
+           do: :outdated,
+           else: :withdrawn
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

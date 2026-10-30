@@ -103,6 +103,28 @@ defmodule Ryker.Records.DerivedContext do
 
   def resolve(_documents, _destination, _repository, _receiver), do: @stale
 
+  @doc "Check an existing reply's exact projections for display after ordinary source edits."
+  def visible_for_repaint?(documents, %Episodes.Episode{} = destination, repository, receiver)
+      when is_struct(receiver, Work.Session) do
+    {proofs, sessions} = context(documents, destination, repository, receiver, &repaint_sources/3)
+    Enum.all?(proofs, fn {_, proof} -> eligible?(proof, sessions, destination, repository) end)
+  end
+
+  def visible_for_repaint?(_documents, _destination, _repository, _receiver), do: false
+
+  defp repaint_sources(destination, producer, receiver) do
+    case Knowledge.KnowledgeSnapshot.producer_sources(destination, producer, receiver) do
+      nil ->
+        # Display-only proof, never returned as model context or a reusable receipt.
+        if Knowledge.KnowledgeSnapshot.edited_sources_visible?(destination, producer),
+          do: [],
+          else: nil
+
+      result ->
+        result
+    end
+  end
+
   defp merged_context(proofs, sessions) do
     # This native transcript already owns its records and their complete
     # disclosure ledger. Re-reading them must not turn its raw inputs into
@@ -122,7 +144,15 @@ defmodule Ryker.Records.DerivedContext do
     end
   end
 
-  defp context(documents, %Episodes.Episode{} = destination, repository, receiver)
+  defp context(
+         documents,
+         destination,
+         repository,
+         receiver,
+         source_reader \\ &Knowledge.KnowledgeSnapshot.producer_sources/3
+       )
+
+  defp context(documents, %Episodes.Episode{} = destination, repository, receiver, source_reader)
        when is_struct(receiver, Work.Session) or is_nil(receiver) do
     proofs = Enum.map(documents, &{&1, proof(&1, destination)})
 
@@ -143,7 +173,7 @@ defmodule Ryker.Records.DerivedContext do
         receiving_session = %{session | repository_ref: repository}
 
         sources =
-          Knowledge.KnowledgeSnapshot.producer_sources(
+          source_reader.(
             destination,
             receiving_session,
             receiver
@@ -167,7 +197,7 @@ defmodule Ryker.Records.DerivedContext do
     {proofs, contexts}
   end
 
-  defp context(_documents, _destination, _repository, _receiver),
+  defp context(_documents, _destination, _repository, _receiver, _source_reader),
     do: Repo.rollback(:work_knowledge_context_stale)
 
   defp eligible?(nil, _sessions, _destination, _repository), do: false
