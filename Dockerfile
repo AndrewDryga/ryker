@@ -56,7 +56,7 @@ RUN test -n "$RYKER_VERSION" \
 # video needs: 3 MB, where Debian's package added 386 MB of video codecs and X11
 # libraries, and far fewer parsers facing an untrusted upload. The release
 # tarball is FFmpeg's signed 9.0.2 (key FCF986EA15E6E293A5644F10B4322F04D67658D8).
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS ffmpeg
+FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS ffmpeg
 
 ARG FFMPEG_VERSION=9.0.2
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
@@ -84,7 +84,7 @@ RUN curl -fsSL --retry 3 -o /ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$
  && make install
 
 # GGML_NATIVE=OFF keeps whisper-cli portable to any CPU of the image's architecture.
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS whisper
+FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS whisper
 
 ARG WHISPER_CPP_VERSION=v1.9.4
 ARG WHISPER_CPP_COMMIT=927cfce34f31707e17f2bff35c349632fb9e2c3a
@@ -107,7 +107,7 @@ RUN curl -fsSL --retry 3 -o /opt/whisper/ggml-base.bin "$WHISPER_MODEL_URL" \
 
 # Native Vega-Lite rendering, with version- and checksum-pinned wheels for both
 # supported Linux architectures. No browser, Node service or external chart API.
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS charts
+FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS charts
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-venv ca-certificates \
@@ -117,7 +117,7 @@ RUN python3 -m venv /opt/ryker-charts \
  && /opt/ryker-charts/bin/pip install --no-cache-dir --disable-pip-version-check \
       --only-binary=:all: --require-hashes -r /tmp/chart-requirements.txt
 
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+FROM debian:bookworm-20261020-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS runtime
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 python3 \
