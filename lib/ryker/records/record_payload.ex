@@ -50,7 +50,7 @@ defmodule Ryker.Records.RecordPayload do
 
   defp task_offer(%{} = payload) do
     with :ok <-
-           exact_fields(
+           task_fields(
              payload,
              ~w(authority_limits instruction_ref kind prompt repository repository_source source_refs success_checks title)
            ),
@@ -68,6 +68,13 @@ defmodule Ryker.Records.RecordPayload do
   end
 
   defp task_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
+
+  defp task_fields(payload, fields) do
+    if Maps.exact_keys?(payload, fields, ["assignment_ref"]) and
+         (is_nil(payload["assignment_ref"]) or Reference.valid?(payload["assignment_ref"])),
+       do: :ok,
+       else: {:error, {:invalid_state_record, :fields}}
+  end
 
   defp task_repository_source(_repository, nil), do: :ok
 
@@ -213,10 +220,7 @@ defmodule Ryker.Records.RecordPayload do
 
   defp standing_assignment_offer(%{"source_kind" => _source_kind} = payload) do
     with :ok <-
-           exact_fields(
-             payload,
-             ~w(context_channel delivery_channel expires_at filter hold repository source_kind task title)
-           ),
+           assignment_fields(payload),
          :ok <- reference(payload["context_channel"], :context_channel),
          :ok <- reference(payload["delivery_channel"], :delivery_channel),
          {:ok, expires_at} <- optional_utc_datetime(payload["expires_at"]),
@@ -234,6 +238,17 @@ defmodule Ryker.Records.RecordPayload do
 
   defp standing_assignment_offer(_payload),
     do: {:error, {:invalid_state_record, :payload}}
+
+  defp assignment_fields(payload) do
+    fields =
+      ~w(context_channel delivery_channel expires_at filter hold repository source_kind task title)
+
+    if Maps.exact_keys?(payload, fields, ["start_tasks"]) and
+         payload["start_tasks"] in [nil, false, true] and
+         (payload["start_tasks"] != true or is_binary(payload["repository"])),
+       do: :ok,
+       else: {:error, {:invalid_state_record, :fields}}
+  end
 
   defp slack_post_offer(%{"transport" => "slack"} = payload) do
     with :ok <-

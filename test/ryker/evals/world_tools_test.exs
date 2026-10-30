@@ -3,6 +3,37 @@ defmodule Ryker.Evals.WorldToolsTest do
   alias Ryker.Evals.{WorldCase, WorldCassette, WorldTools}
   alias Ryker.StateTools.{Router, Tools}
 
+  test "task-start evaluation authority is limited to its declared human and captured repository" do
+    assert {:ok, scenario} = WorldCase.fetch("rivals-engineering-task-offer")
+    [actor | others] = scenario.actors
+
+    scenario = %{
+      scenario
+      | actors: [Map.put(actor, "authority", "repository_write_start") | others]
+    }
+
+    assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    assert {:ok, prepared} =
+             WorldTools.prepare(
+               %{capabilities: [:event_waits, :publication, :schedules]},
+               scenario,
+               cassette
+             )
+
+    authorize = Map.get(prepared.state_tools, :task_authorizer)
+    assert is_function(authorize, 2)
+    entry = %{source_kind: "slack", source_ref: "TEVAL", actor_kind: :user, actor_ref: "U-andrew"}
+
+    assert {:ok, %{repository_ref: "tenant-rivals-scraper"}} =
+             authorize.(entry, "tenant-rivals-scraper")
+
+    assert {:error, _} = authorize.(entry, "unconfigured")
+    assert {:error, _} = authorize.(%{entry | actor_ref: "U-bruno"}, "tenant-rivals-scraper")
+    assert {:error, _} = authorize.(%{entry | source_ref: "TOTHER"}, "tenant-rivals-scraper")
+    assert {:error, _} = authorize.(%{entry | actor_kind: :bot}, "tenant-rivals-scraper")
+  end
+
   test "the operator a scenario declares is the only actor who can save its answer" do
     # Found 2026-09-12 running the judge lane for `missing-project-answer-is-remembered`:
     # three of four criteria passed and the fourth failed on "remember_answer was denied

@@ -14,6 +14,24 @@ defmodule Ryker.Behaviors.StandingAssignmentRun.Query do
 
   @doc "The latest five assignments that decided `episode_id`'s start, each with its run."
   def decided_for_episode(episode_id) do
+    episode_id
+    |> decided()
+    |> order_by([standing_assignment_runs: r], desc: r.inserted_at)
+    |> limit(5)
+  end
+
+  @doc "The exact rule run authorizing one recorded input, independent of the recent-run display."
+  def decided_for_source(episode_id, assignment_ref, input_ref, event_ref) do
+    episode_id
+    |> decided()
+    |> where(
+      [standing_assignment_runs: r, operator_behaviors: b],
+      b.ref == ^assignment_ref and r.source_input_ref == ^input_ref and
+        r.source_event_ref == ^event_ref
+    )
+  end
+
+  defp decided(episode_id) do
     all()
     |> join(:inner, [standing_assignment_runs: r], b in Behavior,
       on: b.id == r.assignment_id,
@@ -23,8 +41,6 @@ defmodule Ryker.Behaviors.StandingAssignmentRun.Query do
       [standing_assignment_runs: r, operator_behaviors: b],
       r.episode_id == ^episode_id and r.outcome == :decided and b.kind == :standing_assignment
     )
-    |> order_by([standing_assignment_runs: r], desc: r.inserted_at)
-    |> limit(5)
     |> select([standing_assignment_runs: r, operator_behaviors: b], {r, b})
   end
 

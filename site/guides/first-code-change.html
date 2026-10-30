@@ -83,7 +83,7 @@
 <h2 id="ask">Ask for a specific change</h2>
 <p>Replace the repository and behavior with a bug in your project:</p>
 <pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker in your-team/your-repository, reject an empty email address when creating a user. Return the same validation error as other invalid inputs. Add a regression test and run the relevant tests.</code></pre>
-<p>Read the proposed task, then press <strong>Start task</strong>. Ryker creates a separate working copy and begins. If it only explains the change, ask it to prepare the edit as a task.</p>
+<p>Ryker creates a separate working copy and starts the task. It asks a question only when a missing decision changes the work. If Ryker suggests a change you have not requested, it offers <strong>Start task</strong> first.</p>
 <h2 id="work">Follow the work in the thread</h2>
 <p>The task card updates as Ryker plans the change, edits the code, and runs checks. Answer any questions in that thread. Further replies there continue the task without another mention.</p>
 <p>Ryker reviews the change against the current repository and runs your configured checks before publishing. A failed check or rebase conflict stops publication. A check that did not run is recorded as missing.</p>

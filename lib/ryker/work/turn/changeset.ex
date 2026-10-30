@@ -382,6 +382,10 @@ defmodule Ryker.Work.Turn.Changeset do
     |> put_change(:delivery_target, target)
   end
 
+  @doc "Bind an unattempted task reply once its channel-root card has a real message ID."
+  def bind_delivery_target(%Turn{delivery_target: nil, delivery_attempt_count: 0} = turn, target),
+    do: turn |> change(delivery_target: target) |> work_constraints()
+
   @spec block_completion(Turn.t(), map(), String.t(), String.t()) :: Ecto.Changeset.t()
   def block_completion(%Turn{} = turn, receipt, code, detail) do
     turn

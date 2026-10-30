@@ -317,6 +317,7 @@ defmodule Ryker.Slack.Renderer.Offers do
 
     [section(summary)] ++
       if(facts == [], do: [], else: [fact_fields(facts)]) ++
+      automation_trigger(before, changed) ++
       automation_instructions(before, changed) ++
       [
         actions(
@@ -337,6 +338,9 @@ defmodule Ryker.Slack.Renderer.Offers do
   # Each fact the change touches, as it will be and as it was; a fact the
   # change leaves alone is shown once, for context, when it is how often.
   defp automation_facts(action, before, changed) do
+    repository_visibility =
+      if before["start_tasks"] != changed["start_tasks"], do: :always, else: :changed
+
     [
       change(
         "How often",
@@ -351,7 +355,13 @@ defmodule Ryker.Slack.Renderer.Offers do
         channel(before["delivery_channel"]),
         :changed
       ),
-      change("Repository", changed["repository"], before["repository"], :changed),
+      change("Repository", changed["repository"], before["repository"], repository_visibility),
+      change(
+        "Access",
+        Delivery.OfferWords.task_access(changed),
+        Delivery.OfferWords.task_access(before),
+        :changed
+      ),
       change("Stops", stops(changed["expires_at"]), stops(before["expires_at"]), :changed),
       if(action == "delete", do: {"After this", "It stops for good; its past runs stay listed."})
     ]
@@ -382,6 +392,22 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   defp stops(value) when is_binary(value), do: Delivery.OfferWords.stamp(value)
   defp stops(_never), do: "Never"
+
+  defp automation_trigger(before, changed) do
+    now = Delivery.OfferWords.trigger_scope(changed["trigger"])
+    was = Delivery.OfferWords.trigger_scope(before["trigger"])
+
+    if is_binary(now) do
+      [section("*When it runs*")] ++
+        plain_message_blocks(now) ++
+        if(is_binary(was) and was != now,
+          do: [section("*When it ran before*")] ++ plain_message_blocks(was),
+          else: []
+        )
+    else
+      []
+    end
+  end
 
   # New instructions are shown whole, and the old ones under them, so a
   # person confirms the words the automation will act on.
@@ -517,7 +543,7 @@ defmodule Ryker.Slack.Renderer.Offers do
       [
         "*Automation · #{escape(payload["title"])}*",
         escape(payload["task"]),
-        "_It only reads and replies here; it cannot approve, publish, deploy or change systems._"
+        assignment_access(payload)
       ]
       |> compact_lines()
 
@@ -533,6 +559,14 @@ defmodule Ryker.Slack.Renderer.Offers do
          behavior_actions(ref, "Enable automation")
        ])
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp assignment_access(%{"start_tasks" => true}) do
+    "_Can start one code task per matching event. Pull requests follow your publication setting; merge and deployment need their own authorization._"
+  end
+
+  defp assignment_access(_payload) do
+    "_It only reads and replies here; it cannot approve, publish, deploy or change systems._"
   end
 
   defp memory_offer(ref, payload) do

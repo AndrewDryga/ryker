@@ -123,9 +123,9 @@ The **Investigate message** shortcut runs the same ordered read-only triage agai
 selected message and replies in its thread. Direct messages and shortcuts do not create incidents
 merely because they identify a problem; they can offer the same explicit incident button.
 
-An explicit repository-change request can produce a **Start task** button. Until an
-active full workspace member confirms it, no writable session or fork is created. Confirmation posts
-a durable task card in the same Slack thread and creates an isolated Coop working copy. Active full
+An explicit repository-change request from an active full workspace member starts work without
+a second confirmation. Suggestions without that instruction still offer **Start task**. Starting
+posts a durable task card in the same Slack thread and creates an isolated Coop working copy. Active full
 members may collaborate there, edit, validate, and commit repository files under the contributor
 job settings, then inspect and review the changes. Ryker supplies the contributor's execution
 authority and withholds the project environment and MCP servers from background
@@ -350,9 +350,10 @@ optional repository and an optional end. The model may select only a supported p
 such a rule; Ryker never persists the original prose as an executable trigger.
 
 Every behavior offer is a host-rendered confirmation card. It states the normalized behavior,
-scope, expiry, source filter when applicable, and the boundary: "Read-only initiative in this
-channel; it cannot approve, publish, deploy, or mutate infrastructure." A matching rule can still
-start read-only work. Confirmation requires a configured full workspace operator in Slack (on
+scope, expiry and source filter when applicable. Rules are read-only unless the operator explicitly
+grants task starts for the named repository and instructions. That grant permits one code task per
+matching event; pull requests follow the repository setting, and merge and deployment need their
+own authorization. Confirmation requires a configured full workspace operator in Slack (on
 GitHub, `/ryker confirm` from someone with write access to the repository). That operator may make an explicit behavior setup request in
 any channel where Ryker is invited, even if ordinary mentions and proactive triage are disabled
 there. This exception admits only the typed setup turn; it does not turn the channel into a summon
@@ -420,8 +421,8 @@ validated decision:
   serializes the two on the offer record, so concurrent opposite clicks start exactly one path and
   the other reports the control as no longer current. The confirmed offer says which path it took,
   and **Open incident room** appears only as a link once the room's channel exists;
-- attach a `Start task` confirmation when a human teammate explicitly requests repository
-  changes, without weakening the shared channel's read-only boundary;
+- start a task when an active full member explicitly requests a repository change, and offer
+  `Start task` for suggestions without that instruction; the shared channel remains read-only;
 - open a dedicated incident room automatically for a credible unresolved monitoring-app alert, when
   the channel's alert setting is **Always open a room**. A human's explicit request to open, create,
   start, or declare an incident gets the incident offer; a configured operator's **Create incident
@@ -516,10 +517,10 @@ Rules page lists. Its `create` verb did not belong, and it left on 2026-08-15: i
 to compose a grant as six `key=value` bounds and confirmed nothing but their own typing — a
 miscounted `paths=` was a repository-wide grant that read as a narrow one. Asking in words now
 produces a rule offer card stating exactly what it would save: its source and filter, the task, the
-channels it reads and replies in, the repository and when it ends, under the read-only boundary.
+channels it reads and replies in, the repository, when it ends and whether it can start code tasks.
 Nothing exists until **Enable automation** is pressed, and the click re-authorizes and re-reads the
 recorded offer. The typed verb answers "Ask for the standing assignment in ordinary language. Ryker
-will show its normalized read-only bounds for explicit confirmation."
+will show its scope and access for explicit confirmation."
 
 Everything else moved to a surface that can reach further than the composer can. A removed verb
 answers "Unknown `/ryker` subcommand `<verb>`." followed by the whole guide; the table below says

@@ -1,6 +1,7 @@
 defmodule Ryker.StateTools.AutomationTools do
   @moduledoc false
   alias Ryker.Behaviors
+  alias Ryker.Maps
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Settings
@@ -66,17 +67,19 @@ defmodule Ryker.StateTools.AutomationTools do
          {:ok, context_channel} <- automation_channel(proposal["context_channel"], binding),
          {:ok, delivery_channel} <- automation_channel(proposal["delivery_channel"], binding),
          :ok <- source_event_hold(proposal["hold"]) do
-      payload = %{
-        "context_channel" => context_channel,
-        "delivery_channel" => delivery_channel,
-        "expires_at" => proposal["expires_at"],
-        "filter" => trigger["filter"] || %{},
-        "hold" => nil,
-        "repository" => proposal["repository"],
-        "source_kind" => trigger["source_kind"],
-        "task" => proposal["prompt"],
-        "title" => proposal["title"]
-      }
+      payload =
+        %{
+          "context_channel" => context_channel,
+          "delivery_channel" => delivery_channel,
+          "expires_at" => proposal["expires_at"],
+          "filter" => trigger["filter"] || %{},
+          "hold" => nil,
+          "repository" => proposal["repository"],
+          "source_kind" => trigger["source_kind"],
+          "task" => proposal["prompt"],
+          "title" => proposal["title"]
+        }
+        |> Maps.put_present("start_tasks", proposal["start_tasks"])
 
       RecordWriter.create_public_record(
         binding,
@@ -90,7 +93,8 @@ defmodule Ryker.StateTools.AutomationTools do
   end
 
   defp automation_record(binding, %{"action" => "create"} = proposal) do
-    with :ok <- automation_capability("time", binding),
+    with :ok <- time_task_grant(proposal),
+         :ok <- automation_capability("time", binding),
          :ok <- automation_repository(proposal["repository"], binding),
          {:ok, recurrence} <- Schedules.ScheduleRecurrence.from_trigger(proposal["trigger"]) do
       payload = %{
@@ -189,6 +193,9 @@ defmodule Ryker.StateTools.AutomationTools do
       enabled_match and trigger_match and query_match
     end)
   end
+
+  defp time_task_grant(%{"start_tasks" => _}), do: {:error, :invalid_arguments}
+  defp time_task_grant(_proposal), do: :ok
 
   defp trigger_matches?(_automation, nil), do: true
 

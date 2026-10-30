@@ -56,17 +56,19 @@ defmodule Ryker.Publication.Custody do
       )
       when is_binary(repository) and is_binary(session.coop_session_id) do
     case fetch_confirmed_task_readiness(episode, turn, task_ref) do
-      {:ok,
-       {%Records.Record{} = offer, %Records.Record{} = task,
-        %Work.Turn{external_receipt: %{"message_ref" => message} = receipt}}} ->
-        # The original task confirmation authorizes its checks, not publication.
-        # Retain that actor, source message and source thread; no new button
-        # receipt is invented, and the checks report where the task was started.
+      {:ok, {%Records.Record{} = offer, %Records.Record{} = task}} ->
+        # The confirmed task grant authorizes its checks. The task's pinned
+        # destination is the real thread where it started, even when its
+        # source conversation has not delivered an acknowledgement. A webhook
+        # routed to a channel has no source message: keep that provenance nil.
         attributes = %{
           actor_ref: task.confirmed_by_actor_ref,
           occurred_at: turn.accepted_at,
           request_ref: "task-readiness:#{turn.id}",
-          target: %{message_ref: message, thread_ref: receipt["thread_ref"]}
+          target: %{
+            message_ref: episode.destination_thread_ref,
+            thread_ref: episode.destination_thread_ref
+          }
         }
 
         # Later completed turns belong to the task's existing publication,

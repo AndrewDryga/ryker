@@ -6,6 +6,29 @@ defmodule Ryker.Evals.WorldAssertionsTest do
   use ExUnit.Case, async: true
   alias Ryker.Evals.{WorldAssertions, WorldCase}
 
+  test "an inert proposal cannot satisfy the model world's automatic-start expectation" do
+    scenario = scenario([%{"kind" => "started_tasks", "count" => 1}])
+
+    proposal = %{
+      "kind" => "task_offer",
+      "status" => "open",
+      "ref" => "task:one",
+      "confirmed_episode_id" => nil
+    }
+
+    assert kinds(failures(scenario, report(records: [proposal]))) == ["started_tasks"]
+    task = %{proposal | "status" => "confirmed", "confirmed_episode_id" => "episode:task"}
+    assert failures(scenario, report(records: [task])) == []
+
+    assert kinds(failures(scenario, report(records: [task, Map.put(task, "ref", "task:two")]))) ==
+             ["started_tasks"]
+
+    assert failures(
+             scenario([%{"kind" => "started_tasks", "count" => 0}]),
+             report(records: [proposal])
+           ) == []
+  end
+
   # The VA1 health snapshot of 2026-10-15 saved a confirmed failure whose cause
   # nobody had found as explained, while its own reason said the root causes
   # had not been established. Any saved finding passed the check.

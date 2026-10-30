@@ -388,7 +388,7 @@ defmodule Ryker.ControlPlane.Actions do
   # the conversation's own environment when that may change it, else in the
   # first environment (by ref) that may. One the conversation's environment
   # only reads is not changed from any environment.
-  defp task_policy(task_policies, work_profile, repository) do
+  def task_policy(task_policies, work_profile, repository) do
     case {read_only_here?(work_profile, repository),
           own_task_policy(task_policies, work_profile, repository)} do
       {true, _own} ->

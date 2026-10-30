@@ -133,7 +133,7 @@ defmodule Ryker.Fixtures.Corrections do
     destination = %{
       transport: "slack",
       conversation_ref: claim.episode.destination_conversation_ref,
-      thread_ref: "1792535721.651629"
+      thread_ref: if(Keyword.get(options, :rootless, false), do: nil, else: "1792535721.651629")
     }
 
     attributes =
@@ -145,7 +145,7 @@ defmodule Ryker.Fixtures.Corrections do
         thread_ref: destination.thread_ref
       })
 
-    {:ok, input} = Slack.Input.new(attributes)
+    input = later_input!(attributes, destination, options)
 
     {:ok, %{entry: entry}} =
       Ingress.Inbox.record(input, execution_mode: Keyword.get(options, :execution_mode, :live))
@@ -155,7 +155,7 @@ defmodule Ryker.Fixtures.Corrections do
     {:ok, _} =
       Episodes.apply(
         EpisodeFixtures.admit_input(%{
-          actor_ref: "slack:bot:B0TENANTBT1",
+          actor_ref: Ingress.Input.actor_ref(input),
           destination: destination,
           episode_id: id,
           execution_mode: Keyword.get(options, :execution_mode, :live),
@@ -183,16 +183,20 @@ defmodule Ryker.Fixtures.Corrections do
     Repo.update!(Ingress.Inbox.Entry.Changeset.decide(entry, decision, "decision:#{id}", id))
 
     if assignment = Keyword.get(options, :assignment) do
-      Repo.insert!(%Ryker.Behaviors.StandingAssignmentRun{
-        assignment_id: assignment.id,
-        episode_id: id,
-        ref: "assignment-run:#{id}",
-        source_input_ref: "later:#{id}",
-        source_event_ref: "later:#{id}",
-        outcome: :decided,
-        decision_action: :start_episode,
-        decision_ref: "later:#{id}"
-      })
+      Repo.insert!(
+        %Ryker.Behaviors.StandingAssignmentRun{
+          assignment_id: assignment.id,
+          episode_id: id,
+          ref: "assignment-run:#{id}",
+          source_input_ref: Ingress.Inbox.ref(entry),
+          source_event_ref: entry.event_ref,
+          outcome: :decided,
+          decision_action: :start_episode,
+          decision_ref: "later:#{id}"
+        },
+        on_conflict: {:replace, [:decision_action, :decision_ref, :episode_id, :outcome]},
+        conflict_target: [:assignment_id, :source_input_ref]
+      )
     end
 
     {:ok, _} = WorkSessions.pin_episode(id, "correction", String.duplicate("a", 64))
@@ -206,6 +210,31 @@ defmodule Ryker.Fixtures.Corrections do
       )
 
     Map.put(%{later | turn: turn}, :state_token, Ryker.Records.token(turn))
+  end
+
+  defp later_input!(attributes, destination, options) do
+    if Keyword.get(options, :rootless, false) do
+      {:ok, route} =
+        Ryker.Webhooks.Route.new(%{
+          auth: {:bearer, Ryker.Secret.new("a-test-token-long-enough")},
+          destination: destination,
+          name: "recorded-rollout"
+        })
+
+      {:ok, input} =
+        Ryker.Webhooks.Input.new(route, attributes.content, %{
+          event_id: attributes.event_ref,
+          event_type: "rollout",
+          occurred_at: attributes.occurred_at,
+          occurred_at_source: :source,
+          revision: 1
+        })
+
+      input
+    else
+      {:ok, input} = Slack.Input.new(attributes)
+      input
+    end
   end
 
   def assignment!(correction) do

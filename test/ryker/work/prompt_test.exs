@@ -465,17 +465,19 @@ defmodule Ryker.Work.PromptTest do
 
   test "universal instructions require owning-tool receipts and final preflight" do
     document = Prompt.build(%{"episode_ref" => "episode-1"}) |> Jason.decode!()
-    instructions = document["instructions"]
+    instructions = String.replace(document["instructions"], ~r/\s+/, " ")
 
     assert instructions =~ "owning tool's receipt"
     assert instructions =~ "Cite the source_ref the reading tool"
     assert instructions =~ "A source-backed final without that record_ref is incomplete"
     assert instructions =~ "Inputs already exist in durable episode history"
     assert instructions =~ "merely to prove receipt or justify another proposal"
-    assert instructions =~ "An open offer is inert"
+    assert instructions =~ "Only an open offer with start false is inert"
+    assert instructions =~ "Do not ask them to authorize the same work twice"
+    assert instructions =~ "authority_ceiling repository_write"
 
     assert instructions =~
-             "Never say the offered task, incident, publication, automation, memory, or action"
+             "Never say an unstarted offered task, incident, publication, automation, memory, or action"
 
     assert instructions =~ "planning, pending, queued, or running"
     # Five discarded Terraform runs each got a reply that said they were

@@ -24,7 +24,7 @@ defmodule Ryker.Behaviors.Automations do
   # An automation lives in the conversation that made it, so its channels are
   # not part of a change: a patch naming them is refused, not silently kept.
   @time_patch_fields ~w(expires_at prompt repository title trigger)
-  @source_patch_fields @time_patch_fields ++ ["hold"]
+  @source_patch_fields @time_patch_fields ++ ["hold", "start_tasks"]
 
   @spec list_for_episode(Episodes.Episode.t()) :: [map()]
   def list_for_episode(%Episodes.Episode{} = episode) do
@@ -136,6 +136,7 @@ defmodule Ryker.Behaviors.Automations do
         "type" => "source_event"
       }
     }
+    |> Maps.put_present("start_tasks", payload["start_tasks"])
   end
 
   @spec detail(Schedules.Schedule.t() | Behavior.t(), pos_integer()) :: map()
@@ -341,17 +342,19 @@ defmodule Ryker.Behaviors.Automations do
          :ok <- future_expiry(expires_at, occurred_at) do
       trigger = after_document["trigger"]
 
-      payload = %{
-        "context_channel" => after_document["context_channel"],
-        "delivery_channel" => after_document["delivery_channel"],
-        "expires_at" => after_document["expires_at"],
-        "filter" => trigger["filter"],
-        "hold" => nil,
-        "repository" => after_document["repository"],
-        "source_kind" => trigger["source_kind"],
-        "task" => after_document["prompt"],
-        "title" => after_document["title"]
-      }
+      payload =
+        %{
+          "context_channel" => after_document["context_channel"],
+          "delivery_channel" => after_document["delivery_channel"],
+          "expires_at" => after_document["expires_at"],
+          "filter" => trigger["filter"],
+          "hold" => nil,
+          "repository" => after_document["repository"],
+          "source_kind" => trigger["source_kind"],
+          "task" => after_document["prompt"],
+          "title" => after_document["title"]
+        }
+        |> Maps.put_present("start_tasks", after_document["start_tasks"])
 
       {:ok,
        %{
@@ -433,14 +436,22 @@ defmodule Ryker.Behaviors.Automations do
   defp validate_document(document, "source_event", episode) do
     with :ok <- common_document(document, episode),
          :ok <-
-           exact_fields(
-             document,
-             ~w(automation_id context_channel delivery_channel expires_at hold next_occurrence_at prompt repository revision status title trigger)
-           ),
+           source_document_fields(document),
          :ok <- optional_reference(document["repository"]),
          :ok <- enum(document["hold"], [nil]) do
       source_trigger(document["trigger"])
     end
+  end
+
+  defp source_document_fields(document) do
+    fields =
+      ~w(automation_id context_channel delivery_channel expires_at hold next_occurrence_at prompt repository revision status title trigger)
+
+    if Maps.exact_keys?(document, fields, ["start_tasks"]) and
+         document["start_tasks"] in [nil, false, true] and
+         (document["start_tasks"] != true or is_binary(document["repository"])),
+       do: :ok,
+       else: {:error, :invalid_arguments}
   end
 
   defp common_document(document, episode) do

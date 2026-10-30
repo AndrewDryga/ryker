@@ -253,16 +253,33 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp card(%Records.Record{kind: "automation_change_offer"} = record, payload) do
+    before = payload["before"] || %{}
+    changed = payload["after"] || %{}
+
     details =
       []
       |> optional_detail("Automation", get_in(payload, ["after", "title"]))
       |> optional_detail("How often", changed_cadence(payload))
+      |> optional_detail("Repository", Settings.repository_name(changed["repository"]))
+      |> optional_detail("When", OfferWords.trigger_scope(changed["trigger"]))
+      |> optional_detail(
+        "Previous trigger",
+        if(before["trigger"] != changed["trigger"],
+          do: OfferWords.trigger_scope(before["trigger"])
+        )
+      )
+      |> optional_detail(
+        "Access",
+        if(get_in(payload, ["after", "trigger", "type"]) == "source_event",
+          do: OfferWords.task_access(payload["after"])
+        )
+      )
 
     common(
       record,
       "Automation change",
       OfferWords.humanize(payload["action"]) <> " automation",
-      "Nothing changes until you confirm it.",
+      automation_summary(before, changed),
       details,
       :confirm_automation
     )
@@ -346,7 +363,9 @@ defmodule Ryker.Delivery.ChatCard do
     details =
       []
       |> optional_detail("Listens to", OfferWords.listens_to(payload))
+      |> optional_detail("Takes", OfferWords.only_when(payload["filter"]) || "All events")
       |> optional_detail("Repository", Settings.repository_name(payload["repository"]))
+      |> optional_detail("Access", OfferWords.task_access(payload))
       |> optional_detail("Expires", OfferWords.stamp(payload["expires_at"]))
 
     common(
@@ -650,6 +669,18 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp task_publication_actions(_publication), do: []
+
+  defp automation_summary(before, changed) do
+    [
+      "Nothing changes until you confirm it.",
+      changed["prompt"],
+      if(is_binary(before["prompt"]) and before["prompt"] != changed["prompt"],
+        do: "Previous instructions:\n" <> before["prompt"]
+      )
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join("\n\n")
+  end
 
   defp common(record, label, title, summary, details, action, choices \\ []) do
     {outcome, confirmed} = split_outcome(outcome(record))

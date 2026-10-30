@@ -212,6 +212,7 @@ defmodule Ryker.Evals.WorldEvidence do
     )
     |> Enum.map(fn record ->
       %{
+        "confirmed_episode_id" => record.confirmed_episode_id,
         "episode_id" => record.episode_id,
         "kind" => record.kind,
         "payload" => record.payload,

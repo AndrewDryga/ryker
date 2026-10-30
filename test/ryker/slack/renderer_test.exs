@@ -2710,6 +2710,50 @@ defmodule Ryker.Slack.RendererTest do
     assert button["style"] == "danger"
   end
 
+  test "an autonomous task grant shows the exact old and new trigger" do
+    before = %{
+      "title" => "Address requested review changes",
+      "repository" => "ryker",
+      "prompt" => "Address the requested changes and run the tests.",
+      "start_tasks" => false,
+      "trigger" => %{
+        "type" => "source_event",
+        "source_kind" => "github",
+        "filter" => %{"action" => "submitted"}
+      }
+    }
+
+    changed = before |> Map.put("start_tasks", true) |> put_in(["trigger", "filter"], %{})
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Review this permission change.",
+               "records" => [
+                 %{
+                   "kind" => "automation_change_offer",
+                   "status" => "open",
+                   "ref" => "record:automation_change_offer:grant",
+                   "payload" => %{
+                     "action" => "update",
+                     "before" => before,
+                     "after" => changed,
+                     "automation_id" => "standing_assignment:review-changes",
+                     "automation_kind" => "source_event",
+                     "patch" => %{"start_tasks" => true},
+                     "revision" => 1
+                   }
+                 }
+               ]
+             })
+
+    text = inspect(rendered, limit: :infinity)
+    assert text =~ "GitHub events"
+    assert text =~ "All events"
+    assert text =~ "Only when action is submitted"
+    assert text =~ before["prompt"]
+    assert text =~ "ryker"
+  end
+
   test "renders a complete maximum-sized automation update for operator review" do
     before = %{
       "automation_id" => "schedule:large-health-review",

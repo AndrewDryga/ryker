@@ -39,6 +39,26 @@ defmodule Ryker.Slack.TaskCard.Query do
   def by_record_id(queryable \\ all(), id),
     do: where(queryable, [slack_task_cards: c], c.record_id == ^id)
 
+  @doc "The task's channel-root card, including its pending post."
+  def root_for_episode(episode_id, workspace, channel) do
+    from(card in all(),
+      where:
+        card.episode_id == ^episode_id and card.workspace_ref == ^workspace and
+          card.channel_ref == ^channel and is_nil(card.thread_ref)
+    )
+  end
+
+  @doc "Task episodes whose real root card owns this exact Slack thread."
+  def select_root_episode_ids(workspace, channel, message_ref) do
+    from(card in all(),
+      where:
+        card.workspace_ref == ^workspace and card.channel_ref == ^channel and
+          card.message_ref == ^message_ref and is_nil(card.thread_ref) and
+          not is_nil(card.episode_id),
+      select: card.episode_id
+    )
+  end
+
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
   def blocked(queryable \\ all()),
@@ -91,6 +111,12 @@ defmodule Ryker.Slack.TaskCard.Query do
   The message of the latest card that shows `episode_id`'s task in channel
   `channel_ref` of `workspace_ref`, thread `thread_ref`.
   """
+  def message_in_thread(episode_id, workspace_ref, channel_ref, nil) do
+    episode_id
+    |> root_for_episode(workspace_ref, channel_ref)
+    |> select([slack_task_cards: c], c.message_ref)
+  end
+
   def message_in_thread(episode_id, workspace_ref, channel_ref, thread_ref) do
     from(card in all(),
       where:

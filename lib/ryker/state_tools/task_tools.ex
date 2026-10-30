@@ -1,5 +1,6 @@
 defmodule Ryker.StateTools.TaskTools do
   @moduledoc false
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.StateTools.RecordWriter
   alias Ryker.Work
@@ -13,19 +14,30 @@ defmodule Ryker.StateTools.TaskTools do
          {:ok, repository_source} <-
            task_repository_source(arguments["repository"], arguments["repository_source"]),
          {:ok, instruction_ref} <- task_instruction_ref(arguments, binding) do
-      payload = %{
-        "authority_limits" => arguments["authority_limits"],
-        "instruction_ref" => instruction_ref,
-        "kind" => kind,
-        "prompt" => task_prompt(arguments, instruction_ref),
-        "repository" => arguments["repository"],
-        "repository_source" => repository_source,
-        "source_refs" => arguments["source_refs"],
-        "success_checks" => arguments["success_checks"],
-        "title" => arguments["title"]
-      }
+      payload =
+        %{
+          "authority_limits" => arguments["authority_limits"],
+          "instruction_ref" => instruction_ref,
+          "kind" => kind,
+          "prompt" => task_prompt(arguments, instruction_ref),
+          "repository" => arguments["repository"],
+          "repository_source" => repository_source,
+          "source_refs" => arguments["source_refs"],
+          "success_checks" => arguments["success_checks"],
+          "title" => arguments["title"]
+        }
+        |> Maps.put_present("assignment_ref", arguments["assignment_ref"])
 
-      RecordWriter.create_record(binding, "request_task", arguments, "task_offer", payload)
+      if arguments["start"] == true do
+        Records.TaskOffers.start(
+          binding,
+          payload,
+          binding.task_authorizer,
+          arguments["offer_ref"]
+        )
+      else
+        RecordWriter.create_record(binding, "request_task", arguments, "task_offer", payload)
+      end
     end
   end
 

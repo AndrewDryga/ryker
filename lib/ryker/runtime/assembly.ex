@@ -1557,7 +1557,62 @@ defmodule Ryker.Runtime.Assembly do
       token: Secret.new(Bootstrap.secret!(:state_tools))
     }
     |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
+    |> Map.put(:task_authorizer, task_authorizer(slack, control_plane))
     |> add_platform_capability_tools(slack, github, control_plane)
+  end
+
+  defp task_authorizer(slack, control_plane) do
+    chat = control_plane && ControlPlane.Server.options!(control_plane).chat
+
+    slack_options =
+      if slack do
+        options = Slack.Runtime.options!(slack.runtime).handler_settings.interaction_options
+        Map.put(options, :workspace_ref, slack.runtime.identity.workspace_ref)
+      end
+
+    fn
+      {:assignment, %Ingress.Inbox.Entry{destination_transport: "slack"} = entry}, repository
+      when not is_nil(slack_options) ->
+        with {:ok, workspace, channel} <-
+               Ryker.ConversationRef.parse_slack(entry.destination_conversation_ref),
+             true <- workspace == slack_options.workspace_ref do
+          Slack.TaskAccess.policy(workspace, channel, repository, slack_options)
+        else
+          _ -> {:error, :task_instruction_not_authorized}
+        end
+
+      %Ingress.Inbox.Entry{source_kind: "slack"} = entry, repository
+      when not is_nil(slack_options) ->
+        Slack.TaskAccess.authorize(entry, repository, slack_options)
+
+      %Ingress.Inbox.Entry{
+        source_kind: "control_plane",
+        source_ref: "local",
+        actor_kind: :user,
+        actor_ref: actor,
+        destination_conversation_ref: "control-plane:lab:" <> id
+      },
+      repository
+      when not is_nil(control_plane) ->
+        with true <- actor == "local-operator" or ControlPlane.Actor.chat_ref?(actor),
+             {:ok, profile} <- ControlPlane.ConversationLab.work_profile(id, chat),
+             {:ok, policy} <-
+               ControlPlane.Actions.task_policy(control_plane.task_policies, profile, repository) do
+          {:ok,
+           Map.take(policy, [
+             :name,
+             :digest,
+             :environment_ref,
+             :repository_ref,
+             :repository_context
+           ])}
+        else
+          _ -> {:error, :task_instruction_not_authorized}
+        end
+
+      _, _ ->
+        {:error, :task_instruction_not_authorized}
+    end
   end
 
   # Clarification answers are authorized by who can manage Ryker now, the
@@ -1664,6 +1719,7 @@ defmodule Ryker.Runtime.Assembly do
        additional_tools: Map.get(state_tools, :additional_tools),
        additional_call: Map.get(state_tools, :additional_call),
        answer_authorizer: Map.get(state_tools, :answer_authorizer),
+       task_authorizer: Map.get(state_tools, :task_authorizer),
        token_secret: state_tools.token
      })}
   end

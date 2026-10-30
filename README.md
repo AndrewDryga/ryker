@@ -131,16 +131,21 @@ act; that is an instruction, not a check. A pending decision appears in the same
 background, updates the card as it progresses, and continues the same conversation when it
 finishes, verifying the effect with read-only evidence where it can. Waiting consumes no model turn
 and survives a Ryker restart. When an active full
-workspace member explicitly asks Ryker to change repository files, the reply can include a
-concise **Start task** button instead of sending the teammate to another client. Confirmation by
-any active full workspace member keeps the task in that Slack thread and creates an isolated
+workspace member explicitly asks Ryker to change repository files, Ryker starts the task without
+another confirmation. A suggestion that nobody requested still offers **Start task**. Starting
+keeps the task in that Slack thread and creates an isolated
 writable Coop fork, where Ryker can inspect, edit, test, and commit under the configured
 repository policy. Later replies in the same thread continue the same session without an
 `@mention`; unrelated channel messages remain in read-only triage. It does not create an incident,
 and it does not merge, deploy or sign; any change to running systems still goes through Emisar. Any
 active full workspace member can collaborate in the task thread and inspect or review its changes.
-Publishing needs **Let Ryker open pull requests**; then the confirmed task opens its own draft PR
+Publishing needs **Let Ryker open pull requests**; then the task opens its own draft PR
 once its review is clean, or a configured operator presses **Create draft PR**.
+
+An operator can also authorize a source-event automation to start one code task per matching
+input in its named repository. Its task brief, event filter, expiry and repository policy bound
+that work. Existing read-only automations stay read-only. The task card's **Stop current run**
+control keeps its notes and working copy.
 
 Inviting `@Ryker` to a new channel saves safe defaults at once: the installation's participation
 default (mentions only unless changed), the default environment, alerts investigated in their own
@@ -205,8 +210,8 @@ automatically become incidents: Ryker answers in place and can attach an inciden
 operator can press it. A credible unresolved monitoring-app alert follows the channel's confirmed
 policy: investigate in the alert's thread, offer a room, or always open one. An explicit human
 request to open, create, start, or declare an incident gets the offer; no phrase is matched. An
-explicit repository-change request can instead offer a **Start task** transition in the same thread
-to a writable isolated fork. A mention starts the same read-only triage conversation.
+explicit repository-change request starts a task in the same thread with an isolated writable
+working copy. A suggestion without a request still offers **Start task**. A mention starts the same read-only triage conversation.
 
 The Agent Messages tab supplies the manifest's suggested prompts: production health, explaining an
 alert, and open work. The message shortcut **Investigate message** starts the same read-only triage

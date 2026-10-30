@@ -4,6 +4,7 @@ defmodule Ryker.Publication.Publication.Query do
   alias Ryker.Episodes
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Records
+  alias Ryker.Slack
   alias Ryker.Work
 
   def all, do: from(publications in Publication, as: :episode_publications)
@@ -167,6 +168,21 @@ defmodule Ryker.Publication.Publication.Query do
           (is_nil(p.last_error_code) or p.last_error_code not in ^conflicts) and
           (is_nil(p.next_attempt_at) or p.next_attempt_at <= ^now) and
           (is_nil(p.lease_expires_at) or p.lease_expires_at <= ^now)
+    )
+    |> with_notification_destination()
+  end
+
+  defp with_notification_destination(query) do
+    pending_card =
+      from(card in Slack.TaskCard,
+        where:
+          card.episode_id == parent_as(:episode_publications).episode_id and
+            is_nil(card.thread_ref) and is_nil(card.message_ref),
+        select: 1
+      )
+
+    from(p in query,
+      where: p.status not in [:review_ready, :published_ready] or not exists(pending_card)
     )
   end
 

@@ -189,16 +189,15 @@ operators can use state-specific memory, schedule, publication-recovery, and saf
 controls. Home excludes Slack Connect and private or direct conversations the operator no longer
 shares with the bot. These surfaces do not weaken operator authorization or incident-creation rules.
 
-An explicit repository-change request can return a concise **Start task** confirmation.
-Confirmation by any active full workspace member starts an engineering task in the source Slack
+An explicit repository-change request from an active full workspace member starts an engineering task
+without another confirmation. Suggestions nobody requested still offer **Start task**. Work stays in the source Slack
 thread and creates an isolated writable Coop fork; the rest of the shared channel remains read-only.
 Active full members can collaborate there, edit, test, and commit repository files under Coop
 contributor policy and review the changes. The task runs in its conversation's environment, under
 that environment's contributor policy, and must name one of the environment's repositories; a
-conversation with no environment has none a task could change. The contributor session omits
-shared operational MCP and environment credentials. The confirmation itself grants the draft pull
-request for that repository,
-so Ryker opens it from the exact reviewed candidate without a further click; stopping or
+conversation with no environment has none a task could change. The environment supplies the task's
+configured tools, including its Emisar account. Publishing requires **Let Ryker open pull requests**;
+when enabled, Ryker opens a draft from the exact reviewed candidate without a further click. Stopping or
 closing the task and discarding retained work stay operator decisions. The task cannot merge,
 deploy, sign, or mutate infrastructure. Replies in that thread continue the same task without an
 `@mention`.

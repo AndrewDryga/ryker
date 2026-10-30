@@ -687,6 +687,8 @@ defmodule Ryker.Work.Custody.Delivery do
   turn. Later inputs cannot move an answer that has already been accepted.
   """
   @spec reply_target(Episodes.Episode.t(), Turn.t()) :: map() | nil
+  def reply_target(%Episodes.Episode{}, %Turn{delivery_target: %{} = target}), do: target
+
   def reply_target(%Episodes.Episode{} = episode, %Turn{} = turn) do
     episode
     |> answering_origin(turn)
@@ -701,7 +703,46 @@ defmodule Ryker.Work.Custody.Delivery do
           "transport" => origin.transport
         }
     end
+    |> root_task_target(episode)
   end
+
+  defp root_task_target(nil, episode), do: posted_root_target(episode, nil)
+
+  defp root_task_target(
+         %{"transport" => "slack", "conversation_ref" => conversation, "thread_ref" => nil} =
+           target,
+         %Episodes.Episode{destination_conversation_ref: conversation} = episode
+       ),
+       do: posted_root_target(episode, target)
+
+  defp root_task_target(target, _episode), do: target
+
+  defp posted_root_target(episode, fallback) do
+    case Slack.TaskCards.root_reply_target(episode) do
+      :pending -> nil
+      nil -> fallback
+      target -> target
+    end
+  end
+
+  @doc false
+  def bind_task_destination(
+        episode,
+        %Turn{
+          status: :delivery_pending,
+          delivery_target: nil,
+          delivery_attempt_count: 0,
+          external_receipt: nil
+        } = turn
+      ) do
+    case Slack.TaskCards.root_reply_target(episode) do
+      :pending -> :pending
+      nil -> {:ok, turn}
+      target -> turn |> Turn.Changeset.bind_delivery_target(target) |> Repo.update()
+    end
+  end
+
+  def bind_task_destination(_episode, %Turn{} = turn), do: {:ok, turn}
 
   defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: refs})
        when is_list(refs) and refs != [] do

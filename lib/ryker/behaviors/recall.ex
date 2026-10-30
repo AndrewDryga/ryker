@@ -268,7 +268,9 @@ defmodule Ryker.Behaviors.Recall do
         "allowed_outputs" => ["ignore", "react", "reply"],
         "assignment_ref" => behavior.ref,
         "assignment_identity" => behavior.identity_key,
-        "authority_ceiling" => "read_only",
+        "authority_ceiling" =>
+          if(behavior.payload["start_tasks"] == true, do: "repository_write", else: "read_only"),
+        "revision" => behavior.revision,
         "repository" => behavior.payload["repository"],
         "task" => behavior.payload["task"],
         "trigger" => %{

@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "id": "explicit-code-request-starts-task",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_517b4f6e4d37af2a92a26b7ee84c050c",
+      "episode_run_9c0fea4917ba299efce3b7630cc57efd",
+      "episode_run_6e5c9884f68e75b41af308de4877a9ad"
+    ],
+    "captured_at": "2026-08-21T20:48:00Z"
+  },
+  "clock": {
+    "start": "2026-08-21T02:21:46Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "authority": "repository_write_start",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-andrew"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-andrew",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:C0TENANTOPS",
+        "thread_ref": "1786978800.742289",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-08-21T02:21:46Z",
+      "payload": {
+        "text": "Add bounded context to Rivals Gate timeout logs"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [
+      {
+        "base_commit": "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+        "path": "repository",
+        "ref": "tenant-rivals-scraper",
+        "sha256": "74ddd95fa88f25833da3ce517ffb3ed5f53fc8635b6ba02329156310ae45530b"
+      }
+    ],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "started_tasks",
+        "count": 1
+      },
+      {
+        "kind": "state_tool_not_refused",
+        "tool": "request_task"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Starts the explicitly requested code task once, acknowledges that it started, and does not ask for a second confirmation or claim the code is already finished.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "smoke",
+    "engineering",
+    "automatic-task-start"
+  ]
+}

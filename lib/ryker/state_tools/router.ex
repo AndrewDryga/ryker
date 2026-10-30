@@ -31,9 +31,13 @@ defmodule Ryker.StateTools.Router do
     additional_tools = Keyword.get(options, :additional_tools, [])
     additional_call = Keyword.get(options, :additional_call)
     answer_authorizer = Keyword.get(options, :answer_authorizer)
+    task_authorizer = Keyword.get(options, :task_authorizer)
 
     unless is_nil(answer_authorizer) or is_function(answer_authorizer, 1),
       do: raise(ArgumentError, "answer authorizer must be a trusted one-argument function")
+
+    unless is_nil(task_authorizer) or is_function(task_authorizer, 2),
+      do: raise(ArgumentError, "task authorizer must be a trusted two-argument function")
 
     unless is_nil(cursor_secret) or sealed_secret?(cursor_secret) do
       raise(ArgumentError, "memory cursor secret must be at least 16 valid UTF-8 bytes, sealed")
@@ -48,6 +52,7 @@ defmodule Ryker.StateTools.Router do
       additional_call: additional_call,
       additional_tools: additional_tools,
       answer_authorizer: answer_authorizer,
+      task_authorizer: task_authorizer,
       binding: binding,
       capabilities: capabilities,
       cursor_secret: cursor_secret

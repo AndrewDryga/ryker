@@ -114,7 +114,7 @@ defmodule Ryker.Slack.SavedEntity do
       {"Event filter", event_filter(payload["source_kind"], payload["filter"])},
       {"Repository", repository(payload["repository"])},
       {"Expires", expiry(behavior.expires_at, "Until disabled")},
-      {"Access", "Read-only"}
+      {"Access", Delivery.OfferWords.task_access(payload)}
     ]
 
     behavior_document(

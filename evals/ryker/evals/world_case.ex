@@ -49,7 +49,7 @@ defmodule Ryker.Evals.WorldCase do
   @actor_fields ~w(actor_ref authority input_profile kind)
   @input_profile_fields ~w(actor event_kind occurred_at_source source source_capabilities)
   @actor_authorities ~w(
-    operator read_only repository_feedback repository_write_offer schedule_offer source_event
+    operator read_only repository_feedback repository_write_offer repository_write_start schedule_offer source_event
   )
   @actor_kinds ~w(automation human)
 
@@ -179,6 +179,30 @@ defmodule Ryker.Evals.WorldCase do
       |> MapSet.new(&operator_identity/1)
 
     &MapSet.member?(operators, entry_identity(&1))
+  end
+
+  @doc "Only an explicitly declared task-start actor may queue work in this scenario's captured repository."
+  def task_authorizer(%__MODULE__{} = scenario) do
+    actors =
+      scenario.actors
+      |> Enum.filter(&(&1["authority"] == "repository_write_start"))
+      |> MapSet.new(&operator_identity/1)
+
+    repositories = MapSet.new(scenario.world["repositories"], & &1["ref"])
+
+    fn entry, repository ->
+      if MapSet.member?(actors, entry_identity(entry)) and
+           MapSet.member?(repositories, repository) do
+        {:ok,
+         %{
+           name: "world-task:" <> repository,
+           repository_ref: repository,
+           digest: CanonicalJSON.digest(%{"scenario" => scenario.id, "repository" => repository})
+         }}
+      else
+        {:error, :task_instruction_not_authorized}
+      end
+    end
   end
 
   defp operator_identity(%{"input_profile" => %{"actor" => actor, "source" => source}}),

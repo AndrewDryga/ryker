@@ -9,6 +9,7 @@ defmodule Ryker.Work.OwningTurn.Query do
   use Ryker, :query
   alias Ryker.Episodes
   alias Ryker.Publication
+  alias Ryker.Slack
   alias Ryker.Work.{Session, Turn}
 
   @doc """
@@ -48,6 +49,24 @@ defmodule Ryker.Work.OwningTurn.Query do
       where: ^phase_filter,
       where: episode.owner_kind == :delivery or episode.id not in subquery(reviewing_episode_ids),
       select: episode.id
+    )
+    |> without_pending_root_delivery()
+  end
+
+  defp without_pending_root_delivery(query) do
+    pending_root =
+      from(card in Slack.TaskCard,
+        where:
+          card.episode_id == parent_as(:episode_kernel_episodes).id and
+            is_nil(card.thread_ref) and is_nil(card.message_ref),
+        select: 1
+      )
+
+    from([episode_kernel_episodes: episode, episode_work_turns: turn] in query,
+      where:
+        not (episode.owner_kind == :delivery and is_nil(turn.delivery_target) and
+               turn.delivery_attempt_count == 0 and is_nil(turn.external_receipt) and
+               exists(pending_root))
     )
   end
 

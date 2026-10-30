@@ -267,6 +267,7 @@ defmodule Ryker.CoopFleet.Router do
     |> Maps.put_present(:additional_tools, Map.get(state_tools, :additional_tools))
     |> Maps.put_present(:additional_call, Map.get(state_tools, :additional_call))
     |> Maps.put_present(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
+    |> Maps.put_present(:task_authorizer, Map.get(state_tools, :task_authorizer))
     |> StateTools.Router.init()
   end
 

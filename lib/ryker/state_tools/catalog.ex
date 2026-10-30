@@ -254,6 +254,11 @@ defmodule Ryker.StateTools.Catalog do
           "prompt" => text(12_000),
           "repository" => JSONSchema.nullable(reference(256)),
           "revision" => JSONSchema.nullable(integer(1, 2_147_483_647)),
+          "start_tasks" =>
+            describe(
+              %{"type" => "boolean"},
+              "For source_event only: explicitly authorize at most one engineering task per matching input in repository, within the prompt's scope. Only enable when the person requested autonomous fixes. Omitted or false keeps the rule read-only. A writable repository is required."
+            ),
           "title" => text(120),
           "trigger" => automation_trigger(capabilities)
         },
@@ -281,15 +286,29 @@ defmodule Ryker.StateTools.Catalog do
   defp request_task_tool do
     tool(
       "request_task",
-      "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target, any repository of this environment: work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
+      "Start an explicitly requested engineering task with start=true, or propose work with start=false. Clear human requests need no second confirmation. Autonomous starts require the matching standing assignment's repository-write grant. Incident offers always require confirmation. Engineering may target any repository of this environment. The conversation checkout stays read-only; start=true asks the host to resolve that repository's separate task policy. A target without a writable task policy permits an inert proposal, not execution. Kind defaults to engineering.",
       %{
         "authority_limits" => array(text(500), 1, 20),
-        "instruction_ref" => reference(256),
+        "assignment_ref" =>
+          describe(
+            JSONSchema.nullable(reference(256)),
+            "For an autonomous start, the exact standing_assignments assignment_ref with authority_ceiling repository_write. Otherwise omit. instruction_ref still names the current triggering input's source_event_id."
+          ),
+        "instruction_ref" =>
+          describe(
+            reference(256),
+            "For start=true, the exact source_event_id of the current human instruction or the current input triggering the authorized assignment. For a pending proposal, its source instruction or exact open task_offer ref."
+          ),
         "kind" => enum(~w(engineering incident)),
+        "offer_ref" =>
+          describe(
+            JSONSchema.nullable(reference(256)),
+            "For start=true approving an existing proposal, its exact open task_offer ref. The host starts that saved brief unchanged instead of creating another task. instruction_ref still names the current human approval's source_event_id. Otherwise omit."
+          ),
         "prompt" =>
           describe(
             text(12_000),
-            "The brief a person reads before confirming. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs."
+            "The task brief. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs."
           ),
         "repository" =>
           describe(
@@ -302,6 +321,11 @@ defmodule Ryker.StateTools.Catalog do
             ~s(Optional source inside the task's repository that the new linked work starts from: {"kind":"default"}, {"kind":"branch","name":"<branch>"}, {"kind":"pull_request","number":<n>} or {"kind":"commit","sha":"<full lowercase object id>"}. Null means the configured default branch. It requires a non-null repository, never changes this session's workspace, and never authorizes pushing to the selected branch or pull request.)
           ),
         "source_refs" => array(reference(256), 0, 20),
+        "start" =>
+          describe(
+            %{"type" => "boolean"},
+            "Start engineering work now when the person explicitly requested it or an authorized automation covers it. Use false for an unsolicited suggestion or an incident offer. Draft publication follows the configured repository policy; merge and deployment remain separate."
+          ),
         "success_checks" => array(text(1_000), 1, 20),
         "title" => text(120)
       },

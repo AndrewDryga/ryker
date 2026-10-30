@@ -81,7 +81,7 @@
 <li><a href="#control">Running it for your team</a></li></ul></details>
 <h2 id="work">From a request to a result</h2>
 <p>Suppose a deployment starts failing after a registry password changes. You ask Ryker to find the cause and fix it. With access to the relevant repositories and systems, it can read the deployment logs, trace how the code loads credentials, and identify the stale password.</p>
-<p>If the fix needs a code change, Ryker proposes a task. You press <strong>Start task</strong>, and it creates a separate working copy. It updates the code to reload changed credentials, adds a regression test, and runs the checks. A task card in the Slack thread updates as the work progresses.</p>
+<p>Ask Ryker to prepare the fix, and it starts a task in a separate working copy. It updates the code to reload changed credentials, adds a regression test, and runs the checks. A task card in the Slack thread updates as the work progresses.</p>
 <p>When the change is ready, Ryker can open a draft pull request. If CI fails on its commit, it picks up the task again and fixes the failure. You review the diff, ask for changes, and merge it through your usual process. Ryker keeps the original thread up to date.</p>
 <p>A fix to a running system goes through Emisar instead. Its policy determines which actions can run and which wait for a person to approve them. Ryker then checks the result against fresh evidence where the available tools support it.</p>
 <h2 id="shape">Ryker, co:op, and Emisar</h2>

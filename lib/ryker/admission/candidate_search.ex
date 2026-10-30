@@ -15,6 +15,7 @@ defmodule Ryker.Admission.CandidateSearch do
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes
   alias Ryker.Repo
+  alias Ryker.Slack
   alias Ryker.Work
 
   @lane_limit 50
@@ -175,8 +176,19 @@ defmodule Ryker.Admission.CandidateSearch do
 
   defp thread_origin_ids(%{thread_ref: nil}, _scope), do: []
 
-  defp thread_origin_ids(request, scope),
-    do: Repo.all(CandidateSearch.Query.thread_origin_ids(request, scope, @thread_origin_limit))
+  defp thread_origin_ids(request, scope) do
+    inputs =
+      Repo.all(CandidateSearch.Query.thread_origin_ids(request, scope, @thread_origin_limit))
+
+    cards =
+      Slack.TaskCards.thread_episode_ids(
+        request.transport,
+        scope.conversation_ref,
+        request.thread_ref
+      )
+
+    Enum.uniq(inputs ++ cards)
+  end
 
   # How much each word of the message says, by how rare it is in the work
   # that could be offered: the BM25 inverse document frequency of its

@@ -7,8 +7,7 @@ defmodule Ryker.Slack.InteractionHandler do
   the click. The button value alone grants nothing.
   """
   alias Ryker.ConversationRef
-  alias Ryker.Maps
-  alias Ryker.Slack.{ControlValue, Interaction, Operators}
+  alias Ryker.Slack.{ControlValue, Interaction, Operators, TaskAccess}
 
   @task_not_here [:slack_task_outside_environment, :slack_task_policy_not_configured]
   @invalid_offer_errors [
@@ -666,25 +665,7 @@ defmodule Ryker.Slack.InteractionHandler do
          interaction,
          options
        ) do
-    environment_ref =
-      options.conversation_environment.(interaction.workspace_ref, interaction.channel_ref)
-
-    case environment_ref && Map.get(options.environments, environment_ref) do
-      %{contributor_policies: policies} when map_size(policies) > 0 ->
-        case Map.get(policies, repository) do
-          %{digest: digest, name: name} = policy ->
-            {:ok,
-             %{digest: digest, environment_ref: environment_ref, name: name}
-             |> Maps.put_present(:repository_ref, Map.get(policy, :repository_ref))
-             |> Maps.put_present(:repository_context, Map.get(policy, :repository_context))}
-
-          nil ->
-            {:error, {:slack_task_outside_environment, repository}}
-        end
-
-      _none ->
-        {:error, {:slack_task_policy_not_configured, repository}}
-    end
+    TaskAccess.policy(interaction.workspace_ref, interaction.channel_ref, repository, options)
   end
 
   defp policy(_record, _interaction, _options), do: {:error, :task_offer_action_mismatch}

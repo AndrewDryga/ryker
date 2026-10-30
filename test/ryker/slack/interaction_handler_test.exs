@@ -133,6 +133,31 @@ defmodule Ryker.Slack.InteractionHandlerTest do
            }
   end
 
+  test "a direct task request rechecks membership and resolves the requested repository" do
+    entry = %Ryker.Ingress.Inbox.Entry{
+      actor_kind: :user,
+      actor_ref: "U123",
+      source_kind: "slack",
+      source_ref: "T123",
+      destination_conversation_ref: "slack:T123:C456"
+    }
+
+    settings = Map.put(options(["U123"]), :workspace_ref, "T123")
+    assert {:ok, policy} = Ryker.Slack.TaskAccess.authorize(entry, "docs", settings)
+    assert policy.repository_ref == "docs"
+    assert policy.environment_ref == "production"
+    assert_receive {:membership_checked, "U123", "T123"}
+
+    assert Ryker.Slack.TaskAccess.authorize(%{entry | actor_ref: "UOUTSIDE"}, "docs", settings) ==
+             {:error, :task_instruction_not_authorized}
+
+    assert Ryker.Slack.TaskAccess.authorize(%{entry | source_ref: "TOTHER"}, "docs", settings) ==
+             {:error, :task_instruction_not_authorized}
+
+    assert Ryker.Slack.TaskAccess.authorize(entry, "unconfigured", settings) ==
+             {:error, {:slack_task_outside_environment, "unconfigured"}}
+  end
+
   # A channel selects an environment, and a task confirmed there runs in it,
   # with its Emisar account. The policy lookup once keyed tasks by repository,
   # so a confirmed task found no policy, or ran without its environment.

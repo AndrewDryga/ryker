@@ -679,6 +679,10 @@
                             }
                           ]
                         },
+                        "start_tasks": {
+                          "description": "For source_event only: explicitly authorize at most one engineering task per matching input in repository, within the prompt's scope. Only enable when the person requested autonomous fixes. Omitted or false keeps the rule read-only. A writable repository is required.",
+                          "type": "boolean"
+                        },
                         "title": {
                           "maxLength": 120,
                           "minLength": 1,
@@ -1022,10 +1026,24 @@
           "name": "update_goal"
         },
         {
-          "description": "Create one inert engineering or incident-task proposal, or refine the exact open task_offer ref, under trusted authority. A supplied read-only repository permits an inert proposal, not execution. Engineering requires a configured target, any repository of this environment: work.repository_ref or the relevant work.workspace.companions[].name; incident tasks may use null. Kind defaults to engineering.",
+          "description": "Start an explicitly requested engineering task with start=true, or propose work with start=false. Clear human requests need no second confirmation. Autonomous starts require the matching standing assignment's repository-write grant. Incident offers always require confirmation. Engineering may target any repository of this environment. The conversation checkout stays read-only; start=true asks the host to resolve that repository's separate task policy. A target without a writable task policy permits an inert proposal, not execution. Kind defaults to engineering.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
+              "assignment_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "For an autonomous start, the exact standing_assignments assignment_ref with authority_ceiling repository_write. Otherwise omit. instruction_ref still names the current triggering input's source_event_id."
+              },
               "authority_limits": {
                 "items": {
                   "maxLength": 500,
@@ -1038,6 +1056,7 @@
                 "uniqueItems": true
               },
               "instruction_ref": {
+                "description": "For start=true, the exact source_event_id of the current human instruction or the current input triggering the authorized assignment. For a pending proposal, its source instruction or exact open task_offer ref.",
                 "maxLength": 256,
                 "minLength": 1,
                 "pattern": "^[A-Za-z0-9_.:-]+$",
@@ -1050,8 +1069,22 @@
                 ],
                 "type": "string"
               },
+              "offer_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "For start=true approving an existing proposal, its exact open task_offer ref. The host starts that saved brief unchanged instead of creating another task. instruction_ref still names the current human approval's source_event_id. Otherwise omit."
+              },
               "prompt": {
-                "description": "The brief a person reads before confirming. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs.",
+                "description": "The task brief. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs.",
                 "maxLength": 12000,
                 "minLength": 1,
                 "type": "string"
@@ -1160,6 +1193,10 @@
                 "minItems": 0,
                 "type": "array",
                 "uniqueItems": true
+              },
+              "start": {
+                "description": "Start engineering work now when the person explicitly requested it or an authorized automation covers it. Use false for an unsolicited suggestion or an incident offer. Draft publication follows the configured repository policy; merge and deployment remain separate.",
+                "type": "boolean"
               },
               "success_checks": {
                 "items": {

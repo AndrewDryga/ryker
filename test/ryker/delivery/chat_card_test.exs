@@ -9,6 +9,65 @@ defmodule Ryker.Delivery.ChatCardTest do
 
   @git String.duplicate("b", 40)
 
+  test "a new task-start grant shows every matching event condition before confirmation" do
+    payload = %{
+      "context_channel" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+      "delivery_channel" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",
+      "expires_at" => nil,
+      "hold" => nil,
+      "title" => "Address requested review changes",
+      "source_kind" => "github",
+      "repository" => "ryker",
+      "start_tasks" => true,
+      "task" => "Address requested review changes.",
+      "filter" => %{"action" => "submitted", "review.state" => "changes_requested"}
+    }
+
+    assert {:ok, card} = ChatCard.project(record("standing_assignment_offer", payload))
+
+    assert {"Takes", "Only when action is submitted and review.state is changes_requested"} in card.details
+
+    assert {:ok, all_events} =
+             ChatCard.project(record("standing_assignment_offer", %{payload | "filter" => %{}}))
+
+    assert {"Takes", "All events"} in all_events.details
+  end
+
+  test "an automation grant preview names its repository, complete instructions and trigger" do
+    before = %{
+      "title" => "Address requested review changes",
+      "repository" => "ryker",
+      "prompt" => "Address the requested changes and run the tests.",
+      "start_tasks" => false,
+      "trigger" => %{
+        "type" => "source_event",
+        "source_kind" => "github",
+        "filter" => %{"action" => "submitted"}
+      }
+    }
+
+    changed = Map.put(before, "start_tasks", true)
+
+    payload = %{
+      "action" => "update",
+      "after" => changed,
+      "before" => before,
+      "automation_id" => "standing_assignment:review-changes",
+      "automation_kind" => "source_event",
+      "patch" => %{"start_tasks" => true},
+      "revision" => 1
+    }
+
+    assert {:ok, card} = ChatCard.project(record("automation_change_offer", payload))
+    assert {"Repository", "ryker"} in card.details
+
+    assert Enum.any?(card.details, fn {_, text} ->
+             text =~ "GitHub events" and text =~ "Only when action is submitted"
+           end)
+
+    assert card.summary =~ before["prompt"]
+  end
+
   test "an unschedulable wait explains its failure and hard deadline without presenting success" do
     payload = %{
       "deadline_at" => "2026-09-07T12:00:00Z",

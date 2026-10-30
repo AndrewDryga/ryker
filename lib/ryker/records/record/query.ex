@@ -8,6 +8,18 @@ defmodule Ryker.Records.Record.Query do
 
   def all, do: from(records in Record, as: :episode_state_records)
 
+  @doc "The task already started for this source instruction, across model retries."
+  def started_for_instruction(episode_id, instruction_ref, repository) do
+    from([episode_state_records: r] in all(),
+      where:
+        r.episode_id == ^episode_id and r.kind == "task_offer" and r.status == :confirmed and
+          r.confirmation_ref == ^instruction_ref and
+          fragment("?::jsonb->>'repository'", r.payload) == ^repository,
+      order_by: [asc: r.inserted_at],
+      limit: 1
+    )
+  end
+
   @doc "Question references included in a confirmed visible answer from this episode."
   def select_delivered_question_refs(queryable \\ all()) do
     from([episode_state_records: r] in queryable,
@@ -317,22 +329,19 @@ defmodule Ryker.Records.Record.Query do
 
   @doc """
   The open readiness offer of `episode_id`'s turn `turn_id` that confirmed
-  task `task_ref` asked for, with the task and the settled turn that offered
-  the task, as `{offer, task, source_turn}`.
+  task `task_ref` asked for, as `{offer, task}`. Its confirmed task grant is
+  independent of delivery in the conversation that requested it.
   """
   def task_readiness(episode_id, turn_id, task_ref) do
     from(offer in all(),
       join: task in Record,
       on: task.ref == ^task_ref and task.confirmed_episode_id == ^episode_id,
-      join: source_turn in Work.Turn,
-      on: source_turn.id == task.turn_id and source_turn.episode_id == task.episode_id,
       where:
         offer.episode_id == ^episode_id and offer.turn_id == ^turn_id and
           offer.kind == "publication_offer" and offer.status == :open and
           offer.operation_id == "host:publication:ready",
       where: task.kind == "task_offer" and task.status == :confirmed,
-      where: source_turn.status == :settled,
-      select: {offer, task, source_turn}
+      select: {offer, task}
     )
   end
 

@@ -99,7 +99,7 @@
 </dl>
 <p>Channel settings take priority over the workspace default. A person asking for an incident room gets an offer for an operator to confirm. Only credible, unresolved app alerts can open rooms automatically, when the channel is configured for that. See <a href="../guides/investigate-an-alert.html#incidents">incident rooms</a>.</p>
 <h2 id="tasks">Work in a task thread</h2>
-<p>When you ask for a code change, Ryker can offer a <strong>Start task</strong> button. Pressing it confirms the task and creates its writable working copy. An active full member can start the task and continue it in the thread; messages elsewhere in the channel do not become part of it.</p>
+<p>When an active full member asks for a code change, Ryker creates a separate working copy and starts without another confirmation. A change Ryker suggests on its own still offers <strong>Start task</strong>, unless a saved automation already authorizes it. Members can continue the task in its thread; messages elsewhere in the channel do not become part of it.</p>
 <p>The task card updates in place through workspace setup, planning, implementation, self-review and checks, draft PR, CI, and review and merge. It shows the current work and any decision Ryker needs. Follow <a href="../guides/first-code-change.html">your first code change</a> for the complete process.</p>
 <p>Operators can use <strong>Stop current run</strong> to cancel the active run or <strong>Close task</strong> to end the task. Both keep uncommitted and unpublished work. The card’s menu links to its timeline, evidence, and handoff summary. Read diffs in the console or GitHub.</p>
 <h2 id="progress">Questions, files, and voice notes</h2>

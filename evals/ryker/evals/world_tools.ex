@@ -30,6 +30,7 @@ defmodule Ryker.Evals.WorldTools do
           |> Map.put(:additional_tools, fabricated)
           |> Map.put(:additional_call, callback)
           |> Map.put(:answer_authorizer, WorldCase.answer_authorizer(scenario))
+          |> Map.put(:task_authorizer, WorldCase.task_authorizer(scenario))
 
         catalog = %{
           "servers" => [%{"name" => "controller-tools", "tools" => all}],

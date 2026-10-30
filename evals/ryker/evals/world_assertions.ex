@@ -19,6 +19,8 @@ defmodule Ryker.Evals.WorldAssertions do
     "repository_feedback" =>
       ~w(evidence guidance_result coverage finding progress alert_assessment input_request),
     "repository_write_offer" => ~w(evidence task_offer input_request),
+    "repository_write_start" =>
+      ~w(evidence guidance_result coverage finding progress alert_assessment input_request event_wait task_offer),
     "schedule_offer" => ~w(schedule_offer standing_assignment_offer automation_change_offer),
     "source_event" =>
       ~w(evidence guidance_result coverage finding progress alert_assessment event_wait)
@@ -63,6 +65,18 @@ defmodule Ryker.Evals.WorldAssertions do
   # it: a finding saved as unexplained, not merely any finding.
   defp hard_failure(%{"kind" => "state_tool_recorded", "tool" => tool} = check, records, _, _) do
     if Enum.any?(records, &recorded?(&1, tool, check)), do: [], else: [check]
+  end
+
+  defp hard_failure(%{"kind" => "started_tasks", "count" => expected} = check, records, _, _) do
+    started =
+      records
+      |> Enum.filter(
+        &(&1["kind"] == "task_offer" and &1["status"] == "confirmed" and
+            is_binary(&1["confirmed_episode_id"]))
+      )
+      |> Enum.uniq_by(& &1["ref"])
+
+    if length(started) == expected, do: [], else: [Map.put(check, "actual", length(started))]
   end
 
   defp hard_failure(%{"kind" => "state_tool_not_recorded", "tool" => tool} = check, records, _, _) do

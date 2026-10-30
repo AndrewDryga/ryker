@@ -19,7 +19,7 @@ defmodule Ryker.Work.Custody.Claims do
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.Custody
-  alias Ryker.Work.Custody.Sessions
+  alias Ryker.Work.Custody.{Delivery, Sessions}
   alias Ryker.Work.{OwningTurn, Turn}
   require Logger
 
@@ -217,6 +217,7 @@ defmodule Ryker.Work.Custody.Claims do
         with {:ok, session, turn} <- Sessions.ensure_session_and_turn(episode),
              :ok <- still_free(turn, now),
              false <- active_publication_review?(session, turn),
+             {:ok, turn} <- Delivery.bind_task_destination(episode, turn),
              {:ok, turn} <- claim_turn(turn, worker_ref, now, lease_seconds) do
           %{
             episode: episode,
@@ -227,6 +228,7 @@ defmodule Ryker.Work.Custody.Claims do
         else
           true -> nil
           :taken -> Repo.rollback({:work_claim_taken, episode.id})
+          :pending -> Repo.rollback({:work_claim_taken, episode.id})
           {:error, reason} -> Repo.rollback({:work_claim_failed, episode.id, reason})
         end
     end

@@ -68,6 +68,64 @@ defmodule Ryker.Slack.TaskCards do
 
   def confirm_offer(_record), do: {:error, :invalid_task_card_record}
 
+  @doc "Give an automatically started task its card even if the proposing turn never delivers."
+  def ensure_started(
+        %Records.Record{} = record,
+        %Episodes.Episode{destination_transport: "slack"} = episode
+      ) do
+    case Repo.fetch(TaskCard.Query.by_record_id(record.id)) do
+      {:ok, _card} ->
+        :ok
+
+      {:error, :not_found} ->
+        insert!(record, %{
+          "conversation_ref" => episode.destination_conversation_ref,
+          "thread_ref" => episode.destination_thread_ref
+        })
+
+        :ok
+    end
+  end
+
+  def ensure_started(%Records.Record{}, %Episodes.Episode{}), do: :ok
+
+  @doc "The real reply thread of a channel-root task card, or :pending until its post is recorded."
+  def root_reply_target(
+        %Episodes.Episode{destination_transport: "slack", destination_thread_ref: nil} = episode
+      ) do
+    with {:ok, workspace, channel} <-
+           ConversationRef.parse_slack(episode.destination_conversation_ref),
+         {:ok, card} <-
+           Repo.fetch(TaskCard.Query.root_for_episode(episode.id, workspace, channel)) do
+      if is_binary(card.message_ref) do
+        %{
+          "transport" => "slack",
+          "conversation_ref" => episode.destination_conversation_ref,
+          "thread_ref" => card.message_ref
+        }
+      else
+        :pending
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  def root_reply_target(_episode), do: nil
+
+  @doc "Task cards add thread affinity without rewriting the inputs that started their tasks."
+  def thread_episode_ids("slack", conversation_ref, thread_ref) when is_binary(thread_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace, channel} ->
+        Repo.all(TaskCard.Query.select_root_episode_ids(workspace, channel, thread_ref))
+
+      :error ->
+        []
+    end
+  end
+
+  def thread_episode_ids(_transport, _conversation, _thread), do: []
+
   @doc """
   Makes the card of `episode_id` due at the next claim: something it shows was
   announced as changed. Unannounced itself, as no page shows when a card was
@@ -110,7 +168,7 @@ defmodule Ryker.Slack.TaskCards do
   # Slack conversation and thread, or nil when there is none. A publication's
   # review and pull request are that card's to show (`Ryker.Publication.Executor`).
   defp message_ref(episode_id, "slack:" <> _rest = conversation_ref, thread_ref)
-       when is_binary(episode_id) and is_binary(thread_ref) do
+       when is_binary(episode_id) and (is_binary(thread_ref) or is_nil(thread_ref)) do
     case ConversationRef.parse_slack(conversation_ref) do
       {:ok, workspace, channel} ->
         Repo.peek(TaskCard.Query.message_in_thread(episode_id, workspace, channel, thread_ref))
@@ -335,39 +393,45 @@ defmodule Ryker.Slack.TaskCards do
         nil
 
       {:ok, {%Records.Record{} = record, %Work.Turn{} = source_turn}} ->
-        insert!(record, source_turn)
+        insert_offered!(record, source_turn.external_receipt)
     end
   end
 
-  defp insert!(record, source_turn) do
-    receipt = source_turn.external_receipt
-
-    with {:ok, workspace_ref, channel_ref} <- slack_conversation(receipt["conversation_ref"]),
-         :ok <- reference(receipt["message_ref"], :message_ref) do
-      attributes = %{
-        attempt_count: 0,
-        channel_ref: channel_ref,
-        episode_id: record.confirmed_episode_id,
-        id: Repo.generate_id(),
-        record_id: record.id,
-        ref: "task-card:#{record.id}",
-        thread_ref: receipt["thread_ref"],
-        workspace_ref: workspace_ref
-      }
-
-      changeset = TaskCard.Changeset.insert(attributes)
-
-      case Repo.insert(changeset) do
-        {:ok, card} ->
-          tap(card, &broadcast_task_card_updated/1)
-
-        {:error, changeset} ->
-          Repo.rollback(
-            {:task_card_unbuildable, record.id, {:task_card_persistence_failed, changeset.errors}}
-          )
-      end
-    else
+  defp insert_offered!(record, receipt) do
+    case reference(receipt["message_ref"], :message_ref) do
+      :ok -> insert!(record, receipt)
       {:error, reason} -> Repo.rollback({:task_card_unbuildable, record.id, reason})
+    end
+  end
+
+  defp insert!(record, destination) do
+    {workspace_ref, channel_ref} =
+      case slack_conversation(destination["conversation_ref"]) do
+        {:ok, workspace, channel} -> {workspace, channel}
+        {:error, reason} -> Repo.rollback({:task_card_unbuildable, record.id, reason})
+      end
+
+    attributes = %{
+      attempt_count: 0,
+      channel_ref: channel_ref,
+      episode_id: record.confirmed_episode_id,
+      id: Repo.generate_id(),
+      record_id: record.id,
+      ref: "task-card:#{record.id}",
+      thread_ref: destination["thread_ref"],
+      workspace_ref: workspace_ref
+    }
+
+    changeset = TaskCard.Changeset.insert(attributes)
+
+    case Repo.insert(changeset) do
+      {:ok, card} ->
+        tap(card, &broadcast_task_card_updated/1)
+
+      {:error, changeset} ->
+        Repo.rollback(
+          {:task_card_unbuildable, record.id, {:task_card_persistence_failed, changeset.errors}}
+        )
     end
   end
 

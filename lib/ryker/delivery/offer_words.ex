@@ -11,6 +11,10 @@ defmodule Ryker.Delivery.OfferWords do
   alias Ryker.Schedules
   alias Ryker.Wording
 
+  @doc "The task-start authority an operator grants to a source-event automation."
+  def task_access(%{"start_tasks" => true}), do: "Can start one code task per matching event"
+  def task_access(_payload), do: "Read-only"
+
   @doc "Who a saved memory, preference or guidance applies to."
   @spec applies_to(String.t() | nil, String.t() | nil) :: String.t() | nil
   def applies_to("operator", _repository), do: "Just you"
@@ -68,6 +72,13 @@ defmodule Ryker.Delivery.OfferWords do
   def listens_to(%{"source_kind" => "webhook"}), do: "Webhook events"
   def listens_to(%{"source_kind" => kind}) when is_binary(kind), do: humanize(kind) <> " events"
   def listens_to(_payload), do: nil
+
+  @doc "The source and complete filter an automation permission covers."
+  def trigger_scope(%{"type" => "source_event"} = trigger) do
+    Enum.join([listens_to(trigger), only_when(trigger["filter"]) || "All events"], " · ")
+  end
+
+  def trigger_scope(_trigger), do: nil
 
   @doc ~s(Which events an automation takes, from its filter: "Only when action is submitted".)
   @spec only_when(map() | nil) :: String.t() | nil

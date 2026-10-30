@@ -411,8 +411,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert automatic_review.repository == task_session.repository_ref
     assert automatic_review.review_requested_by_actor_ref == confirmed.confirmed_by_actor_ref
 
-    assert automatic_review.offer_message_ref ==
-             Repo.get!(Turn, claim.turn.id).external_receipt["message_ref"]
+    assert automatic_review.offer_message_ref == task_episode.destination_thread_ref
 
     assert automatic_review.approval_ref == nil
 

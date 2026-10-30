@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "id": "status-question-does-not-start-task",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "01a16ea9-324d-7651-9baa-fed7d1055683"
+    ],
+    "captured_at": "2026-10-26T22:17:31.962992Z"
+  },
+  "clock": {
+    "start": "2026-10-26T20:03:19.617089Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "repository_write_start",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-operator"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1792857725.661029",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-10-26T20:03:19.617089Z",
+      "payload": {
+        "text": "So how is it going?"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [
+      {
+        "base_commit": "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+        "path": "repository",
+        "ref": "tenant-rivals-scraper",
+        "sha256": "74ddd95fa88f25833da3ce517ffb3ed5f53fc8635b6ba02329156310ae45530b"
+      }
+    ],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "started_tasks",
+        "count": 0
+      },
+      {
+        "kind": "state_tool_not_recorded",
+        "tool": "request_task"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Answers the status question using available context, or asks which work the person means. Does not infer a request to change code from a status question.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "smoke",
+    "engineering",
+    "automatic-task-start"
+  ]
+}

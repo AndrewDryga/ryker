@@ -1,20 +1,24 @@
 defmodule Ryker.Records.TaskOffers do
   @moduledoc """
-  Confirms one delivered task offer into one linked, policy-pinned episode.
+  Starts one authorized task in one linked, policy-pinned episode.
 
-  The model may propose the inert record. Only this host transition can turn it
-  into work, after the platform adapter has authenticated the actor and supplied
-  the exact message that carried the control.
+  A current authenticated request or a confirmed assignment can start directly.
+  An unsolicited proposal waits for its delivered confirmation control. Both
+  paths resolve the conversation's writable repository policy before starting.
   """
   alias Ryker.Crypto
   alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Maps
+  alias Ryker.Memories
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
+  alias Ryker.Records.TaskInstruction
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.StateTools
   alias Ryker.UTCDateTime
   alias Ryker.Work
 
@@ -28,6 +32,133 @@ defmodule Ryker.Records.TaskOffers do
           session: Work.Session.t(),
           status: :confirmed | :duplicate
         }
+
+  @doc "Start the work a current authenticated person requested, without a second confirmation."
+  def start(binding, %{"kind" => "engineering"} = payload, authorize, offer_ref)
+      when is_function(authorize, 2) do
+    with {:ok, {candidate, _actor}} <-
+           TaskInstruction.fetch(
+             binding,
+             payload["instruction_ref"],
+             payload["assignment_ref"],
+             payload["repository"]
+           ),
+         requester <- if(payload["assignment_ref"], do: {:assignment, candidate}, else: candidate),
+         {:ok, placement} <- authorize.(requester, payload["repository"]),
+         {:ok, placement} <- policy(placement) do
+      Repo.transaction(fn ->
+        start_in_transaction(binding, payload, offer_ref, candidate, placement)
+      end)
+    end
+  end
+
+  def start(_binding, _payload, _authorize, _offer_ref),
+    do: {:error, :task_instruction_not_authorized}
+
+  defp start_in_transaction(binding, payload, offer_ref, candidate, placement) do
+    with :ok <- Memories.lock_answer_source_in_transaction(candidate),
+         :ok <- TaskInstruction.lock_assignment(payload["assignment_ref"]),
+         {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
+         true <- is_nil(current.session.workspace_task),
+         {:ok, {entry, actor}} <-
+           TaskInstruction.fetch(
+             current,
+             payload["instruction_ref"],
+             payload["assignment_ref"],
+             payload["repository"]
+           ),
+         true <- Ingress.Inbox.Entry.same_source?(entry, candidate),
+         :ok <-
+           Slack.ChannelFence.authorize_in_transaction(
+             entry.destination_transport,
+             entry.destination_conversation_ref
+           ),
+         {:ok, record} <- fetch_or_create_task(current, payload, offer_ref) do
+      attributes = %{
+        actor_ref: actor,
+        confirmation_ref: payload["instruction_ref"],
+        occurred_at: Repo.now!(),
+        policy: placement,
+        target: %{
+          thread_ref: entry.destination_thread_ref,
+          message_ref: entry.source_item_ref
+        }
+      }
+
+      result = start_record(record, current.episode, attributes)
+
+      :ok = Slack.TaskCards.ensure_started(result.record, result.episode)
+
+      %{
+        "kind" => "task_offer",
+        "record_ref" => result.record.ref,
+        "status" => "started",
+        "continuation" => nil
+      }
+    else
+      false -> Repo.rollback(:task_instruction_not_authorized)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp start_record(%Record{status: :open} = record, episode, attributes),
+    do: create_episode(record, episode, attributes)
+
+  defp start_record(%Record{status: :confirmed} = record, _episode, _attributes),
+    do: confirmed(record, :duplicate)
+
+  defp start_record(_record, _episode, _attributes), do: Repo.rollback(:task_offer_stale)
+
+  defp requested_task(binding, payload, offer_ref) when is_binary(offer_ref) do
+    query =
+      offer_ref
+      |> Record.Query.by_ref()
+      |> Record.Query.by_episode_id(binding.episode.id)
+      |> Record.Query.lock_for_update()
+
+    repository = payload["repository"]
+
+    case Repo.fetch(query) do
+      {:ok,
+       %Record{
+         kind: "task_offer",
+         status: :open,
+         payload: %{"kind" => "engineering", "repository" => ^repository}
+       } = record} ->
+        {:ok, record}
+
+      _ ->
+        {:error, :task_instruction_not_authorized}
+    end
+  end
+
+  defp requested_task(binding, payload, nil) do
+    Records.create(
+      binding.state_token,
+      StateTools.RecordWriter.operation_id(binding, "request_task", payload),
+      "task_offer",
+      payload
+    )
+  end
+
+  defp fetch_or_create_task(binding, payload, offer_ref) do
+    case Repo.fetch(
+           Record.Query.started_for_instruction(
+             binding.episode.id,
+             payload["instruction_ref"],
+             payload["repository"]
+           )
+         ) do
+      {:ok, record} when is_nil(offer_ref) or record.ref == offer_ref ->
+        {:ok, record}
+
+      {:ok, _another_task} ->
+        {:error, :task_instruction_not_authorized}
+
+      {:error, :not_found} ->
+        requested_task(binding, payload, offer_ref)
+    end
+  end
 
   @spec confirm(keyword() | map()) :: {:ok, confirmation()} | {:error, term()}
   def confirm(attributes) do

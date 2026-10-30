@@ -117,6 +117,68 @@ defmodule Ryker.Behaviors.AutomationsTest do
     assert Repo.get_by!(Record, ref: deleted.fixture.record.ref).status == :confirmed
   end
 
+  test "repository task permission changes only after the operator confirms the exact rule revision" do
+    source =
+      delivered_record!("task-grant", "standing_assignment_offer", standing_assignment_offer())
+
+    assert {:ok, created} = Behaviors.confirm(confirmation(source, "create-task-grant"))
+    refute created.behavior.payload["start_tasks"]
+
+    assert {:ok, offer} =
+             Automations.prepare_change(source.episode, %{
+               "action" => "update",
+               "automation_id" => created.behavior.ref,
+               "revision" => 1,
+               "patch" => %{"repository" => "ryker", "start_tasks" => true}
+             })
+
+    refute Repo.get!(Behavior, created.behavior.id).payload["start_tasks"]
+    assert offer["after"]["start_tasks"]
+
+    change = delivered_record!("enable-task-grant", "automation_change_offer", offer)
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Here is the proposed change.",
+               "records" => [
+                 %{
+                   "kind" => "automation_change_offer",
+                   "payload" => offer,
+                   "ref" => change.record.ref,
+                   "status" => "open"
+                 }
+               ]
+             })
+
+    assert Jason.encode!(rendered["blocks"]) =~
+             "Can start one code task per matching event (was Read-only)"
+
+    assert {:ok, updated} = Automations.confirm(confirmation(change, "confirm-task-grant"))
+    assert updated.automation["start_tasks"]
+    saved = Repo.get!(Behavior, created.behavior.id)
+    assert saved.payload["start_tasks"]
+
+    assert ["Access", "Can start one code task per matching event"] in Ryker.Slack.SavedEntity.document(
+             saved,
+             :updated
+           )["facts"]
+
+    assert Automations.prepare_change(source.episode, %{
+             "action" => "update",
+             "automation_id" => created.behavior.ref,
+             "revision" => 2,
+             "patch" => %{"repository" => nil}
+           }) == {:error, :invalid_arguments}
+
+    assert {:ok, revoked} =
+             change!(source.episode, "revoke-task-grant", created.behavior.ref, 2, "update", %{
+               "start_tasks" => false
+             })
+
+    refute revoked.automation["start_tasks"]
+    refute Repo.get!(Behavior, created.behavior.id).payload["start_tasks"]
+  end
+
   test "source-event automation changes retain scope and reject a crossed revision" do
     source =
       delivered_record!(

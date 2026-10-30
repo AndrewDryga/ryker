@@ -64,7 +64,6 @@ defmodule Ryker.Publication.Publication.Changeset do
     :destination_transport,
     :episode_id,
     :id,
-    :offer_message_ref,
     :record_id,
     :ref,
     :repository,

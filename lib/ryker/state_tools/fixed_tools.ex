@@ -65,6 +65,7 @@ defmodule Ryker.StateTools.FixedTools do
           capabilities: capabilities(options),
           cursor_secret: options[:cursor_secret] && Ryker.Secret.reveal(options[:cursor_secret]),
           answer_authorizer: options[:answer_authorizer],
+          task_authorizer: options[:task_authorizer],
           source_tools: Enum.map(options[:additional_tools] || [], & &1["name"])
         })
 
