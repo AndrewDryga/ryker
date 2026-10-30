@@ -280,10 +280,12 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     assert InstallationTokens.token(provider, "github-main", :publication) ==
              {:ok, "publication-token"}
 
-    assert InstallationTokens.fresh_publication_token(provider, "github-main", %{
-             repository_id: 99,
-             installation_id: 41
-           }) ==
+    assert InstallationTokens.fresh_publication_token(
+             provider,
+             "github-main",
+             %{repository_id: 99, installation_id: 41},
+             false
+           ) ==
              {:ok, %{token: "repository-token", expires_at: DateTime.add(@now, 3_600, :second)}}
 
     documents =

@@ -44,7 +44,12 @@ defmodule Ryker.GitHub.InstallationTokens do
       "statuses" => "read"
     },
     source_read: %{"contents" => "read"},
-    worker_publication: %{"contents" => "write", "pull_requests" => "write"}
+    worker_publication: %{"contents" => "write", "pull_requests" => "write"},
+    worker_workflow_publication: %{
+      "contents" => "write",
+      "pull_requests" => "write",
+      "workflows" => "write"
+    }
   }
 
   @type binding :: %{installation_id: pos_integer(), repository_id: pos_integer()}
@@ -94,9 +99,11 @@ defmodule Ryker.GitHub.InstallationTokens do
   end
 
   @doc "Mint an uncached, single-repository write grant for one approved worker publication."
-  def fresh_publication_token(server, binding_name, binding) do
-    fresh_worker_token(server, binding_name, binding, :worker_publication)
-  end
+  def fresh_publication_token(server, binding_name, binding, false),
+    do: fresh_worker_token(server, binding_name, binding, :worker_publication)
+
+  def fresh_publication_token(server, binding_name, binding, true),
+    do: fresh_worker_token(server, binding_name, binding, :worker_workflow_publication)
 
   defp fresh_worker_token(server, binding_name, binding, purpose) do
     if valid_binding?({binding_name, binding}) do
@@ -168,7 +175,7 @@ defmodule Ryker.GitHub.InstallationTokens do
 
   @impl GenServer
   def handle_call({:fresh_worker_token, binding_name, binding, purpose}, from, state)
-      when purpose in [:source_read, :worker_publication] do
+      when purpose in [:source_read, :worker_publication, :worker_workflow_publication] do
     with {:ok, ^binding} <- binding(state, binding_name),
          {:ok, now} <- current_time(state.clock) do
       mint = %{cached: nil, key: nil, now: now, waiters: [from]}

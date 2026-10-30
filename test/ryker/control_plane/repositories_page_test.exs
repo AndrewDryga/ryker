@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       },
       github_permissions:
         Map.new(
-          ~w(metadata contents pull_requests checks actions deployments issues),
+          ~w(metadata contents pull_requests checks actions deployments issues workflows),
           &{&1, "write"}
         ),
       github_repository: "acme/checkout-api",
@@ -218,7 +218,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
       |> LazyHTML.query("#repository-github")
 
     assert github |> LazyHTML.text() |> squeeze() =~
-             "Permissions Enough to work here. Not shared: deployments"
+             "Permissions Enough to work here. Not shared: deployments, workflows"
   end
 
   test "a blocked setup offers Retry setup on its page, bound to that repository" do

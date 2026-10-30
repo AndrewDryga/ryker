@@ -1172,6 +1172,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <p>
           Keep Metadata on read. Grant only the issue, pull request, checks, actions, deployment
           and contents access needed for the work you enable.
+          Allow Workflows write access if Ryker will edit CI workflows.
         </p>
       </details>
       <p :if={@view.snapshot.github.app_slug} class="settings-lede">

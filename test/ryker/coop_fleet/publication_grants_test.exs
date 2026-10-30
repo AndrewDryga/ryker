@@ -342,6 +342,46 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     assert Task.await(task) == {:error, :publication_grant_unavailable}
   end
 
+  # Required replay CI was blocked at publication. Once the scan allows it, the
+  # host must carry the installation's existing workflow grant into its own token.
+  test "publication carries installed workflow permission without requiring it for ordinary repositories",
+       %{certificate: certificate, request: request, session: session} do
+    provider = provider!()
+
+    for level <- [nil, "read", "write"] do
+      permissions = if level, do: %{"workflows" => level}, else: %{}
+      put_permissions!(permissions)
+      expected = %{"contents" => "write", "pull_requests" => "write"}
+      expected = if level == "write", do: Map.put(expected, "workflows", "write"), else: expected
+      {task, minter} = begin_mint(certificate, session, request, provider, expected)
+      send(minter, :complete)
+      assert {:ok, grant} = Task.await(task)
+      assert grant["github_repository_id"] == 17
+    end
+  end
+
+  test "workflow permission revoked during minting never reaches the worker",
+       %{certificate: certificate, request: request, session: session} do
+    put_permissions!(%{"workflows" => "write"})
+    provider = provider!()
+    expected = %{"contents" => "write", "pull_requests" => "write", "workflows" => "write"}
+    {task, minter} = begin_mint(certificate, session, request, provider, expected)
+    put_permissions!(%{})
+    send(minter, :complete)
+    assert Task.await(task) == {:error, :publication_grant_unavailable}
+  end
+
+  defp put_permissions!(permissions) do
+    {:ok, snapshot} = Settings.fetch()
+    binding = Enum.find(snapshot.github_bindings, &(&1.name == "github-main"))
+
+    {:ok, _snapshot} =
+      binding
+      |> Map.take([:name, :repository_ref, :installation_id, :repository_id, :ryker_actor_id])
+      |> Map.put(:granted_permissions, permissions)
+      |> Settings.put_github_binding(snapshot.installation.revision, "control-plane:local")
+  end
+
   defp authority(certificate, session, request) do
     PublicationGrants.publication_grant_authority(certificate, session.external_ref, request)
   end
@@ -372,7 +412,13 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     )
   end
 
-  defp begin_mint(certificate, session, request, provider) do
+  defp begin_mint(
+         certificate,
+         session,
+         request,
+         provider,
+         permissions \\ %{"contents" => "write", "pull_requests" => "write"}
+       ) do
     task =
       Task.async(fn ->
         receive do
@@ -392,7 +438,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     # Each mint runs in its own process, which the test releases.
     assert_receive {:mint, minter, :post, "/app/installations/41/access_tokens",
                     %{
-                      "permissions" => %{"contents" => "write", "pull_requests" => "write"},
+                      "permissions" => ^permissions,
                       "repository_ids" => [17]
                     }},
                    5_000

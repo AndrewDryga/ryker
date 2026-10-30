@@ -16,7 +16,8 @@ defmodule Ryker.CoopFleet.PublicationGrants do
            GitHub.InstallationTokens.fresh_publication_token(
              provider,
              authority.binding.name,
-             Map.take(authority.binding, [:repository_id, :installation_id])
+             Map.take(authority.binding, [:repository_id, :installation_id]),
+             authority.workflows_write?
            ),
          {:ok, current} <- publication_grant_authority(certificate, job_ref, request) do
       if current == authority do
@@ -98,6 +99,7 @@ defmodule Ryker.CoopFleet.PublicationGrants do
       {:ok,
        %{
          binding: Map.take(binding, [:name, :repository_id, :installation_id, :ryker_actor_id]),
+         workflows_write?: binding.granted_permissions["workflows"] == "write",
          placement: {placement.id, placement.generation},
          command: {command.id, command.payload_fingerprint},
          approval:

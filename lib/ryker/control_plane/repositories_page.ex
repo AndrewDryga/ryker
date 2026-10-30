@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   # (actions), issue events (issues) and deployment events (deployments), so
   # one that is missing is a detail. Flagging a missing deployments permission
   # put Andrew's repository in Needs attention (2026-09-26).
-  @optional_permissions ~w(checks actions deployments issues)
+  @optional_permissions ~w(checks actions deployments issues workflows)
   @setting_up [:pending, :cloning]
 
   @doc """

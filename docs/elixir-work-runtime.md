@@ -862,6 +862,14 @@ something a card resolves for itself.
 
 ## A refused change goes back to its work
 
+An authorized task may publish CI workflow changes without a separate policy-owner approval.
+Coop's session publication scan permits CI execution while retaining credential, hidden-file and
+automatic local execution checks. The host's exact-candidate grant remains mandatory. Ryker gives
+its uncached, single-repository publication token `workflows:write` only when the installation's
+verified permission record grants it, and rechecks that capability after minting. Other
+installations retain ordinary code publication; source-read and other tokens gain no permission.
+GitHub App installation permissions and repository CI/environment protections remain authoritative.
+
 A confirmed task's completed turn arms its trusted review (`Publication.Custody`); Coop rebases the
 committed change onto the latest base, runs the repository's gate in its trusted box, scans it, and
 returns `publishable`, `gate`, `rebase`, `policy_findings` and `not_publishable_reasons`.
