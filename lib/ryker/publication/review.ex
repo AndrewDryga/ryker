@@ -4,6 +4,7 @@ defmodule Ryker.Publication.Review do
   alias Ryker.GitObject
   alias Ryker.Maps
   alias Ryker.Reference
+  alias Ryker.Text
   alias Ryker.Wording
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
@@ -32,7 +33,7 @@ defmodule Ryker.Publication.Review do
 
   # What Ryker does about a refusal without a person (`Ryker.Publication.FixLoop`).
   # The task's own work can fix these, most actionable first.
-  @fixable ~w(rebase_conflict gate_failed gate_modified_candidate)
+  @fixable ~w(rebase_conflict gate_failed gate_modified_candidate policy_findings)
   # These say only that something moved while the change was being checked.
   @momentary ~w(parent_moved source_moved fork_owner_active)
 
@@ -47,6 +48,8 @@ defmodule Ryker.Publication.Review do
      :install_script},
     {~r/\A(?<path>.+) cannot be inspected for automatic install scripts\z/u,
      "couldn't be checked for automatic install scripts"},
+    {~r/\A(?<path>.+) — the change edits a \.coopignore, which decides what boxes are shown\z/u,
+     "changes which files worker boxes can see"},
     {~r/\A(?<path>.+) — (?<effect>(?:Runs|Selects|Changes|Starts|Provides|Can run|Defines) [^—]+)\.\z/u,
      :effect}
   ]
@@ -202,8 +205,9 @@ defmodule Ryker.Publication.Review do
   checks changed its files. `:recheck` asks the review again unchanged: the
   base branch or the working copy moved, or the working copy was still in use,
   while the change was being checked, which says nothing about the change.
-  `:person` is everything else. A policy finding such as a possible credential
-  is a person's call whatever else the review found; a change with no
+  A safety finding also goes back for repair, with publication still refused
+  until Coop scans the corrected commit. Repair never grants an exception.
+  `:person` is everything else: a change with no
   differences from its base has nothing to fix; missing or unstartable checks
   are a setting or a machine, and the agent writing the check that judges its
   own change would be no check at all; and a reason this host cannot read is
@@ -213,13 +217,12 @@ defmodule Ryker.Publication.Review do
   def remedy(%{"publishable" => true}), do: nil
 
   def remedy(document) when is_map(document) do
-    codes =
-      if match?([_ | _], document["policy_findings"]),
-        do: Enum.uniq(codes(document) ++ ["policy_findings"]),
-        else: codes(document)
+    codes = codes(document)
 
     cond do
-      not is_list(document["policy_findings"]) -> :person
+      missing_findings?(document, codes) -> :person
+      codes -- @refusal_codes != [] or "no_changes" in codes -> :person
+      "policy_findings" in codes -> :fix
       codes == [] or codes -- (@fixable ++ @momentary) != [] -> :person
       Enum.any?(codes, &(&1 in @fixable)) -> :fix
       true -> :recheck
@@ -227,6 +230,11 @@ defmodule Ryker.Publication.Review do
   end
 
   def remedy(_document), do: :person
+
+  defp missing_findings?(document, codes) do
+    not is_list(document["policy_findings"]) or
+      ("policy_findings" in codes and document["policy_findings"] == [])
+  end
 
   @doc """
   The refusal codes the task's work is asked to fix, most actionable first:
@@ -245,6 +253,9 @@ defmodule Ryker.Publication.Review do
       [gate_refusal(document["gate"]), rebase_refusal(document["rebase"])]
       |> Enum.reject(&is_nil/1)
       |> Kernel.++(refusal_codes(document["not_publishable_reasons"]))
+      |> Kernel.++(
+        if match?([_ | _], document["policy_findings"]), do: ["policy_findings"], else: []
+      )
       |> Enum.uniq()
 
     # A gate never runs on a change that no longer applies: that is the
@@ -263,6 +274,52 @@ defmodule Ryker.Publication.Review do
   @spec findings(term()) :: [{String.t(), String.t()} | :unrecognized]
   def findings(findings) when is_list(findings), do: Enum.map(findings, &finding/1)
   def findings(_findings), do: []
+
+  @doc "A bounded summary of flagged files for the task's publication status."
+  @spec findings_summary(term()) :: String.t()
+  def findings_summary(%{"policy_findings" => findings}) when is_list(findings) do
+    shown = Enum.take(findings, 3)
+    parsed_findings = findings(shown)
+
+    notices =
+      Enum.map(parsed_findings, fn
+        {path, problem} ->
+          # Filenames are repository data, including Markdown delimiters and
+          # newlines. The renderer escapes Slack markup separately.
+          path = path |> String.replace(~r/[`\r\n]/u, " ") |> Text.cut(90)
+
+          problem =
+            if byte_size(problem) > 250,
+              do: "has a finding detailed in the saved review",
+              else: problem
+
+          "File `#{path}` #{problem}."
+
+        :unrecognized ->
+          "A finding needs inspection in the saved review."
+      end)
+
+    total = length(findings)
+    fit_findings_summary(notices, total)
+  end
+
+  def findings_summary(_document), do: ""
+
+  defp fit_findings_summary(notices, total) do
+    remaining = total - length(notices)
+
+    complete =
+      if remaining > 0, do: notices ++ ["#{remaining} more in the saved review."], else: notices
+
+    summary = Enum.join(complete, " ")
+
+    if byte_size(summary) <= 450 do
+      summary
+    else
+      fewer = Enum.drop(notices, -1)
+      fit_findings_summary(fewer, total)
+    end
+  end
 
   defp finding(text) when is_binary(text) do
     Enum.find_value(@finding_shapes, :unrecognized, fn {shape, problem} ->

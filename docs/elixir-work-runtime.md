@@ -875,19 +875,31 @@ publication was refused without asking a person to copy the review back to it.
 (Andrew, 2026-09-28: "it should be automatic feedback loop, agent needs to get errors from CI, fix
 them without me doing a man in the middle"):
 
-- **Fix** — `gate_failed`, `rebase_conflict`, `gate_modified_candidate`. Delivering the review posts a
+- **Fix** — `gate_failed`, `rebase_conflict`, `gate_modified_candidate`, `policy_findings`. Delivering the review posts a
   one-line notice instead of the refusal card, and in the same transaction admits a host-written input
   into the task's episode (actor and source `system:publication-review`, turn
   `turn:publication-fix:<publication>:g<review generation>`). The input names the causes in the
   host's words, says what to do about each, and hands over the failed gate's complete output when
-  it was read (below). Work runs it as a new turn in the same session. When that turn commits and
+  it was read (below). Safety repairs also receive an excerpt of `policy_findings`, their total
+  count, the reviewed commit, and instructions to read the complete report through `get_work_state`
+  when it exceeds the input's budget. Work runs it as a new turn in the same session. When that turn commits and
   completes, the ordinary readiness path re-arms the same publication and the new commit is
   reviewed.
 - **Check again** — `parent_moved`, `source_moved`, `fork_owner_active` alone. Storing the review
   starts a fresh review generation 30 seconds later instead; nothing is posted and no turn is spent.
-- **A person** — any policy finding (a possible credential above all, even beside failed checks),
-  `no_changes`, `gate_not_configured`, `gate_startup_error`, a gate that did not run, and any code
-  Ryker cannot read. The refusal card is delivered as before.
+- **A person** — `no_changes`, unreadable or missing findings, and any code Ryker cannot read.
+  Missing or unstartable checks without safety findings retain their existing draft-shareability
+  decision. The refusal card is delivered when there is no automatic recovery.
+
+Repair authority does not grant publication authority. The agent may correct the task's files;
+it cannot weaken the scan, add its own exception, conceal a credential or remove required
+functionality merely to pass. A false positive or required change that cannot pass goes through
+the normal question/wait flow with evidence and an actionable alternative scope or approach,
+or identifies a policy-owner action needed outside the task. A thread answer cannot waive the scan.
+Only a new independent Coop
+review of the corrected commit can release publication. Findings remain blocking even after the
+agent says it has fixed them. The task's stopped status names the affected files and reasons;
+the complete report remains available through `get_work_state`.
 
 Three fix rounds and three re-checks per publication (`fix_rounds`, `recheck_rounds`); after that
 the refusal is delivered and the task card says `I tried to fix it 3 times; …`.

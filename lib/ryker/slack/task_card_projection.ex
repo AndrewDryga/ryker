@@ -168,7 +168,9 @@ defmodule Ryker.Slack.TaskCardProjection do
     progress = Enum.map(snapshot.progress_records, &progress_detail/1)
     fix = snapshot.automatic_fix
     settled? = settled_on_github?(snapshot.followup)
-    attention = if fix_line(fix, :fixing) || settled?, do: nil, else: publication
+
+    attention = if settled?, do: nil, else: publication_attention(snapshot)
+
     # A settled pull request leaves no prepared change waiting to be reviewed.
     offer = if settled?, do: nil, else: publication_offer
 
@@ -341,7 +343,9 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp public_errors(projection, snapshot) do
     fix = snapshot.automatic_fix
-    attention = if fix_line(fix, :fixing), do: nil, else: snapshot.publication
+
+    attention = publication_attention(snapshot)
+
     task = projection.document["task_card"]
 
     cond do
@@ -372,12 +376,27 @@ defmodule Ryker.Slack.TaskCardProjection do
     end
   end
 
+  defp publication_attention(%{automatic_fix: {state, _line}})
+       when state in [:fixing, :waiting],
+       do: nil
+
+  defp publication_attention(snapshot), do: snapshot.publication
+
   # A review's refusal in the host's own words for Coop's codes; a refusal
   # the host has no words for names only its code, which is the host's own.
   defp blocked_cause(%Publication.Publication{} = publication) do
     case Publication.Review.refusal(publication.review_document) do
-      [] -> blocked_code(publication.last_error_code)
-      causes -> Wording.list(causes) <> "."
+      [] ->
+        blocked_code(publication.last_error_code)
+
+      causes ->
+        [
+          Wording.list(causes) <> ".",
+          Publication.Review.findings_summary(publication.review_document)
+        ]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join(" ")
+        |> Ryker.Text.cut(700)
     end
   end
 
@@ -713,12 +732,12 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp publication(%Publication.Publication{} = publication, followup, fix) do
     %{
-      "automatic_fix" => fix_line(fix, :fixing),
+      "automatic_fix" => fix_line(fix, :fixing) || fix_line(fix, :waiting),
       "blocked_reason" => nil,
       "branch" => publication.branch_ref,
       "controls" =>
         cond do
-          fix_line(fix, :fixing) -> ["discard"]
+          fix_line(fix, :fixing) || fix_line(fix, :waiting) -> ["discard"]
           settled_on_github?(followup) -> ["open"]
           true -> publication_controls(publication)
         end,

@@ -249,10 +249,9 @@ defmodule Ryker.Publication.ReviewTest do
 
   # Andrew's request, 2026-09-28: a refusal the task's own work can fix goes
   # back to it without a person, one that is only the moment it was checked is
-  # checked again, and anything else waits for someone. The sorting is the
-  # whole safety of the loop: a finding such as a possible credential looped
-  # back to the agent would let the model decide what may leave the working
-  # copy, and a reason this host cannot read is never guessed at.
+  # checked again, and anything else waits for someone. The repair decision
+  # is separate from permission to publish. Safety findings
+  # go back for repair; a new scan still owns the publication verdict.
   test "each refusal is fixed by its work, checked again, or left for a person" do
     refused = fn overrides ->
       review_document()
@@ -278,12 +277,22 @@ defmodule Ryker.Publication.ReviewTest do
           {%{"not_publishable_reasons" => ["parent_moved"]}, :recheck},
           {%{"not_publishable_reasons" => ["source_moved", "fork_owner_active"]}, :recheck},
           {%{"not_publishable_reasons" => ["policy_findings"], "policy_findings" => [finding]},
-           :person},
+           :fix},
           {%{
              "gate" => "failed",
              "not_publishable_reasons" => ["gate_failed"],
              "policy_findings" => [finding]
-           }, :person},
+           }, :fix},
+          {%{"not_publishable_reasons" => ["policy_findings"], "policy_findings" => []}, :person},
+          {%{"gate" => "none", "not_publishable_reasons" => [], "policy_findings" => [finding]},
+           :fix},
+          {%{
+             "gate" => "startup_error",
+             "not_publishable_reasons" => [],
+             "policy_findings" => [finding]
+           }, :fix},
+          {%{"not_publishable_reasons" => ["lfs_missing"], "policy_findings" => [finding]},
+           :person},
           {%{"not_publishable_reasons" => ["no_changes"]}, :person},
           {%{"gate" => "none", "not_publishable_reasons" => ["gate_not_configured"]}, :person},
           {%{"gate" => "startup_error", "not_publishable_reasons" => ["gate_startup_error"]},
@@ -332,6 +341,50 @@ defmodule Ryker.Publication.ReviewTest do
            ]
 
     assert Review.findings(nil) == []
+  end
+
+  test "finding summaries name the file while keeping long and unknown reports bounded" do
+    finding = "possible secret in lib/token.ex — remove the credential before publication"
+
+    assert Review.findings_summary(%{"policy_findings" => [finding]}) ==
+             "File `lib/token.ex` may contain a credential."
+
+    long_path = String.duplicate("é", 900) <> "`<!everyone>"
+
+    summary =
+      Review.findings_summary(%{
+        "policy_findings" => List.duplicate("secret-like file: " <> long_path, 4)
+      })
+
+    assert byte_size(summary) <= 450
+    assert String.valid?(summary)
+    refute summary =~ "\n"
+    assert summary =~ "1 more in the saved review."
+
+    assert Review.findings_summary(%{"policy_findings" => ["secret-like file: lib/a`b.ex"]}) ==
+             "File `lib/a b.ex` looks like a file that holds secrets."
+
+    unknown = "UNRECOGNIZED raw diagnostic"
+    refute Review.findings_summary(%{"policy_findings" => [unknown]}) =~ unknown
+    assert Review.findings_summary(nil) == ""
+  end
+
+  test "finding summaries preserve complete reasons and the omitted count" do
+    path = String.duplicate("long-directory/", 20) <> "package.json"
+    finding = path <> " adds a postinstall script — npm runs it automatically on install"
+    summary = Review.findings_summary(%{"policy_findings" => List.duplicate(finding, 4)})
+
+    assert byte_size(summary) <= 450
+    assert String.ends_with?(summary, "2 more in the saved review.")
+    assert summary =~ "adds an npm postinstall script, which runs automatically on install."
+  end
+
+  test "the current Coop ignore-file finding names its file and consequence" do
+    # Exact report wording from Coop's scanReviewCandidate producer.
+    finding = ".coopignore — the change edits a .coopignore, which decides what boxes are shown"
+
+    assert Review.findings_summary(%{"policy_findings" => [finding]}) ==
+             "File `.coopignore` changes which files worker boxes can see."
   end
 
   defp unpublishable(overrides \\ %{}) do

@@ -267,11 +267,10 @@ defmodule Ryker.Publication.FixLoopTest do
     assert working.document["task_card"]["status"] == "working"
   end
 
-  # Andrew's request, 2026-09-28: a finding such as a possible credential needs
-  # a person. Sending it back to the agent would ask the model to decide, on its
-  # own, what may leave the working copy — the one call the scan exists to take
-  # away from it — and a failed gate beside the finding does not change that.
-  test "a flagged credential is never looped automatically" do
+  # On 2026-10-30 a finished alerting task stopped at "1 issue" instead of
+  # giving its work the scan's report. Repair authority is not publication
+  # authority: the next commit must still pass Coop's independent scan.
+  test "a safety finding reaches the same task for repair without authorizing publication" do
     finding = "possible secret in lib/token.ex — remove the credential before publication"
 
     for {suffix, overrides} <- [
@@ -293,20 +292,183 @@ defmodule Ryker.Publication.FixLoopTest do
         refuse!(suffix, overrides)
 
       message = request.document["message"]
-      assert message =~ "The local change is not published:", suffix
-      assert message =~ "the safety scan flagged 1 issue in the change", suffix
-      assert message =~ "File `lib/token.ex` may contain a credential.", suffix
+      assert message =~ "safety scan flagged 1 issue in the change", suffix
+      assert message =~ "I'm fixing it now, attempt 1 of 3", suffix
 
-      assert [%{"kind" => "publication_review"}] = request.document["records"]
       assert blocked.status == :blocked
-      assert blocked.fix_rounds == 0
-      assert admitted == 0
-      assert %{state: :complete} = Ryker.Inspectors.episode(claim.episode.key)
-      assert Custody.claim_next("work:#{suffix}:after", 60, :work) == {:ok, nil}
+      assert blocked.fix_rounds == 1
+      assert admitted == 1
+      refute PublicationCustody.approvable?(blocked)
+      refute Ryker.Publication.Review.draft_shareable?(blocked.review_document)
+
+      assert {:ok, fix} = Custody.claim_next("work:#{suffix}:after", 60, :work)
+      assert fix.episode.id == claim.episode.id
+      assert fix.session.id == blocked.session_id
+      assert {:ok, submission} = Inspectors.submission(fix)
+      assert [current] = submission["context"]["current_inputs"]["items"]
+      content = current["content"]["content"]
+      assert content["review"]["policy_findings"] == [finding]
+      assert content["review"]["committed_change"] == blocked.review_document["candidate_head"]
+      assert content["correction_request"] =~ "Do not weaken or bypass the scan"
+      assert content["correction_request"] =~ "ask a specific question"
+      assert content["correction_request"] =~ "A thread answer cannot waive the scan"
+      assert KnowledgeSnapshot.authorize_submission(fix.episode, fix.session, submission) == :ok
+
+      finish_turn!(fix, suffix, "repair")
+      rearmed = Repo.get!(Publication, blocked.id)
+      assert rearmed.status == :review_pending
+      assert rearmed.review_generation == blocked.review_generation + 1
+
+      # A fresh clean review, not the model's claim of success, releases the PR.
+      review!(rearmed, suffix, "clean", review_document(fix))
+      {_request, clean} = deliver_review!(rearmed, suffix, "clean")
+      assert clean.status == :publish_pending
+
+      # Do not leave this publication claimable in the next variant's setup.
+      Repo.update_all(from(saved in Publication, where: saved.id == ^clean.id),
+        set: [status: :discarded]
+      )
     end
 
     # The same failed checks without the finding go straight back to the work.
     assert %{admitted: 1, blocked: %{fix_rounds: 1}} = refuse!("credential-control", %{})
+  end
+
+  test "a large safety report starts repair and keeps every finding in the saved work state" do
+    # A valid review can carry 256 KiB of findings; admitting them wholesale
+    # would reject the repair input before the task could read its own report.
+    findings =
+      for index <- 1..64 do
+        "possible secret in lib/#{String.duplicate("a", 950)}#{index}.ex — remove the credential before publication"
+      end
+
+    %{claim: claim, blocked: blocked, admitted: admitted} =
+      refuse!("large-policy-report", %{
+        "candidate_retained" => false,
+        "gate" => "passed",
+        "not_publishable_reasons" => ["policy_findings"],
+        "policy_findings" => findings
+      })
+
+    assert admitted == 1
+    assert blocked.fix_rounds == 1
+    assert {:ok, fix} = Custody.claim_next("work:large-policy-report:fix", 60, :work)
+    assert fix.episode.id == claim.episode.id
+    assert {:ok, submission} = Inspectors.submission(fix)
+    assert [current] = submission["context"]["current_inputs"]["items"]
+    content = current["content"]["content"]
+    excerpt = content["review"]["policy_findings"]
+    assert excerpt != []
+    assert length(excerpt) < length(findings)
+    assert content["review"]["policy_findings_count"] == length(findings)
+    assert content["correction_request"] =~ "get_work_state"
+    state = Ryker.Publication.ModelState.snapshot(fix.episode.id, fix.session.repository_ref)
+    assert state["review"]["policy_findings"] == findings
+  end
+
+  test "unresolved safety findings stop after three repairs and name the remaining file" do
+    %{claim: claim, task: task} = task_episode!("policy-capped")
+    %{claim: work} = completed_turn!(claim, "policy-capped", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    finding = "possible secret in lib/token.ex — remove the credential before publication"
+
+    review =
+      refused(work, %{
+        "candidate_retained" => false,
+        "gate" => "passed",
+        "not_publishable_reasons" => ["policy_findings"],
+        "policy_findings" => [finding]
+      })
+
+    for round <- 1..3 do
+      review!(publication, "policy-capped", "r#{round}", review)
+      {_request, blocked} = deliver_review!(publication, "policy-capped", "r#{round}")
+      assert blocked.status == :blocked
+      refute PublicationCustody.approvable?(blocked)
+      assert {:ok, fix} = Custody.claim_next("work:policy-capped:#{round}", 60, :work)
+      finish_turn!(fix, "policy-capped", "fix-#{round}")
+    end
+
+    review!(publication, "policy-capped", "r4", review)
+    {request, blocked} = deliver_review!(publication, "policy-capped", "r4")
+    assert blocked.fix_rounds == 3
+    assert blocked.status == :blocked
+    assert request.document["message"] =~ "I tried to fix it 3 times"
+    assert request.document["message"] =~ "lib/token.ex"
+    assert request.document["message"] =~ "may contain a credential"
+    assert Custody.claim_next("work:policy-capped:after", 60, :work) == {:ok, nil}
+
+    assert {:ok, projection} = TaskCardProjection.page(Repo.get!(Record, task.id))
+    assert projection.document["task_card"]["publication"]["blocked_reason"] =~ "lib/token.ex"
+
+    assert {:ok, rendered} =
+             Renderer.render(
+               put_in(projection.document, ["task_card", "task_ref"], "task-card:policy-capped")
+             )
+
+    assert Jason.encode!(rendered) =~ "lib/token.ex"
+  end
+
+  test "a repair that needs a decision waits with its question visible and does not re-review" do
+    finding = ".github/workflows/deploy.yml — Runs on the project's CI runners."
+
+    %{claim: claim, blocked: publication} =
+      refuse!("policy-question", %{
+        "candidate_retained" => false,
+        "gate" => "passed",
+        "not_publishable_reasons" => ["policy_findings"],
+        "policy_findings" => [finding]
+      })
+
+    assert {:ok, fix} = Custody.claim_next("work:policy-question:fix", 60, :work)
+    fix = bind_remote!(fix)
+
+    question =
+      "The worker's scan blocks workflow edits, and a reply cannot waive it. Should I use the existing workflow, or pause for the policy owner to resolve the restriction?"
+
+    assert {:ok, record} =
+             Records.create(Records.token(fix.turn), "policy-question", "input_request", %{
+               "choices" => [],
+               "question" => question,
+               "remember" => nil
+             })
+
+    final = %{
+      "decision_reason" => nil,
+      "delivery" => "reply",
+      "message" => question,
+      "outcome" => %{
+        "artifact_refs" => [],
+        "record_refs" => [record.ref],
+        "state" => "waiting_for_input"
+      }
+    }
+
+    continuation = %{
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => record.ref,
+      "deadline_at" => nil
+    }
+
+    assert {:ok, result} = Result.new(:reply, final, nil, continuation)
+    settle_result!(fix, "policy-question", "question", final, result)
+
+    assert %{state: :waiting_for_input} = Ryker.Inspectors.episode(claim.episode.key)
+    saved = Repo.get!(Publication, publication.id)
+    assert saved.review_generation == publication.review_generation
+    assert saved.fix_rounds == 1
+    assert saved.status == :blocked
+    assert Custody.claim_next("work:policy-question:after", 60, :work) == {:ok, nil}
+    assert PublicationCustody.claim_next("publication:policy-question:after", 60) == {:ok, nil}
+
+    task = Repo.get_by!(Record, confirmed_episode_id: claim.episode.id, kind: "task_offer")
+    assert {:ok, projection} = TaskCardProjection.page(task)
+    card = projection.document["task_card"]
+    assert card["status"] == "waiting_for_input"
+    assert card["action_needed"] == question
+    refute card["publication"]["automatic_fix"] =~ "Fixing:"
+    assert card["publication"]["controls"] == ["discard"]
   end
 
   # Andrew's request, 2026-09-28: a base branch or working copy that moved
@@ -538,6 +700,11 @@ defmodule Ryker.Publication.FixLoopTest do
       "outcome" => %{"artifact_refs" => [], "record_refs" => record_refs, "state" => "complete"}
     }
 
+    assert {:ok, result} = Result.new(:reply, final)
+    settle_result!(work, suffix, label, final, result)
+  end
+
+  defp settle_result!(work, suffix, label, final, result) do
     candidate = Jason.encode!(final)
     candidate_sha256 = digest(candidate)
 
@@ -552,8 +719,6 @@ defmodule Ryker.Publication.FixLoopTest do
                candidate_sha256,
                1
              )
-
-    assert {:ok, result} = Result.new(:reply, final)
 
     assert {:ok, _intent} =
              Custody.prepare_validation(

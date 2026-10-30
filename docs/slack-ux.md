@@ -627,26 +627,37 @@ host rejects them for nonoperators before any repository or session mutation:
   any existing **Open PR** link, and offers **Retry publication** for that exact recovery
   generation;
 - refused candidate that the task's own work can fix (the repository's checks failed, the change
-  conflicts with the latest base branch, or running the checks changed its files): nobody is asked
+  conflicts with the latest base branch, running the checks changed its files, or the safety scan
+  found an issue): nobody is asked
   to relay the review. The thread gets one line — `The repository's checks failed on the committed
   change. I'm fixing it now, attempt 1 of 3, and I'll check the new change when I'm done.` — and
   the task's work continues in the same session with the review's causes and the failed gate's
-  complete output as a file, as a new turn; its next commit is reviewed like
+  complete output as a file, as a new turn. Safety repairs receive findings and the reviewed
+  commit, with large reports read through `get_work_state`; their next commit must pass an
+  independent scan. The agent cannot approve
+  an exception or weaken the scan. If a required change cannot pass, it asks for a supported
+  alternative scope or approach, or identifies a policy-owner action outside the task; a thread
+  answer cannot waive the scan. Its next commit is reviewed like
   any other. While that runs the card says
   `Fixing: the repository's checks failed · attempt 1 of 3`, reads as working rather than action
-  required, and offers only **Discard candidate**. Ryker tries three times per publication; after
-  that the refusal is delivered as below, and Action needed says
+  required, and offers only **Discard candidate**. If repair needs a decision, the card shows the
+  question and says `Repair paused for your answer.`; it does not claim to be fixing while waiting.
+  Ryker tries three times per publication; after
+  that the refusal is delivered as below, and the publication line says
   `I tried to fix it 3 times; the repository's checks still fail.` A fix round starts only when the
   task is at rest: a refusal that lands while a person's own follow-up runs leaves that turn alone,
   since its commit is reviewed afresh. A review refused only because the base branch or the working
   copy moved, or the working copy was still in use, while it ran is checked again as it is, up to
   three times, with nothing posted;
-- refused candidate that needs a person — a policy finding such as a possible credential (even
-  beside failed checks), a change with no differences from its base, a repository with no checks
-  or checks that could not start, a reason Ryker cannot read, or a fixable one after the three
-  rounds: Action needed names why in plain words (the repository's checks failed, the change
+- refused candidate that needs a person — missing or malformed finding reports,
+  a change with no differences from its base, a reason Ryker cannot read, or a fixable one after
+  the three rounds: the publication line names why in plain words (the repository's checks failed, the change
   conflicts with the latest base branch, the safety scan flagged it, and every other reason Coop's
   review gives) and never Coop's code; only a review that names no cause says none was recorded.
+  Safety refusals name affected files and their reasons, including when the three repair attempts
+  are exhausted. Long lists remain available in the saved review.
+  Missing or unstartable checks alone follow the existing draft-shareability decision and task
+  grant; safety findings still block publication and go through repair first.
   The card offers **Review latest state** and **Discard candidate**. The review message in the
   thread gives the same causes, lists up to five flagged files as code with the problem in Ryker's
   words, and asks the reader to reply in the thread for a fix. It shows no gate or rebase enum and
