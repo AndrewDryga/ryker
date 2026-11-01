@@ -17,4 +17,7 @@ defmodule Ryker.TestSupport.GitHubRequester do
   end
 
   def requests(agent), do: Agent.get(agent, & &1.requests)
+
+  def download(agent, url, maximum_bytes),
+    do: request(agent, :download, url, maximum_bytes, [])
 end

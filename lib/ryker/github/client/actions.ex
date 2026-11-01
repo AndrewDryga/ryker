@@ -1,13 +1,15 @@
 defmodule Ryker.GitHub.Client.Actions do
   @moduledoc """
   GitHub Actions workflow runs, one exact attempt at a time: read the attempt
-  and its bounded jobs, rerun its failed jobs, or cancel it.
+  and its bounded jobs and failed-job log excerpts, rerun its failed jobs, or cancel it.
 
   A rerun or cancel names the attempt it was decided on, and is refused when a
   newer attempt has started or the run is no longer in a state the action
   applies to, so a decision is never carried out against a run nobody saw.
   """
-  alias Ryker.GitHub.Client.{Fields, Transport}
+  alias Ryker.GitHub.Client.{Fields, JobLog, Transport}
+
+  @maximum_log_jobs 3
 
   def read_ci_attempt(client, repository, run_id, attempt) do
     with :ok <- Fields.target(repository, run_id),
@@ -32,12 +34,32 @@ defmodule Ryker.GitHub.Client.Actions do
        %{
          "attempt" => attempt,
          "artifacts_path" => "/repos/#{repository}/actions/runs/#{run_id}/artifacts",
-         "jobs" => jobs,
+         "jobs" => failed_job_logs(client, repository, jobs),
          "repository" => repository,
          "run" => run,
          "run_id" => run_id
        }}
     end
+  end
+
+  defp failed_job_logs(client, repository, jobs) do
+    {jobs, _read} =
+      Enum.map_reduce(jobs, 0, fn job, read ->
+        cond do
+          job["status"] != "completed" or
+              job["conclusion"] not in ~w(failure timed_out action_required) ->
+            {job, read}
+
+          read >= @maximum_log_jobs ->
+            {Map.put(job, "log", %{"state" => "omitted", "reason" => "job_limit"}), read}
+
+          true ->
+            log = JobLog.read(client, repository, job["id"])
+            {Map.put(job, "log", log), read + 1}
+        end
+      end)
+
+    jobs
   end
 
   @doc """

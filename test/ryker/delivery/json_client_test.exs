@@ -22,6 +22,22 @@ defmodule Ryker.Delivery.JSONClientTest do
         "/too-large" ->
           send_resp(conn, 200, String.duplicate("x", 2 * 1_024 * 1_024 + 1))
 
+        "/download" ->
+          send(test_pid, {:download_request, get_req_header(conn, "authorization")})
+          send_resp(conn, 200, "plain job log bytes")
+
+        "/download-redirect" ->
+          send(test_pid, {:download_redirect, get_req_header(conn, "authorization")})
+          conn |> put_resp_header("location", "/download") |> send_resp(302, "")
+
+        "/signed-log" ->
+          conn
+          |> put_resp_header(
+            "location",
+            "https://results.actions.githubusercontent.com/job.txt?sig=private"
+          )
+          |> send_resp(302, "Found. Follow the Location header.")
+
         "/too-large-stream" ->
           conn = send_chunked(conn, 200)
           {:ok, conn} = chunk(conn, String.duplicate("x", 2 * 1_024 * 1_024 + 1))
@@ -49,6 +65,75 @@ defmodule Ryker.Delivery.JSONClientTest do
           |> send_resp(201, Jason.encode!(%{"received" => Jason.decode!(body)}))
       end
     end
+  end
+
+  # Authenticated log downloads begin with a redirect, whose body need not be JSON.
+  # Rejecting its body made a valid signed Location unreadable by the CI evidence path.
+  test "an authenticated non-JSON redirect preserves its download location without following it" do
+    port = unused_port!()
+
+    start_supervised!(
+      Bandit.child_spec(
+        ip: {127, 0, 0, 1},
+        plug: {EchoPlug, self()},
+        port: port,
+        startup_log: false
+      )
+    )
+
+    assert {:ok, client} =
+             JSONClient.new(%{
+               base_url: "http://127.0.0.1:#{port}",
+               finch: Ryker.CoopFinch,
+               receive_timeout: 2_000,
+               token_provider: fn -> {:ok, "trusted-token"} end
+             })
+
+    assert {:ok, %{status: 302, headers: headers}} =
+             JSONClient.request(client, :get, "/signed-log", nil, [])
+
+    assert {"location", "https://results.actions.githubusercontent.com/job.txt?sig=private"} in headers
+  end
+
+  test "signed downloads use no API credentials, never follow redirects and enforce their byte bound" do
+    port = unused_port!()
+
+    start_supervised!(
+      Bandit.child_spec(
+        ip: {127, 0, 0, 1},
+        plug: {EchoPlug, self()},
+        port: port,
+        startup_log: false
+      )
+    )
+
+    assert {:ok, client} =
+             JSONClient.new(%{
+               base_url: "http://127.0.0.1:#{port}",
+               finch: Ryker.CoopFinch,
+               receive_timeout: 2_000,
+               token_provider: fn -> flunk("must not ask for a bearer token") end
+             })
+
+    assert {:ok, %{status: 200, body: "plain job log bytes"}} =
+             JSONClient.download(client, "http://127.0.0.1:#{port}/download", 64)
+
+    assert_receive {:download_request, []}
+
+    assert {:ok, %{status: 302}} =
+             JSONClient.download(client, "http://127.0.0.1:#{port}/download-redirect", 64)
+
+    assert_receive {:download_redirect, []}
+    refute_received {:download_request, _}
+
+    assert JSONClient.download(client, "http://127.0.0.1:#{port}/too-large", 64) ==
+             {:error, {:delivery_protocol_error, :response_too_large}}
+
+    assert {:error, {:invalid_delivery_json_request, _}} =
+             JSONClient.download(client, "http://example.com/log", 64)
+
+    assert {:error, {:invalid_delivery_json_request, _}} =
+             JSONClient.download(client, "https://example.com/log", 0)
   end
 
   test "sends bounded authenticated JSON without exposing token choice to the request" do
