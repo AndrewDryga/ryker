@@ -37,7 +37,7 @@ defmodule Ryker.Delivery.JSONClient do
     end
   end
 
-  @spec request(t(), :get | :patch | :post | :put, String.t(), term() | nil, [
+  @spec request(t(), :get | :patch | :post | :put | :delete, String.t(), term() | nil, [
           {String.t(), String.t()}
         ]) ::
           {:ok, response()} | {:error, term()}
@@ -167,7 +167,7 @@ defmodule Ryker.Delivery.JSONClient do
   defp loopback?(host), do: host in ["127.0.0.1", "localhost", "::1"]
 
   # GitHub review updates and repository content writes require PUT.
-  defp method(method) when method in [:get, :patch, :post, :put], do: :ok
+  defp method(method) when method in [:get, :patch, :post, :put, :delete], do: :ok
   defp method(_method), do: {:error, {:invalid_delivery_json_request, :method}}
 
   defp path(value) do

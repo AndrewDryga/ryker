@@ -241,7 +241,7 @@ defmodule Ryker.Delivery.JSONClientTest do
     assert JSONClient.request(client, :get, "https://attacker.test", nil, []) ==
              {:error, {:invalid_delivery_json_request, :path}}
 
-    assert JSONClient.request(client, :delete, "/v1/example", nil, []) ==
+    assert JSONClient.request(client, :trace, "/v1/example", nil, []) ==
              {:error, {:invalid_delivery_json_request, :method}}
 
     assert {:ok, unavailable} =
@@ -277,6 +277,9 @@ defmodule Ryker.Delivery.JSONClientTest do
 
     assert {:ok, %{body: nil, status: 204}} =
              JSONClient.request(client, :get, "/empty", nil, [])
+
+    assert {:ok, %{body: nil, status: 204}} =
+             JSONClient.request(client, :delete, "/empty", nil, [])
 
     assert {:ok, %{body: "not-json", headers: headers, status: 502}} =
              JSONClient.request(client, :get, "/invalid", nil, [])

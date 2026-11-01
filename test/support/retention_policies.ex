@@ -662,6 +662,12 @@ defmodule Ryker.RetentionPolicies do
       why: "presentation projection for a task episode"
     },
     %{
+      table: "github_processing_reactions",
+      class: :kept,
+      why:
+        "only active or unresolved App reaction custody; the reconciler deletes settled absent rows, and pending cleanup must survive history retention"
+    },
+    %{
       table: "slack_thread_statuses",
       class: :operational,
       why: "current generation-fenced Slack status intent, retry, and delivery receipt"

@@ -1,6 +1,7 @@
 defmodule Ryker.GitHub.RuntimeTest do
   use ExUnit.Case, async: true
-  alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker, Runtime, Server}
+  alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker}
+  alias Ryker.GitHub.{ProcessingReactionWorker, Runtime, Server}
 
   defmodule Requester do
     def request(_client, _method, _path, _document, _headers), do: {:error, :not_used}
@@ -21,6 +22,7 @@ defmodule Ryker.GitHub.RuntimeTest do
     assert Enum.map(children, & &1.id) == [
              InstallationTokens,
              OnboardingWorker,
+             ProcessingReactionWorker,
              Server,
              DeliveryPoller
            ]

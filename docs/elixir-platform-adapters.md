@@ -197,6 +197,26 @@ and `eyes`. A reaction answers one of the turn's current inputs, so `set_github_
 whenever a current input is a GitHub comment that takes one, not only to work that started on
 GitHub: a comment on the pull request of a task started in Slack or Chat can take a reaction too.
 
+Separately, the host adds its App's `eyes` reaction while a live user comment is queued,
+being admitted, being processed, or awaiting reply delivery. This covers issue/PR conversation
+comments and inline review comments, including inputs to work whose progress lives elsewhere.
+Only current revisions and active or queued episode inputs count. Ignored/deleted inputs,
+blocked turns, waits, completion and cancellation clear the indicator. Review summaries and bot
+comments do not receive it. The GitHub runtime reconciles this from PostgreSQL after restart;
+it requires no model tool call or new GitHub permission.
+
+`github_processing_reactions` retains the exact binding, repository, App actor, comment kind,
+comment ID, desired presence, returned reaction ID, lease and retry state. Either write is
+marked uncertain before HTTP. A lost receipt is recovered by repeating the idempotent add when
+presence is uncertain, then deleting that App-owned reaction ID if work has ended. An in-flight receipt never replaces a
+newer desired state. Rate limits honor GitHub's delay without spending attempts. Transient
+failures retry with capped backoff; authorization and validation refusals wait fifteen minutes.
+Cleanup keeps retrying because GitHub reactions do not expire. A missing comment blocks an add
+until desired presence changes; cleanup of a missing comment is already complete.
+Settled absent rows are deleted immediately, while unresolved cleanup survives history retention.
+The App's own eyes on a processing comment is temporary, including an existing eyes returned by
+GitHub; other actors' reactions are never enumerated or removed.
+
 An engineering `request_task` proposal requires a non-null configured Ryker repository
 reference; an incident proposal may use null. The task interface accepts 1–256 letters, digits,
 underscores, dots, colons, or hyphens. A GitHub `owner/repo` name or local checkout path does not

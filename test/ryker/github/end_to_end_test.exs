@@ -8,6 +8,7 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.GitHub.{Auth, Binding, CapabilityTools, Client, Publisher, Router, SourceRef}
+  alias Ryker.GitHub.ProcessingReactionWorker
   alias Ryker.Ingress.Inbox
   alias Ryker.Inspectors
   alias Ryker.Publication.{FollowupDispatcher, LifecycleEvent}
@@ -32,6 +33,21 @@ defmodule Ryker.GitHub.EndToEndTest do
     response = post(payload, "github-delivery-message")
     assert response.status == 202
 
+    {:ok, processing_requester} =
+      GitHubRequester.start([
+        github_response(201, %{"id" => 7_001, "content" => "eyes", "user" => %{"id" => 99}}),
+        github_response(204, nil)
+      ])
+
+    processing_binding = %{
+      client: %Client{http: processing_requester, requester: GitHubRequester},
+      repository_full_name: "octo/example",
+      repository_id: 99,
+      ryker_actor_id: 99
+    }
+
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 1}
+
     {:ok, admission_fake} = FakeCoopAPI.start_link([decision("start_episode")])
 
     assert {:ok, {:decided, admitted}} =
@@ -39,6 +55,7 @@ defmodule Ryker.GitHub.EndToEndTest do
 
     assert admitted.result.entry.source_kind == "github"
     assert admitted.result.episode.destination_transport == "github"
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 0}
 
     assert admitted.result.episode.destination_conversation_ref ==
              "github:github-main:repository:99"
@@ -60,6 +77,7 @@ defmodule Ryker.GitHub.EndToEndTest do
              Dispatcher.run_once(work_options(work_fake, "message"))
 
     assert work_execution.turn.status == :delivery_pending
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 0}
     assert [submitted] = FakeWorkCoopAPI.state(work_fake).submissions
     assert submitted.schema == Final.json_schema()
 
@@ -79,6 +97,13 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert settled.status == :settled
     assert settled.delivery_ref == delivery_ref
     assert settled.external_receipt["message_ref"] == "github:pull_request_review:9100"
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 1}
+
+    assert [
+             {:post, "/repos/octo/example/issues/comments/9001/reactions", _, _},
+             {:delete, "/repos/octo/example/issues/comments/9001/reactions/7001", nil, _}
+           ] =
+             GitHubRequester.requests(processing_requester)
 
     assert [
              {:get, "/repos/octo/example/pulls/42/reviews?per_page=100&page=1", nil, _},
@@ -163,6 +188,21 @@ defmodule Ryker.GitHub.EndToEndTest do
              wakeup_state: :pending
            } = Repo.get_by!(LifecycleEvent, ref: event_ref)
 
+    {:ok, processing_requester} =
+      GitHubRequester.start([
+        github_response(201, %{"id" => 7_003, "content" => "eyes", "user" => %{"id" => 99}}),
+        github_response(204, nil)
+      ])
+
+    processing_binding = %{
+      client: %Client{http: processing_requester, requester: GitHubRequester},
+      repository_full_name: "octo/example",
+      repository_id: 99,
+      ryker_actor_id: 99
+    }
+
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 1}
+
     assert episode_id == episode.id
     assert publication_id == publication.id
 
@@ -206,6 +246,8 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert resumed.destination_thread_ref == "1787832001.000200"
     assert resumed.state == :working
 
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 0}
+
     {:ok, work_fake} =
       FakeWorkCoopAPI.start_link(
         [work_reply("Handled the nil case, added coverage, and updated the review branch.")],
@@ -238,7 +280,8 @@ defmodule Ryker.GitHub.EndToEndTest do
                work_claim.episode.id,
                work_claim.turn.turn_ref,
                work_claim.lease_ref,
-               submission
+               submission,
+               selected_input_refs: work_claim.episode.active_input_refs
              )
 
     work_claim = %{work_claim | turn: frozen_turn}
@@ -263,6 +306,7 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert {:ok, execution} = Executor.run(work_claim, executor_options)
 
     assert execution.turn.status == :delivery_pending
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 0}
     assert execution.turn.session_id == session.id
     assert Repo.aggregate(from(s in Session, where: s.execution_kind == :work), :count, :id) == 1
 
@@ -316,6 +360,13 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert receipt["transport"] == "github"
     assert receipt["thread_ref"] == "github:github-main:pull:42:review-thread:9000"
     assert receipt["message_ref"] == "github:pull_request_review_comment:9200"
+    assert ProcessingReactionWorker.run_once("github-main", processing_binding) == {:ok, 1}
+
+    assert [
+             {:post, "/repos/octo/example/pulls/comments/9003/reactions", _, _},
+             {:delete, "/repos/octo/example/pulls/comments/9003/reactions/7003", nil, _}
+           ] =
+             GitHubRequester.requests(processing_requester)
   end
 
   # Manual test, 2026-10-12: a comment on the pull request of a task started

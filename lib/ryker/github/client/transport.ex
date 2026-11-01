@@ -19,7 +19,7 @@ defmodule Ryker.GitHub.Client.Transport do
   ]
   @default_rate_limit_delay_seconds 60
 
-  @spec request(Client.t(), :get | :post | :put | :patch, String.t(), map() | nil) ::
+  @spec request(Client.t(), :get | :post | :put | :patch | :delete, String.t(), map() | nil) ::
           {:ok, map()} | {:error, term()}
   def request(%Client{http: http, requester: requester}, method, path, document),
     do: requester.request(http, method, path, document, @headers)
