@@ -78,6 +78,12 @@ defmodule Ryker.GitHub.Client do
 
   # --- pull requests --------------------------------------------------------
 
+  defdelegate ensure_processing_reaction(client, repository, kind, comment_id, actor_id),
+    to: Comments
+
+  defdelegate remove_processing_reaction(client, repository, kind, comment_id, reaction_id),
+    to: Comments
+
   @impl true
   defdelegate get_pull_request(client, repository, number), to: PullRequests
 

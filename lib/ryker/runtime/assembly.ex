@@ -915,6 +915,18 @@ defmodule Ryker.Runtime.Assembly do
       runtime: %{
         app_id: settings.github.app_id,
         onboarding: %{},
+        processing_reactions: %{
+          bindings:
+            Map.new(prepared, fn {name, item} ->
+              {name,
+               %{
+                 client: item.delivery_client,
+                 repository_full_name: item.repository.github_repository,
+                 repository_id: item.trusted_binding.repository_id,
+                 ryker_actor_id: item.trusted_binding.ryker_actor_id
+               }}
+            end)
+        },
         server: %{
           bindings: Map.new(prepared, fn {name, item} -> {name, item.trusted_binding} end),
           bot_login: settings.github.app_slug,

@@ -7,7 +7,8 @@ defmodule Ryker.GitHub.Runtime do
   delivery/publication workers can request an installation token.
   """
   use Supervisor
-  alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker, Server}
+  alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker}
+  alias Ryker.GitHub.{ProcessingReactionWorker, Server}
   alias Ryker.Options
 
   @spec start_link(map() | keyword()) :: Supervisor.on_start()
@@ -32,7 +33,14 @@ defmodule Ryker.GitHub.Runtime do
     unless is_integer(app_id) and app_id > 0,
       do: raise(ArgumentError, "GitHub runtime configuration is invalid")
 
-    %{app_id: app_id, onboarding: onboarding, server: server, tokens: tokens}
+    %{
+      app_id: app_id,
+      onboarding: onboarding,
+      server: server,
+      tokens: tokens,
+      processing_reactions:
+        ProcessingReactionWorker.options!(Map.get(configuration, :processing_reactions, %{}))
+    }
   end
 
   @impl Supervisor
@@ -41,6 +49,7 @@ defmodule Ryker.GitHub.Runtime do
       [
         {InstallationTokens, options.tokens},
         {OnboardingWorker, options.onboarding},
+        {ProcessingReactionWorker, options.processing_reactions},
         {Server, options.server},
         # The listener takes what GitHub can reach it with; the poller fetches
         # what GitHub could not deliver, such as to 127.0.0.1.
@@ -59,7 +68,7 @@ defmodule Ryker.GitHub.Runtime do
   defp normalize_configuration!(configuration) do
     Options.normalize!(
       configuration,
-      [:app_id, :onboarding, :server, :tokens],
+      [:app_id, :onboarding, :processing_reactions, :server, :tokens],
       [:app_id, :server, :tokens],
       "GitHub runtime configuration is invalid"
     )

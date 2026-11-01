@@ -163,6 +163,51 @@ defmodule Ryker.GitHub.Client.Comments do
 
   # --- the bounded marker walk ----------------------------------------------
 
+  @doc "Adds or recovers this App's processing indicator, including a lost POST receipt."
+  def ensure_processing_reaction(client, repository, kind, comment_id, actor_id) do
+    with :ok <- Fields.target(repository, comment_id),
+         :ok <- Fields.positive_id(actor_id),
+         {:ok, path} <- reaction_path(repository, kind, comment_id),
+         {:ok, response} <- Transport.request(client, :post, path, %{"content" => "eyes"}) do
+      case response do
+        %{
+          status: status,
+          body: %{"id" => id, "content" => "eyes", "user" => %{"id" => ^actor_id}}
+        }
+        when status in [200, 201] ->
+          valid_comment_id(id)
+
+        %{status: status} when status in [200, 201] ->
+          {:error, {:github_protocol_error, :processing_reaction}}
+
+        other ->
+          Transport.error(other)
+      end
+    end
+  end
+
+  @doc "Removes only the reaction whose App-owned receipt was saved."
+  def remove_processing_reaction(client, repository, kind, comment_id, reaction_id) do
+    with :ok <- Fields.target(repository, comment_id),
+         :ok <- Fields.positive_id(reaction_id),
+         {:ok, path} <- reaction_path(repository, kind, comment_id),
+         {:ok, response} <- Transport.request(client, :delete, "#{path}/#{reaction_id}", nil) do
+      case response do
+        %{status: status} when status in [204, 404] -> :ok
+        other -> Transport.error(other)
+      end
+    end
+  end
+
+  defp reaction_path(repository, "issue_comment", id),
+    do: {:ok, "/repos/#{repository}/issues/comments/#{id}/reactions"}
+
+  defp reaction_path(repository, "pull_request_review_comment", id),
+    do: {:ok, "/repos/#{repository}/pulls/comments/#{id}/reactions"}
+
+  defp reaction_path(_repository, _kind, _id),
+    do: {:error, {:invalid_github_request, :comment_kind}}
+
   defp find_comments(client, path, matcher, page \\ 1) do
     with {:ok, response} <- Transport.request(client, :get, path.(page), nil),
          {:ok, comments} <- comments(response) do
