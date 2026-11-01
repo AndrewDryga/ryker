@@ -63,12 +63,14 @@ defmodule Ryker.Publication.Custody do
         # routed to a channel has no source message: keep that provenance nil.
         attributes = %{
           actor_ref: task.confirmed_by_actor_ref,
+          body: offer.payload["body"],
           occurred_at: turn.accepted_at,
           request_ref: "task-readiness:#{turn.id}",
           target: %{
             message_ref: episode.destination_thread_ref,
             thread_ref: episode.destination_thread_ref
-          }
+          },
+          title: offer.payload["title"]
         }
 
         # Later completed turns belong to the task's existing publication,
@@ -151,6 +153,8 @@ defmodule Ryker.Publication.Custody do
           publication
           |> fresh_review_attributes(now)
           |> Map.merge(%{
+            body: attributes.body,
+            title: attributes.title,
             approval_ref: nil,
             approved_at: nil,
             approved_by_actor_ref: nil,
