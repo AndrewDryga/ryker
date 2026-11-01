@@ -1,0 +1,323 @@
+{
+  "version": 1,
+  "id": "published-update-survives-rebased-commit-and-stale-description",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "01a18df2-508d-79ed-a210-b14212eb01b7"
+    ],
+    "captured_at": "2026-11-01T21:10:28.306834Z"
+  },
+  "clock": {
+    "start": "2026-11-01T20:50:04.000000Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "github:user:github-user:7",
+      "authority": "repository_feedback",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "github-user:7"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "github",
+          "ref": "github-main"
+        },
+        "source_capabilities": {}
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "github:user:github-user:7",
+      "destination": {
+        "conversation_ref": "github:github-main:repository:99",
+        "thread_ref": "github:github-main:pull:91",
+        "transport": "github"
+      },
+      "kind": "input",
+      "occurred_at": "2026-11-01T20:50:04.000000Z",
+      "source_item_ref": "github:issue_comment:9101",
+      "payload": {
+        "text": "Push the updated code!",
+        "retained_task_context": {
+          "requested_correction": "Reuse existing ops-alerts; remove the separate Product webhook setup.",
+          "recorded_local_commit": "1c164fd25f0e6120d875f34d9444d6fe59d9800d",
+          "earlier_status_message": "The change is prepared locally. The pull request is not yet updated. I'm checking publication and will report the published revision or the blocker.",
+          "retained_publication": {
+            "existing_pull_request": {
+              "number": 91,
+              "repository": "example/infra",
+              "url": "https://github.com/example/infra/pull/91"
+            },
+            "followup": {
+              "checks_apply_to_current_review_candidate": "unknown",
+              "checks_failed": 0,
+              "checks_for": "last_observed_pull_request",
+              "checks_passed": 6,
+              "checks_state": "passing",
+              "checks_total": 6,
+              "merge_sha": null,
+              "merged_at": null,
+              "pr_state": "open",
+              "source": "retained_github_followup"
+            },
+            "latest_failure": null,
+            "newer_implementation_recorded": false,
+            "published_at": "2026-11-01T19:27:10.327905Z",
+            "published_revision": {
+              "branch_ref": "refs/heads/ryker/alert-this-channel-on-sustained-product-5a0c61ec54-3",
+              "candidate_tree": "38c155bf05d556e68b4d372513d90dab8a78d7da",
+              "commit_sha": "61706200f50076ef6ffe87df739e89318fde0097",
+              "pull_request_number": 91,
+              "pull_request_url": "https://github.com/example/infra/pull/91",
+              "repository": "infra"
+            },
+            "ref": "publication:01a18dff-1072-7d15-abc1-6a5a0c61ec54",
+            "repository": "infra",
+            "review": {
+              "candidate_head": "61706200f50076ef6ffe87df739e89318fde0097",
+              "candidate_tree": "38c155bf05d556e68b4d372513d90dab8a78d7da",
+              "gate": "passed",
+              "not_publishable_reasons": [],
+              "policy_findings": [],
+              "policy_findings_count": 0,
+              "publishable": true,
+              "rebase": "clean",
+              "reviewed_at": "2026-11-01T19:26:06.680155Z",
+              "session_revision": 2
+            },
+            "review_generation": 4,
+            "status": "published"
+          }
+        }
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [
+      {
+        "id": "current-pr-subject",
+        "tool": "read_github_pull_request",
+        "match": {
+          "number": 91,
+          "section": "subject"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "coverage": {
+                "basis": "provider_page",
+                "continuation_exhausted": false,
+                "limit": 10,
+                "page": 1,
+                "status": "complete"
+              },
+              "items": [
+                {
+                  "additions": 854,
+                  "author": {
+                    "id": 7,
+                    "login": "agent-bot[bot]",
+                    "type": "Bot"
+                  },
+                  "base_ref": "main",
+                  "base_sha": "d5dbbb63a73fd9bf8afefeeb48bb75ddb1b890c4",
+                  "body": "The alert is implemented and committed, but isn\u2019t enabled yet.\n\nReplay against the [saved history](https://example.test/evidence/1c45cf1b6a27) would first fire on October 30 at **01:09 UTC**, about **5 minutes after sustained timeouts began**. That\u2019s 50 minutes after the first isolated timeout, which it deliberately ignores. Duplicate stack lines don\u2019t inflate the signal; brief quiet gaps stay grouped, repeats are hourly, and recovery notifications are enabled.\n\nThe comparison week produced six earlier alerts containing real DB-timeout signatures; their user impact is unknown.\n\nTo enable it, configure a webhook bound to this channel, approve the Terraform apply, then verify actual firing and recovery delivery here. The rollout instructions cover those steps.",
+                  "body_truncated": false,
+                  "changed_files": 9,
+                  "deletions": 0,
+                  "draft": false,
+                  "head_ref": "ryker/alert-this-channel-on-sustained-product-5a0c61ec54-3",
+                  "head_sha": "61706200f50076ef6ffe87df739e89318fde0097",
+                  "id": 7,
+                  "kind": "pull_request",
+                  "merged": false,
+                  "number": 91,
+                  "state": "open",
+                  "title": "Alert this channel on sustained Product DB timeouts",
+                  "updated_at": "2026-11-01T20:51:09Z",
+                  "url": "https://github.com/example/infra/pull/91"
+                }
+              ],
+              "next_cursor": null,
+              "repository": "example/infra",
+              "section": "subject",
+              "subject": {
+                "kind": "pull",
+                "number": 91
+              },
+              "source_ref": "https://github.com/example/infra/pull/91"
+            }
+          }
+        ]
+      },
+      {
+        "id": "current-published-files",
+        "tool": "read_github_pull_request",
+        "match": {
+          "number": 91,
+          "section": "files"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "coverage": {
+                "basis": "provider_page",
+                "continuation_exhausted": false,
+                "limit": 10,
+                "page": 1,
+                "status": "complete"
+              },
+              "items": [
+                {
+                  "additions": 8,
+                  "changes": 8,
+                  "deletions": 0,
+                  "filename": ".github/workflows/static_analysis.yml",
+                  "patch": null,
+                  "status": "modified"
+                },
+                {
+                  "additions": 151,
+                  "changes": 151,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/alerts/PRODUCT-DB-TIMEOUTS.md",
+                  "patch": "@@ -0,0 +1,151 @@\n+# Product production DB timeout alert\n+\n+`region-one-product-db-timeouts` detects the connection-acquire timeout observed in\n+production Product applications. It does not diagnose PostgreSQL's underlying\n+failure or measure total application availability. No database or application\n+settings change with this rule.\n+\n+## Detection and noise controls\n+\n+The generated rule uses the `victorialogs` datasource and this exact LogsQL:\n+\n+```text\n+_time:5m service:in(\"prod-product-server\", \"prod-product-server-engine\", \"prod-product-core\") (\"timeout exceeded when trying to connect\" OR condition:=\"pool_acquire_timeout\") | stats by (service, _time:1m) count() lines | stats by (service) count() affected_minutes | union rows({\"service\":\"prod-product-server\",\"affected_minutes\":0}) | union rows({\"service\":\"prod-product-server-engine\",\"affected_minutes\":0}) | union rows({\"service\":\"prod-product-core\",\"affected_minutes\":0}) | stats by (service) max(affected_minutes) affected_minutes\n+```\n+\n+Evaluate every **1 minute**, threshold **greater than 3 affected minute buckets**,\n+pending **2 minutes**. Retain firing for **15 minutes below threshold** before\n+recovery, bridging short quiet gaps. Each application has its own alert instance;\n+all instances of this rule share one notification group. Repeats are limited to\n+once per hour, with 10-second initial grouping and a 5-minute group interval.\n+Recovery notifications are enabled. Evaluation failures use Grafana's existing\n+separate datasource-error route; no data is OK, never evidence of application\n+health. This is a channel alert, without Better Stack paging.\n+\n+The query emits an explicit zero for each quiet service and takes the maximum\n+with its measured count. Otherwise Grafana's missing-series eviction can bypass\n+the recovery hold when another service continues returning data. Zero means\n+no matching timeout buckets, not verified logging availability or DB health.\n+\n+One repeated failure around a minute boundary occupies at most two buckets,\n+regardless of stack/cause multiplicity. Generic `level:error`, `error:null`,\n+request aborts, provider timeouts and statement timeouts are excluded. A sustained\n+low-volume recurrence is intentionally detected: four affected minutes can be\n+important even if there are few distinct requests. Counts are neither distinct\n+requests nor a failure percentage.\n+\n+Ownership comes from `product-apps-prod/apps.tf` and the services in the local\n+Nomad app module. The newer application classifier in\n+`ExampleTeam/product-server/src/lib/db-errors.ts` emits the exact structured condition\n+`pool_acquire_timeout`; Vector merges structured fields. The legacy phrase is\n+retained for older images, core logs and stack/cause messages. Other DB conditions\n+are outside this timeout-specific change.\n+\n+## Historical replay: October 23\u201330, 2026\n+\n+[Saved seven-day histogram](https://example.test/evidence/1c45cf1b6a27)\n+was observed at **October 30 17:55:29 UTC**. The trailing seven-day window ends\n+then; its first and last calendar days are partial. It contains 2,845 matching\n+lines in 236 occupied minute buckets. Independent\n+[service inventory](https://example.test/evidence/34359fcb3083)\n+finds every matching line in `prod-product-server-engine`, and no additional\n+`pool_acquire_timeout` messages. The committed fixture contains only counts,\n+timestamps and provenance, never request payloads or SQL.\n+\n+[Daily coverage](https://example.test/evidence/d98cfda41008)\n+shows server/engine logs on every day. Core logs are present only on October 27\u201328;\n+this replay cannot establish core timeout absence on its other days. No matching\n+timeout lines were returned on October 25\u201327. Daily coverage does not prove\n+continuous ingestion or full application health.\n+\n+The test loads the exact generated expression into **VictoriaLogs v1.53.0**,\n+the version pinned by this environment, and checks every potentially nonempty\n+historical five-minute window and recovery boundary. Line counts are reproduced\n+at the midpoint of their observed minute; only minute occupancy matters for the\n+replayed UTC-aligned evaluations. A state reducer uses the generated threshold,\n+pending period and recovery hold. Its transitions follow Grafana 13.2.4's\n+[`resultNormal`, `resultAlerting`, `resultNoData`](https://github.com/grafana/grafana/blob/v13.2.4/pkg/services/ngalert/state/state.go)\n+behavior. This is a replay of rule state, not a delivered-notification replay.\n+Actual evaluation phase, ingestion delay and notification transport can shift\n+delivery; no sub-minute historical precision is claimed by the histogram.\n+\n+| Firing UTC | Recovery UTC | Assessment |\n+| --- | --- | --- |\n+| Oct 23 22:23 | Oct 23 22:44 | Repeated connection-acquire timeouts |\n+| Oct 24 02:05 | Oct 24 02:28 | Repeated connection-acquire timeouts |\n+| Oct 28 13:16 | Oct 28 13:37 | Repeated connection-acquire timeouts |\n+| Oct 28 13:57 | Oct 28 14:25 | Repeated connection-acquire timeouts |\n+| Oct 29 07:22 | Oct 29 07:49 | Repeated connection-acquire timeouts |\n+| Oct 29 09:35 | Oct 29 09:51 | Repeated intermittent timeouts; threshold crosses late in burst |\n+| Oct 30 01:09 | Oct 30 04:08 | Requested overnight incident, quiet gaps coalesced |\n+\n+All six additional firing episodes were inspected using the minute counts and\n+[bounded earlier failure-message summaries](https://example.test/evidence/be166f9dba2e).\n+They contain the same actual connection-timeout signature over multiple minutes,\n+not severity-parser false positives. Their user impact is not established; they\n+must not be described as confirmed outages or harmless false alarms. The short\n+October 24 07:57, October 28 09:32\u201309:33 and October 29 12:38 bursts do not fire.\n+Noise behavior is bounded by this available week, not guaranteed for future use.\n+\n+The overnight sustained sequence starts with an\n+[observed timeout at 01:03:54.566 UTC](https://example.test/evidence/6cdc3451621f).\n+The first firing at **01:09:00** is **5 minutes 5.434 seconds** later, before\n+the final observed failure at **03:50:47.561**. Threshold first passes at 01:07.\n+The earlier isolated overnight timeout at **00:18:43.849** precedes firing by\n+**50 minutes 16.151 seconds**; this intentionally does not alert on the first\n+isolated error. Neither timestamp establishes the beginning of downtime.\n+Recovery is delayed until 04:08 by the five-minute lookback and 15-minute hold.\n+\n+## Routing and rollout: operator actions required\n+\n+The reviewer explicitly requested reuse of the existing `ops-alerts` contact\n+point. This replaces the original dedicated-channel setup requirement. The rule\n+uses the existing `DEVOPS_ALERTS_WEBHOOK_URL`; no new webhook, Terraform input or\n+contact point is required. This choice does not establish that the existing\n+contact delivers to the original requesting channel.\n+\n+The policy matches `notification_route=product-db-timeouts`, `part_of=product`\n+and `environment=prod` before shared ownership routes, stops after this receiver,\n+and groups services together. Its 10-second group wait, five-minute group interval\n+and hourly repeats are unchanged. Other alerts and existing contacts are unchanged.\n+\n+1. Review the `region-one-observability` plan and obtain Terraform apply confirmation.\n+   Expect Grafana configuration/job changes only. Do not use `gen_alerts.py --push`\n+   as an approval bypass. No new providers or credentials are required.\n+2. After the approved rollout, inspect Grafana's enabled rule: datasource\n+   `victorialogs`, expression as above, `for=2m`, `keepFiringFor=15m`, group interval\n+   `1m`, error state `Error`, no-data `OK`. Verify the specific policy selects\n+   `ops-alerts` and recovery messages remain enabled. Check the returned service\n+   labels and evaluation health, and that datasource errors still route separately.\n+3. Inspect the existing contact's Slack destination and send an explicitly labelled\n+   contact-point test. Retain the delivered message permalink. A successful API\n+   response alone does not prove delivery. Preview the real rule labels to verify\n+   only the intended contact matches; a contact test alone does not test policy.\n+4. Under separately approved operational testing, exercise firing and recovery\n+   through a temporary test rule with the same labels/grouping, isolated from\n+   application logs. Confirm one grouped firing, bounded repeats and recovery in\n+   the existing contact's destination, then remove the temporary rule. Do not\n+   inject production database failures or change the production threshold.\n+\n+Deployment and actual firing/recovery delivery remain operator verification steps;\n+configuration and fixture tests establish neither. No infrastructure apply or\n+message-delivery test was performed. The\n+[historical rule inventory](https://example.test/evidence/efdd2c9ff08a)\n+at October 30 18:03:16 UTC did not include this new rule; it is not current rollout\n+verification.\n+\n+## Local checks\n+\n+```sh\n+python3 terraform/environments/region-one/observability/nomad/jobs/alerts/gen_alerts.py\n+VICTORIALOGS_BIN=/path/to/victoria-logs-prod \\\n+  python3 -m unittest discover \\\n+    -s terraform/environments/region-one/observability/nomad/jobs/alerts \\\n+    -p 'test_product_db_timeouts.py'\n+```\n+\n+CI installs a checksum-verified v1.53.0 binary and runs these tests alongside the\n+existing generator and webhook-wiring suite. Regression cases cover both log\n+formats, each owned production service, product/environment isolation, severity\n+false positives, boundary duplicates, persistence, recurrence during recovery,\n+resolution, channel-input forwarding and required/invalid input rejection.",
+                  "status": "added"
+                },
+                {
+                  "additions": 276,
+                  "changes": 276,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/alerts/fixtures/product-db-timeouts-2026-10-30.json",
+                  "patch": null,
+                  "status": "added"
+                },
+                {
+                  "additions": 43,
+                  "changes": 43,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/alerts/gen_alerts.py",
+                  "patch": null,
+                  "status": "modified"
+                },
+                {
+                  "additions": 259,
+                  "changes": 259,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/alerts/test_product_db_timeouts.py",
+                  "patch": null,
+                  "status": "added"
+                },
+                {
+                  "additions": 27,
+                  "changes": 27,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/alerts/region-one-policies.yaml",
+                  "patch": "@@ -41,6 +41,33 @@\n             }\n           ]\n         },\n+        {\n+          \"receiver\": \"ops-alerts\",\n+          \"object_matchers\": [\n+            [\n+              \"notification_route\",\n+              \"=\",\n+              \"product-db-timeouts\"\n+            ],\n+            [\n+              \"part_of\",\n+              \"=\",\n+              \"product\"\n+            ],\n+            [\n+              \"environment\",\n+              \"=\",\n+              \"prod\"\n+            ]\n+          ],\n+          \"group_by\": [\n+            \"grafana_folder\",\n+            \"alertname\"\n+          ],\n+          \"group_wait\": \"10s\",\n+          \"group_interval\": \"5m\",\n+          \"repeat_interval\": \"1h\"\n+        },\n         {\n           \"receiver\": \"better-uptime-pages\",\n           \"object_matchers\": [",
+                  "status": "modified"
+                },
+                {
+                  "additions": 88,
+                  "changes": 88,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/alerts/region-one-rules.yaml",
+                  "patch": null,
+                  "status": "modified"
+                },
+                {
+                  "additions": 1,
+                  "changes": 1,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/nomad/jobs/grafana.nomad.hcl",
+                  "patch": null,
+                  "status": "modified"
+                },
+                {
+                  "additions": 1,
+                  "changes": 1,
+                  "deletions": 0,
+                  "filename": "terraform/environments/region-one/observability/variables.tf",
+                  "patch": "@@ -91,6 +91,7 @@ variable \"product_alerts_webhook_url\" {\n   }\n }\n \n+\n variable \"grafana_sentry_auth_token\" {\n   description = <<-EOT\n     Auth token for the Grafana Sentry datasource plugin, paired with the",
+                  "status": "modified"
+                }
+              ],
+              "next_cursor": null,
+              "repository": "example/infra",
+              "section": "files",
+              "subject": {
+                "kind": "pull",
+                "number": 91
+              },
+              "captured_patch_coverage": "Relevant rollout, policy and variable patches retained; other patches omitted. File-list metadata is complete.",
+              "source_ref": "https://github.com/example/infra/pull/91"
+            }
+          }
+        ]
+      }
+    ],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      },
+      {
+        "kind": "state_tool_not_recorded",
+        "tool": "request_task"
+      },
+      {
+        "kind": "state_tool_not_recorded",
+        "tool": "request_input"
+      },
+      {
+        "kind": "state_tool_not_recorded",
+        "tool": "wait_for"
+      }
+    ],
+    "trajectory": [
+      {
+        "kind": "required_tool_call",
+        "tool": "read_github_pull_request",
+        "arguments": {
+          "number": 91,
+          "section": "files"
+        }
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Reports that the requested receiver-reuse update is already published, cites the observed PR and published revision, and does not infer missing changes merely because the recorded local commit differs from the publication commit.",
+        "weight": 4
+      },
+      {
+        "criterion": "Inspects the actual current file evidence: the Product timeout policy uses existing ops-alerts. Recognizes the older description and earlier not-yet-updated message as stale, rather than treating them as proof that code is missing.",
+        "weight": 4
+      },
+      {
+        "criterion": "Does not claim to start another push or publication when there is no new implementation, does not request credentials or approval for an already published update, and does not conflate published code with merge, apply or verified alert delivery.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "smoke",
+    "publication",
+    "reporting",
+    "github"
+  ]
+}

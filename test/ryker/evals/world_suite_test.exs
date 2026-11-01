@@ -22,6 +22,7 @@ defmodule Ryker.Evals.WorldSuiteTest do
         "github-pr-review-remains-in-thread",
         "ordinary-thread-question-gets-natural-answer",
         "proactive-deployment-reviews-plan-before-human-approval",
+        "published-update-survives-rebased-commit-and-stale-description",
         "recurring-dead-letter-investigation-identifies-next-evidence",
         "rivals-engineering-task-offer",
         "status-question-does-not-start-task",
@@ -38,7 +39,7 @@ defmodule Ryker.Evals.WorldSuiteTest do
                paired_baseline: true
              )
 
-    assert length(plan) == 84
+    assert length(plan) == 90
 
     assert Enum.map(plan, &{&1.scenario.id, &1.repeat_index, &1.lane}) ==
              for(

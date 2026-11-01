@@ -16,6 +16,50 @@ defmodule Ryker.Evals.WorldCaseTest do
     missing-project-many-candidates-narrow-first
   )
 
+  test "published-update evidence retains the mismatched commits and stale description beside current code" do
+    assert {:ok, scenario} =
+             WorldCase.fetch("published-update-survives-rebased-commit-and-stale-description")
+
+    assert scenario.provenance["kind"] == "production"
+    assert scenario.host_replay["model_events"] == []
+    assert "smoke" in scenario.tags
+    [event] = scenario.events
+    context = event["payload"]["retained_task_context"]
+    publication = context["retained_publication"]
+    assert publication["status"] == "published"
+    refute publication["newer_implementation_recorded"]
+
+    assert publication["published_revision"]["pull_request_number"] ==
+             publication["existing_pull_request"]["number"]
+
+    refute context["recorded_local_commit"] == publication["published_revision"]["commit_sha"]
+
+    rules = scenario.world["tool_rules"]
+    subject = Enum.find(rules, &(&1["id"] == "current-pr-subject"))
+    files = Enum.find(rules, &(&1["id"] == "current-published-files"))
+
+    assert hd(subject["responses"])["value"]["items"] |> hd() |> Map.fetch!("body") =~
+             "configure a webhook"
+
+    [policy] =
+      Enum.filter(
+        hd(files["responses"])["value"]["items"],
+        &String.ends_with?(&1["filename"], "policies.yaml")
+      )
+
+    assert inspect(policy["patch"]) =~ "ops-alerts"
+
+    assert Enum.any?(
+             scenario.expect["trajectory"],
+             &(&1["tool"] == "read_github_pull_request" and &1["arguments"]["section"] == "files")
+           )
+
+    assert Enum.any?(
+             scenario.expect["hard"],
+             &(&1["kind"] == "state_tool_not_recorded" and &1["tool"] == "request_task")
+           )
+  end
+
   test "the unanswered status question retains unfinished work and a required update trajectory" do
     # Production exhausted its output attempts while withholding a supported
     # status answer behind the original task's unfinished completion review.
@@ -110,7 +154,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 47
+    assert length(scenarios) == 48
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"

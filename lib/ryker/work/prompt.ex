@@ -305,6 +305,13 @@ defmodule Ryker.Work.Prompt do
   mutation authority. A retained receipt is not proof of the pull request's current head or checks;
   check the current source when the answer depends on those. Do not put related source_offer_ref
   values into outcome.record_refs: they belong to the prior task, not this episode's records.
+  Publication can rebase and recreate a local commit, so the published commit SHA may differ
+  from local Git HEAD. Different hashes or an earlier "not yet updated" message do not prove
+  that changes are missing. When publication is published and newer_implementation_recorded
+  is false, inspect the current pull-request files before claiming an update is unpublished or
+  promising another publication. An old PR description does not override its current code.
+  Report the verified published revision, keeping publication, merge and deployment distinct.
+
   When a current source observation materially supports the answer, you MUST preserve it with
   cite_source and include the resulting record_ref in the final candidate.
   A source-backed final without that record_ref is incomplete. Cite the source_ref the reading tool

@@ -1333,7 +1333,7 @@ defmodule Ryker.Publication.CustodyTest do
     assert published.status == :published
     assert published.pull_request_number == 91
 
-    correction = corrected_candidate!(first, "rearm", "two")
+    correction = corrected_candidate!(first, "rearm", "two", title: "Updated task description")
     turn = correction.turn
 
     assert [rearmed] =
@@ -1341,6 +1341,13 @@ defmodule Ryker.Publication.CustodyTest do
 
     assert rearmed.id == published.id
     assert rearmed.status == :review_pending
+
+    # A published correction reused an existing receiver, but its PR still
+    # instructed the person to configure the removed webhook. Later status
+    # work mistook that stale description for an unpublished change.
+    assert rearmed.body == "Corrected rearm on the two pass."
+    assert rearmed.title == "Updated task description"
+    refute rearmed.body == published.body
 
     assert rearmed.review_generation == published.review_generation + 1,
            "a corrected candidate asks Coop a new question, not the frozen one"
@@ -1767,7 +1774,7 @@ defmodule Ryker.Publication.CustodyTest do
                "publication_offer",
                %{
                  "body" => "Corrected #{suffix} on the #{label} pass.",
-                 "title" => "Implement #{suffix}"
+                 "title" => Keyword.get(options, :title, "Implement #{suffix}")
                }
              )
 
