@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.Client.Transport do
   ordinary 403 stays a permanent refusal, and a reply that is not an HTTP
   response at all is a protocol error.
   """
+  alias Ryker.Adapter
   alias Ryker.GitHub.Client
 
   @headers [
@@ -22,6 +23,13 @@ defmodule Ryker.GitHub.Client.Transport do
           {:ok, map()} | {:error, term()}
   def request(%Client{http: http, requester: requester}, method, path, document),
     do: requester.request(http, method, path, document, @headers)
+
+  @doc "Downloads a caller-validated signed resource without forwarding API credentials."
+  def download(%Client{http: http, requester: requester}, url, maximum_bytes) do
+    if Adapter.implements?(requester, download: 3),
+      do: requester.download(http, url, maximum_bytes),
+      else: {:error, :download_not_configured}
+  end
 
   @doc "The error a reply names when it is not the success its caller expected."
   @spec error(term()) :: {:error, term()}

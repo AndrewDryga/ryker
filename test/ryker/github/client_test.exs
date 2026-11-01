@@ -903,6 +903,38 @@ defmodule Ryker.GitHub.ClientTest do
     end
   end
 
+  # A published task asked its operator to paste a CI failure although the App already
+  # had Actions read. Metadata and a logs_path could not tell it which input was missing.
+  # The fixture retains the real failure/run-link bytes with tenant identity substituted.
+  test "a failed CI read includes the actual error and created run link" do
+    sha = String.duplicate("a", 40)
+    log = File.read!("test/fixtures/github/failed-terraform-job.log")
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, workflow_run(91, 2, "completed", sha)),
+        response(200, %{"jobs" => [workflow_job(301, sha)], "total_count" => 1}),
+        {:ok,
+         %{
+           status: 302,
+           body: nil,
+           headers: [
+             {"location",
+              "https://productionresultssa1.blob.core.windows.net/logs/job.txt?sig=private"}
+           ]
+         }},
+        response(200, log)
+      ])
+
+    assert {:ok, evidence} = Client.read_ci_attempt(client(requester), "octo/example", 91, 2)
+    assert [%{"log" => %{"state" => "available", "text" => text}}] = evidence["jobs"]
+    assert text =~ "service_alert_webhook_url"
+    assert text =~ "No value for required variable"
+
+    assert text =~
+             "https://app.terraform.io/app/sample-org/workspaces/sample-observability/runs/run-example123"
+  end
+
   test "reads and acts on only the exact current Actions attempt" do
     sha = String.duplicate("a", 40)
     run = workflow_run(91, 2, "completed", sha)
@@ -914,6 +946,7 @@ defmodule Ryker.GitHub.ClientTest do
           "jobs" => [workflow_job(301, sha)],
           "total_count" => 1
         }),
+        response(403, %{"message" => "Logs unavailable"}),
         response(200, run),
         response(201, %{}),
         response(200, run)
@@ -934,6 +967,171 @@ defmodule Ryker.GitHub.ClientTest do
 
     assert Client.cancel_ci(github, "octo/example", 91, 1) ==
              {:error, {:github_action_unavailable, :stale_attempt}}
+  end
+
+  test "failure excerpts redact before cutting and never return a signed download URL" do
+    sha = String.duplicate("a", 40)
+    signed = "https://productionresultssa1.blob.core.windows.net/logs/job.txt?sig=private"
+
+    body =
+      String.duplicate("old line\n", 130) <>
+        "Authorization: Bearer private-bearer-value\napi_key=private-key-value\n" <>
+        File.read!("test/fixtures/github/failed-terraform-job.log")
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, workflow_run(91, 2, "completed", sha)),
+        response(200, %{"jobs" => [workflow_job(301, sha)], "total_count" => 1}),
+        {:ok, %{status: 302, body: nil, headers: [{"Location", signed}]}},
+        response(200, body)
+      ])
+
+    assert {:ok, evidence} = Client.read_ci_attempt(client(requester), "octo/example", 91, 2)
+
+    assert [
+             %{
+               "log" => %{
+                 "state" => "available",
+                 "redacted" => true,
+                 "truncated" => true,
+                 "text" => text
+               }
+             }
+           ] = evidence["jobs"]
+
+    assert text =~ "[redacted]"
+    assert text =~ "service_alert_webhook_url"
+    refute text =~ "private-bearer-value"
+    refute text =~ "private-key-value"
+    refute Jason.encode!(evidence) =~ "sig=private"
+    assert byte_size(text) <= 24 * 1_024
+    assert length(String.split(text, "\n")) <= 120
+    assert List.last(FakeRequester.requests(requester)) == {:download, signed, 2_097_152, []}
+  end
+
+  test "log failures retain job metadata without exposing API bodies or unsafe destinations" do
+    sha = String.duplicate("a", 40)
+
+    unsafe = [
+      "http://productionresultssa1.blob.core.windows.net/logs/x",
+      "https://evil.example/logs/x",
+      "https://productionresultssa1.blob.core.windows.net.evil.example/logs/x",
+      "https://token@productionresultssa1.blob.core.windows.net/logs/x",
+      "https://productionresultssa1.blob.core.windows.net:444/logs/x",
+      "https://productionresultssa1.blob.core.windows.net/logs/x#fragment"
+    ]
+
+    failures =
+      Enum.map(unsafe, &{:ok, %{status: 302, body: nil, headers: [{"location", &1}]}}) ++
+        [
+          response(403, %{"message" => "private upstream details"}),
+          {:error, {:delivery_transport_unavailable, :timeout}}
+        ]
+
+    for failure <- failures do
+      {:ok, requester} =
+        FakeRequester.start([
+          response(200, workflow_run(91, 2, "completed", sha)),
+          response(200, %{"jobs" => [workflow_job(301, sha)], "total_count" => 1}),
+          failure
+        ])
+
+      assert {:ok, evidence} = Client.read_ci_attempt(client(requester), "octo/example", 91, 2)
+
+      assert [%{"id" => 301, "conclusion" => "failure", "log" => %{"state" => "unavailable"}}] =
+               evidence["jobs"]
+
+      assert length(FakeRequester.requests(requester)) == 3
+      refute Jason.encode!(evidence) =~ "private upstream details"
+    end
+  end
+
+  test "a long multibyte log retains a valid bounded failure tail" do
+    sha = String.duplicate("a", 40)
+
+    body =
+      String.duplicate("界", 30_000) <>
+        "\n" <>
+        File.read!("test/fixtures/github/failed-terraform-job.log")
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, workflow_run(91, 2, "completed", sha)),
+        response(200, %{"jobs" => [workflow_job(301, sha)], "total_count" => 1}),
+        {:ok,
+         %{
+           status: 302,
+           body: nil,
+           headers: [
+             {"location", "https://results.actions.githubusercontent.com/job.txt?sig=private"}
+           ]
+         }},
+        response(200, body)
+      ])
+
+    assert {:ok, evidence} = Client.read_ci_attempt(client(requester), "octo/example", 91, 2)
+    assert [%{"log" => %{"text" => text, "truncated" => true}}] = evidence["jobs"]
+    assert String.valid?(text)
+    assert byte_size(text) <= 24 * 1_024
+    assert text =~ "service_alert_webhook_url"
+    assert text =~ "run-example123"
+  end
+
+  test "expired oversized invalid or redirected downloads are explicit without losing the attempt" do
+    sha = String.duplicate("a", 40)
+
+    for {download, reason} <- [
+          {response(410, "expired signed credential"), "http_error"},
+          {response(302, "second redirect"), "http_error"},
+          {response(200, <<255>>), "invalid_text"},
+          {{:error, {:delivery_protocol_error, :response_too_large}}, "too_large"}
+        ] do
+      {:ok, requester} =
+        FakeRequester.start([
+          response(200, workflow_run(91, 2, "completed", sha)),
+          response(200, %{"jobs" => [workflow_job(301, sha)], "total_count" => 1}),
+          {:ok,
+           %{
+             status: 302,
+             body: nil,
+             headers: [
+               {"location", "https://results.actions.githubusercontent.com/job.txt?sig=private"}
+             ]
+           }},
+          download
+        ])
+
+      assert {:ok, evidence} = Client.read_ci_attempt(client(requester), "octo/example", 91, 2)
+      assert evidence["attempt"] == 2
+      assert [%{"log" => %{"state" => "unavailable", "reason" => ^reason}}] = evidence["jobs"]
+      assert length(FakeRequester.requests(requester)) == 4
+    end
+  end
+
+  test "CI reads fetch only three failed job logs and skip successful or running jobs" do
+    sha = String.duplicate("a", 40)
+
+    jobs =
+      Enum.map(301..304, &workflow_job(&1, sha)) ++
+        [
+          %{workflow_job(305, sha) | "conclusion" => "success"},
+          %{workflow_job(306, sha) | "status" => "in_progress", "conclusion" => nil}
+        ]
+
+    {:ok, requester} =
+      FakeRequester.start(
+        [
+          response(200, workflow_run(91, 2, "completed", sha)),
+          response(200, %{"jobs" => jobs, "total_count" => 6})
+        ] ++ List.duplicate(response(404, %{}), 3)
+      )
+
+    assert {:ok, evidence} = Client.read_ci_attempt(client(requester), "octo/example", 91, 2)
+    assert Enum.count(evidence["jobs"], &(get_in(&1, ["log", "state"]) == "unavailable")) == 3
+    assert get_in(Enum.at(evidence["jobs"], 3), ["log", "state"]) == "omitted"
+    refute Map.has_key?(Enum.at(evidence["jobs"], 4), "log")
+    refute Map.has_key?(Enum.at(evidence["jobs"], 5), "log")
+    assert length(FakeRequester.requests(requester)) == 5
   end
 
   # Audit F10, 2026-10-12: a task that knew its pull request's head but no run

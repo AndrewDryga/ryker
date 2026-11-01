@@ -63,6 +63,32 @@ defmodule Ryker.Delivery.JSONClient do
   def request(_client, _method, _path, _document, _headers),
     do: {:error, {:invalid_delivery_json_request, :client}}
 
+  @doc """
+  Downloads a caller-validated signed URL without an Authorization header or
+  redirects. The caller owns the allowed host; the signed URL is its authority,
+  and the provider's bearer token must never leave its API origin.
+  """
+  @spec download(t(), String.t(), pos_integer()) :: {:ok, response()} | {:error, term()}
+  def download(%__MODULE__{} = client, url, maximum_bytes)
+      when is_binary(url) and maximum_bytes in 1..@maximum_body_bytes do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host, userinfo: nil} when is_binary(host) ->
+        if scheme == "https" or (scheme == "http" and loopback?(host)) do
+          :get
+          |> HTTPClient.build(url)
+          |> HTTPClient.stream(client.finch, client.receive_timeout, maximum_bytes)
+        else
+          {:error, {:invalid_delivery_json_request, :download_url}}
+        end
+
+      _invalid ->
+        {:error, {:invalid_delivery_json_request, :download_url}}
+    end
+  end
+
+  def download(_client, _url, _maximum_bytes),
+    do: {:error, {:invalid_delivery_json_request, :download}}
+
   defp request_body(nil, headers), do: {:ok, nil, headers}
 
   defp request_body(document, headers) do
@@ -74,6 +100,11 @@ defmodule Ryker.Delivery.JSONClient do
         {:error, {:invalid_delivery_json_request, :document}}
     end
   end
+
+  # A redirect's Location is the response; its optional body need not be JSON.
+  # Never follow it here or expose its body as application data.
+  defp decode_response(%{status: status} = response) when status in 300..399,
+    do: {:ok, %{response | body: nil}}
 
   # An error status may carry a non-JSON body, which is returned as text for
   # the caller to report; a success that is not JSON is a protocol error.
