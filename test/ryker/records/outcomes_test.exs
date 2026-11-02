@@ -14,6 +14,41 @@ defmodule Ryker.Records.OutcomesTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # Retained history reached the 15-second transaction deadline before Work
+  # could submit: all 24 candidate transcripts were reauthorized to return six.
+  test "older outcomes beyond the selected six do not expand source custody work" do
+    older = claim_episode!("bounded-old", "Older outcome", "slack:TOUTCOME:CBOUND")
+    complete!(older, "Older result")
+
+    older.episode
+    |> Ecto.Changeset.change(state: :cancelled)
+    |> Repo.update!()
+
+    recent =
+      for n <- 1..6 do
+        claim = claim_episode!("bounded-#{n}", "Recent outcome", "slack:TOUTCOME:CBOUND")
+        complete!(claim, "Recent result #{n}")
+        claim.episode.id
+      end
+
+    probe = claim_episode!("bounded-reader", "Recall outcomes", "slack:TOUTCOME:CBOUND")
+
+    {baseline, baseline_work} =
+      Ryker.QueryWork.statements(fn -> Outcomes.recall(probe.episode) end)
+
+    assert MapSet.new(baseline, & &1["episode_ref"]) == MapSet.new(recent)
+
+    older.episode
+    |> Ecto.Changeset.change(state: :complete)
+    |> Repo.update!()
+
+    {outcomes, work} = Ryker.QueryWork.statements(fn -> Outcomes.recall(probe.episode) end)
+    assert outcomes == baseline
+
+    assert Ryker.QueryWork.count(work, "episode_work_source_exposures") ==
+             Ryker.QueryWork.count(baseline_work, "episode_work_source_exposures")
+  end
+
   # Shared-infrastructure health findings were twice treated as another product's.
   # Routing fences cannot protect a separate history lane that drops its producer's environment.
   test "automatic outcomes stay in the receiver's environment and retain their producer identity" do

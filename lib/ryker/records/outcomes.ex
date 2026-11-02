@@ -28,10 +28,13 @@ defmodule Ryker.Records.Outcomes do
     current_episode
     |> candidate_episodes()
     |> Enum.flat_map(&build_outcome/1)
-    |> Enum.map(&DerivedContext.outcome/1)
-    |> DerivedContext.filter(current_episode, repository, nil)
-    |> Enum.map(& &1["document"])
     |> Enum.sort_by(&sort_key(&1, current_episode), :desc)
+    # A transcript can carry a month of source custody. Authorize only until
+    # the ranked result is full, with each candidate's locks scoped to its
+    # own read rather than one transaction over all 24 transcripts.
+    |> Stream.map(&DerivedContext.outcome/1)
+    |> Stream.flat_map(&DerivedContext.filter([&1], current_episode, repository, nil))
+    |> Stream.map(& &1["document"])
     |> Enum.take(@maximum_outcomes)
   end
 
