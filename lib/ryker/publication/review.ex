@@ -469,14 +469,30 @@ defmodule Ryker.Publication.Review do
 
   defp git_identities(document) do
     if Enum.all?(
-         ~w(candidate_head candidate_tree creation_base parent_head parent_tree source_head source_tree),
+         ~w(creation_base parent_head parent_tree source_head source_tree),
          &GitObject.id?(document[&1])
-       ) do
+       ) and candidate_git_identities?(document) do
       :ok
     else
       {:error, {:invalid_publication_review, :git_identity}}
     end
   end
+
+  # Coop returns before freezing a candidate when rebasing conflicts. The
+  # source and parent still identify the failed review exactly.
+  defp candidate_git_identities?(%{
+         "rebase" => "conflict",
+         "gate" => "not_run",
+         "publishable" => false,
+         "candidate_retained" => false,
+         "candidate_head" => "",
+         "candidate_tree" => "",
+         "not_publishable_reasons" => ["rebase_conflict"]
+       }),
+       do: true
+
+  defp candidate_git_identities?(document),
+    do: GitObject.id?(document["candidate_head"]) and GitObject.id?(document["candidate_tree"])
 
   defp candidate_identity(%{"publishable" => true} = document) do
     with true <- is_nil(snapshot_reason(document)),

@@ -3,6 +3,35 @@ defmodule Ryker.Publication.ReviewTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.Review
 
+  # A recorded conflict review kept retrying every minute because the host
+  # demanded the candidate identities a failed rebase cannot produce. Keep
+  # the harvested decision and empty bytes; use the fixture's public identity.
+  test "a rebase conflict without a candidate reaches correction instead of retrying validation" do
+    document =
+      Map.merge(review_document(), %{
+        "candidate_head" => "",
+        "candidate_tree" => "",
+        "candidate_retained" => false,
+        "gate" => "not_run",
+        "rebase" => "conflict",
+        "publishable" => false,
+        "not_publishable_reasons" => ["rebase_conflict"]
+      })
+
+    assert Review.prepare(document, %{revision: 7, session_id: "session-review"}) ==
+             {:ok, document}
+
+    assert Review.fixable(document) == ["rebase_conflict"]
+    refute Review.draft_shareable?(document)
+
+    for invalid <- [nil, "bad", 42] do
+      assert Review.prepare(Map.put(document, "source_head", invalid), %{
+               revision: 7,
+               session_id: "session-review"
+             }) == {:error, {:invalid_publication_review, :git_identity}}
+    end
+  end
+
   test "publication retains metadata even when Coop includes a large truncated display preview" do
     document =
       review_document()
