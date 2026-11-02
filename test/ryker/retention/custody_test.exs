@@ -15,6 +15,48 @@ defmodule Ryker.Retention.CustodyTest do
 
   @now ~U[2026-08-29 10:00:00.000000Z]
 
+  # A stopped weekly review was reported eligible for hours but skipped by
+  # the locked check forever, keeping readiness red and upgrades failing.
+  test "weekly review cleanup waits for remote stop proof and then claims its session" do
+    review =
+      Repo.insert!(%Ryker.WeeklyReport.Review{
+        identity: String.duplicate("e", 64),
+        conversation_ref: "weekly-retention",
+        period_start: @now,
+        period_end: DateTime.add(@now, 604_800),
+        deadline_at: DateTime.add(@now, 605_100),
+        timezone: "Etc/UTC",
+        status: :rejected,
+        policy: "weekly-review",
+        policy_digest: String.duplicate("a", 64),
+        prompt_sha256: String.duplicate("b", 64)
+      })
+
+    session =
+      Repo.insert!(%Session{
+        execution_kind: :weekly_review,
+        weekly_review_id: review.id,
+        policy: "weekly-review",
+        policy_digest: String.duplicate("a", 64),
+        external_ref: "session:weekly-retention",
+        coop_session_id: "remote-weekly-retention"
+      })
+
+    assert Custody.claim_next("cleanup:weekly", 60) == {:ok, nil}
+
+    review
+    |> Ecto.Changeset.change(
+      remote_stopped_at: Repo.now!(),
+      stop_receipt: %{"kind" => "terminal_turn"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, claim} = Custody.claim_next("cleanup:weekly", 60)
+    assert claim.session.id == session.id
+    assert claim.session.cleanup_status == :close_pending
+    assert claim.owner.id == review.id
+  end
+
   test "only one worker claims an exact terminal owned session" do
     active = session!("active")
     terminal = terminal_session!("terminal")

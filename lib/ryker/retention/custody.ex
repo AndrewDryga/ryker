@@ -25,6 +25,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
   alias Ryker.Retention.{Cleanup, Creation, Plan}
+  alias Ryker.WeeklyReport
   alias Ryker.Work
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
@@ -39,6 +40,7 @@ defmodule Ryker.Retention.Custody do
             | Improvement.AnalysisRun.t()
             | RepositoryKnowledge.Run.t()
             | Work.CompletionReview.Run.t()
+            | WeeklyReport.Review.t()
             | Ingress.Inbox.Entry.t()
             | :ready_pool,
           lease_ref: String.t(),
@@ -549,6 +551,8 @@ defmodule Ryker.Retention.Custody do
 
   defp owner_finished?(%Work.CompletionReview.Run{remote_stopped_at: %DateTime{}}, _session),
     do: true
+
+  defp owner_finished?(%WeeklyReport.Review{remote_stopped_at: %DateTime{}}, _session), do: true
 
   defp owner_finished?(%Ingress.Inbox.Entry{status: status}, _session)
        when status in [:decided, :superseded],
