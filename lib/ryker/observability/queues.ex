@@ -135,7 +135,18 @@ defmodule Ryker.Observability.Queues do
   # learning backlog can never be counted differently by the two owners, and so
   # conversation plus grace time is never reported as cleanup stall.
   defp retention(now) do
-    base = Retention.Cleanup.Query.eligible(now)
+    with {:ok, protected} <- Reads.protected_retention_wait_session_ids(now) do
+      retention(now, protected)
+    end
+  end
+
+  defp retention(now, protected) do
+    base =
+      Retention.Cleanup.Query.excluding_session_ids(
+        Retention.Cleanup.Query.eligible(now),
+        protected
+      )
+
     claimable = Retention.Cleanup.Query.unleased_at(base, now)
     active = Retention.Cleanup.Query.leased_at(base, now)
 

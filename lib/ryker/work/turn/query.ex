@@ -85,6 +85,10 @@ defmodule Ryker.Work.Turn.Query do
   def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [episode_work_turns: t], desc: t.updated_at, desc: t.id)
 
+  @doc "The latest turn of this session, including blocked or superseded turns."
+  def latest_by_session_id(session_id),
+    do: session_id |> by_session_id() |> ordered_by_recent() |> limit(1)
+
   @doc "Episode `episode_id`'s owning turn while it waits, unleased, to start."
   def waiting_owner(episode_id) do
     from(t in all(),

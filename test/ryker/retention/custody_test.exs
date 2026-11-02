@@ -57,6 +57,261 @@ defmodule Ryker.Retention.CustodyTest do
     assert claim.owner.id == review.id
   end
 
+  # One waiting session held sixteen full companion histories for days. Closing
+  # idle execution must release those copies without erasing the conversation.
+  test "a settled read-only wait closes after grace and retains its primary until replaced" do
+    {session, _turn} = waiting_session!("idle-read-only")
+    assert {:ok, %{session: _} = claim} = Custody.claim_next("cleanup:idle", 60)
+    assert claim.session.id == session.id
+    assert {:ok, _grace} = Custody.begin_grace(session.id, claim.lease_ref, 0)
+    assert {:ok, close} = Custody.claim_next("cleanup:idle-close", 60)
+    assert {:ok, closed} = Custody.mark_closed(session.id, close.lease_ref)
+    assert closed.closed_at
+    assert closed.cleanup_status == :plan_pending
+    assert Custody.claim_next("cleanup:keep-primary", 60) == {:ok, nil}
+
+    assert {:ok, resumed} =
+             WorkSessions.pin_episode(session.episode_id, session.policy, session.policy_digest)
+
+    assert resumed.generation == session.generation + 1
+    assert resumed.cleanup_status == :active
+    assert resumed.closed_at == nil
+    assert {:ok, old} = Custody.claim_next("cleanup:replaced-wait", 60)
+    assert old.session.id == session.id
+  end
+
+  test "waiting cleanup requires the latest accepted turn and durable read-only authority" do
+    for reason <- [
+          :unaccepted,
+          :blocked,
+          :superseded,
+          :queued_input,
+          :unproven_job,
+          :writable_job
+        ] do
+      {session, turn} = waiting_session!("idle-#{reason}")
+
+      case reason do
+        :unaccepted ->
+          Repo.update!(
+            Ecto.Changeset.change(turn,
+              status: :blocked,
+              accepted_at: nil,
+              validation_intent: nil,
+              validation_intent_fingerprint: nil,
+              validation_receipt: nil,
+              result_ref: nil,
+              continuation: nil
+            )
+          )
+
+        status when status in [:blocked, :superseded] ->
+          Repo.update!(Ecto.Changeset.change(turn, status: status))
+
+        :queued_input ->
+          episode = Repo.get!(Episodes.Episode, session.episode_id)
+
+          Repo.update!(
+            Ecto.Changeset.change(episode,
+              queued_input_refs: ["input:queued"],
+              queued_input_order_keys: ["1"]
+            )
+          )
+
+        :unproven_job ->
+          Repo.update!(
+            Ecto.Changeset.change(session, worker_job_digest: String.duplicate("0", 64))
+          )
+
+        :writable_job ->
+          job = Map.put(session.worker_job_document, "repository_read_only", false)
+
+          Repo.update!(
+            Ecto.Changeset.change(session,
+              worker_job_document: job,
+              worker_job_digest: CanonicalJSON.worker_digest(job)
+            )
+          )
+      end
+
+      assert Custody.claim_next("cleanup:unsafe-wait", 60) == {:ok, nil}, "claimed #{reason}"
+      assert Custody.eligible_copies(Repo.now!(), 10) == {[], 0}
+    end
+  end
+
+  # Twenty-five rejected candidates used to exhaust every poll's pass-over
+  # budget and make readiness red while valid cleanup behind them never ran.
+  test "protected waits cannot starve later cleanup or inflate readiness backlog" do
+    for index <- 1..25 do
+      {session, _turn} = waiting_session!("protected-prefix-#{index}")
+      Repo.update!(Ecto.Changeset.change(session, worker_job_digest: String.duplicate("0", 64)))
+    end
+
+    assert Custody.eligible_copies(Repo.now!(), 10) == {[], 0}
+    assert {:ok, queues} = Ryker.Observability.Queues.snapshot(Repo.now!())
+    assert Enum.find(queues, &(&1.name == :retention)).claimable == 0
+    terminal = terminal_session!("after-protected-waits")
+    assert {:ok, %{session: claimed}} = Custody.claim_next("cleanup:after-protected", 60)
+    assert claimed.id == terminal.id
+  end
+
+  test "a newer blocked turn prevents closing an older accepted wait" do
+    {session, turn} = waiting_session!("latest-blocked")
+
+    Repo.insert!(%Ryker.Work.Turn{
+      episode_id: session.episode_id,
+      session_id: session.id,
+      turn_ref: "turn:newer-blocked",
+      status: :blocked,
+      inserted_at: DateTime.add(turn.inserted_at, 1)
+    })
+
+    assert Custody.claim_next("cleanup:newer-blocked", 60) == {:ok, nil}
+  end
+
+  test "a waiting session resumes in grace and queued input fences an in-flight close" do
+    {session, _turn} = waiting_session!("wait-grace")
+    assert {:ok, %{session: _} = claim} = Custody.claim_next("cleanup:wait-grace", 60)
+    episode = Repo.get!(Episodes.Episode, session.episode_id)
+
+    episode =
+      Repo.update!(
+        Ecto.Changeset.change(episode,
+          queued_input_refs: ["input:queued"],
+          queued_input_order_keys: ["1"]
+        )
+      )
+
+    assert Custody.mark_closed(session.id, claim.lease_ref) == {:error, :retention_lease_lost}
+
+    Repo.update!(
+      Ecto.Changeset.change(episode, queued_input_refs: [], queued_input_order_keys: [])
+    )
+
+    assert {:ok, _grace} = Custody.begin_grace(session.id, claim.lease_ref, 900)
+
+    assert {:ok, resumed} =
+             WorkSessions.pin_episode(session.episode_id, session.policy, session.policy_digest)
+
+    assert resumed.id == session.id
+    assert resumed.cleanup_status == :active
+  end
+
+  test "a writable wait requires the exact latest candidate checkpoint and its retained body" do
+    root = Path.join(System.tmp_dir!(), "ryker-wait-checkpoint-#{Ecto.UUID.generate()}")
+    previous = System.get_env("RYKER_STATE_DIR")
+    System.put_env("RYKER_STATE_DIR", root)
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("RYKER_STATE_DIR", previous),
+        else: System.delete_env("RYKER_STATE_DIR")
+
+      File.rm_rf!(root)
+    end)
+
+    {session, turn} = waiting_session!("writable-checkpoint")
+    job = Map.put(session.worker_job_document, "repository_read_only", false)
+
+    session =
+      Repo.update!(
+        Ecto.Changeset.change(session,
+          worker_job_document: job,
+          worker_job_digest: CanonicalJSON.worker_digest(job),
+          workspace_task: %{"offer_ref" => "task:waiting-checkpoint"}
+        )
+      )
+
+    assert Custody.claim_next("cleanup:no-checkpoint", 60) == {:ok, nil}
+    unbound = Repo.update!(Ecto.Changeset.change(session, coop_session_id: nil))
+    create = create_command!(unbound, "writable-checkpoint")
+    Repo.update!(Ecto.Changeset.change(unbound, coop_session_id: session.coop_session_id))
+    # Retry generation is part of the checkpoint identity, just like the candidate.
+    turn = Repo.update!(Ecto.Changeset.change(turn, checkpoint_retry_generation: 2))
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               create.placement_id,
+               "checkpoint_workspace",
+               %{},
+               Ryker.Work.OperationKeys.checkpoint(turn)
+             )
+
+    command =
+      Repo.update!(
+        Ecto.Changeset.change(command,
+          status: :succeeded,
+          result: %{"status" => 200},
+          completed_at: Repo.now!(),
+          result_fingerprint: String.duplicate("a", 64)
+        )
+      )
+
+    bundle = :binary.copy(<<3>>, 4096)
+    reference = %{"sha256" => Ryker.Crypto.sha256_hex(bundle), "byte_size" => byte_size(bundle)}
+    key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
+
+    transfer =
+      Repo.insert!(%Ryker.CoopFleet.WorkspaceCheckpointTransfer{
+        command_id: command.id,
+        body_command_id: command.id,
+        session_ref: session.id,
+        repository_ref: session.repository_ref,
+        checkpoint_ref: "checkpoint:waiting",
+        worker_id: command.worker_id,
+        placement_generation: command.placement_generation,
+        descriptor: %{"version" => 2, "checkpoint_ref" => "checkpoint:waiting"},
+        bundle_sha256: reference["sha256"],
+        bundle_byte_size: reference["byte_size"],
+        encryption_key_sha256: Ryker.Crypto.sha256_hex(Ryker.Secret.reveal(key))
+      })
+
+    assert Custody.claim_next("cleanup:missing-body", 60) == {:ok, nil}
+    assert Custody.eligible_copies(Repo.now!(), 10) == {[], 0}
+
+    assert Ryker.CoopFleet.Bodies.put(
+             Path.join(root, "worker-bodies"),
+             command.id,
+             :response,
+             reference,
+             [bundle],
+             key
+           ) == :ok
+
+    transfer = Repo.update!(Ecto.Changeset.change(transfer, session_ref: Ecto.UUID.generate()))
+    assert Custody.claim_next("cleanup:wrong-source", 60) == {:ok, nil}
+    Repo.update!(Ecto.Changeset.change(transfer, session_ref: session.id))
+    turn = Repo.update!(Ecto.Changeset.change(turn, checkpoint_retry_generation: 3))
+    assert Custody.claim_next("cleanup:older-checkpoint", 60) == {:ok, nil}
+    Repo.update!(Ecto.Changeset.change(turn, checkpoint_retry_generation: 2))
+    assert {:ok, %{session: claimed}} = Custody.claim_next("cleanup:saved-checkpoint", 60)
+    assert claimed.id == session.id
+  end
+
+  test "resuming between a waiting close request and its reply cannot close the successor" do
+    {session, _turn} = waiting_session!("idle-close-race")
+    assert {:ok, %{session: _} = claim} = Custody.claim_next("cleanup:idle-race", 60)
+    episode = Repo.get!(Episodes.Episode, session.episode_id)
+
+    Repo.update!(
+      Ecto.Changeset.change(episode,
+        state: :working,
+        owner_kind: :turn,
+        owner_ref: "turn:resumed"
+      )
+    )
+
+    assert Custody.mark_closed(session.id, claim.lease_ref) == {:error, :retention_lease_lost}
+
+    assert {:ok, successor} =
+             WorkSessions.pin_episode(session.episode_id, session.policy, session.policy_digest)
+
+    assert successor.id != session.id
+    assert {:ok, closed} = Custody.mark_closed(session.id, claim.lease_ref)
+    assert closed.closed_at
+    assert Repo.get!(Session, successor.id).closed_at == nil
+  end
+
   test "only one worker claims an exact terminal owned session" do
     active = session!("active")
     terminal = terminal_session!("terminal")
@@ -693,6 +948,64 @@ defmodule Ryker.Retention.CustodyTest do
     assert rotated.cleanup_status == :active
   end
 
+  defp waiting_session!(suffix) do
+    session = session!(suffix)
+    assert {:ok, _claim} = Ryker.Work.Custody.claim_next("work:#{suffix}", 60, :work)
+
+    job =
+      session.external_ref
+      |> Ryker.Fixtures.WorkerJob.build(session.repository_ref)
+      |> Map.put("repository_read_only", true)
+
+    session =
+      Repo.update!(
+        Ecto.Changeset.change(session,
+          worker_job_document: job,
+          worker_job_digest: CanonicalJSON.worker_digest(job)
+        )
+      )
+
+    episode = Repo.get!(Episodes.Episode, session.episode_id)
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.accept_result(%{
+                 episode_key: episode.key,
+                 expected_turn_ref: episode.owner_ref,
+                 occurred_at: DateTime.add(@now, 1),
+                 result_ref: "result:#{suffix}",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 decision_reason: "Waiting for an event."
+               })
+               |> Map.put(:next_wait, %{kind: :event, ref: "wait:#{suffix}", deadline_at: nil})
+             )
+
+    turn = Repo.one!(from(t in Ryker.Work.Turn, where: t.session_id == ^session.id))
+
+    turn =
+      Repo.update!(
+        Ecto.Changeset.change(turn,
+          status: :settled,
+          lease_ref: nil,
+          lease_owner: nil,
+          lease_expires_at: nil,
+          next_attempt_at: nil,
+          accepted_at: Repo.now!(),
+          candidate: "{}",
+          candidate_sha256: String.duplicate("c", 64),
+          candidate_attempt: 1,
+          validation_intent: %{},
+          validation_intent_fingerprint: String.duplicate("d", 64),
+          validation_receipt: "accepted",
+          result_ref: "result:#{suffix}",
+          continuation: %{}
+        )
+      )
+
+    {session, turn}
+  end
+
   defp session!(suffix) do
     id = Ecto.UUID.generate()
     key = "retention:#{suffix}:#{id}"
@@ -784,7 +1097,7 @@ defmodule Ryker.Retention.CustodyTest do
                placement.id,
                "create_session",
                %{
-                 "external_ref" => session.external_ref,
+                 "external_ref" => Session.coop_task_ref(session),
                  "job" => session.worker_job_document,
                  "job_digest" => session.worker_job_digest
                },

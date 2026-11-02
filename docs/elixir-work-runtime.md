@@ -948,6 +948,18 @@ grace period, fetches an exact discard plan, and then:
 - retains dirty or unpublished work for an operator; and
 - blocks on crossed session identity, authority, or ambiguous cleanup instead of guessing.
 
+Waiting episodes can also close idle execution after the same grace period. Their latest session
+turn must be settled and accepted, with no queued input, unfinished turn or pending publication.
+The frozen worker job must prove a read-only or workspace-free session; a writable task instead
+requires the successful checkpoint for that exact candidate and retry generation, with its version-2
+transfer and retained bundle. These checks repeat under the owner and session locks.
+
+Closing a wait retains the primary workspace and episode history. Coop's periodic maintenance can
+then reclaim each clean, independently proven companion copy, even if the primary contains unpublished
+work. A reply during unleased grace reuses the session; after cleanup starts, Work creates a successor
+and writable tasks restore their checkpoint. The old primary becomes eligible for normal discard only
+when the episode finishes or a newer generation replaces it. Other writable sessions remain open.
+
 A publication someone discarded is finished: cleanup and history retention wait only for one that
 may still publish. Commits it never published keep its workspace retained, as any others do.
 

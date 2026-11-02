@@ -12,6 +12,7 @@ defmodule Ryker.Observability.Reads do
   """
   alias Ryker.Observability.Projection
   alias Ryker.Repo
+  alias Ryker.Retention
 
   @type failure ::
           {:observability_query_failed, String.t()}
@@ -26,6 +27,10 @@ defmodule Ryker.Observability.Reads do
   catch
     :exit, reason -> {:error, {:observability_query_failed, :exit, inspect(reason)}}
   end
+
+  @doc "Protected waiting copies, including their filesystem-backed recovery proof."
+  def protected_retention_wait_session_ids(now),
+    do: read(fn -> Retention.Custody.protected_wait_session_ids(now) end)
 
   @spec one(Ecto.Queryable.t()) :: {:ok, term()} | {:error, failure()}
   def one(query), do: read(fn -> Repo.peek(query) end)

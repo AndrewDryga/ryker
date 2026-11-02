@@ -96,7 +96,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Query do
       on: c.id == t.command_id,
       where:
         c.session_id == ^session_id and c.idempotency_key == ^idempotency_key and
-          c.status == :succeeded and
+          c.kind == "checkpoint_workspace" and c.status == :succeeded and
           fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", c.result)
     )
   end

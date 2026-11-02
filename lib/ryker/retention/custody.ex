@@ -5,7 +5,8 @@ defmodule Ryker.Retention.Custody do
   Cleanup is eligible only after the owning episode and every local Work turn
   are terminal, the owning learning, self-analysis or repository knowledge
   run has exact remote stop proof, an
-  admission input has finished or advanced past that session generation, or a
+  admission input has finished or advanced past that session generation, a
+  recoverable wait can close idle execution while retaining its primary, or a
   routing session started ahead of time was retired before any message
   claimed it (`Ryker.Admission.ReadySessions`); no publication that may still
   publish depends on the session.
@@ -54,7 +55,11 @@ defmodule Ryker.Retention.Custody do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds),
          {:ok, exclude} <- exclusions(exclude) do
-      Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds, exclude) end)
+      Repo.transaction(fn ->
+        protected = protected_wait_session_ids(Repo.now!())
+        exclude = Map.update!(exclude, :session_ids, &Enum.uniq(&1 ++ protected))
+        claim_locked(worker_ref, lease_seconds, exclude)
+      end)
     end
   end
 
@@ -65,7 +70,12 @@ defmodule Ryker.Retention.Custody do
   @spec eligible_copies(DateTime.t(), pos_integer()) ::
           {[{Work.Session.t(), DateTime.t()}], non_neg_integer()}
   def eligible_copies(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
-    copies = Cleanup.Query.working_copies(now)
+    copies =
+      Cleanup.Query.excluding_session_ids(
+        Cleanup.Query.working_copies(now),
+        protected_wait_session_ids(now)
+      )
+
     next = copies |> Cleanup.Query.oldest_due_first(limit) |> Repo.all()
     {next, Repo.aggregate(copies, :count)}
   end
@@ -80,6 +90,17 @@ defmodule Ryker.Retention.Custody do
         freeze_close_locked(session, revision)
       end)
     end
+  end
+
+  @doc "Waiting copies whose SQL candidate lacks local recovery proof; never count these as stalled cleanup."
+  @spec protected_wait_session_ids(DateTime.t()) :: [Ecto.UUID.t()]
+  def protected_wait_session_ids(%DateTime{} = now) do
+    now
+    |> Cleanup.Query.eligible()
+    |> Cleanup.Query.waiting_owners()
+    |> Repo.all()
+    |> Enum.reject(fn {session, episode} -> suspendable_wait?(episode, session) end)
+    |> Enum.map(fn {session, _episode} -> session.id end)
   end
 
   @spec begin_grace(Ecto.UUID.t(), String.t(), non_neg_integer()) ::
@@ -538,8 +559,10 @@ defmodule Ryker.Retention.Custody do
       claimable_status?(session, now)
   end
 
-  defp owner_finished?(%Episodes.Episode{state: state}, session),
-    do: state in @terminal_episode_states or replaced_work_session?(session)
+  defp owner_finished?(%Episodes.Episode{state: state} = episode, session) do
+    state in @terminal_episode_states or replaced_work_session?(session) or
+      suspendable_wait?(episode, session)
+  end
 
   defp owner_finished?(%Learning.LearningRun{remote_stopped_at: %DateTime{}}, _session), do: true
 
@@ -571,6 +594,44 @@ defmodule Ryker.Retention.Custody do
        do: true
 
   defp owner_finished?(_owner, _session), do: false
+
+  defp suspendable_wait?(
+         %Episodes.Episode{state: state, queued_input_refs: []},
+         %Work.Session{execution_kind: :work, closed_at: nil} = session
+       )
+       when state in [:waiting_for_input, :waiting_for_event] do
+    with {:ok, _session} <- CoopFleet.JobAuthority.validate(session),
+         {:ok, %Work.Turn{status: :settled, accepted_at: %DateTime{}} = turn} <-
+           Repo.fetch(Work.Turn.Query.latest_by_session_id(session.id)) do
+      is_nil(session.repository_ref) or
+        session.worker_job_document["repository_read_only"] == true or
+        (is_map(session.workspace_task) and retained_wait_checkpoint?(session, turn))
+    else
+      _unsafe -> false
+    end
+  end
+
+  defp suspendable_wait?(_owner, _session), do: false
+
+  defp retained_wait_checkpoint?(session, turn) do
+    session.id
+    |> CoopFleet.WorkspaceCheckpointTransfer.Query.saved_by(Work.OperationKeys.checkpoint(turn))
+    |> Repo.all()
+    |> Enum.any?(fn checkpoint ->
+      checkpoint.session_ref == session.id and checkpoint.repository_ref == session.repository_ref and
+        checkpoint.descriptor["version"] == 2 and
+        checkpoint.descriptor["checkpoint_ref"] == checkpoint.checkpoint_ref and
+        match?(
+          {:ok, _, _},
+          CoopFleet.Bodies.fetch(
+            Path.join(Ryker.Bootstrap.storage_root!(), "worker-bodies"),
+            checkpoint.body_command_id,
+            :response,
+            %{"sha256" => checkpoint.bundle_sha256, "byte_size" => checkpoint.bundle_byte_size}
+          )
+        )
+    end)
+  end
 
   defp replaced_work_session?(%Work.Session{execution_kind: :work} = session),
     do: Repo.exists?(Work.Session.Query.newer_work_sessions(session))
@@ -963,7 +1024,8 @@ defmodule Ryker.Retention.Custody do
 
     now = Repo.now!()
 
-    if owner_finished?(owner, session) and session.cleanup_status in statuses and
+    if owner_finished?(owner, session) and not unfinished_turn?(session.id) and
+         not pending_publication?(session.id) and session.cleanup_status in statuses and
          Lease.held?(session.cleanup_lease_ref, session.cleanup_lease_expires_at, lease_ref, now) do
       {session, now}
     else

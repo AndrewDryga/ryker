@@ -170,6 +170,24 @@ defmodule Ryker.Retention.Cleanup.Query do
     )
   end
 
+  @doc "Waiting owners that need the local recoverability check, excluding replaced generations."
+  def waiting_owners(queryable) do
+    waiting =
+      dynamic(
+        [episode_work_sessions: session, episode_kernel_episodes: episode],
+        session.execution_kind == :work and
+          episode.state in [:waiting_for_input, :waiting_for_event] and not (^work_finished())
+      )
+
+    from([episode_work_sessions: session, episode_kernel_episodes: episode] in queryable,
+      where: ^waiting,
+      select: {session, episode}
+    )
+  end
+
+  def excluding_session_ids(queryable, ids),
+    do: where(queryable, [episode_work_sessions: s], s.id not in ^ids)
+
   @doc "The earliest moment one of `queryable`'s sessions, an `eligible/1` query, became claimable."
   def select_oldest_eligible_at(queryable) do
     from(
@@ -373,7 +391,7 @@ defmodule Ryker.Retention.Cleanup.Query do
 
   defp owner_finished do
     dynamic(
-      ^work_finished() or ^learning_finished() or ^improvement_finished() or
+      ^work_finished() or ^work_waiting() or ^learning_finished() or ^improvement_finished() or
         ^knowledge_finished() or ^review_finished() or ^weekly_review_finished() or
         ^admission_finished() or ^ready_retired()
     )
@@ -397,6 +415,83 @@ defmodule Ryker.Retention.Cleanup.Query do
                select: 1
              )
            ))
+    )
+  end
+
+  # Only close the idle runtime. Once closed, the primary stays until the
+  # ordinary terminal/replacement branch permits planning its discard.
+  defp work_waiting do
+    latest =
+      from(turn in Work.Turn,
+        as: :waiting_latest_turn,
+        where: turn.session_id == parent_as(:episode_work_sessions).id,
+        where: turn.status == :settled and not is_nil(turn.accepted_at),
+        where:
+          not exists(
+            from(newer in Work.Turn,
+              where: newer.session_id == parent_as(:waiting_latest_turn).session_id,
+              where:
+                fragment(
+                  "(?, ?) > (?, ?)",
+                  newer.inserted_at,
+                  newer.id,
+                  parent_as(:waiting_latest_turn).inserted_at,
+                  parent_as(:waiting_latest_turn).id
+                ),
+              select: 1
+            )
+          ),
+        where:
+          is_nil(parent_as(:episode_work_sessions).repository_ref) or
+            fragment(
+              "(?::jsonb -> 'repository_read_only') = 'true'::jsonb",
+              parent_as(:episode_work_sessions).worker_job_document
+            ) or
+            (not is_nil(parent_as(:episode_work_sessions).workspace_task) and
+               exists(subquery(wait_checkpoints()))),
+        select: 1
+      )
+
+    dynamic(
+      [episode_work_sessions: session, episode_kernel_episodes: episode],
+      session.execution_kind == :work and is_nil(session.closed_at) and
+        episode.state in [:waiting_for_input, :waiting_for_event] and
+        episode.queued_input_refs == [] and exists(subquery(latest))
+    )
+  end
+
+  defp wait_checkpoints do
+    from(checkpoint in CoopFleet.WorkspaceCheckpointTransfer,
+      join: command in CoopFleet.Command,
+      on: command.id == checkpoint.command_id,
+      where: command.session_id == parent_as(:episode_work_sessions).id,
+      where: command.kind == "checkpoint_workspace" and command.status == :succeeded,
+      where:
+        fragment(
+          "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+          command.result
+        ),
+      # The persisted operation key is also recomputed under the owner/session locks.
+      where:
+        command.idempotency_key ==
+          fragment(
+            "concat('ryker:work:checkpoint:', ?::text, ':a', ?::text, ':', ?, CASE WHEN ? = 0 THEN '' ELSE concat(':r', ?::text) END)",
+            parent_as(:waiting_latest_turn).id,
+            parent_as(:waiting_latest_turn).candidate_attempt,
+            parent_as(:waiting_latest_turn).candidate_sha256,
+            parent_as(:waiting_latest_turn).checkpoint_retry_generation,
+            parent_as(:waiting_latest_turn).checkpoint_retry_generation
+          ),
+      where:
+        fragment(
+          "? = ?::text",
+          checkpoint.session_ref,
+          parent_as(:episode_work_sessions).id
+        ) and
+          checkpoint.repository_ref ==
+            parent_as(:episode_work_sessions).repository_ref,
+      where: fragment("(?::jsonb -> 'version') = '2'::jsonb", checkpoint.descriptor),
+      select: 1
     )
   end
 
