@@ -313,6 +313,10 @@ defmodule Ryker.Slack.RendererTest do
 
     text = Jason.encode!(rendered)
     assert text =~ "join conversations when I can help"
+
+    assert text =~
+             "When I establish an incident's root cause and can fix it in a writable repo, I'll implement and test the fix"
+
     assert text =~ "I'll offer to investigate in its thread or create a dedicated incident room"
     assert text =~ "I'll invite <@U456>"
     assert text =~ "*Settings updated.*"
@@ -629,6 +633,10 @@ defmodule Ryker.Slack.RendererTest do
     assert text =~ "*1 · Conversations*"
     assert text =~ "*Mentions only*: I'll read along"
     assert text =~ "*Be proactive*: I'll read the messages in this channel and join in"
+
+    assert text =~
+             "When I establish an incident's root cause and can fix it in a writable repo, I'll implement and test the fix"
+
     assert text =~ "*Observe only*: I'll keep reading and learning, but I won't reply"
     assert text =~ "<@UBOT>"
     refute text =~ "expires"
@@ -706,6 +714,9 @@ defmodule Ryker.Slack.RendererTest do
     assert summary["text"]["text"] =~
              "• I'll join conversations when I think you could use my help."
 
+    assert summary["text"]["text"] =~
+             "When I establish an incident's root cause and can fix it in a writable repo, I'll implement and test the fix"
+
     assert summary["text"]["text"] =~ "• I'll work in the *Production* environment."
 
     # An unanswered environment is not an answer of No environment.
@@ -730,6 +741,21 @@ defmodule Ryker.Slack.RendererTest do
              "Start over",
              "Cancel"
            ]
+  end
+
+  test "incident conversation access and proactive code fixes are explained separately" do
+    settings =
+      settings_document()
+      |> put_in(["participation"], %{"source" => "incident_room", "value" => "proactive"})
+
+    assert {:ok, rendered} =
+             Renderer.render(welcome_document(Ecto.UUID.generate(), settings, nil))
+
+    text = Jason.encode!(rendered)
+    assert text =~ "I'll join the investigation here without a mention."
+    assert text =~ "proactive mode here or in the source channel"
+    assert text =~ "`/ryker proactive off` stops new automatic fixes here."
+    refute text =~ "join conversations when I can help"
   end
 
   test "an engineering offer briefs the reader from facts, never from the prompt" do

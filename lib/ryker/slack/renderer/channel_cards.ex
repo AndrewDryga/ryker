@@ -167,8 +167,12 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
     "For now I'm only reading along to learn how this channel works, and I'll stay out of the conversation. Mention #{mention(bot_user_ref)} whenever you want me in it."
   end
 
+  defp conversation_sentence(%{"participation" => %{"source" => "incident_room"}}, _bot_user_ref) do
+    "I'll join the investigation here without a mention. Once I establish a cause I can fix in a writable repo, proactive mode here or in the source channel lets me implement and test the fix and prepare a draft PR if publishing is on. `/ryker proactive off` stops new automatic fixes here."
+  end
+
   defp conversation_sentence(%{"participation" => %{"value" => "proactive"}}, bot_user_ref) do
-    "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge and join conversations when I can help. You can also mention #{mention(bot_user_ref)} directly."
+    "Talk to me like any other teammate. I'll read the messages I can access here to build useful knowledge and join conversations when I can help. When I establish an incident's root cause and can fix it in a writable repo, I'll implement and test the fix and prepare a draft PR if publishing is on. You can also mention #{mention(bot_user_ref)} directly."
   end
 
   defp conversation_sentence(_settings, bot_user_ref) do
@@ -261,8 +265,11 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
   defp participation_summary(%{"observation" => %{"on" => true}}), do: "Observe without replying"
 
+  defp participation_summary(%{"participation" => %{"source" => "incident_room"}}),
+    do: "Join incident conversations; proactive mode controls fixes"
+
   defp participation_summary(%{"participation" => %{"value" => "proactive"}}),
-    do: "Join when useful"
+    do: "Join when useful and start incident fixes"
 
   defp participation_summary(_settings), do: "Reply when mentioned"
 

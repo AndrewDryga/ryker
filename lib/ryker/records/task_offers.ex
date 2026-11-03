@@ -2,21 +2,20 @@ defmodule Ryker.Records.TaskOffers do
   @moduledoc """
   Starts one authorized task in one linked, policy-pinned episode.
 
-  A current authenticated request or a confirmed assignment can start directly.
+  A current authenticated request, proactive channel or confirmed assignment can start directly.
   An unsolicited proposal waits for its delivered confirmation control. Both
   paths resolve the conversation's writable repository policy before starting.
   """
   alias Ryker.Crypto
   alias Ryker.Episodes
-  alias Ryker.Ingress
   alias Ryker.Maps
-  alias Ryker.Memories
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.TaskInstruction
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.StateTools
   alias Ryker.UTCDateTime
@@ -33,21 +32,29 @@ defmodule Ryker.Records.TaskOffers do
           status: :confirmed | :duplicate
         }
 
-  @doc "Start the work a current authenticated person requested, without a second confirmation."
+  @doc "Start engineering work under a current human, proactive-channel or assignment grant."
   def start(binding, %{"kind" => "engineering"} = payload, authorize, offer_ref)
       when is_function(authorize, 2) do
-    with {:ok, {candidate, _actor}} <-
+    with {:ok, {candidate, candidate_actor}} <-
            TaskInstruction.fetch(
              binding,
              payload["instruction_ref"],
              payload["assignment_ref"],
              payload["repository"]
            ),
-         requester <- if(payload["assignment_ref"], do: {:assignment, candidate}, else: candidate),
+         requester <- requester(candidate, candidate_actor, payload["assignment_ref"]),
          {:ok, placement} <- authorize.(requester, payload["repository"]),
          {:ok, placement} <- policy(placement) do
       Repo.transaction(fn ->
-        start_in_transaction(binding, payload, offer_ref, candidate, placement)
+        start_in_transaction(
+          binding,
+          payload,
+          offer_ref,
+          candidate,
+          candidate_actor,
+          placement,
+          authorize
+        )
       end)
     end
   end
@@ -55,11 +62,25 @@ defmodule Ryker.Records.TaskOffers do
   def start(_binding, _payload, _authorize, _offer_ref),
     do: {:error, :task_instruction_not_authorized}
 
-  defp start_in_transaction(binding, payload, offer_ref, candidate, placement) do
-    with :ok <- Memories.lock_answer_source_in_transaction(candidate),
+  defp start_in_transaction(
+         binding,
+         payload,
+         offer_ref,
+         candidate,
+         candidate_actor,
+         placement,
+         authorize
+       ) do
+    with :ok <- Settings.synchronize_in_transaction(),
+         :ok <- TaskInstruction.lock_source(candidate),
          :ok <- TaskInstruction.lock_assignment(payload["assignment_ref"]),
          {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
          true <- is_nil(current.session.workspace_task),
+         :ok <-
+           Slack.ChannelFence.authorize_in_transaction(
+             candidate.destination_transport,
+             candidate.destination_conversation_ref
+           ),
          {:ok, {entry, actor}} <-
            TaskInstruction.fetch(
              current,
@@ -67,12 +88,8 @@ defmodule Ryker.Records.TaskOffers do
              payload["assignment_ref"],
              payload["repository"]
            ),
-         true <- Ingress.Inbox.Entry.same_source?(entry, candidate),
-         :ok <-
-           Slack.ChannelFence.authorize_in_transaction(
-             entry.destination_transport,
-             entry.destination_conversation_ref
-           ),
+         true <- TaskInstruction.same_source?(entry, candidate) and actor == candidate_actor,
+         :ok <- reauthorize_proactive(actor, entry, payload["repository"], placement, authorize),
          {:ok, record} <- fetch_or_create_task(current, payload, offer_ref) do
       attributes = %{
         actor_ref: actor,
@@ -100,6 +117,29 @@ defmodule Ryker.Records.TaskOffers do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp requester(entry, "system:proactive:" <> _channel, nil), do: {:proactive, entry}
+  defp requester(entry, _actor, assignment) when is_binary(assignment), do: {:assignment, entry}
+  defp requester(entry, _actor, _assignment), do: entry
+
+  # Only this callback is a local policy read; explicit-member authorization
+  # may call Slack and remains outside the transaction.
+  defp reauthorize_proactive(
+         "system:proactive:" <> _channel,
+         entry,
+         repository,
+         expected,
+         authorize
+       ) do
+    with {:ok, placement} <- authorize.({:proactive, entry}, repository),
+         {:ok, ^expected} <- policy(placement) do
+      :ok
+    else
+      _changed -> {:error, :task_instruction_not_authorized}
+    end
+  end
+
+  defp reauthorize_proactive(_actor, _entry, _repository, _expected, _authorize), do: :ok
 
   defp start_record(%Record{status: :open} = record, episode, attributes),
     do: create_episode(record, episode, attributes)

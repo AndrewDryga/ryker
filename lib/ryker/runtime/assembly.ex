@@ -25,6 +25,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Ingress
   alias Ryker.Maps
   alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Secret
   alias Ryker.Settings
   alias Ryker.Slack
@@ -168,12 +169,18 @@ defmodule Ryker.Runtime.Assembly do
     work_examples = work_examples(settings, work)
 
     state_tools =
-      state_tools(slack, github, control_plane, %{
-        emisar_approvals: not is_nil(emisar),
-        event_waits: true,
-        publication: not is_nil(publication),
-        schedules: not is_nil(schedules)
-      })
+      state_tools(
+        slack,
+        github,
+        control_plane,
+        Slack.TaskAccess.authority_configuration(settings),
+        %{
+          emisar_approvals: not is_nil(emisar),
+          event_waits: true,
+          publication: not is_nil(publication),
+          schedules: not is_nil(schedules)
+        }
+      )
 
     {work, gateway} = bind_state_tools(work, gateway, state_tools)
     # What work may tell a person is connected: what actually runs, not what is saved.
@@ -1559,7 +1566,7 @@ defmodule Ryker.Runtime.Assembly do
   # What a turn's tools are, served by the worker gateway at
   # `/v1/state-tools/mcp`. The machine secret signs each turn's token and
   # cursors; nothing listens for it on its own.
-  defp state_tools(slack, github, control_plane, capabilities) do
+  defp state_tools(slack, github, control_plane, authority_configuration, capabilities) do
     %{
       capabilities:
         capabilities
@@ -1569,20 +1576,31 @@ defmodule Ryker.Runtime.Assembly do
       token: Secret.new(Bootstrap.secret!(:state_tools))
     }
     |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
-    |> Map.put(:task_authorizer, task_authorizer(slack, control_plane))
+    |> Map.put(:task_authorizer, task_authorizer(slack, control_plane, authority_configuration))
     |> add_platform_capability_tools(slack, github, control_plane)
   end
 
-  defp task_authorizer(slack, control_plane) do
+  defp task_authorizer(slack, control_plane, authority_configuration) do
     chat = control_plane && ControlPlane.Server.options!(control_plane).chat
 
     slack_options =
       if slack do
         options = Slack.Runtime.options!(slack.runtime).handler_settings.interaction_options
-        Map.put(options, :workspace_ref, slack.runtime.identity.workspace_ref)
+
+        Map.merge(options, %{
+          workspace_ref: slack.runtime.identity.workspace_ref,
+          authority_configuration: authority_configuration
+        })
       end
 
     fn
+      {:proactive, %Ingress.Inbox.Entry{} = entry}, repository when not is_nil(slack_options) ->
+        Slack.TaskAccess.authorize_proactive(entry, repository, slack_options)
+
+      {:proactive, %Records.IncidentInstruction{} = source}, repository
+      when not is_nil(slack_options) ->
+        Slack.TaskAccess.authorize_proactive(source, repository, slack_options)
+
       {:assignment, %Ingress.Inbox.Entry{destination_transport: "slack"} = entry}, repository
       when not is_nil(slack_options) ->
         with {:ok, workspace, channel} <-

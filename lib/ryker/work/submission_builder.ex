@@ -949,6 +949,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     episode
     |> Behaviors.model_context(operator_ref, repository)
+    |> Map.put("proactive_fixes", Slack.TaskAccess.proactive?(episode))
     |> Map.put("memory", Memories.model_context(episode, repository))
     |> Map.put("continuity", Continuity.model_context(episode, repository, input_texts))
     |> put_person_asking(operator_ref, episode.destination_conversation_ref)

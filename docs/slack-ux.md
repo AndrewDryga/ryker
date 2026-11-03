@@ -124,7 +124,17 @@ selected message and replies in its thread. Direct messages and shortcuts do not
 merely because they identify a problem; they can offer the same explicit incident button.
 
 An explicit repository-change request from an active full workspace member starts work without
-a second confirmation. Suggestions without that instruction still offer **Start task**. Starting
+a second confirmation. In a live channel with **Be proactive** enabled, an investigation that
+establishes an incident's root cause can also start a focused code fix and regression checks
+without a confirmation click. The existing proactive mode is the opt-in; there is no separate
+repository opt-in. Any currently writable repository in the channel's selected environment may
+be the target. Mentions-only, observation mode, replay and direct messages grant no autonomous
+starts. Turning proactive mode off prevents new automatic starts; an existing task retains its
+own grant and controls. A confirmed in-thread incident or active incident room retains the source
+channel's current proactive permission and uses that channel's current writable environment.
+An explicit mentions-only or observation setting on the room opts out. The room's conversational
+behavior alone grants no code writes.
+Suggestions without an applicable grant still offer **Start task**. Starting
 posts a durable task card in the same Slack thread and creates an isolated Coop working copy. Active full
 members may collaborate there, edit, validate, and commit repository files under the contributor
 job settings, then inspect and review the changes. Ryker supplies the contributor's execution
@@ -350,7 +360,8 @@ optional repository and an optional end. The model may select only a supported p
 such a rule; Ryker never persists the original prose as an executable trigger.
 
 Every behavior offer is a host-rendered confirmation card. It states the normalized behavior,
-scope, expiry and source filter when applicable. Rules are read-only unless the operator explicitly
+scope, expiry and source filter when applicable. Independently, a proactive channel can authorize
+an evidence-backed incident fix as described above. Rules are read-only unless the operator explicitly
 grants task starts for the named repository and instructions. That grant permits one code task per
 matching event; pull requests follow the repository setting, and merge and deployment need their
 own authorization. Confirmation requires a configured full workspace operator in Slack (on
@@ -703,10 +714,10 @@ host rejects them for nonoperators before any repository or session mutation:
   Readiness never merges, signs, or deploys.
   Checks and follow-up Work share session custody, so a normal reply waits for an active review
   without consuming an execution attempt. Delivery and unrelated sessions continue independently.
-- A confirmed coding task carries its own draft grant. When publishing is on (**Let Ryker open pull
+- A confirmed coding task, including one started by proactive channel mode, carries its own draft grant. When publishing is on (**Let Ryker open pull
   requests**, off by default), the confirmed task offer named this repository, and the exact
   reviewed candidate came from that task's work, Ryker opens the draft pull request itself,
-  recorded as approved by the task's confirmer: the card says it is opening the draft and offers no publication click,
+  recorded against the task's confirmer (the channel grant for a proactive start): the card says it is opening the draft and offers no publication click,
   because a click could not change the candidate, the repository or the scope. A candidate whose
   checks could not run or are not set up goes the same way, opened or updated marked unverified on
   the pull request and the card (Andrew, 2026-10-01: "Nobody should be clicking to update draft pr

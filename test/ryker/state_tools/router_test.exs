@@ -897,7 +897,8 @@ defmodule Ryker.StateTools.RouterTest do
     # Any repository of the session's environment may be the task's target:
     # the working copy or any companion. Before, the guidance implied only the
     # working copy took changes, so a task about a companion was never offered.
-    assert task["description"] =~ "any repository of this environment"
+    assert task["description"] =~ "any writable repository of this environment"
+    assert task["description"] =~ "operator_context.proactive_fixes true"
     assert description =~ "any repository of this environment"
 
     assert task["description"] =~ "inert proposal, not execution"

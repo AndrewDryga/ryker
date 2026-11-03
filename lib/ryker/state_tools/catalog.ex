@@ -286,18 +286,18 @@ defmodule Ryker.StateTools.Catalog do
   defp request_task_tool do
     tool(
       "request_task",
-      "Start an explicitly requested engineering task with start=true, or propose work with start=false. Clear human requests need no second confirmation. Autonomous starts require the matching standing assignment's repository-write grant. Incident offers always require confirmation. Engineering may target any repository of this environment. The conversation checkout stays read-only; start=true asks the host to resolve that repository's separate task policy. A target without a writable task policy permits an inert proposal, not execution. Kind defaults to engineering.",
+      "Start authorized engineering work with start=true, or propose work with start=false. Clear human requests need no second confirmation. Autonomous starts require either the matching standing assignment's repository-write grant or operator_context.proactive_fixes true for an evidence-backed incident code fix. Incident offers always require confirmation. Engineering may target any writable repository of this environment. The conversation checkout stays read-only; start=true asks the host to resolve that repository's separate task policy. A target without a writable task policy permits an inert proposal, not execution. Kind defaults to engineering.",
       %{
         "authority_limits" => array(text(500), 1, 20),
         "assignment_ref" =>
           describe(
             JSONSchema.nullable(reference(256)),
-            "For an autonomous start, the exact standing_assignments assignment_ref with authority_ceiling repository_write. Otherwise omit. instruction_ref still names the current triggering input's source_event_id."
+            "For a start under a standing assignment, its exact assignment_ref with authority_ceiling repository_write. Omit for an explicit human request or a proactive channel fix. instruction_ref still names the current triggering input's source_event_id."
           ),
         "instruction_ref" =>
           describe(
             reference(256),
-            "For start=true, the exact source_event_id of the current human instruction or the current input triggering the authorized assignment. For a pending proposal, its source instruction or exact open task_offer ref."
+            "For start=true, the exact source_event_id of the current human instruction or current input triggering the authorized assignment or proactive channel fix. For a pending proposal, its source instruction or exact open task_offer ref."
           ),
         "kind" => enum(~w(engineering incident)),
         "offer_ref" =>
@@ -324,7 +324,7 @@ defmodule Ryker.StateTools.Catalog do
         "start" =>
           describe(
             %{"type" => "boolean"},
-            "Start engineering work now when the person explicitly requested it or an authorized automation covers it. Use false for an unsolicited suggestion or an incident offer. Draft publication follows the configured repository policy; merge and deployment remain separate."
+            "Start engineering work now when explicitly requested, covered by an authorized assignment, or addressing an established incident root cause while operator_context.proactive_fixes is true. Use false for a suggestion without that authority or an incident offer. Draft publication follows the configured repository policy; merge and deployment remain separate."
           ),
         "success_checks" => array(text(1_000), 1, 20),
         "title" => text(120)

@@ -22,6 +22,66 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
 
+  # A task start took Room then Offer, opposite to a duplicate room request.
+  # Serialize before either row so the two paths cannot wait on each other.
+  test "a duplicate room request queues before the incident code start's row locks" do
+    Sandbox.unboxed_run(Repo, fn ->
+      occupied = non_empty_tables()
+      fixture = delivered_offer!()
+      assert {:ok, %{room: room}} = IncidentRooms.request(request(fixture))
+      parent = self()
+
+      instruction = %Records.IncidentInstruction{
+        record_ref: fixture.record.ref,
+        room_ref: room.ref,
+        source_conversation_ref: "slack:T123:C456",
+        destination_conversation_ref: "slack:T123:C456"
+      }
+
+      holder = unboxed_task(fn -> hold_offer!(fixture.record.ref, parent) end)
+      assert_receive {:holding, holder_backend}, 5_000
+
+      start =
+        unboxed_task(fn ->
+          send(parent, {:start_backend, backend_pid()})
+
+          Repo.transaction(fn ->
+            :ok = Records.IncidentInstruction.lock_in_transaction(instruction)
+            :locked
+          end)
+        end)
+
+      assert_receive {:start_backend, start_backend}, 5_000
+      await_blocked_by(start_backend, holder_backend)
+
+      duplicate =
+        unboxed_task(fn ->
+          send(parent, {:duplicate_backend, backend_pid()})
+          IncidentRooms.request(request(fixture))
+        end)
+
+      try do
+        assert_receive {:duplicate_backend, duplicate_backend}, 5_000
+        await_blocked_by(duplicate_backend, start_backend)
+
+        assert Repo.query!("SELECT wait_event FROM pg_stat_activity WHERE pid = $1", [
+                 duplicate_backend
+               ]).rows == [["advisory"]],
+               "a duplicate request must queue for workspace custody before taking incident rows"
+
+        send(holder.pid, :release)
+        assert Task.await(holder, 10_000) == {:ok, :released}
+        assert Task.await(start, 10_000) == {:ok, :locked}
+        assert {:ok, %{status: :duplicate}} = Task.await(duplicate, 10_000)
+      after
+        stop_tasks([holder, start, duplicate])
+        cleanup!(fixture)
+      end
+
+      assert non_empty_tables() -- occupied == []
+    end)
+  end
+
   # One incident offer carries two mutually exclusive controls, and the only
   # thing keeping a double click from starting both is `investigate_locked`'s
   # own locking: the workspace advisory lock, then `FOR UPDATE` on the offer.

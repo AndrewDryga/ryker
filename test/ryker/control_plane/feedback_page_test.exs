@@ -17,9 +17,9 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
   setup do
     channel = "CFEEDBACKPAGE#{System.unique_integer([:positive])}"
-    # Recent, so the page reads it as today; the day is read back from the
-    # same clock, never assumed.
-    base = DateTime.to_unix(DateTime.utc_now()) - 600
+    # The first ten UTC minutes exposed three false failures: ten minutes ago
+    # was yesterday. Keep the signals on one recent day and assert their date.
+    base = div(DateTime.to_unix(DateTime.utc_now()) - 600, 86_400) * 86_400
 
     question =
       Answers.slack_message!(
@@ -58,12 +58,13 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
     signal!(:sentiment, "neutral", {:episode, reply.episode.id}, base + 250)
 
-    day = Kit.day_label(DateTime.to_date(at(base + 200)), Date.utc_today())
-    %{reply: reply, greeting: greeting, day: day}
+    feedback_date = DateTime.to_date(at(base + 200))
+    day = Kit.day_label(feedback_date, Date.utc_today())
+    %{reply: reply, greeting: greeting, day: day, feedback_date: feedback_date}
   end
 
   test "feedback leads with each kind, frustrated first, and opens the request where it happened",
-       %{reply: reply, greeting: greeting} do
+       %{reply: reply, greeting: greeting, feedback_date: feedback_date} do
     document = page(%{})
 
     # The feedback first, then what there is to fix: the unhappy request is
@@ -84,7 +85,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
     assert document |> LazyHTML.query(".kit-table") |> Enum.count() == 0
 
     assert document |> LazyHTML.query("g.feedback-chart-day") |> LazyHTML.attribute("data-date") ==
-             [Date.to_iso8601(Date.utc_today())]
+             [Date.to_iso8601(feedback_date)]
 
     frustrated = LazyHTML.query(document, "#feedback-frustrated .entity-row")
     assert Enum.count(frustrated) == 2
@@ -151,7 +152,9 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
   # Andrew, 2026-09-28: Feedback "needs toggle-buttons to see
   # positive/negative feedbacks". Negative and Positive narrow everything on
   # the page, the counts, By day and the lists, and a search keeps the choice.
-  test "Negative and Positive narrow the whole page to the feedback that went that way" do
+  test "Negative and Positive narrow the whole page to the feedback that went that way", %{
+    feedback_date: feedback_date
+  } do
     negative = page(%{"tone" => "negative"})
 
     assert counts(negative) == [
@@ -165,7 +168,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
              ["By day", "What to fix", "Frustrated", "Asked again"]
 
     # By day is all feedback, whichever way the filters below narrow the list.
-    date = Calendar.strftime(Date.utc_today(), "%d %b")
+    date = Calendar.strftime(feedback_date, "%d %b")
 
     assert negative |> LazyHTML.query("g.feedback-chart-day") |> LazyHTML.attribute("aria-label") ==
              ["#{date}: 3 negative, 1 neutral, 2 positive"]
@@ -201,7 +204,9 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
 
   # Andrew, 2026-09-28: By day "should be a graph like in usage", then "put
   # it above filters and make filters not apply to it" and drop the table.
-  test "By day leads the page with a bar a day, negative at its foot, above the filters" do
+  test "By day leads the page with a bar a day, negative at its foot, above the filters", %{
+    feedback_date: feedback_date
+  } do
     document = page(%{})
     by_day = LazyHTML.query(document, "section[aria-labelledby=feedback-by-day]")
 
@@ -212,7 +217,7 @@ defmodule Ryker.ControlPlane.FeedbackPageTest do
              ["section.feedback-by-day", "p.kit-counts"]
 
     [bar] = by_day |> LazyHTML.query("g.feedback-chart-day") |> Enum.to_list()
-    date = Calendar.strftime(Date.utc_today(), "%d %b")
+    date = Calendar.strftime(feedback_date, "%d %b")
     assert LazyHTML.attribute(bar, "aria-label") == ["#{date}: 3 negative, 1 neutral, 2 positive"]
 
     rects = LazyHTML.query(bar, "rect")

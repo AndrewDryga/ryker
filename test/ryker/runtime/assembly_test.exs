@@ -47,6 +47,60 @@ defmodule Ryker.Runtime.AssemblyTest do
     :ok
   end
 
+  test "proactive channel fixes use every writable target and refuse stale runtime settings" do
+    settings = connected!()
+
+    Repo.insert!(%Ryker.Slack.ChannelMembership{
+      workspace_ref: @workspace,
+      channel_ref: "C0123456789",
+      status: :joined,
+      external_shared: false,
+      private: false,
+      generation: 1,
+      joined_at: Repo.now!()
+    })
+
+    Repo.insert!(%Ryker.Slack.ChannelConfiguration{
+      workspace_ref: @workspace,
+      channel_ref: "C0123456789",
+      participation: :proactive,
+      environment_ref: "platform",
+      alert_policy: :reply,
+      revision: 1,
+      actor_ref: @actor,
+      saved_at: Repo.now!()
+    })
+
+    entry = %Ryker.Ingress.Inbox.Entry{
+      execution_mode: :live,
+      source_kind: "slack",
+      source_ref: @workspace,
+      destination_transport: "slack",
+      destination_conversation_ref: @channel,
+      actor_kind: :bot
+    }
+
+    assert {:ok, runtime} = Assembly.build(bootstrap(), settings)
+    authorize = runtime[:coop_worker_gateway].state_tools.task_authorizer
+
+    for repository <- ["ryker", "docs"] do
+      assert {:ok, policy} = authorize.({:proactive, entry}, repository)
+      assert %{repository_ref: ^repository} = policy
+    end
+
+    assert authorize.({:proactive, entry}, "unknown") ==
+             {:error, {:slack_task_outside_environment, "unknown"}}
+
+    assert {:ok, _} =
+             Settings.put_environment(
+               %{ref: "platform", repositories: ["ryker"]},
+               settings.installation.revision,
+               @actor
+             )
+
+    assert authorize.({:proactive, entry}, "ryker") == {:error, :task_instruction_not_authorized}
+  end
+
   # mac-server, 2026-10-01: a setup page reached at the address Compose published, not the
   # container's own port, rendered and never went live. The console accepts that address only
   # if it is told it.

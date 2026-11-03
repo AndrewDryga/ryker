@@ -58,7 +58,7 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
         "",
         "*Mentions only*: I'll read along to learn about your team's work, but I'll only join a conversation when you mention #{mention(presentation.bot_user_ref)}.",
         "",
-        "*Be proactive*: I'll read the messages in this channel and join in when I think you could use my help. You can still mention me whenever you need me.",
+        "*Be proactive*: I'll read the messages in this channel and join in when I think you could use my help. When I establish an incident's root cause and can fix it in a writable repo, I'll implement and test the fix and prepare a draft PR if publishing is on. You can still mention me whenever you need me.",
         "",
         "*Observe only*: I'll keep reading and learning, but I won't reply, even if you mention me. I also won't start alert investigations while this is on."
       ]
@@ -272,8 +272,9 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   defp draft_participation_sentence("mentions", bot_user_ref),
     do: "I'll reply when you mention #{mention(bot_user_ref)}."
 
-  defp draft_participation_sentence("proactive", _bot_user_ref),
-    do: "I'll join conversations when I think you could use my help."
+  defp draft_participation_sentence("proactive", _bot_user_ref) do
+    "I'll join conversations when I think you could use my help. When I establish an incident's root cause and can fix it in a writable repo, I'll implement and test the fix and prepare a draft PR if publishing is on."
+  end
 
   defp draft_participation_sentence("shadow", _bot_user_ref),
     do: "I'll observe without replying or starting alert investigations."

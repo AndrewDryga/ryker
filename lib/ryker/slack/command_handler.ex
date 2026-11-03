@@ -286,7 +286,7 @@ defmodule Ryker.Slack.CommandHandler do
     """
     *Ryker commands*
     `/ryker status`: what I do in this channel, and why
-    `/ryker proactive on|off|inherit`: join conversations here when I think you could use my help
+    `/ryker proactive on|off|inherit`: join conversations and start incident code fixes here
     `/ryker proactive global on|off`: the same for every channel
     `/ryker shadow on|off|inherit`: observe only here, without replying
     `/ryker shadow global on|off`: the same for every channel

@@ -1026,7 +1026,7 @@
           "name": "update_goal"
         },
         {
-          "description": "Start an explicitly requested engineering task with start=true, or propose work with start=false. Clear human requests need no second confirmation. Autonomous starts require the matching standing assignment's repository-write grant. Incident offers always require confirmation. Engineering may target any repository of this environment. The conversation checkout stays read-only; start=true asks the host to resolve that repository's separate task policy. A target without a writable task policy permits an inert proposal, not execution. Kind defaults to engineering.",
+          "description": "Start authorized engineering work with start=true, or propose work with start=false. Clear human requests need no second confirmation. Autonomous starts require either the matching standing assignment's repository-write grant or operator_context.proactive_fixes true for an evidence-backed incident code fix. Incident offers always require confirmation. Engineering may target any writable repository of this environment. The conversation checkout stays read-only; start=true asks the host to resolve that repository's separate task policy. A target without a writable task policy permits an inert proposal, not execution. Kind defaults to engineering.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {
@@ -1042,7 +1042,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "For an autonomous start, the exact standing_assignments assignment_ref with authority_ceiling repository_write. Otherwise omit. instruction_ref still names the current triggering input's source_event_id."
+                "description": "For a start under a standing assignment, its exact assignment_ref with authority_ceiling repository_write. Omit for an explicit human request or a proactive channel fix. instruction_ref still names the current triggering input's source_event_id."
               },
               "authority_limits": {
                 "items": {
@@ -1056,7 +1056,7 @@
                 "uniqueItems": true
               },
               "instruction_ref": {
-                "description": "For start=true, the exact source_event_id of the current human instruction or the current input triggering the authorized assignment. For a pending proposal, its source instruction or exact open task_offer ref.",
+                "description": "For start=true, the exact source_event_id of the current human instruction or current input triggering the authorized assignment or proactive channel fix. For a pending proposal, its source instruction or exact open task_offer ref.",
                 "maxLength": 256,
                 "minLength": 1,
                 "pattern": "^[A-Za-z0-9_.:-]+$",
@@ -1195,7 +1195,7 @@
                 "uniqueItems": true
               },
               "start": {
-                "description": "Start engineering work now when the person explicitly requested it or an authorized automation covers it. Use false for an unsolicited suggestion or an incident offer. Draft publication follows the configured repository policy; merge and deployment remain separate.",
+                "description": "Start engineering work now when explicitly requested, covered by an authorized assignment, or addressing an established incident root cause while operator_context.proactive_fixes is true. Use false for a suggestion without that authority or an incident offer. Draft publication follows the configured repository policy; merge and deployment remain separate.",
                 "type": "boolean"
               },
               "success_checks": {

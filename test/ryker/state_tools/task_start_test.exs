@@ -274,6 +274,59 @@ defmodule Ryker.StateTools.TaskStartTest do
     assert Repo.get_by!(Record, ref: second).status == :open
   end
 
+  # A proven incident fix used to stop at a proposal even after the operator
+  # enabled proactive work for its channel. The channel is the standing opt-in.
+  test "a proactive channel starts a bot-triggered fix once without a repository grant" do
+    request = request!(actor_kind: :bot)
+    proactive_channel!(request, :proactive)
+    assert {:ok, result} = call(request)
+    assert result["status"] == "started"
+    record = Repo.get_by!(Record, ref: result["record_ref"])
+
+    assert record.confirmed_by_actor_ref ==
+             "system:proactive:" <> request.binding.episode.destination_conversation_ref
+
+    assert {:ok, ^result} = call(request)
+    assert Repo.aggregate(TaskCard, :count) == 1
+  end
+
+  for mode <- [:mentions, :shadow] do
+    @participation mode
+    test "#{mode} does not authorize an autonomous bot-triggered fix" do
+      request = request!(actor_kind: :bot)
+      proactive_channel!(request, @participation)
+      assert {:error, "task_instruction_not_authorized:" <> _} = call(request)
+      refute Repo.exists?(Record)
+    end
+  end
+
+  test "turning proactive mode off while a fix is authorized prevents its start" do
+    request = request!(actor_kind: :bot)
+    configuration = proactive_channel!(request, :proactive)
+
+    authorize = fn source, repository ->
+      configuration |> Ecto.Changeset.change(participation: :mentions) |> Repo.update!()
+      authorize(source, repository)
+    end
+
+    assert {:error, "task_instruction_not_authorized:" <> _} = call(request, authorize)
+    refute Repo.exists?(Record)
+  end
+
+  test "a proactive fix cannot start with a repository policy replaced during authorization" do
+    request = request!(actor_kind: :bot)
+    proactive_channel!(request, :proactive)
+
+    authorize = fn source, repository ->
+      {:ok, policy} = authorize(source, repository)
+      digest = if Repo.in_transaction?(), do: String.duplicate("c", 64), else: policy.digest
+      {:ok, %{policy | digest: digest}}
+    end
+
+    assert {:error, "task_instruction_not_authorized:" <> _} = call(request, authorize)
+    refute Repo.exists?(Record)
+  end
+
   test "bots, unrelated sources and denied members cannot start work" do
     request = request!(actor_kind: :bot)
     assert {:error, _} = call(request)
@@ -457,6 +510,36 @@ defmodule Ryker.StateTools.TaskStartTest do
       })
 
     %{binding: source.binding, arguments: Map.put(arguments, "start", true), source: source}
+  end
+
+  defp proactive_channel!(request, participation) do
+    {workspace, channel} =
+      {request.source.entry.source_ref, request.source.attributes.channel_ref}
+
+    assert {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
+
+    assert {:ok, _settings} =
+             Ryker.Settings.save_slack(
+               %{
+                 enabled: true,
+                 workspace_ref: workspace,
+                 bot_ref: "A0123456789",
+                 bot_user_ref: "U0123456789",
+                 operators: ["UOPERATOR"]
+               },
+               settings.installation.revision,
+               "control-plane:local"
+             )
+
+    Repo.insert!(%Ryker.Slack.ChannelConfiguration{
+      workspace_ref: workspace,
+      channel_ref: channel,
+      participation: participation,
+      alert_policy: :reply,
+      revision: 1,
+      actor_ref: "control-plane:local",
+      saved_at: Repo.now!()
+    })
   end
 
   defp call(request, authorize \\ &authorize/2) do

@@ -117,6 +117,14 @@ defmodule Ryker.Settings do
     end)
   end
 
+  @doc "Fence a settings-dependent write against configuration changes until its transaction commits."
+  @spec synchronize_in_transaction() :: :ok | {:error, term()}
+  def synchronize_in_transaction do
+    if Repo.in_transaction?(),
+      do: AdvisoryLock.hold(@lock_tag, :shared),
+      else: {:error, :settings_transaction_required}
+  end
+
   @doc """
   The current consistent snapshot, or an explicit not-initialized error.
 

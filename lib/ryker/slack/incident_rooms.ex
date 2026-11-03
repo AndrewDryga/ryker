@@ -57,6 +57,16 @@ defmodule Ryker.Slack.IncidentRooms do
 
   @type request_result :: %{room: IncidentRoom.t(), status: :requested | :duplicate}
 
+  @doc "Share incident lifecycle custody before taking an incident's room and record rows."
+  def synchronize_in_transaction(workspace_ref) when is_binary(workspace_ref) do
+    if Repo.in_transaction?(),
+      do: lock_workspace!(workspace_ref),
+      else: {:error, :incident_room_transaction_required}
+  end
+
+  def synchronize_in_transaction(_workspace_ref),
+    do: {:error, :incident_room_transaction_required}
+
   @spec request(map() | keyword()) :: {:ok, request_result()} | {:error, term()}
   def request(attributes) do
     with {:ok, attributes} <- exact_map(attributes, @request_fields),

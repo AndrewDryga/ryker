@@ -18,6 +18,7 @@ defmodule Ryker.Slack.ChannelSettings do
   alias Ryker.Settings
   alias Ryker.Slack.ChannelConfiguration
   alias Ryker.Slack.ChannelConfigurations
+  alias Ryker.Slack.ChannelFence
   alias Ryker.Slack.ChannelSettingAudit
 
   @fields [
@@ -125,6 +126,12 @@ defmodule Ryker.Slack.ChannelSettings do
   end
 
   defp apply_change!(%{scope: :channel} = attributes, default) do
+    :ok =
+      ChannelFence.lock_in_transaction(
+        attributes.workspace_ref,
+        ConversationRef.slack_channel(attributes.conversation_ref)
+      )
+
     configuration = fetch_and_lock_configuration!(attributes)
 
     target =

@@ -48,7 +48,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert heading["text"]["text"] == "*Channel settings*"
 
     assert Enum.map(facts["fields"], & &1["text"]) == [
-             "*Conversations*\nJoin when useful",
+             "*Conversations*\nJoin when useful and start incident fixes",
              "*Alerts*\nOffer an in-place task or incident room",
              "*Environment*\nProduction, with Emisar",
              "*Repositories*\n<https://github.com/acme/ryker|acme/ryker> · default\n`docs` · available",

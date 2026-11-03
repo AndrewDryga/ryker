@@ -2029,6 +2029,122 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert Repo.get_by!(IncidentRoom, ref: room_ref).status == :ready
   end
 
+  # A room or in-thread investigation starts from a host introduction, not an
+  # inbox row. Requiring inbox identity stranded every diagnosed fix there.
+  for location <- [:room, :thread] do
+    @location location
+    test "a proactive source channel starts a code fix from its #{@location} investigation" do
+      %{binding: binding, configuration: _configuration} = proactive_investigation!(@location)
+      assert {:ok, result} = start_incident_fix(binding)
+      assert result["status"] == "started"
+      assert {:ok, ^result} = start_incident_fix(binding)
+      task = Repo.get_by!(Record, ref: result["record_ref"])
+
+      assert Repo.one(Record.Query.task_grant(task.confirmed_episode_id, "ryker")) ==
+               task.confirmed_by_actor_ref
+
+      assert Repo.aggregate(Ryker.Slack.TaskCard, :count) == 1
+    end
+
+    test "revoking the source channel prevents a fix from its #{@location} investigation" do
+      %{binding: binding, configuration: configuration} = proactive_investigation!(@location)
+
+      authorize = fn _source, _repository ->
+        Repo.update!(Ecto.Changeset.change(configuration, participation: :mentions))
+        incident_fix_policy()
+      end
+
+      assert {:error, "task_instruction_not_authorized:" <> _} =
+               start_incident_fix(binding, authorize)
+
+      assert Repo.aggregate(Ryker.Slack.TaskCard, :count) == 0
+    end
+
+    test "the #{@location} investigation uses its source channel's current repository environment" do
+      %{binding: binding, configuration: configuration} = proactive_investigation!(@location)
+      Repo.update!(Ecto.Changeset.change(configuration, environment_ref: nil))
+      assert {:error, "task_repository_not_writable:" <> _} = start_incident_fix(binding)
+    end
+  end
+
+  test "a room's conversational behavior does not grant code fixes after its source opts out" do
+    %{binding: binding, configuration: configuration} = proactive_investigation!(:room)
+    Repo.update!(Ecto.Changeset.change(configuration, participation: :mentions))
+    assert {:ok, submission} = Inspectors.submission(binding)
+    assert submission["context"]["operator_context"]["proactive_fixes"] == false
+    assert {:error, "task_instruction_not_authorized:" <> _} = start_incident_fix(binding)
+  end
+
+  test "closing an incident room while its fix is authorized prevents the start" do
+    %{binding: binding} = proactive_investigation!(:room)
+    room = Repo.get_by!(IncidentRoom, episode_id: binding.episode.id)
+
+    authorize = fn _source, _repository ->
+      Repo.update!(
+        Ecto.Changeset.change(room,
+          close_requested_at: Repo.now!(),
+          close_requested_by: "control-plane:local"
+        )
+      )
+
+      incident_fix_policy()
+    end
+
+    assert {:error, "task_instruction_not_authorized:" <> _} =
+             start_incident_fix(binding, authorize)
+  end
+
+  test "a room's explicit opt-out overrides its proactive source channel" do
+    %{binding: binding} = proactive_investigation!(:room)
+    room = Repo.get_by!(IncidentRoom, episode_id: binding.episode.id)
+
+    Repo.insert!(%ChannelConfiguration{
+      workspace_ref: "T123",
+      channel_ref: room.channel_ref,
+      participation: :mentions,
+      revision: 1,
+      actor_ref: "control-plane:local",
+      saved_at: Repo.now!(),
+      alert_policy: :reply
+    })
+
+    assert {:error, "task_instruction_not_authorized:" <> _} = start_incident_fix(binding)
+  end
+
+  test "a revoked incident cannot lend its introduction to a code task" do
+    %{binding: binding} = proactive_investigation!(:room)
+    room = Repo.get_by!(IncidentRoom, episode_id: binding.episode.id)
+    record = Repo.get!(Record, room.record_id)
+
+    Repo.update!(
+      Ecto.Changeset.change(record,
+        status: :dismissed,
+        confirmed_at: nil,
+        confirmed_by_actor_ref: nil,
+        confirmed_episode_id: nil,
+        confirmation_ref: nil
+      )
+    )
+
+    assert {:error, "task_instruction_not_authorized:" <> _} = start_incident_fix(binding)
+  end
+
+  test "a newly provisioned room cannot borrow permission after leaving its source channel" do
+    %{binding: binding} = proactive_investigation!(:room)
+    membership = Repo.fetch!(Ryker.Slack.ChannelMembership.Query.by_channel("T123", "C456"))
+    Repo.update!(Ecto.Changeset.change(membership, status: :left, left_at: Repo.now!()))
+    assert {:error, "task_instruction_not_authorized:" <> _} = start_incident_fix(binding)
+  end
+
+  test "a proactive installation default cannot override the source channel's explicit opt-out" do
+    %{binding: binding, configuration: configuration} = proactive_investigation!(:room)
+    assert {:ok, _} = Ryker.Settings.save_default_participation(:proactive, "control-plane:local")
+    Repo.update!(Ecto.Changeset.change(configuration, participation: :mentions))
+    assert {:ok, submission} = Inspectors.submission(binding)
+    assert submission["context"]["operator_context"]["proactive_fixes"] == false
+    assert {:error, "task_instruction_not_authorized:" <> _} = start_incident_fix(binding)
+  end
+
   # With the open-room limit full, an automatic offer's request failed every
   # second, and each failure was logged (2026-10-04 review). A full limit is
   # nothing to do until a room closes.
@@ -2849,6 +2965,121 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     room = Repo.get_by!(IncidentRoom, ref: room_ref)
     episode = Repo.get!(Ryker.Episodes.Episode, room.episode_id)
     %{agent: agent, episode: episode, room: room}
+  end
+
+  defp proactive_investigation!(location) do
+    fixture = delivered_offer!(:app)
+    Ryker.Fixtures.ChannelEnvironments.environment!("production", %{repositories: ["ryker"]})
+    configuration = save_channel_configuration!(:automatic)
+
+    configuration =
+      Repo.update!(Ecto.Changeset.change(configuration, environment_ref: "production"))
+
+    {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
+
+    assert {:ok, _settings} =
+             Ryker.Settings.save_slack(
+               %{
+                 enabled: true,
+                 workspace_ref: "T123",
+                 bot_ref: "A0123456789",
+                 bot_user_ref: "U0123456789",
+                 operators: ["U123"],
+                 default_participation: :mentions
+               },
+               settings.installation.revision,
+               "control-plane:local"
+             )
+
+    ensure_joined!("C456")
+
+    episode =
+      case location do
+        :room ->
+          agent = incident_agent!()
+          options = automatic_options(agent)
+          assert {:ok, {:requested, room_ref}} = IncidentRoomWorker.run_once(options)
+          assert {:ok, {:ready, ^room_ref}} = IncidentRoomWorker.run_once(options)
+          room = Repo.get_by!(IncidentRoom, ref: room_ref)
+          Repo.get!(Episode, room.episode_id)
+
+        :thread ->
+          assert {:ok, started} = IncidentRooms.investigate(investigate(fixture))
+          started.episode
+      end
+
+    assert {:ok, claim} = Custody.claim_next("proactive-incident", 60, :work)
+    assert claim.episode.id == episode.id
+    assert {:ok, submission} = Inspectors.submission(claim)
+    assert submission["context"]["operator_context"]["proactive_fixes"] == true
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission,
+               selected_input_refs: claim.episode.active_input_refs
+             )
+
+    %{
+      binding: %{claim | turn: turn} |> Map.put(:state_token, Records.token(turn)),
+      configuration: configuration
+    }
+  end
+
+  defp ensure_joined!(channel) do
+    unless Repo.exists?(Ryker.Slack.ChannelMembership.Query.by_channel("T123", channel)) do
+      Repo.insert!(%Ryker.Slack.ChannelMembership{
+        workspace_ref: "T123",
+        channel_ref: channel,
+        status: :joined,
+        generation: 1,
+        private: false,
+        external_shared: false,
+        joined_at: Repo.now!()
+      })
+    end
+  end
+
+  defp incident_fix_policy,
+    do: {:ok, %{name: "ryker-contributor", digest: @policy_digest, repository_ref: "ryker"}}
+
+  defp start_incident_fix(
+         binding,
+         authorize \\ nil
+       ) do
+    [current] = binding.turn.submission["context"]["inputs"]["items"]
+
+    arguments =
+      TaskOffer.payload(%{"instruction_ref" => current["source_event_id"]})
+      |> Map.put("start", true)
+
+    Ryker.StateTools.FixedTools.call("request_task", arguments,
+      binding: binding,
+      task_authorizer: authorize || incident_fix_authorizer()
+    )
+  end
+
+  defp incident_fix_authorizer do
+    {:ok, policy} = incident_fix_policy()
+
+    options = %{
+      workspace_ref: "T123",
+      authority_configuration:
+        Ryker.Slack.TaskAccess.authority_configuration(Ryker.Settings.fetch!()),
+      environments: %{"production" => %{contributor_policies: %{"ryker" => policy}}},
+      conversation_environment: fn workspace, channel ->
+        case Repo.fetch(ChannelConfiguration.Query.by_channel(workspace, channel)) do
+          {:ok, configuration} -> configuration.environment_ref
+          _missing -> nil
+        end
+      end
+    }
+
+    fn {:proactive, source}, repository ->
+      Ryker.Slack.TaskAccess.authorize_proactive(source, repository, options)
+    end
   end
 
   defp incident_agent! do
