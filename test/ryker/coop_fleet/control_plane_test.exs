@@ -2452,6 +2452,92 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.aggregate(ActivityEvent, :count) == 0
   end
 
+  # The database was restored from its pre-upgrade backup on 2026-11-02 19:46
+  # UTC and forgot events the worker had been told were kept. A worker never
+  # resends an acknowledged event, so its next batch started past the host's
+  # cursor, was refused, and came back every second: two discarded sessions
+  # drew 6,000 refusals an hour, each locking the worker row.
+  for state <- [:retired, :replaced] do
+    test "a discarded session's #{state} placement keeps events past a restored cursor" do
+      authorize_and_poll!("worker-a")
+      placement = place!("restored-cursor-#{unquote(state)}")
+      coop_session_id = "coop-restored-cursor-#{unquote(state)}"
+      bind_coop_session!(placement.session_id, coop_session_id)
+      discard_session!(placement.session_id)
+      placement |> Ecto.Changeset.change(state: unquote(state)) |> Repo.update!()
+
+      assert {:ok, response} =
+               ControlPlane.handle_poll_certificate(
+                 "worker-a",
+                 past_restored_cursor(placement, coop_session_id)
+               )
+
+      assert response["event_acknowledgements"] == [
+               %{
+                 "placement_generation" => placement.generation,
+                 "sequence" => 3,
+                 "session_ref" => placement.session_id
+               }
+             ]
+
+      assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 3
+      assert [%Event{kind: "session_event", sequence: 3}] = Repo.all(Event)
+      assert Repo.aggregate(ActivityEvent, :count) == 0
+    end
+  end
+
+  test "a session still in use refuses events past its cursor" do
+    authorize_and_poll!("worker-a")
+    placement = place!("restored-cursor-live")
+    coop_session_id = "coop-restored-cursor-live"
+    bind_coop_session!(placement.session_id, coop_session_id)
+    placement |> Ecto.Changeset.change(state: :replaced) |> Repo.update!()
+
+    assert refused(fn ->
+             ControlPlane.handle_poll_certificate(
+               "worker-a",
+               past_restored_cursor(placement, coop_session_id)
+             )
+           end) =~ "coop_worker_event_cursor_conflict"
+
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 0
+  end
+
+  # The worker was told events 1 and 2 were kept; the restored host has neither.
+  defp past_restored_cursor(placement, coop_session_id) do
+    event = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-after-restore",
+        "occurred_at" => Repo.now!() |> DateTime.to_iso8601(),
+        "payload" => %{},
+        "sequence" => 3,
+        "session_id" => coop_session_id,
+        "type" => "workspace.discarded",
+        "version" => 1
+      },
+      "sequence" => 3
+    }
+
+    poll("worker-a", "workspace-main", "poll:worker-a:#{placement.id}:restored",
+      event_batches: [
+        %{
+          "after_sequence" => 2,
+          "events" => [event],
+          "placement_generation" => placement.generation,
+          "session_ref" => placement.session_id
+        }
+      ]
+    )
+  end
+
+  defp discard_session!(session_id) do
+    {1, nil} =
+      Repo.update_all(from(session in Session, where: session.id == ^session_id),
+        set: [cleanup_status: :discarded, discarded_at: DateTime.utc_now()]
+      )
+  end
+
   test "a session can only be told to resume where a worker could actually take it" do
     # The learning lane sat unplaceable for twelve hours in 2026-09-11 because a
     # worker advertised no digest for its policy, and every surface still said

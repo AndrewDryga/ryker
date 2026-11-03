@@ -140,6 +140,24 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
        when last_sequence <= cursor,
        do: :replay
 
+  # Restoring the database from a backup forgets events the worker was already
+  # told were kept. It never sends an acknowledged event again, so its next
+  # batch starts past the host's cursor; refused, it came back every second for
+  # good (after the 2026-11-02 19:46 UTC restore, two discarded sessions drew
+  # 6,000 refusals an hour). Nothing reads a discarded session's events, so a
+  # placement that no longer runs it keeps the batch and acknowledges it.
+  defp event_batch_disposition(
+         %Placement{state: state} = placement,
+         after_sequence,
+         _last_sequence,
+         _events,
+         cursor,
+         _now
+       )
+       when state in [:retired, :replaced] and after_sequence > cursor do
+    if discarded_session?(placement), do: :terminal_cleanup, else: :conflict
+  end
+
   defp event_batch_disposition(
          _placement,
          _after_sequence,
@@ -321,6 +339,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   end
 
   defp bound_session_activity?(_placement, _events), do: false
+
+  defp discarded_session?(placement) do
+    match?(
+      %Work.Session{cleanup_status: :discarded},
+      Repo.peek(Work.Session.Query.by_id(placement.session_id))
+    )
+  end
 
   defp prebinding_session_activity?(placement, events, cursor) do
     values =
