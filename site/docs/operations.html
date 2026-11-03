@@ -139,9 +139,9 @@ scripts/compose.sh upgrade</code></pre>
 <h2 id="deploy">Deploy a local commit</h2>
 <p>For development on the installation host, use:</p>
 <pre><code>scripts/deploy.sh</code></pre>
-<p>The script requires a clean checkout at <code>main</code>’s commit, unless you deliberately pass <code>--allow-not-main</code>. It builds from the committed tree, pauses Ryker, creates a pre-deploy backup, runs migrations, and replaces only the application container. PostgreSQL and the worker keep running.</p>
+<p>The script requires a clean checkout at <code>main</code>’s commit, unless you deliberately pass <code>--allow-not-main</code>. It builds from the committed tree, pauses Ryker, runs migrations, and replaces only the application container. PostgreSQL and the worker keep running. It takes no backup: before a migration you might need to undo, run <code>scripts/compose.sh backup --controller-only</code> right before the deploy.</p>
 <p>It pins the new version only after health, readiness, and version checks pass. It then updates voice and search model services whose image or settings changed. A model failure is reported without taking down Ryker.</p>
-<p>If the application fails verification, the script prints logs, stops the replacement, and leaves the old version pinned. Check whether migrations ran before restarting the old image. If they did, restore the pre-deploy backup first.</p>
+<p>If the application fails verification, the script prints logs, stops the replacement, and leaves the old version pinned. Check whether migrations ran before restarting the old image. If they did, deploy a fixed release, or first restore the backup you took with <code>scripts/compose.sh restore FILE --controller-only</code>.</p>
 <h2 id="retention">Choose retention periods</h2>
 <p>Under <strong>Settings › Data retention</strong>, the defaults are 30 days for prompts, replies, tool activity, finished work, request history, and the audit trail; conversation memory defaults to 90 days.</p>
 <p>The audit trail must last at least as long as request history, which must last at least as long as finished work, which must cover its prompts and tool activity. Ryker enforces this order and asks before shortening a period.</p>

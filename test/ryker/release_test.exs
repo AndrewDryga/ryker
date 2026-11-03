@@ -169,7 +169,9 @@ defmodule Ryker.ReleaseTest do
     # scripts/deploy_test.sh proves the behaviour against a fake Docker and a
     # fake control plane; this holds the shape the documentation promises.
     assert deploy =~ "git worktree add --detach"
-    assert deploy =~ "pg_dump -U ryker -d ryker --format=custom"
+    assert deploy =~ "eval 'Ryker.Release.migrate()'"
+    # A deploy takes no backup since 2026-11-03 (scripts/deploy.sh, step 3).
+    refute deploy =~ "pg_dump"
     assert deploy =~ "\n  \"${compose[@]}\" up --detach --no-build --wait "
     assert deploy =~ "--no-deps ryker"
     assert deploy =~ "x-ryker-version"

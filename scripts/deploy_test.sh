@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Proves scripts/deploy.sh refuses what it must refuse and, against a fake
 # Docker and a fake control plane, does its steps in the right order: the
-# database backed up before the container is replaced, the version pinned
+# previous release stopped before the migrations run, the version pinned
 # only after the host saw the new release healthy, ready and named in the
 # version header, the worktree gone either way, and a failed deploy stopping
 # the unverified replacement while retaining the previous pin and log tail.
@@ -222,7 +222,10 @@ case " $* " in
   *" up --detach --build --wait "*)
     [[ -f $fake/models.fail ]] && { echo "fake: whisper did not become healthy" >&2; exit 1; }
     ;;
-  *" stop ryker "*) rm -f "$fake/controller.running" ;;
+  *" stop ryker "*)
+    [[ -f $fake/stop.fail ]] && exit 1
+    rm -f "$fake/controller.running"
+    ;;
   *" start ryker "*) touch "$fake/controller.running" ;;
   *" logs "*) echo "fake container log line" ;;
   *" ps --all --quiet ryker "*) [[ -f $fake/running.image ]] && echo fake-ryker-container ;;
@@ -315,7 +318,6 @@ run() {
   printf '%s\nexit=%s\n' "$out" "$?"
 }
 
-backups() { find "$state/backups" -name 'pre-deploy-*.tar.gz' 2>/dev/null | wc -l | tr -d ' '; }
 worktrees() { git -C "$repo" worktree list | wc -l | tr -d ' '; }
 mode() {
   if stat -f '%Lp' "$1" >/dev/null 2>&1; then stat -f '%Lp' "$1"; else stat -c '%a' "$1"; fi
@@ -350,8 +352,8 @@ check "no installation exits 1" "exit=1" "$out"
 
 touch "$fake/database.down"
 out=$(run)
-check "a stopped database refuses before any backup" "database container is not running" "$out"
-check "no backup is written when the database is down" "0" "$(backups)"
+check "a stopped database refuses before anything changes" "database container is not running" "$out"
+refute "a stopped database leaves the running controller alone" "stop ryker" "$(cat "$fake/calls")"
 refute "no container is replaced when the database is down" "up --detach" "$(cat "$fake/calls")"
 check "the worktree is removed after a refused deploy" "1" "$(worktrees)"
 
@@ -379,15 +381,8 @@ check "a deploy from main succeeds" "exit=0" "$out"
 check "the deploy names the running version" "ryker $version is running" "$out"
 check "the deploy says how long it took" "done in " "$out"
 calls=$(cat "$fake/calls")
-dump_line=$(grep -n 'pg_dump' <<<"$calls" | head -n 1 | cut -d: -f1)
 up_line=$(grep -n 'up --detach --no-build --wait' <<<"$calls" | head -n 1 | cut -d: -f1)
 check "the container is replaced with --no-deps ryker only" "--no-deps ryker" "$calls"
-if [[ -n $dump_line && -n $up_line && $dump_line -lt $up_line ]]; then
-  printf 'ok   the database is backed up before the container is replaced\n'
-else
-  printf 'FAIL the database is backed up before the container is replaced\n     calls:\n%s\n' "$calls"
-  failures=$((failures + 1))
-fi
 models_line=$(grep -n 'up --detach --build --wait whisper whisper-detect embeddings$' <<<"$calls" | head -n 1 | cut -d: -f1)
 if [[ -n $models_line && -n $up_line && $up_line -lt $models_line ]]; then
   printf 'ok   the models beside Ryker are built and started after the release is verified\n'
@@ -403,21 +398,13 @@ check "the deploy pins the new version" "RYKER_VERSION=$version" "$(cat "$state/
 check "the deploy pins the new image" "RYKER_IMAGE=ryker:$version" "$(cat "$state/compose.env")"
 check "pinning keeps the rest of compose.env" "RYKER_DATABASE_PASSWORD=secret-test-password" "$(cat "$state/compose.env")"
 check "compose.env stays owner-only" "600" "$(mode "$state/compose.env")"
-check "one pre-deploy backup was written" "1" "$(backups)"
-backup=$(find "$state/backups" -name 'pre-deploy-*.tar.gz' | head -n 1)
-check "the backup is owner-only" "600" "$(mode "$backup")"
-check "the backup holds the database dump" "database.dump" "$(tar -tzf "$backup")"
-check "the backup holds encrypted file custody" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
-stop_line=$(grep -n 'stop ryker' <<<"$calls" | head -n 1 | cut -d: -f1)
-if [[ -n $stop_line && $stop_line -lt $dump_line ]]; then
-  printf 'ok   database and file custody share a quiescent snapshot\n'
-else
-  printf 'FAIL snapshot did not stop its writer before pg_dump\n'
-  failures=$((failures + 1))
-fi
-check "the backup holds the environment" "compose.env" "$(tar -tzf "$backup")"
-check "the backup's environment pins the version that was running before" \
-  "RYKER_VERSION=$old_version" "$(tar -xzOf "$backup" compose.env)"
+# 2026-11-03: every deploy wrote a 0.87 GB backup of the database and encrypted state, ten of
+# them that day, and they held 12 GB on a host whose disk ran out that afternoon. A deploy
+# takes none; scripts/compose.sh backup --controller-only, run right before it, is the way back.
+check "a deploy writes nothing to the backup directory" "files=0" \
+  "files=$(find "$state/backups" -type f 2>/dev/null | wc -l | tr -d ' ')"
+refute "a deploy dumps no database" "pg_dump" "$calls"
+refute "a deploy archives no encrypted state" "--entrypoint tar volume-init" "$calls"
 check "the worktree is removed after a successful deploy" "1" "$(worktrees)"
 worktree=$(sed -n 's/.*clean worktree at \(.*\)$/\1/p' <<<"$out" | head -n 1)
 if [[ -n $worktree && ! -e $worktree ]]; then
@@ -445,68 +432,6 @@ check "a model that does not start is said" \
 check "the release stays pinned when a model does not start" "RYKER_VERSION=$version" "$(cat "$state/compose.env")"
 
 # ---------------------------------------------------------------------------
-# Old backups. Every deploy writes one of about 20 MB and none was ever
-# removed: 140 of them held 2.4 GB on 2026-09-28. The newest ten stay.
-seed
-mkdir -p "$state/backups"
-for day in $(seq -w 1 12); do
-  : >"$state/backups/pre-deploy-202001${day}T000000Z.tar.gz"
-done
-: >"$state/backups/ryker-20200101T000000Z.tar.gz"
-out=$(run)
-check "a deploy with old backups succeeds" "exit=0" "$out"
-check "the newest ten pre-deploy backups stay" "10" "$(backups)"
-check "the deploy says it removed the older ones" "removed 3 older pre-deploy backup(s)" "$out"
-check "the backup this deploy wrote stays" "1" \
-  "$(find "$state/backups" -name "pre-deploy-$(date -u +%Y)*.tar.gz" | wc -l | tr -d ' ')"
-check "the oldest kept backup is the fourth" "pre-deploy-20200104T000000Z.tar.gz" "$(ls "$state/backups")"
-refute "the oldest backups are removed" "pre-deploy-20200103T000000Z.tar.gz" "$(ls "$state/backups")"
-check "other archives are never touched" "ryker-20200101T000000Z.tar.gz" "$(ls "$state/backups")"
-
-# Ten backups can be a few hours of history on a day of many deploys (2026-10-04 review).
-# Past the newest ten, the newest backup of each of the last seven days stays too.
-seed
-mkdir -p "$state/backups"
-day_of() { date -u -r "$1" +%Y%m%d 2>/dev/null || date -u -d "@$1" +%Y%m%d; }
-now=$(date -u +%s)
-today=$(day_of "$now")
-yesterday=$(day_of $((now - 86400)))
-two_days_ago=$(day_of $((now - 2 * 86400)))
-nine_days_ago=$(day_of $((now - 9 * 86400)))
-for hour in 00 01 02 03 04 05 06 07 08 09; do
-  : >"$state/backups/pre-deploy-${today}T${hour}0000Z.tar.gz"
-done
-: >"$state/backups/pre-deploy-${yesterday}T100000Z.tar.gz"
-: >"$state/backups/pre-deploy-${yesterday}T200000Z.tar.gz"
-: >"$state/backups/pre-deploy-${two_days_ago}T120000Z.tar.gz"
-: >"$state/backups/pre-deploy-${nine_days_ago}T120000Z.tar.gz"
-out=$(run)
-check "a deploy with a week of backups succeeds" "exit=0" "$out"
-kept=$(ls "$state/backups")
-check "yesterday's newest backup stays past the newest ten" "pre-deploy-${yesterday}T200000Z.tar.gz" "$kept"
-check "a backup two days old stays as its day's newest" "pre-deploy-${two_days_ago}T120000Z.tar.gz" "$kept"
-refute "a day's older backups beyond the newest ten go" "pre-deploy-${yesterday}T100000Z.tar.gz" "$kept"
-refute "a backup older than a week goes" "pre-deploy-${nine_days_ago}T120000Z.tar.gz" "$kept"
-check "the newest ten and one a day stay" "12" "$(backups)"
-
-# 2026-10-04 review: a backup was written under its final name, so an interrupted one was left
-# looking like a good one.
-seed
-real_tar=$(command -v tar)
-mkdir -p "$work/failing-tar"
-cat >"$work/failing-tar/tar" <<SH
-#!/bin/sh
-case "\$1 \$2" in
-  "-czf "*pre-deploy-*) printf 'half an archive' >"\$2"; exit 1 ;;
-esac
-exec "$real_tar" "\$@"
-SH
-chmod 0755 "$work/failing-tar/tar"
-out=$(PATH="$work/failing-tar:$PATH" run)
-check "a deploy whose backup is cut short fails" "exit=1" "$out"
-check "a backup cut short is never named like a good one" "0" "$(backups)"
-
-# ---------------------------------------------------------------------------
 # An image that does not build. On 2026-09-26 mix.exs read a file the
 # Dockerfile copied too late, the build failed, and the script blamed the
 # container's health and printed the old container's log.
@@ -517,21 +442,26 @@ check "an image that does not build fails the deploy" "exit=1" "$out"
 check "the failure says the image did not build" "did not build" "$out"
 check "the failure says what is still running" "$old_version is still running" "$out"
 refute "no container is replaced after a failed build" "up --detach" "$(cat "$fake/calls")"
-check "no backup is taken for a build that failed" "0" "$(backups)"
 check "the previous version stays pinned after a failed build" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
 check "the worktree is removed after a failed build" "1" "$(worktrees)"
 
 # ---------------------------------------------------------------------------
-# A container that does not come up healthy.
+# A pause that fails. Stopping Ryker is the one step between the pause and the
+# migrations that can fail, and a deploy that ends there starts the running
+# release again. A failed state archive proved this until deploys stopped
+# taking backups (2026-11-03).
 seed
-touch "$fake/archive.fail"
+touch "$fake/stop.fail"
 out=$(run)
-check "a failed state archive aborts deployment" "exit=1" "$out"
-check "a failed state archive restarts the existing controller" "start ryker" "$(cat "$fake/calls")"
-refute "a failed state archive never replaces the container" "up --detach" "$(cat "$fake/calls")"
-check "a failed state archive preserves the old pin" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
-rm "$fake/archive.fail"
+check "a pause that fails stops the deploy" "exit=1" "$out"
+check "a pause that fails starts the existing controller again" "start ryker" "$(cat "$fake/calls")"
+refute "a pause that fails never migrates" "Ryker.Release.migrate()" "$(cat "$fake/calls")"
+refute "a pause that fails never replaces the container" "up --detach" "$(cat "$fake/calls")"
+check "a pause that fails preserves the old pin" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
+rm "$fake/stop.fail"
 
+# ---------------------------------------------------------------------------
+# A container that does not come up healthy.
 seed
 touch "$fake/up.fail"
 out=$(run)
@@ -541,7 +471,6 @@ check "the container's logs are printed" "fake container log line" "$out"
 check "the previous version stays pinned" "RYKER_VERSION=$old_version" "$(cat "$state/compose.env")"
 check "the failure says what is still pinned" "still pins $old_version" "$out"
 check "an unmigrated failure says the previous version can start again" "was not migrated" "$out"
-check "the backup was taken before the failed replacement" "1" "$(backups)"
 check "the worktree is removed after a failed deploy" "1" "$(worktrees)"
 check_controller_stopped "an unhealthy replacement is stopped"
 
@@ -574,16 +503,33 @@ check "a failed migration keeps the previous pin" "RYKER_VERSION=$old_version" "
 seed
 touch "$fake/migrate.fail" "$fake/migrate.migrates"
 out=$(run)
-check "a migration that failed part way says to restore first" "scripts/compose.sh restore before starting $old_version" "$out"
+check "a migration that failed part way offers a fixed release" "deploy a fixed release" "$out"
+check "a migration that failed part way says to restore before the previous release" \
+  "scripts/compose.sh restore FILE --controller-only) before starting $old_version" "$out"
+refute "a migration that failed part way names no backup the deploy never took" "pre-deploy-" "$out"
 
 # A release that migrated the database before it failed: starting the
-# previous version on that schema is refused, so the backup comes first.
+# previous version on that schema is refused, so the way back is a fixed
+# release or a backup taken before the deploy.
 seed
 touch "$fake/up.fail" "$fake/up.migrates"
 out=$(run)
 check "a failed release that migrated names the migration" "migrated the database (from 20261005000000 to 20261006000000)" "$out"
-check "a failed release that migrated says to restore first" "scripts/compose.sh restore before starting $old_version" "$out"
+check "a failed release that migrated offers a fixed release" "deploy a fixed release" "$out"
+check "a failed release that migrated says to restore before the previous release" \
+  "scripts/compose.sh restore FILE --controller-only) before starting $old_version" "$out"
 refute "a failed release that migrated does not offer a plain start" "was not migrated" "$out"
+
+# Migrations that cannot be read leave open whether the release migrated, so both ways
+# back are offered, and neither names a backup the deploy never took.
+seed
+: >"$fake/schema"
+touch "$fake/up.fail"
+out=$(run)
+check "unreadable migrations say so" "migrations could not be read" "$out"
+check "unreadable migrations offer a fixed release" "deploy a fixed release" "$out"
+check "unreadable migrations restore only the controller" "restore FILE --controller-only" "$out"
+refute "unreadable migrations name no backup the deploy never took" "pre-deploy-" "$out"
 
 # ---------------------------------------------------------------------------
 # A container that is healthy but serves other code than the commit.
@@ -622,6 +568,25 @@ check "--allow-not-main deploys the branch on purpose" "exit=0" "$out"
 check "the branch deploy pins its own commit" "RYKER_VERSION=0.1.0-g$(git -C "$repo" rev-parse HEAD)" "$(cat "$state/compose.env")"
 git -C "$repo" checkout -q main
 
+# 2026-10-04 review: a backup was written under its final name, so an interrupted one was left
+# looking like a good one. Every backup goes through write_backup; the pre-deploy archive held
+# this until deploys stopped taking one (2026-11-03).
+seed
+real_tar=$(command -v tar)
+mkdir -p "$work/failing-tar"
+cat >"$work/failing-tar/tar" <<SH
+#!/bin/sh
+case "\$1 \$2" in
+  "-czf "*.partial-ryker-*) printf 'half an archive' >"\$2"; exit 1 ;;
+esac
+exec "$real_tar" "\$@"
+SH
+chmod 0755 "$work/failing-tar/tar"
+out=$(cd "$repo" && PATH="$work/failing-tar:$PATH" sh scripts/compose.sh backup --controller-only 2>&1; echo "exit=$?")
+refute "a backup cut short does not succeed" "exit=0" "$out"
+check "a backup cut short is never named like a good one" "files=0" \
+  "files=$(find "$state/backups" -type f 2>/dev/null | wc -l | tr -d ' ')"
+
 # Lifecycle backup uses the same file custody and restores a paused controller
 # on both success and failure, without starting one the operator had stopped.
 seed
@@ -646,6 +611,7 @@ check "the worker archive leaves out earlier copies of its state" "--exclude=coo
 check "the worker archive leaves out its temporary files" "--exclude=coop/tmp" "$calls"
 backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
 check "lifecycle backup includes encrypted state" "ryker-state.tar.gz" "$(tar -tzf "$backup")"
+check "lifecycle backup is owner-only" "600" "$(mode "$backup")"
 mkdir -p "$work/roundtrip"
 tar -xzf "$backup" -C "$work/roundtrip" worker-state.tar.gz
 tar -xzf "$work/roundtrip/worker-state.tar.gz" -C "$work/roundtrip"

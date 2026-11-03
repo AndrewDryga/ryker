@@ -9,10 +9,13 @@
 #      HEAD that is not main's, so what runs is always an exact named commit;
 #   2. build the image from a clean git worktree of HEAD, so nothing in the
 #      working directory that git does not know about can reach the image;
-#      a build that fails stops here, before the backup, with nothing changed;
-#   3. pause Ryker and back up the database and encrypted state into .ryker/backups/:
-#      the container runs its migrations when it boots, and a migration that
-#      fails on real rows is undone from that archive, not by hand;
+#      a build that fails stops here, before Ryker is paused, with nothing changed;
+#   3. pause Ryker and run the migrations with the new image while no release
+#      writes. No backup is taken: each was 0.87 GB, ten a day held 12 GB on a
+#      host whose disk ran out (2026-11-03). Before a migration that might need
+#      undoing, run scripts/compose.sh backup --controller-only right before the
+#      deploy: a restore needs the archive's release image, and deploys prune
+#      older images;
 #   4. replace only the ryker container (`up --detach --no-build --wait
 #      --no-deps ryker`); PostgreSQL, the bundled worker and its Docker
 #      daemon keep running and are never rebuilt here;
@@ -61,7 +64,6 @@ env_file=$state_dir/compose.env
 ready_timeout=${RYKER_READY_TIMEOUT:-180}
 poll_seconds=${RYKER_DEPLOY_POLL_SECONDS:-2}
 keep_images=${RYKER_KEEP_IMAGES:-2}
-keep_backups=${RYKER_KEEP_BACKUPS:-10}
 started=$SECONDS
 
 say() { echo "deploy: $*"; }
@@ -101,7 +103,6 @@ origin=$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "$
 
 # --- cleanup, whatever happens ---------------------------------------------
 worktree=
-scratch=
 restart_controller=0
 cleanup() {
   local status=$?
@@ -112,7 +113,6 @@ cleanup() {
     git -C "$repository" worktree remove --force "$worktree" >/dev/null 2>&1 || rm -rf -- "$worktree"
     git -C "$repository" worktree prune >/dev/null 2>&1 || true
   fi
-  [[ -n $scratch ]] && rm -rf -- "$scratch"
   release_lifecycle_lock
   exit "$status"
 }
@@ -121,7 +121,6 @@ take_lifecycle_lock deploy
 python3 "$repository/scripts/storage_maintenance.py" --prepare-build --env-file "$env_file" ||
   fail "storage preflight refused the build; the running release is unchanged"
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy-scratch.XXXXXX")
 worktree=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy.XXXXXX")
 git worktree add --detach "$worktree" HEAD >/dev/null 2>&1 ||
   fail "could not create a worktree of HEAD at $worktree"
@@ -132,40 +131,25 @@ say "currently pinned: ${previous_version:-nothing} (${previous_image:-no image}
 
 # --- the image is built before anything changes -----------------------------
 # A build that fails leaves the running release, the database and compose.env
-# exactly as they were, and takes no backup.
+# exactly as they were.
 say "building $image"
 if ! env RYKER_VERSION="$version" RYKER_IMAGE="$image" "${compose[@]}" build ryker; then
   echo "deploy: FAILED — $image did not build; nothing was replaced and ${previous_version:-nothing} is still running" >&2
   exit 1
 fi
 
-# --- the database is backed up before anything changes ---------------------
+# --- the previous release is paused before anything changes -----------------
+# The migrations below run while no release writes. No backup is taken (step 3
+# above says why and what to do instead).
 "${compose[@]}" exec -T database pg_isready -U ryker -d ryker >/dev/null 2>&1 ||
   fail "the database container is not running; start the project first (scripts/compose.sh start)"
 
-backup_dir=$state_dir/backups
-mkdir -p "$backup_dir"
-chmod 0700 "$backup_dir"
 running_services=$("${compose[@]}" ps --status running --services)
 if grep -qx ryker <<<"$running_services"; then
-  say "pausing Ryker to capture the database and encrypted files consistently"
+  say "pausing Ryker so the migrations run while no release writes"
   restart_controller=1
   "${compose[@]}" stop ryker
 fi
-"${compose[@]}" exec -T database pg_dump -U ryker -d ryker --format=custom --no-owner --no-privileges \
-  >"$scratch/database.dump"
-[[ -s $scratch/database.dump ]] || fail "the database backup is empty"
-"${compose[@]}" exec -T database pg_restore --list <"$scratch/database.dump" >/dev/null ||
-  fail "the database backup does not read back as a PostgreSQL archive"
-"${compose[@]}" run --rm --no-deps -T --entrypoint tar volume-init \
-  -czf - -C /var/lib/ryker . >"$scratch/ryker-state.tar.gz"
-tar -tzf "$scratch/ryker-state.tar.gz" >/dev/null || fail "the encrypted state backup does not read back"
-cp "$env_file" "$scratch/compose.env"
-chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/compose.env"
-backup="$backup_dir/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz compose.env ||
-  fail "the backup could not be written to $backup_dir"
-say "database and encrypted state backed up to $backup (scripts/compose.sh restore takes it)"
 
 # --- replace the container ---------------------------------------------------
 # The newest migration the database has run, read before and after the new
@@ -194,9 +178,9 @@ report_failure() {
   if [[ -n $schema_before && $schema_after == "$schema_before" ]]; then
     echo "deploy: the database was not migrated, so scripts/compose.sh start brings back ${previous_version:-the previous version}" >&2
   elif [[ -n $schema_before && -n $schema_after ]]; then
-    echo "deploy: the new release migrated the database (from $schema_before to $schema_after); restore $backup with scripts/compose.sh restore before starting ${previous_version:-the previous version}" >&2
+    echo "deploy: the new release migrated the database (from $schema_before to $schema_after), which ${previous_version:-the previous version} refuses: deploy a fixed release, or restore a backup taken right before this deploy (scripts/compose.sh restore FILE --controller-only) before starting ${previous_version:-the previous version}" >&2
   else
-    echo "deploy: the database's migrations could not be read; if the new release migrated it, restore $backup with scripts/compose.sh restore, otherwise scripts/compose.sh start brings back the previous version" >&2
+    echo "deploy: the database's migrations could not be read; if the new release migrated it, deploy a fixed release or restore a backup taken right before this deploy (scripts/compose.sh restore FILE --controller-only), otherwise scripts/compose.sh start brings back the previous version" >&2
   fi
   exit 1
 }
@@ -268,31 +252,6 @@ while IFS= read -r tag; do
 done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' ryker 2>/dev/null || true)
 if ((${#pruned[@]} > 0)); then
   say "pruned ${#pruned[@]} older image(s): ${pruned[*]}"
-fi
-
-# Every deploy writes a backup of about 20 MB and none was ever removed: 140
-# of them held 2.4 GB on 2026-09-28. The newest ten stay, the one this deploy
-# wrote among them, and past them the newest of each of the last seven days:
-# ten can be a few hours on a day of many deploys (2026-10-04 review). Other
-# archives in the directory are never touched.
-day_of() { date -u -r "$1" +%Y%m%d 2>/dev/null || date -u -d "@$1" +%Y%m%d; }
-week_ago=$(day_of $(($(date -u +%s) - 7 * 86400)))
-removed_backups=0
-listed=0
-kept_days=" "
-while IFS= read -r old_backup; do
-  listed=$((listed + 1))
-  day=$(basename "$old_backup")
-  day=${day#pre-deploy-}
-  day=${day%%T*}
-  if ((listed <= keep_backups)) || [[ $day > $week_ago && $kept_days != *" $day "* ]]; then
-    kept_days+="$day "
-  else
-    rm -f -- "$old_backup" && removed_backups=$((removed_backups + 1))
-  fi
-done < <(find "$backup_dir" -maxdepth 1 -name 'pre-deploy-*.tar.gz' | sort -r)
-if ((removed_backups > 0)); then
-  say "removed $removed_backups older pre-deploy backup(s); the newest $keep_backups and the newest of each of the last seven days stay in $backup_dir"
 fi
 
 elapsed=$((SECONDS - started))

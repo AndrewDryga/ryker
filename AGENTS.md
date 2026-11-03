@@ -152,19 +152,19 @@ holds its pins (`RYKER_VERSION`, `RYKER_IMAGE`) and its roots, and `scripts/comp
 lifecycle. Commit the change, then run `scripts/deploy.sh`. It refuses a dirty tree and a HEAD
 that is not `main`'s (pass `--allow-not-main` only on purpose), builds `ryker:0.1.0-g<commit>`
 (or the tag's version when HEAD carries an annotated `v` tag) from a clean git worktree of HEAD,
-then pauses Ryker and backs up the database and encrypted state
-into `.ryker/backups/pre-deploy-<time>.tar.gz`, runs the migrations with the new image as a step
-of their own, and replaces only the `ryker` container with
-`docker compose up --detach --no-build --wait --no-deps ryker`, waits from the host's side for
-`/healthz`, `/readyz` and the exact `x-ryker-version`
-header, and only then pins the new version in `.ryker/compose.env` and keeps the newest ten
-pre-deploy backups and the newest of each of the last seven days. On failure it prints the
-container's log tail, stops the unverified replacement and leaves the previous version pinned.
-Last it builds and starts the models beside Ryker (voice and search by meaning), replacing only
-those whose image or settings changed; Ryker works without them, with less, so a model that does
-not start is reported and the release stays.
-It also says whether the failed release migrated the database; if it did, restore the pre-deploy
-backup before restarting the previous image, which refuses a schema a newer release migrated. PostgreSQL
+then pauses Ryker, runs the migrations with the new image as a step of their own, and replaces
+only the `ryker` container with `docker compose up --detach --no-build --wait --no-deps ryker`,
+waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version` header, and
+only then pins the new version in `.ryker/compose.env`. It takes no backup: before a migration
+that might need undoing, run `scripts/compose.sh backup --controller-only` right before the
+deploy (a restore needs the archive's release image, and deploys prune older images). On failure
+it prints the container's log tail, stops the unverified replacement and leaves the previous
+version pinned. Last it builds and starts the models beside Ryker (voice and search by meaning),
+replacing only those whose image or settings changed; Ryker works without them, with less, so a
+model that does not start is reported and the release stays.
+It also says whether the failed release migrated the database; if it did, the previous image
+refuses that schema, so deploy a fixed release or restore that backup with
+`scripts/compose.sh restore FILE --controller-only`. PostgreSQL
 custody resumes pending admission, Work, delivery, schedule, and remote-worker state after the
 normal one-writer restart; there is no canary/promote deployment state. The worktree is removed
 whatever happens, and the script ends by saying what is running and how long it took.
