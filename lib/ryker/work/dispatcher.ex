@@ -96,6 +96,14 @@ defmodule Ryker.Work.Dispatcher do
   defp worker_away?({:coop_session_replacement_required, session_id, _generation}),
     do: CoopFleet.ControlPlane.awaiting_worker?(session_id)
 
+  # Nor is a command the worker has taken and is still running. Creating a session in an
+  # environment that mounts 17 repositories stages them for one to four minutes, and each
+  # 30-second wait for it spent an attempt: one create on the tenant install took five of an
+  # alert's eight (2026-11-03), so a slower one, or two alerts at once on its one worker,
+  # would stop the alert unanswered.
+  defp worker_away?({:coop_worker_command_timeout, command_id}),
+    do: CoopFleet.ControlPlane.command_running?(command_id)
+
   defp worker_away?(_reason), do: false
 
   defp wait_for_worker(claim, reason), do: yield_for(claim, reason, @worker_away_retry_seconds)

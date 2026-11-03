@@ -2,7 +2,7 @@ defmodule Ryker.Work.DispatcherTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-  alias Ryker.CoopFleet.{ControlPlane, Placement}
+  alias Ryker.CoopFleet.{Command, ControlPlane, Placement}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -372,6 +372,49 @@ defmodule Ryker.Work.DispatcherTest do
 
     {1, _rows} =
       Ryker.Repo.update_all(from(t in Turn, where: t.id == ^waiting.id),
+        set: [next_attempt_at: nil]
+      )
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, reason}))
+    assert Ryker.Repo.get_by!(Turn, episode_id: command.episode_id).work_attempt_count == 1
+  end
+
+  # Creating a session in an environment that mounts 17 repositories stages them for one to four
+  # minutes on the tenant install's one worker. Each 30-second wait for the create spent one of the
+  # alert's eight attempts, and one create took five of them (2026-11-03): a slower one, or two
+  # alerts at once, would have stopped the alert unanswered. Waiting on a command the worker took
+  # is not a failed try, until it has run for half an hour.
+  test "a turn keeps its attempts while its worker runs a command it took, until that runs too long" do
+    command = create_episode!("worker-busy")
+    session = Ryker.Repo.get_by!(Ryker.Work.Session, episode_id: command.episode_id)
+    WorkerJob.pin!(session)
+    authorize_and_poll!("worker-busy")
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["controller-tools"],
+                 repository_ref: nil,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    taken = taken_command!(session, placement, 3 * 60)
+    reason = {:coop_worker_command_timeout, taken.id}
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, reason}))
+    assert Ryker.Repo.get_by!(Turn, episode_id: command.episode_id).work_attempt_count == 0
+
+    # Taken more than half an hour ago and still not finished: waiting spends attempts again.
+    {1, _rows} =
+      Ryker.Repo.update_all(from(c in Command, where: c.id == ^taken.id),
+        set: [acknowledged_at: DateTime.add(Ryker.Repo.now!(), -31 * 60, :second)]
+      )
+
+    {1, _rows} =
+      Ryker.Repo.update_all(from(t in Turn, where: t.episode_id == ^command.episode_id),
         set: [next_attempt_at: nil]
       )
 
@@ -1125,6 +1168,25 @@ defmodule Ryker.Work.DispatcherTest do
              )
 
     accepted
+  end
+
+  # A create_session its worker took `seconds_ago` and is still running.
+  defp taken_command!(session, placement, seconds_ago) do
+    taken_at = DateTime.add(Ryker.Repo.now!(), -seconds_ago, :second)
+
+    Ryker.Repo.insert!(%Command{
+      placement_id: placement.id,
+      worker_id: placement.worker_id,
+      session_id: session.id,
+      placement_generation: placement.generation,
+      kind: "create_session",
+      payload: %{},
+      payload_fingerprint: digest("payload:#{placement.id}"),
+      idempotency_key: "worker-busy:#{placement.id}",
+      status: :acknowledged,
+      delivered_at: taken_at,
+      acknowledged_at: taken_at
+    })
   end
 
   defp authorize_and_poll!(worker_id) do

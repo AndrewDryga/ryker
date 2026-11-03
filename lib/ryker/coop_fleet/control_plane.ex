@@ -47,6 +47,10 @@ defmodule Ryker.CoopFleet.ControlPlane do
   @spec awaiting_worker?(Ecto.UUID.t()) :: boolean()
   defdelegate awaiting_worker?(session_id), to: Placements
 
+  @doc "Whether a worker has taken this command and is still running it."
+  @spec command_running?(String.t()) :: boolean()
+  defdelegate command_running?(command_id), to: Commands, as: :running?
+
   @doc """
   Whether any current worker could take this session's next placement.
 

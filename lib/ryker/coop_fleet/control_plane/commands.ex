@@ -405,6 +405,26 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     command |> Command.Changeset.erase_unsubmitted_prompt() |> Repo.update!()
   end
 
+  # Creating a session in an environment that mounts many repositories stages
+  # them for minutes on its worker. Past half an hour a command its worker took
+  # counts as a failed try again, so one the worker never finishes still stops.
+  @running_seconds 30 * 60
+
+  @doc """
+  Whether a worker took command `command_id` within the last half hour, by the
+  database's clock, and has not finished it: waiting for it is not a failed try.
+  """
+  @spec running?(String.t()) :: boolean()
+  def running?(command_id) do
+    with {:ok, id} <- Ecto.UUID.cast(command_id),
+         %Command{status: :acknowledged, acknowledged_at: %DateTime{} = taken_at} <-
+           Repo.peek(Command.Query.by_id(id)) do
+      DateTime.diff(Repo.now!(), taken_at) < @running_seconds
+    else
+      _not_running -> false
+    end
+  end
+
   @orphaned_seconds 24 * 60 * 60
 
   @doc """
