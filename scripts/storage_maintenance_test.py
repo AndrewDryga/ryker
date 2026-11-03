@@ -57,11 +57,14 @@ class MaintenanceTest(unittest.TestCase):
         self.cache = "2GB"
         self.failure = None
         self.host_free = 40 * storage.GIB
+        self.du_total = True
 
     def run_docker(self, argv, timeout=12):
         self.commands.append(argv)
         if "ps" in argv:
             return "a" * 64
+        if argv[-4:-2] == ["buildx", "du"]:
+            return f"Reclaimable:\t{self.cache}\n" + (f"Total:\t\t{self.cache}\n" if self.du_total else "")
         if "df" in argv and "-Pk" in argv:
             return f"Filesystem blocks Used Available Capacity Mounted\n/dev/vdb1 {100 * storage.GIB // 1024} 0 {self.free // 1024} 0% /\n"
         if "system" in argv:
@@ -86,6 +89,23 @@ class MaintenanceTest(unittest.TestCase):
 
     def maintain(self):
         return storage.maintain(pathlib.Path("/tmp/install/compose.env"), True, self.run_docker, self.measure_host)
+
+    # `system df` sizes every volume: on a host holding 274 GB of them it took 9
+    # of its 12 seconds idle, and a Docker busy with an upgrade timed it out and
+    # refused the build (2026-11-03). The host's cache is read from Buildx alone.
+    def test_host_cache_is_measured_without_sizing_every_volume(self):
+        self.cache = "12GB"
+        report = self.maintain()
+        host = report["builders"][0]
+        self.assertEqual((host["name"], host["cache_bytes"]), ("host", 12 * 1000**3))
+        self.assertIn(["docker", "--context", "default", "buildx", "du", "--builder", "default"], self.commands)
+        self.assertFalse(any(c[:4] == ["docker", "--context", "default", "system"] for c in self.commands))
+
+    def test_host_cache_without_a_total_is_a_failed_measurement(self):
+        self.du_total = False
+        report = self.maintain()
+        self.assertIn("host: Docker cache measurement or cleanup failed", report["errors"])
+        self.assertFalse(storage.build_ready(report))
 
     def test_healthy_install_runs_no_mutating_commands(self):
         report = self.maintain()

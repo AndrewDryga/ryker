@@ -116,6 +116,20 @@ def inspect_builder(prefix, run):
     return size_bytes(cache["Size"])
 
 
+def inspect_host_builder(prefix, run):
+    # `system df` also sizes every volume. On a host holding 274 GB of them it
+    # took 9 of its 12 seconds idle, and a Docker busy with an upgrade timed it
+    # out and refused the build (2026-11-03). Buildx reads only the cache, and
+    # its total is the figure a Docker 29 host's `system df` reports.
+    builder = run(prefix + ["context", "show"]).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", builder):
+        raise RuntimeError("Docker context identity is invalid")
+    total = re.search(r"^Total:\s+(\S+)\s*$", run(prefix + ["buildx", "du", "--builder", builder]), re.MULTILINE)
+    if not total:
+        raise ValueError("missing Docker build cache total")
+    return size_bytes(total[1])
+
+
 def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, context=None, compose_file=None):
     before_host = measure_host(env_file.parent)
     result = {"version": 1, "measured_at": int(time.time()), "host": before_host,
@@ -155,7 +169,8 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
         item = {"name": name, "free_before_bytes": free, "pruned": False}
         result["builders"].append(item)
         try:
-            item["cache_bytes"] = inspect_builder(prefix, run)
+            inspect = inspect_host_builder if name == "host" else inspect_builder
+            item["cache_bytes"] = inspect(prefix, run)
             host_pressure = measure_host(env_file.parent)["pressure"]
             if capacity is None:
                 # Outer cache recovery remains available if the nested daemon
