@@ -273,10 +273,21 @@ if [[ -n $helper_problems ]]; then
   fi
 fi
 
+storage_problems=$(python3 "${WATCHDOG_STORAGE_SCRIPT:-$repository/scripts/storage_maintenance.py}" \
+  --maintain --env-file "$env_file" 2>/dev/null) || storage_problems="storage maintenance failed"
+if [[ -n $storage_problems ]]; then
+  if [[ $state == "ready" ]]; then
+    state=$storage_problems
+    title="Ryker storage needs attention"
+  else
+    state="$state; $storage_problems"
+  fi
+fi
+
 strikes=$(cat "$strike_file" 2>/dev/null || echo 0)
 if [[ $state == "ready" ]]; then
   if [[ -f $alerted_file ]]; then
-    alarm "Ryker recovered" "The deployment reports ready again, as the pinned $pinned."
+    alarm "Ryker checks recovered" "Readiness, model and storage checks are clear. Running $pinned."
     note "recovered after $strikes strikes"
   fi
   rm -f "$strike_file" "$alerted_file"

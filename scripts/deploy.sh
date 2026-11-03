@@ -87,7 +87,7 @@ version=$(scripts/elixir-release-version.sh)
 image="ryker:$version"
 
 # --- where it would run ----------------------------------------------------
-for tool in git docker curl tar; do
+for tool in git docker curl tar python3; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 (the 'docker compose' command) is required"
@@ -118,6 +118,8 @@ cleanup() {
 }
 trap cleanup EXIT
 take_lifecycle_lock deploy
+python3 "$repository/scripts/storage_maintenance.py" --prepare-build --env-file "$env_file" ||
+  fail "storage preflight refused the build; the running release is unchanged"
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy-scratch.XXXXXX")
 worktree=$(mktemp -d "${TMPDIR:-/tmp}/ryker-deploy.XXXXXX")

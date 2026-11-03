@@ -185,6 +185,7 @@ shellcheck:
 # control plane and a fake Docker, and watches it complain.
 watchdog-check:
 	scripts/watchdog_test.sh
+	python3 -B scripts/storage_maintenance_test.py
 
 launch-agent-check:
 	scripts/launch-agent_test.sh

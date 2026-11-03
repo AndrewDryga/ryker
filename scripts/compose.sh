@@ -580,6 +580,7 @@ case "$command" in
     require_clean_checkout upgrade
     require_published_head
     lock_lifecycle upgrade
+    python3 "$repository/scripts/storage_maintenance.py" --prepare-build --env-file "$env_file"
     replaced=$(running_image)
     release=$(head_release)
     pin_release "$release" "ryker:$release"
@@ -635,6 +636,8 @@ case "$command" in
       echo "The worker already runs $image."
       exit 0
     fi
+    # Prewarm builds in the nested daemon even when the outer image is cached.
+    python3 "$repository/scripts/storage_maintenance.py" --prepare-build --env-file "$env_file"
     if ! docker image inspect "$image" >/dev/null 2>&1; then
       docker build --file "$repository/deploy/compose/coop/Dockerfile" --tag "$image" "$repository"
     fi

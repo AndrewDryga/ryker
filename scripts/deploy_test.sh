@@ -58,6 +58,15 @@ git -C "$repo" config user.name "deploy test"
 cp "$root/scripts/deploy.sh" "$root/scripts/compose.sh" "$root/scripts/compose-lifecycle.sh" \
   "$root/scripts/elixir-release-version.sh" "$root/scripts/elixir-live-acceptance.sh" "$repo/scripts/"
 printf 'name: ryker\n' >"$repo/compose.yml"
+cat >"$repo/scripts/storage_maintenance.py" <<'PY'
+import os, pathlib, sys
+fake = pathlib.Path(os.environ["DEPLOY_TEST_FAKE"])
+with (fake / "calls").open("a") as out:
+    out.write("storage prepare-build\n")
+if (fake / "storage.fail").exists():
+    print("insufficient measured headroom for a new build")
+    sys.exit(1)
+PY
 git -C "$repo" add -A
 git -C "$repo" commit -q -m "first"
 sha=$(git -C "$repo" rev-parse HEAD)
@@ -348,6 +357,14 @@ check "the worktree is removed after a refused deploy" "1" "$(worktrees)"
 
 # ---------------------------------------------------------------------------
 # The ordinary deploy from main.
+seed
+touch "$fake/storage.fail"
+out=$(run)
+check "disk pressure refuses a build before pausing the controller" "insufficient measured headroom" "$out"
+check "disk pressure stops the deploy" "exit=1" "$out"
+refute "disk pressure leaves the running controller alone" "stop ryker" "$(cat "$fake/calls")"
+refute "disk pressure starts no build" "build --" "$(cat "$fake/calls")"
+rm "$fake/storage.fail"
 seed
 for letter in b c d e; do
   printf 'ryker:0.1.0-g%s\n' "$(printf "$letter%.0s" $(seq 1 40))" >>"$fake/images"
@@ -1029,6 +1046,14 @@ worker_upgrade() {
   out=$(cd "$repo" && RYKER_WORKER_IDLE_TIMEOUT=0 sh scripts/compose.sh worker-upgrade 2>&1; echo "exit=$?")
   calls=$(cat "$fake/calls")
 }
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+touch "$fake/storage.fail"
+worker_upgrade
+check "a cached worker image still needs space for prewarm" "exit=1" "$out"
+refute "low disk reaches no nested prewarm build" "entrypoint sh ryker-coop -s" "$calls"
+refute "low disk copies no worker state" "cp -a agents" "$calls"
+rm "$fake/storage.fail"
 seed
 printf 'ryker-coop:old\n' >"$fake/worker.image"
 printf 'ryker-coop:%s\n' 1234abcd old older >"$fake/images"

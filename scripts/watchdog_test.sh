@@ -33,6 +33,11 @@ export WATCHDOG_STATE="$work/state"
 export WATCHDOG_NO_NOTIFY=1
 export WATCHDOG_STRIKES=2
 export WATCHDOG_RENOTIFY_MINUTES=30
+export WATCHDOG_STORAGE_SCRIPT="$work/storage.py"
+cat >"$WATCHDOG_STORAGE_SCRIPT" <<'PY'
+import os
+print(os.environ.get("WATCHDOG_TEST_STORAGE", ""))
+PY
 
 failures=0
 check() {
@@ -180,6 +185,14 @@ check "a healthy deployment exits cleanly" "exit=0" "$out"
 check "the heartbeat records that the check ran" "T" "$(cat "$WATCHDOG_STATE/heartbeat" 2>/dev/null)"
 refute "volume-init exiting is by design" "volume-init" "$out"
 
+# Disk pressure must be visible before storage admission closes and Slack goes quiet.
+reset; ready
+out="$(WATCHDOG_TEST_STORAGE='host disk has 2 GiB free' run)$(WATCHDOG_TEST_STORAGE='host disk has 2 GiB free' run)"
+check "storage pressure alarms while the controller still reports ready" \
+  "host disk has 2 GiB free" "$out"
+out=$(run)
+check "reclaimed headroom clears the pressure alarm" "ALERT Ryker checks recovered" "$out"
+
 # ---------------------------------------------------------------------------
 # 2026-09-13 to 09-18: the fleet was gone and /readyz said so for days.
 reset; not_ready "no_eligible_workers; no_session_capacity"
@@ -196,7 +209,7 @@ check "a standing outage is repeated once the renotify interval passes" "ALERT R
 
 ready
 recovered=$(run)
-check "the first ready check after an alarm says so" "ALERT Ryker recovered" "$recovered"
+check "the first ready check after an alarm says so" "ALERT Ryker checks recovered" "$recovered"
 again=$(run)
 refute "recovery is announced once" "ALERT" "$again"
 
@@ -241,7 +254,7 @@ check "a running version other than the pinned one alarms" \
   "ALERT Ryker is not working — running 9.9.9, but $install/compose.env pins 1.2.3" "$crossed"
 serving 1.2.3
 repinned=$(run)
-check "the pinned version serving again is a recovery" "ALERT Ryker recovered" "$repinned"
+check "the pinned version serving again is a recovery" "ALERT Ryker checks recovered" "$repinned"
 
 # ---------------------------------------------------------------------------
 # Readiness lags a lost worker by its lease; the container listing does not.

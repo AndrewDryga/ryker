@@ -516,6 +516,25 @@ inspect the failed request and its exact custody phase before retrying a visible
 leases, operation keys, receipts or episode rows by hand; the typed retry and reconcile controls
 preserve the fences that make recovery safe.
 
+Build cache maintenance runs through the watchdog every five minutes and before controller or
+worker builds. `python3 scripts/storage_maintenance.py --maintain` requests the same policy;
+it reuses the last maintenance result for up to five minutes. The `--status` command shows its age.
+It measures physical host and Docker filesystem headroom separately and bounds unused build
+cache in both the host and worker Docker builders. Each builder's cache budget is five percent
+of the Docker filesystem, capped at 8 GiB. When the physical host is low, all unused build cache
+becomes eligible until headroom returns, even if the VM's filesystem has room. Cleanup starts before workspace admission's emergency
+reserve is exhausted. Docker retains cache held by active builds; this maintenance removes no
+containers, images, volumes, databases or working copies. It requires Docker's bounded Buildx
+prune options and refuses unsupported builders instead of broadening deletion.
+
+The private `.ryker/storage/status.json` records each daemon's result and the measured change in
+free space. A successful prune is not proof of recovery: the watchdog continues to report
+insufficient headroom, failed measurements and failed cleanup. `scripts/status.sh` shows the last
+measurement and marks it stale after ten minutes. New builds require up to 12 GiB free on both
+filesystems; early warnings target more headroom. Existing requests remain in durable capacity
+waits. Cache cleanup cannot recover space held by active or retained work, or unrelated host data;
+those require capacity or workload changes. The maintenance policy does not restart either daemon.
+
 On a Mac, `scripts/install-watchdog.sh` installs `scripts/watchdog.sh` as a launch agent. Once a
 minute it checks `/readyz` and the pinned version, the project's containers, the models beside
 Ryker, blocked work in `/metrics` and the whisper servers on the Mac's GPU when `compose.env` names
