@@ -70,6 +70,50 @@ defmodule Ryker.Repo do
     :ok
   end
 
+  # The keys of the checks that passed in the outermost transaction this
+  # process has open. Absent outside a transaction Ryker.Repo started.
+  @passed_checks {__MODULE__, :passed_checks}
+
+  @doc """
+  Whether `check` passes for `key`; once it has passed, the rest of the
+  outermost transaction this process has open takes that answer without
+  running it again. A check that fails runs again when asked again, and
+  outside a transaction every call runs it.
+
+  Only for a check whose pass holds for the rest of the transaction: it locks
+  the rows its answer rests on `FOR SHARE` or stronger, `key` names whatever
+  else the answer depends on, and the transaction itself writes nothing later
+  that could make it false.
+
+  On 2026-11-03 one Work briefing quoted six earlier alerts whose sessions had
+  seen the same topics: authorization checked 920 topic versions, 176 of them
+  distinct, past the 15-second transaction limit on every retry, and the
+  tenant install's alerts channel got no answer all night.
+  """
+  @spec passed_once?(term(), (-> boolean())) :: boolean()
+  def passed_once?(key, check) when is_function(check, 0) do
+    case Process.get(@passed_checks) do
+      nil -> check.()
+      passed -> MapSet.member?(passed, key) or remember_pass(key, check.())
+    end
+  end
+
+  defp remember_pass(key, true) do
+    # Re-read: the check may have passed nested checks of its own meanwhile.
+    case Process.get(@passed_checks) do
+      nil ->
+        true
+
+      passed ->
+        # The transaction's bookkeeping, as the after-commit queue is.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
+        Process.put(@passed_checks, MapSet.put(passed, key))
+        true
+    end
+  end
+
+  defp remember_pass(_key, result), do: result
+
   # Every Repo.transaction/2 runs through transact/2, so this is the one place
   # that sees each transaction open and close.
   defoverridable transact: 2
@@ -78,7 +122,8 @@ defmodule Ryker.Repo do
   Internal — Ecto's `transact/2`, through which every `Repo.transaction/2`
   runs, wrapped to open and close the after-commit queue
   (`after_commit/1`): callbacks run once the outermost transaction commits,
-  and are dropped when it rolls back.
+  and are dropped when it rolls back. The checks passed in it
+  (`passed_once?/2`) are forgotten when it ends either way.
   """
   def transact(fun_or_multi, opts) do
     scope = open_after_commit_scope()
@@ -101,6 +146,10 @@ defmodule Ryker.Repo do
       nil ->
         # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
         Process.put(@after_commit, [])
+        # Lives and dies with the after-commit queue: bookkeeping of this
+        # transaction, never request state.
+        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
+        Process.put(@passed_checks, MapSet.new())
         :outermost
 
       _queue ->
@@ -113,6 +162,7 @@ defmodule Ryker.Repo do
   defp close_after_commit_scope(:nested, _committed?), do: :ok
 
   defp close_after_commit_scope(:outermost, committed?) do
+    Process.delete(@passed_checks)
     queue = Process.delete(@after_commit)
     if committed?, do: queue |> Enum.reverse() |> Enum.uniq() |> run_after_commit()
     :ok

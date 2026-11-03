@@ -382,18 +382,22 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <- positive_integer(candidate_attempt, :candidate_attempt),
          :ok <- reference(validation_receipt, :validation_receipt),
          :ok <- measurement(measurement) do
-      Repo.transaction(fn ->
-        accept_result_locked(
-          episode_id,
-          episode_key,
-          turn_ref,
-          lease_ref,
-          candidate_sha256,
-          candidate_attempt,
-          validation_receipt,
-          measurement
-        )
-      end)
+      # Accepting reauthorizes the session and its briefing's producers.
+      Repo.transaction(
+        fn ->
+          accept_result_locked(
+            episode_id,
+            episode_key,
+            turn_ref,
+            lease_ref,
+            candidate_sha256,
+            candidate_attempt,
+            validation_receipt,
+            measurement
+          )
+        end,
+        timeout: Knowledge.KnowledgeSnapshot.authorization_timeout()
+      )
     end
   end
 

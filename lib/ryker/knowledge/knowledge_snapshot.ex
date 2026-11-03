@@ -13,8 +13,19 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   @stale {:error, :work_knowledge_context_stale}
 
+  @doc """
+  How long a transaction that reauthorizes Work's retained context may hold its
+  connection. The cost follows how much the session, and every producer its
+  briefing quotes, has seen; under the default 15 seconds the tenant install's
+  alerts channel had its answers fail the same way on every retry (2026-11-03).
+  """
+  @spec authorization_timeout() :: pos_integer()
+  def authorization_timeout, do: :timer.minutes(1)
+
   def authorize_session(%Episodes.Episode{} = destination, %Work.Session{} = session) do
-    case Repo.transaction(fn -> authorize_retained_session(destination, session) end) do
+    case Repo.transaction(fn -> authorize_retained_session(destination, session) end,
+           timeout: authorization_timeout()
+         ) do
       {:ok, :ok} -> :ok
       {:ok, {:error, :work_derived_context_busy}} -> {:error, :work_derived_context_busy}
       {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
@@ -545,7 +556,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp session_sources_valid?(destination, session, query) do
     case Learning.Observations.fetch_and_lock_scope(destination, session.repository_ref) do
       {:ok, scope} ->
-        Enum.all?(Repo.stream(query, max_rows: 100), &valid_exposure?(&1, scope)) and
+        Enum.all?(Repo.stream(query, max_rows: 100), &valid_exposure_once?(&1, scope)) and
           source_exposures_valid?(session.id, scope, session.environment_ref)
 
       _ ->
@@ -620,9 +631,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       ) do
     documents = submission_documents(submission)
 
-    case Repo.transaction(fn ->
-           submission_valid?(destination, session, documents, submission)
-         end) do
+    case Repo.transaction(
+           fn -> submission_valid?(destination, session, documents, submission) end,
+           timeout: authorization_timeout()
+         ) do
       {:ok, true} -> :ok
       {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
       _ -> @stale
@@ -707,6 +719,18 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
        [get_in(briefing, ["continuity", "first_input"])])
     |> Enum.reject(&is_nil/1)
     |> Enum.map(&%{"kind" => "work_input", "input" => &1})
+  end
+
+  # A briefing that quotes earlier alerts brings every producer session behind
+  # them, and in one channel those sessions have seen mostly the same topic
+  # versions. The check share-locks the topic, its revision, its sources and
+  # their observations, so a version that passed once stays passed for the
+  # rest of the transaction (`Repo.passed_once?/2`).
+  defp valid_exposure_once?(exposure, scope) do
+    Repo.passed_once?(
+      {:knowledge_exposure, exposure.knowledge_id, exposure.version, scope},
+      fn -> valid_exposure?(exposure, scope) end
+    )
   end
 
   defp valid_exposure?(exposure, scope) do

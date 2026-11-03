@@ -514,6 +514,56 @@ defmodule Ryker.Records.DerivedContextTest do
              {:error, :work_knowledge_context_stale}
   end
 
+  # 2026-11-03: an alert's briefing on the tenant install quoted six earlier
+  # alerts whose sessions had seen the same topics. Accepting the answer checked
+  # every topic version once per quoted session, 920 checks for 176 versions,
+  # and ran past the transaction's 15 seconds on every retry: the alerts channel
+  # got no answer all night. The check takes share locks, so one pass holds for
+  # the whole transaction; the work must follow what was seen, not who quoted it.
+  test "a topic version every quoted session saw is checked once per authorization" do
+    {producer, source, record} = cited_source!()
+    {_learned, knowledge} = KnowledgeFixtures.learn!(producer.episode, "tenant-infra")
+    assert KnowledgeSnapshot.expose(producer, [knowledge]) == :ok
+    {second, second_record} = quoting_producer!(producer, source, knowledge)
+    {third, third_record} = quoting_producer!(second, source, knowledge)
+    receiver = replacement!(third)
+    assert KnowledgeSnapshot.expose(receiver, []) == :ok
+
+    quoting = fn records ->
+      %{"context" => %{"records" => Enum.map(records, &Records.Record.document/1)}}
+    end
+
+    assert {:ok, one} =
+             topic_version_checks(fn ->
+               KnowledgeSnapshot.authorize_submission(
+                 receiver.episode,
+                 receiver.session,
+                 quoting.([record])
+               )
+             end)
+
+    assert {:ok, all} =
+             topic_version_checks(fn ->
+               KnowledgeSnapshot.authorize_submission(
+                 receiver.episode,
+                 receiver.session,
+                 quoting.([record, second_record, third_record])
+               )
+             end)
+
+    assert one > 0
+    assert all == one
+
+    # Withdrawing the topic still refuses the briefing that quotes all three.
+    Repo.delete_all(ConversationKnowledge)
+
+    assert KnowledgeSnapshot.authorize_submission(
+             receiver.episode,
+             receiver.session,
+             quoting.([record, second_record, third_record])
+           ) == {:error, :work_knowledge_context_stale}
+  end
+
   test "previous deliveries in both briefing modes retain their producer source identity" do
     {producer, source, _record} = cited_source!()
     turn = settled_turn!(producer)
@@ -831,7 +881,7 @@ defmodule Ryker.Records.DerivedContextTest do
       Repo.insert!(%Session{
         id: Ecto.UUID.generate(),
         episode_id: producer.episode.id,
-        generation: 2,
+        generation: producer.session.generation + 1,
         policy: producer.session.policy,
         policy_digest: producer.session.policy_digest,
         repository_ref: producer.session.repository_ref,
@@ -855,6 +905,63 @@ defmodule Ryker.Records.DerivedContextTest do
       producer.episode |> Ecto.Changeset.change(owner_ref: turn.turn_ref) |> Repo.update!()
 
     %{producer | episode: episode, session: session, turn: turn}
+  end
+
+  # A later session of the same episode that saw the same source and topic and
+  # recorded its own citation, as each earlier alert's session had.
+  defp quoting_producer!(previous, source, knowledge) do
+    producer = replacement!(previous)
+
+    document =
+      source.id |> then(&Repo.get!(ConversationObservation, &1)) |> Observations.document()
+
+    assert KnowledgeSnapshot.expose(producer, [document, knowledge]) == :ok
+    arguments = Map.put(captured()["arguments"], "source_ref", "observation:#{source.id}")
+
+    assert {:ok, %{"record_ref" => ref}} =
+             FixedTools.call("cite_source", arguments, %{binding: tool_binding(producer)})
+
+    {:ok, [record]} = Records.fetch_for_episode(producer.episode.id, [ref])
+    {producer, record}
+  end
+
+  # How many topic versions `authorize` checked, by the share lock each check
+  # takes on the revision it reads; {:ok, count} only when it authorized.
+  defp topic_version_checks(authorize) do
+    handler = {__MODULE__, make_ref()}
+    reference = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        &__MODULE__.record_topic_check/4,
+        {self(), reference}
+      )
+
+    try do
+      case authorize.() do
+        :ok -> {:ok, count_topic_checks(reference)}
+        refused -> refused
+      end
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  @doc false
+  def record_topic_check(_event, _measurements, %{query: query}, {owner, reference}) do
+    if self() == owner and String.contains?(query, ~s(FROM "conversation_knowledge_revisions")) and
+         String.contains?(query, "FOR SHARE"),
+       do: send(owner, {reference, :checked})
+  end
+
+  defp count_topic_checks(reference, count \\ 0) do
+    receive do
+      {^reference, :checked} -> count_topic_checks(reference, count + 1)
+    after
+      0 -> count
+    end
   end
 
   defp work_state(claim) do
