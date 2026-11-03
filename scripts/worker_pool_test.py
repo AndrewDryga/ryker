@@ -63,6 +63,34 @@ class CapacityTest(unittest.TestCase):
         self.assertFalse(pool.qualified(worker, require_hold=True))
 
 
+class ModelLoginTest(unittest.TestCase):
+    def test_sign_in_uses_the_prepared_worker_box_without_the_worker_entrypoint(self):
+        # The first isolated worker could serve jobs, but its operator could
+        # not sign in: compose run bypassed the entrypoint's box selection
+        # and requested an unbuilt default Coop image instead.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "coop"
+            binary.write_text('#!/bin/sh\n'
+                              'if [ "${COOP_BASE_IMAGE-}" != ryker-coop-box ]; then\n'
+                              '  echo "default box not built" >&2; exit 1\n'
+                              'fi\n'
+                              'printf "%s\\n" "$1" "$2" "$COOP_BASE_IMAGE"\n')
+            binary.chmod(0o700)
+            for inherited in (None, "unrelated-box"):
+                with self.subTest(inherited=inherited):
+                    env = {**os.environ, "PATH": str(root) + ":" + os.environ["PATH"],
+                           "COOP_CONFIG_DIR": str(root / "agents")}
+                    env.pop("COOP_BASE_IMAGE", None)
+                    if inherited is not None:
+                        env["COOP_BASE_IMAGE"] = inherited
+                    result = subprocess.run(
+                        ["sh", str(pool.ROOT / "deploy/compose/coop/model-login.sh"), "codex@work"],
+                        cwd=root, env=env, capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), ["login", "codex@work", "ryker-coop-box"])
+
+
 class StoredStatusTest(unittest.TestCase):
     def test_held_worker_receipt_decodes_canonical_json_and_preserves_utc_authority(self):
         # The first real isolated worker enrolled and passed network checks,

@@ -30,6 +30,9 @@ if [ -d "$profiles" ]; then
   }
 fi
 
+# Both Compose sign-in paths bypass the worker entrypoint, which normally
+# selects this prepared, CA-trusting box. The default Coop image is not built.
+export COOP_BASE_IMAGE=ryker-coop-box
 coop login "$account"
 status=$?
 
