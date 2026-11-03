@@ -70,7 +70,12 @@ defmodule Ryker.Fixtures.Knowledge do
     "topics" => ["draft-ai-suggestions"]
   }
 
-  def learn!(destination, repository \\ nil, topic_key \\ "draft-ai-suggestions") do
+  @doc """
+  Learns topic `topic_key` from one new message in `destination`'s conversation,
+  and from the topics `offered`, as a topic built on earlier ones stores their
+  sources too.
+  """
+  def learn!(destination, repository \\ nil, topic_key \\ "draft-ai-suggestions", offered \\ []) do
     id = Ecto.UUID.generate()
 
     entry =
@@ -111,7 +116,7 @@ defmodule Ryker.Fixtures.Knowledge do
     {:ok, :ok} =
       Repo.transaction(fn ->
         :ok = Observations.record_excerpt_in_transaction(entry)
-        record_topic(entry, proposal, [])
+        record_topic(entry, proposal, offered)
       end)
 
     document =
