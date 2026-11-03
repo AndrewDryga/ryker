@@ -52,7 +52,7 @@ defmodule Ryker.Observability do
   @spec ready(keyword()) :: {:ok, map()} | {:error, map() | term()}
   def ready(options \\ []) do
     with {:ok, check} <- readiness_options(options),
-         {:ok, snapshot} <- snapshot(check.stall_after_seconds) do
+         {:ok, snapshot} <- readiness_snapshot(check.stall_after_seconds) do
       Readiness.evaluate(snapshot, check)
     end
   end
@@ -102,28 +102,34 @@ defmodule Ryker.Observability do
 
   def snapshot(stall_after_seconds)
       when is_integer(stall_after_seconds) and stall_after_seconds > 0 do
-    with {:ok, now} <- database_now(),
-         {:ok, queues} <- Queues.snapshot(now),
-         {:ok, progress} <- Progress.snapshot(now),
+    with {:ok, snapshot} <- readiness_snapshot(stall_after_seconds),
          {:ok, counts} <- counts(),
-         {:ok, fleet} <- Fleet.snapshot(now),
-         {:ok, retention} <- Retention.snapshot(now) do
-      {:ok,
-       %{
-         counts: counts,
-         fleet: fleet,
-         generated_at: now,
-         progress: progress,
-         queues: queues,
-         retention: retention,
-         stalled_active_leases: Queues.stalled_leases(queues, stall_after_seconds),
-         stalled_queues: Queues.stalled(queues, stall_after_seconds)
-       }}
+         {:ok, retention} <- Retention.snapshot(snapshot.generated_at) do
+      {:ok, Map.merge(snapshot, %{counts: counts, retention: retention})}
     end
   end
 
   def snapshot(_stall_after_seconds),
     do: {:error, {:invalid_observability, :stall_after_seconds}}
+
+  # Health probes judge current custody. Historical totals and retention
+  # reporting belong only to metrics, where their cost cannot time out a deploy.
+  defp readiness_snapshot(stall_after_seconds) do
+    with {:ok, now} <- database_now(),
+         {:ok, queues} <- Queues.snapshot(now),
+         {:ok, progress} <- Progress.snapshot(now),
+         {:ok, fleet} <- Fleet.snapshot(now) do
+      {:ok,
+       %{
+         fleet: fleet,
+         generated_at: now,
+         progress: progress,
+         queues: queues,
+         stalled_active_leases: Queues.stalled_leases(queues, stall_after_seconds),
+         stalled_queues: Queues.stalled(queues, stall_after_seconds)
+       }}
+    end
+  end
 
   defp counts do
     with {:ok, incidents} <- Reads.counts(Slack.IncidentRoom, :status),

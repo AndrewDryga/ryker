@@ -33,6 +33,23 @@ defmodule Ryker.ObservabilityTest do
 
   @now ~U[2026-08-29 12:00:00.000000Z]
 
+  # Production answered ready in 5.6 seconds, beyond the deploy probe's
+  # three-second deadline: automatic deployments rolled back while counting history
+  # that readiness never judges. Metrics still own that reporting work.
+  test "readiness judges live custody without counting historical incidents" do
+    {decision, statements} =
+      Ryker.QueryWork.statements(fn ->
+        Observability.ready(check_progress: false, check_runtimes: false)
+      end)
+
+    assert {:ok, _readiness} = decision
+    assert Ryker.QueryWork.count(statements, "slack_incident_rooms") == 0
+
+    {snapshot, statements} = Ryker.QueryWork.statements(fn -> Observability.snapshot() end)
+    assert {:ok, %{counts: %{incidents: %{}}}} = snapshot
+    assert Ryker.QueryWork.count(statements, "slack_incident_rooms") == 1
+  end
+
   # scripts/watchdog.sh reads the reasons /readyz prints and sums the blocked
   # totals /metrics exports, deploy.sh waits on both, and Prometheus scrapes
   # every series. Splitting the 1,080-line observability module on 2026-09-26
