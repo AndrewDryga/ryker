@@ -63,6 +63,20 @@ class CapacityTest(unittest.TestCase):
         self.assertFalse(pool.qualified(worker, require_hold=True))
 
 
+class StoredStatusTest(unittest.TestCase):
+    def test_held_worker_receipt_decodes_canonical_json_and_preserves_utc_authority(self):
+        # The first real isolated worker enrolled and passed network checks,
+        # then qualification crashed because canonical JSON columns are text.
+        # PostgreSQL also emits these UTC timestamp columns without a zone.
+        subject = operator()
+        del subject.worker_status
+        subject.sql = Mock(return_value=(pool.ROOT / "testdata/worker_pool/held_worker_status.json").read_text())
+        worker = subject.worker_status()
+        self.assertTrue(pool.qualified(worker, require_hold=True))
+        self.assertTrue(pool.same_time(worker["admission_stopped_at"], "2026-11-03T12:15:02.381218Z"))
+
+
+
 class NetworkBootTest(unittest.TestCase):
     def test_guest_dns_uses_the_allocated_address_and_unexpected_topology_never_applies_rules(self):
         # The first source-configured VM received .4 while the earlier proof

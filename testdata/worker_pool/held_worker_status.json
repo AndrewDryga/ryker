@@ -1,0 +1,12 @@
+{
+  "state": "eligible",
+  "workspace": "ryker-compose",
+  "age": 0.894489,
+  "capacity": "{\"cooldown_until\":null,\"session_slots_free\":4,\"session_slots_total\":4,\"state\":\"eligible\",\"turn_slots_free\":4,\"turn_slots_total\":4,\"workspace_slots_free\":4,\"workspace_slots_total\":4}",
+  "admission_stopped_at": "2026-11-03T12:15:02.381218",
+  "admission_stopped_by": "operator:worker-pool",
+  "drain_requested_at": null,
+  "drain_requested_by": null,
+  "protocol": "2",
+  "capabilities": "[{\"name\":\"job-setup\",\"version\":\"2\"},{\"name\":\"repository-freshness\",\"version\":\"2\"},{\"name\":\"session-evidence\",\"version\":\"1\"},{\"name\":\"controller-tools\",\"version\":\"1\"},{\"name\":\"review-commit-message\",\"version\":\"1\"}]"
+}

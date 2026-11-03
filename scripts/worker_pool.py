@@ -2,7 +2,7 @@
 """Operate the bounded worker VM without moving controller or retained-worker custody."""
 import argparse
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 import fcntl
 import hashlib
 import ipaddress
@@ -198,7 +198,23 @@ class Pool:
                           "'admission_stopped_at', admission_stopped_at, 'admission_stopped_by', admission_stopped_by, "
                           "'drain_requested_at', drain_requested_at, 'drain_requested_by', drain_requested_by, 'protocol', protocol_version, "
                           "'capabilities', capabilities) FROM coop_workers WHERE id = 'ryker-pool'")
-        return json.loads(result) if result else None
+        if not result:
+            return None
+        worker = json.loads(result)
+        # CanonicalJSON.Type is stored as text, and utc_datetime_usec as a
+        # timestamp without a zone. Decode the same types Ecto exposes.
+        for field, shape in (("capacity", dict), ("capabilities", list)):
+            value = json.loads(worker[field]) if worker[field] is not None else shape()
+            if not isinstance(value, shape):
+                raise RuntimeError(f"worker {field} has an invalid stored shape")
+            worker[field] = value
+        for field in ("admission_stopped_at", "drain_requested_at"):
+            if worker[field] is not None:
+                value = datetime.fromisoformat(worker[field])
+                if value.tzinfo is None:
+                    value = value.replace(tzinfo=timezone.utc)
+                worker[field] = value.astimezone(timezone.utc).isoformat()
+        return worker
 
     def verify(self):
         if self.state["configuration"] != configuration_digest():
