@@ -22,6 +22,25 @@ defmodule Ryker.RepoTest do
     GenServer.stop(connection)
   end
 
+  # PostgreSQL compiles a statement once its estimated cost passes a threshold,
+  # and estimates grow with the history a table keeps: on the tenant install the
+  # cleanup-eligibility count every readiness probe asks spent 1.19 of its 1.22
+  # seconds compiling a read that runs in 19 ms (2026-11-03).
+  test "every connection runs statements uncompiled, whatever its configuration asks" do
+    configured = Keyword.put(Repo.config(), :parameters, jit: "on")
+    assert {:ok, config} = Repo.init(:runtime, configured)
+
+    {:ok, connection} =
+      config
+      |> Keyword.drop([:pool, :pool_size, :name])
+      |> Keyword.put(:pool_size, 1)
+      |> Postgrex.start_link()
+
+    assert %{rows: [["off"]]} = Postgrex.query!(connection, "SHOW jit", [])
+    assert %{rows: [["UTC"]]} = Postgrex.query!(connection, "SHOW TIME ZONE", [])
+    GenServer.stop(connection)
+  end
+
   # Three lanes asked PostgreSQL this with a query of their own and the ready
   # pool compared against its clock by hand (until 2026-10-08).
   test "a deadline has passed by the database's clock, and never for what has not started" do

@@ -5,7 +5,10 @@ defmodule Ryker.Retention.Data do
   Operational payloads are redacted only after every Coop session owned by an
   episode is proven discarded. Episode history is removed as one coherent
   unit, never event-by-event, and compact custody receipts survive until the
-  audit horizon. Every age comparison uses PostgreSQL time.
+  audit horizon. Every age comparison uses PostgreSQL time, read once per
+  statement as `(SELECT clock_timestamp() - …)`: compared directly, a volatile
+  clock can bound no index, and each pass, every minute, read whole tables
+  that only grow (2026-11-03).
 
   A pass that removed or redacted anything is announced once it has committed
   (`subscribe_pruning/0`).
@@ -58,10 +61,16 @@ defmodule Ryker.Retention.Data do
           worker_events: non_neg_integer()
         }
 
+  # The whole pass holds one connection, its advisory lock with it, and the
+  # connection's deadline covers every phase. At the default 15 seconds the
+  # tenant install's pass already spent 9 of them on two memory scans
+  # (2026-11-03); past it, every phase would fail on every pass.
+  @pass_seconds 600
+
   @spec prune(map() | keyword()) :: {:ok, result() | :busy} | {:error, term()}
   def prune(settings) do
     with {:ok, settings} <- settings(settings) do
-      Repo.checkout(fn -> prune_with_lock(settings) end)
+      Repo.checkout(fn -> prune_with_lock(settings) end, timeout: :timer.seconds(@pass_seconds))
     end
   end
 
@@ -153,9 +162,9 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT id
     FROM operational_memory_entries
-    WHERE expires_at <= clock_timestamp()
+    WHERE expires_at <= (SELECT clock_timestamp())
        OR ((scope_kind <> 'global' OR status <> 'active') AND
-           updated_at < clock_timestamp() - ($1 * interval '1 second'))
+           updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second')))
     ORDER BY updated_at, id
     LIMIT 100
     FOR UPDATE SKIP LOCKED
@@ -204,7 +213,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT id FROM conversation_observations
     WHERE note IS NOT NULL
-      AND updated_at < clock_timestamp() - ($1 * interval '1 second')
+      AND updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
     ORDER BY updated_at, id LIMIT 100 FOR UPDATE SKIP LOCKED
   )
   UPDATE conversation_observations AS note SET note = NULL FROM candidates
@@ -246,7 +255,7 @@ defmodule Ryker.Retention.Data do
 
   @spent_enrollment_tokens %{
     table: "coop_worker_enrollment_tokens",
-    where: "consumed_at IS NOT NULL OR expires_at <= clock_timestamp()",
+    where: "consumed_at IS NOT NULL OR expires_at <= (SELECT clock_timestamp())",
     age: "inserted_at",
     horizon: :operational_data_seconds
   }
@@ -255,12 +264,19 @@ defmodule Ryker.Retention.Data do
   # never answers one whose lease ran out or whose placement ended, and only
   # succeeded and failed ones used to go, so a "delivered" or "uncertain" one
   # kept its session, placement and prompt for good (2026-10-04 review).
+  #
+  # The session is asked about per row, not joined: joined, PostgreSQL drove
+  # the read from the discarded sessions and sorted every command they ever
+  # had to delete 100 (245,272 of them each pass on the tenant install,
+  # 2026-11-03); asked, the oldest commands lead and the read stops at 100.
   @discarded_session_commands %{
     table: "coop_worker_commands",
     as: "command",
-    join: "JOIN episode_work_sessions AS session ON session.id = command.session_id",
     where: """
-    #{@session_discarded}
+    EXISTS (
+      SELECT 1 FROM episode_work_sessions AS session
+      WHERE session.id = command.session_id AND #{@session_discarded}
+    )
     AND NOT EXISTS (
       SELECT 1 FROM coop_worker_workspace_checkpoints AS checkpoint
       WHERE checkpoint.body_command_id = command.id
@@ -273,8 +289,12 @@ defmodule Ryker.Retention.Data do
   @discarded_worker_events %{
     table: "coop_worker_events",
     as: "event",
-    join: "JOIN episode_work_sessions AS session ON session.id = event.session_id",
-    where: @session_discarded,
+    where: """
+    EXISTS (
+      SELECT 1 FROM episode_work_sessions AS session
+      WHERE session.id = event.session_id AND #{@session_discarded}
+    )
+    """,
     age: "inserted_at",
     horizon: :operational_data_seconds
   }
@@ -296,7 +316,7 @@ defmodule Ryker.Retention.Data do
     WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge', 'completion_review', 'weekly_review')
       AND #{@session_discarded}
       AND NOT session.activity_sync_pending
-      AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
+      AND session.updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
       AND NOT EXISTS (
         SELECT 1 FROM coop_worker_commands command
         WHERE command.session_id = session.id
@@ -362,7 +382,7 @@ defmodule Ryker.Retention.Data do
   # whatever the horizon. One still being posted is custody and never goes.
   @finished_weekly_reports %{
     table: "weekly_reports",
-    where: "status <> 'pending' AND due_at < clock_timestamp() - interval '14 days'",
+    where: "status <> 'pending' AND due_at < (SELECT clock_timestamp() - interval '14 days')",
     age: "updated_at",
     horizon: :operational_data_seconds
   }
@@ -389,9 +409,9 @@ defmodule Ryker.Retention.Data do
     WHERE candidate.analysis <> 'running'
       AND (
         (candidate.status <> 'accepted'
-          AND candidate.updated_at < clock_timestamp() - ($1 * interval '1 second'))
+          AND candidate.updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second')))
         OR (candidate.status = 'accepted'
-          AND candidate.decided_at < clock_timestamp()
+          AND candidate.decided_at < (SELECT clock_timestamp())
             - ((CASE WHEN $2 THEN $3 ELSE $1 END) * interval '1 second'))
       )
       AND NOT EXISTS (
@@ -425,8 +445,8 @@ defmodule Ryker.Retention.Data do
     WHERE run.pruned_at IS NULL
       AND (
         ((run.remote_stopped_at IS NOT NULL OR run.started_at IS NULL)
-          AND run.updated_at < clock_timestamp() - ($1 * interval '1 second'))
-        OR run.started_at < clock_timestamp() - (greatest($1, $2) * interval '1 second')
+          AND run.updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second')))
+        OR run.started_at < (SELECT clock_timestamp() - (greatest($1, $2) * interval '1 second'))
       )
     ORDER BY run.updated_at, run.id
     LIMIT 100
@@ -446,7 +466,7 @@ defmodule Ryker.Retention.Data do
     SELECT run.id
     FROM repository_knowledge_runs AS run
     WHERE (run.remote_stopped_at IS NOT NULL OR run.started_at IS NULL)
-      AND run.updated_at < clock_timestamp() - ($1 * interval '1 second')
+      AND run.updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
       AND NOT EXISTS (
         SELECT 1 FROM episode_work_sessions AS session WHERE session.knowledge_run_id = run.id
       )
@@ -469,7 +489,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT review.id FROM weekly_report_reviews review
     WHERE review.pruned_at IS NULL AND (
-      review.period_end < clock_timestamp() - ($1 * interval '1 second')
+      review.period_end < (SELECT clock_timestamp() - ($1 * interval '1 second'))
       OR EXISTS (SELECT 1 FROM episode_work_turns source
         WHERE source.id = ANY(review.source_turn_ids) AND source.operational_pruned_at IS NOT NULL)
     )
@@ -494,7 +514,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT review.id FROM weekly_report_reviews review
     WHERE review.remote_stopped_at IS NOT NULL AND review.pruned_at IS NOT NULL
-      AND review.period_end < clock_timestamp() - ($1 * interval '1 second')
+      AND review.period_end < (SELECT clock_timestamp() - ($1 * interval '1 second'))
       AND NOT EXISTS (SELECT 1 FROM episode_work_sessions session WHERE session.weekly_review_id = review.id)
       AND NOT EXISTS (SELECT 1 FROM weekly_reports report WHERE report.review_id = review.id)
       AND NOT EXISTS (SELECT 1 FROM episode_work_turns source
@@ -513,8 +533,8 @@ defmodule Ryker.Retention.Data do
     FROM slack_configuration_sessions
     WHERE (
       status = ANY($1)
-      AND updated_at < clock_timestamp() - ($2 * interval '1 second')
-    ) OR expires_at < clock_timestamp() - ($2 * interval '1 second')
+      AND updated_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
+    ) OR expires_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
     ORDER BY updated_at, id
     LIMIT 100
     FOR UPDATE SKIP LOCKED
@@ -537,7 +557,7 @@ defmodule Ryker.Retention.Data do
     FROM ingress_inbox_entries AS input
     WHERE input.operational_pruned_at IS NULL
       AND input.status = ANY($1)
-      AND input.updated_at < clock_timestamp() - ($2 * interval '1 second')
+      AND input.updated_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
       AND NOT EXISTS (
         SELECT 1 FROM delivery_routing_responses response
         WHERE response.input_id = input.id AND response.status <> 'delivered'
@@ -644,7 +664,7 @@ defmodule Ryker.Retention.Data do
     JOIN episode_work_sessions AS session ON session.id = turn.session_id
     WHERE turn.operational_pruned_at IS NULL
       AND turn.status = ANY($1)
-      AND turn.updated_at < clock_timestamp() - ($2 * interval '1 second')
+      AND turn.updated_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
       AND #{@session_discarded}
       AND NOT EXISTS (
         SELECT 1 FROM work_completion_reviews review
@@ -849,7 +869,7 @@ defmodule Ryker.Retention.Data do
     FROM slack_incident_room_lifecycle_events AS event
     JOIN slack_incident_rooms AS room ON room.id = event.room_id
     WHERE room.status = 'closed'
-      AND room.updated_at < clock_timestamp() - ($1 * interval '1 second')
+      AND room.updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
       AND #{@room_owners_finished}
     ORDER BY event.inserted_at, event.id
     LIMIT 100
@@ -941,7 +961,7 @@ defmodule Ryker.Retention.Data do
   FROM episode_kernel_episodes AS episode
   WHERE episode.state = ANY($1)
     AND episode.history_pruned_at IS NULL
-    AND episode.updated_at < clock_timestamp() - ($2 * interval '1 second')
+    AND episode.updated_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
     AND NOT EXISTS (
       SELECT 1 FROM episode_work_sessions session
       WHERE session.episode_id = episode.id AND #{@session_not_discarded}
@@ -956,7 +976,7 @@ defmodule Ryker.Retention.Data do
         AND (
           (record.status = 'open' AND record.kind NOT IN
             ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment', 'guidance_result'))
-          OR record.updated_at >= clock_timestamp() - ($2 * interval '1 second')
+          OR record.updated_at >= (SELECT clock_timestamp() - ($2 * interval '1 second'))
         )
     )
     AND NOT EXISTS (
@@ -982,7 +1002,7 @@ defmodule Ryker.Retention.Data do
       WHERE publication.episode_id = episode.id
         AND (
           publication.status NOT IN ('published', 'discarded')
-          OR publication.updated_at >= clock_timestamp() - ($2 * interval '1 second')
+          OR publication.updated_at >= (SELECT clock_timestamp() - ($2 * interval '1 second'))
         )
     )
     AND NOT EXISTS (
@@ -993,7 +1013,7 @@ defmodule Ryker.Retention.Data do
       WHERE followup.episode_id = episode.id
         AND (
           (followup.pr_state = 'open' AND publication.status <> 'discarded')
-          OR followup.updated_at >= clock_timestamp() - ($2 * interval '1 second')
+          OR followup.updated_at >= (SELECT clock_timestamp() - ($2 * interval '1 second'))
         )
     )
     AND NOT EXISTS (
@@ -1002,7 +1022,7 @@ defmodule Ryker.Retention.Data do
         AND (
           event.delivery_state <> 'delivered'
           OR event.wakeup_state = 'pending'
-          OR event.updated_at >= clock_timestamp() - ($2 * interval '1 second')
+          OR event.updated_at >= (SELECT clock_timestamp() - ($2 * interval '1 second'))
         )
     )
     AND NOT EXISTS (
@@ -1010,7 +1030,7 @@ defmodule Ryker.Retention.Data do
       WHERE approval.episode_id = episode.id
         AND (
           approval.status NOT IN ('resumed', 'closed')
-          OR approval.updated_at >= clock_timestamp() - ($2 * interval '1 second')
+          OR approval.updated_at >= (SELECT clock_timestamp() - ($2 * interval '1 second'))
         )
     )
     AND NOT EXISTS (
@@ -1141,7 +1161,7 @@ defmodule Ryker.Retention.Data do
     SELECT certificate.sha256
     FROM coop_worker_certificates AS certificate
     JOIN coop_workers AS worker ON worker.id = certificate.worker_id
-    WHERE certificate.expires_at < clock_timestamp() - ($1 * interval '1 second')
+    WHERE certificate.expires_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
       AND certificate.sha256 <> worker.certificate_sha256
     ORDER BY certificate.expires_at, certificate.sha256
     LIMIT 100
@@ -1209,7 +1229,7 @@ defmodule Ryker.Retention.Data do
   SELECT episode.id::text
   FROM episode_kernel_episodes AS episode
   WHERE episode.history_pruned_at IS NOT NULL
-    AND episode.updated_at < clock_timestamp() - ($1 * interval '1 second')
+    AND episode.updated_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
     AND NOT EXISTS (
       SELECT 1 FROM episode_kernel_episodes child WHERE child.linked_episode_id = episode.id
     )
@@ -1283,7 +1303,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT id
     FROM routing_examples
-    WHERE NOT $1 OR decided_at < clock_timestamp() - ($2 * interval '1 second')
+    WHERE NOT $1 OR decided_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
     ORDER BY decided_at, id
     LIMIT 1000
     FOR UPDATE SKIP LOCKED
@@ -1310,7 +1330,7 @@ defmodule Ryker.Retention.Data do
   WITH candidates AS (
     SELECT id
     FROM work_examples
-    WHERE NOT $1 OR settled_at < clock_timestamp() - ($2 * interval '1 second')
+    WHERE NOT $1 OR settled_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
     ORDER BY settled_at, id
     LIMIT 1000
     FOR UPDATE SKIP LOCKED
@@ -1349,7 +1369,7 @@ defmodule Ryker.Retention.Data do
     table = rule.table
     name = Map.get(rule, :as, table)
     source = if name == table, do: table, else: "#{table} AS #{name}"
-    older = "#{name}.#{rule.age} < clock_timestamp() - ($1 * interval '1 second')"
+    older = "#{name}.#{rule.age} < (SELECT clock_timestamp() - ($1 * interval '1 second'))"
     key = Map.get(rule, :key, ["id"])
     selected = Enum.map_join(key, ", ", &"#{name}.#{&1}")
     matched = Enum.map_join(key, " AND ", &"#{name}.#{&1} = candidates.#{&1}")
@@ -1384,7 +1404,7 @@ defmodule Ryker.Retention.Data do
     WITH candidates AS (
       SELECT id
       FROM #{table}
-      WHERE expires_at <= clock_timestamp()
+      WHERE expires_at <= (SELECT clock_timestamp())
       ORDER BY expires_at, id
       LIMIT 100
       FOR UPDATE SKIP LOCKED

@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.ThreadStatusReceipts do
   @moduledoc "Append-only observations of actual Slack status API results, separate from desired state."
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipt}
@@ -24,8 +25,14 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   end
 
   def for_episode(episode_id) do
+    input_ids =
+      episode_id
+      |> Ingress.Inbox.Entry.Query.by_episode_id()
+      |> Ingress.Inbox.Entry.Query.select_ids()
+      |> Repo.all()
+
     episode_id
-    |> ThreadStatusReceipt.Query.by_episode_id()
+    |> ThreadStatusReceipt.Query.by_episode_id(input_ids)
     |> ThreadStatusReceipt.Query.ordered_by_recent()
     |> ThreadStatusReceipt.Query.limit_to(500)
     |> Repo.all()

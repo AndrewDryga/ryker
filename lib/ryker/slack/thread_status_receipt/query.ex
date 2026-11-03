@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.ThreadStatusReceipt.Query do
   @moduledoc "What Slack answered to thread status writes, for every read of `slack_thread_status_receipts`."
   use Ryker, :query
-  alias Ryker.Ingress
   alias Ryker.Slack.ThreadStatusReceipt
 
   def all, do: from(receipts in ThreadStatusReceipt, as: :slack_thread_status_receipts)
@@ -15,18 +14,17 @@ defmodule Ryker.Slack.ThreadStatusReceipt.Query do
     )
   end
 
-  @doc "Receipts of the writes made for `episode_id` or for one of its messages."
-  def by_episode_id(episode_id) do
-    inputs =
-      episode_id
-      |> Ingress.Inbox.Entry.Query.by_episode_id()
-      |> Ingress.Inbox.Entry.Query.select_ids()
-
+  @doc """
+  Receipts of the writes made for `episode_id` or for one of its messages,
+  `input_ids`. The ids come as a list: a subquery under the `OR` read every
+  thread's receipts to find one episode's (2026-11-03).
+  """
+  def by_episode_id(episode_id, input_ids) do
     where(
       all(),
       [slack_thread_status_receipts: r],
       (r.origin_kind == "episode" and r.origin_id == ^episode_id) or
-        (r.origin_kind == "input" and r.origin_id in subquery(inputs))
+        (r.origin_kind == "input" and r.origin_id in ^input_ids)
     )
   end
 

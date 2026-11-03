@@ -21,15 +21,26 @@ defmodule Ryker.Repo do
   require Logger
 
   @doc """
-  Asks every connection for the UTC session time zone. Every column is
-  `timestamp without time zone` holding UTC, and SQL compares them with
-  `now()` and `clock_timestamp()`, which PostgreSQL reads in the session's
-  zone, so a server in another zone would shift every lease and retention
-  horizon by its offset.
+  Asks every connection for the UTC session time zone and for statements run
+  without JIT compilation.
+
+  Every column is `timestamp without time zone` holding UTC, and SQL compares
+  them with `now()` and `clock_timestamp()`, which PostgreSQL reads in the
+  session's zone, so a server in another zone would shift every lease and
+  retention horizon by its offset.
+
+  PostgreSQL compiles a statement once its estimated cost passes a threshold,
+  and estimates grow with the history a table keeps. On the tenant install
+  the cleanup-eligibility count, asked by every readiness probe, spent 1.19 of
+  its 1.22 seconds compiling a read that runs in 19 ms (2026-11-03).
   """
   def init(_context, config) do
-    {:ok,
-     Keyword.update(config, :parameters, [timezone: "UTC"], &Keyword.put(&1, :timezone, "UTC"))}
+    parameters =
+      config
+      |> Keyword.get(:parameters, [])
+      |> Keyword.merge(timezone: "UTC", jit: "off")
+
+    {:ok, Keyword.put(config, :parameters, parameters)}
   end
 
   # The after-commit queue of the outermost transaction this process has open,

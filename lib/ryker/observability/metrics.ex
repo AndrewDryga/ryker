@@ -78,7 +78,7 @@ defmodule Ryker.Observability.Metrics do
     placement_lines =
       Enum.map(fleet.placements, fn {state, count} ->
         metric(
-          "ryker_coop_fleet_placements",
+          "ryker_coop_fleet_current_placements_by_state",
           count,
           ~s(state="#{Atom.to_string(state)}")
         )
@@ -87,7 +87,7 @@ defmodule Ryker.Observability.Metrics do
     command_lines =
       Enum.map(fleet.commands, fn {status, count} ->
         metric(
-          "ryker_coop_fleet_commands",
+          "ryker_coop_fleet_in_flight_commands",
           count,
           ~s(status="#{Atom.to_string(status)}")
         )

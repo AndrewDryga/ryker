@@ -55,8 +55,14 @@ defmodule Ryker.Continuity.Recall do
   # (2026-10-04 review).
   defp counted?(episode), do: episode.execution_mode != :shadow
 
+  # A briefing's recall checks the sources of every memory it may show, and on
+  # the tenant install the related summaries alone took 8.6 of the default 15
+  # seconds (2026-11-03); past them the briefing raises rather than goes
+  # without memory.
   defp recall_context(context, request, counted?) do
-    case Repo.transaction(fn -> recall_locked(context, request, counted?) end) do
+    case Repo.transaction(fn -> recall_locked(context, request, counted?) end,
+           timeout: Knowledge.KnowledgeSnapshot.authorization_timeout()
+         ) do
       {:ok, result} -> result
       {:error, _reason} -> empty_context()
     end

@@ -14,7 +14,7 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
           WHERE EXISTS (
             SELECT 1 FROM conversation_knowledge_sources s
             WHERE s.knowledge_id = k.id
-              AND s.retained_at < clock_timestamp() - ($1 * interval '1 second')
+              AND s.retained_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
               AND EXISTS (
                 SELECT 1 FROM conversation_knowledge_revisions r
                 WHERE r.knowledge_id = s.knowledge_id AND r.source_generation = s.generation
@@ -26,7 +26,7 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
         ), expired AS MATERIALIZED (
           SELECT s.knowledge_id, s.generation, min(s.introduced_version) AS first_version
           FROM conversation_knowledge_sources s JOIN candidates c ON c.id = s.knowledge_id
-          WHERE s.retained_at < clock_timestamp() - ($1 * interval '1 second')
+          WHERE s.retained_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
           GROUP BY s.knowledge_id, s.generation
         ), revisions AS (
           UPDATE conversation_knowledge_revisions r SET state = '{"retention":"pruned"}'
@@ -98,7 +98,7 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
       SELECT 1 FROM ryker_learning_roots(#{binding}.source_dependencies) receipt
       WHERE CASE WHEN receipt->>'retained_at' ~ $2
         AND pg_input_is_valid(replace(receipt->>'retained_at', ',', '.'), 'timestamptz') THEN
-        replace(receipt->>'retained_at', ',', '.')::timestamptz < clock_timestamp() - ($1 * interval '1 second')
+        replace(receipt->>'retained_at', ',', '.')::timestamptz < (SELECT clock_timestamp() - ($1 * interval '1 second'))
         ELSE false END
     )
     """

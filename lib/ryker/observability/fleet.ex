@@ -56,11 +56,14 @@ defmodule Ryker.Observability.Fleet do
          {:ok, latest_checkpoint} <-
            Reads.one(CoopFleet.WorkspaceCheckpointTransfer.Query.select_latest_insert(transfers)),
          {:ok, checkpoints} <- Reads.count(transfers),
-         {:ok, commands} <- Reads.counts(CoopFleet.Command.Query.all(), :status),
+         # Readiness and every Activity redraw ask this, so it counts the
+         # commands and placements still in play, never every one kept: those
+         # counts read the whole history on each probe (2026-11-03).
+         {:ok, commands} <- Reads.counts(CoopFleet.Command.Query.in_flight(), :status),
          {:ok, current} <- Reads.count(current_placements),
          {:ok, event_cursor_lag} <- event_cursor_lag(),
          {:ok, expired} <- Reads.count(expired_placements),
-         {:ok, placements} <- Reads.counts(CoopFleet.Placement.Query.all(), :state),
+         {:ok, placements} <- Reads.counts(current_placements, :state),
          {:ok, worker_states} <- Reads.counts(CoopFleet.Worker.Query.all(), :state) do
       fresh = Enum.filter(workers, &fresh?(&1, cutoff))
       eligible = Enum.filter(fresh, &eligible?(&1, settings.workspace_ref, settings.capabilities))

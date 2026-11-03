@@ -47,6 +47,11 @@ defmodule Ryker.CoopFleet.Command.Query do
   def settled(queryable),
     do: where(queryable, [coop_worker_commands: c], c.status in [:succeeded, :failed, :uncertain])
 
+  @doc "Commands a worker has yet to take or answer: queued, delivered or acknowledged."
+  def in_flight(queryable \\ all()) do
+    where(queryable, [coop_worker_commands: c], c.status in [:queued, :delivered, :acknowledged])
+  end
+
   @doc "Commands whose execution has not been conclusively settled."
   def unsettled(queryable) do
     where(

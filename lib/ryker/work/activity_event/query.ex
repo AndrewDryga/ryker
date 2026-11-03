@@ -73,14 +73,48 @@ defmodule Ryker.Work.ActivityEvent.Query do
     |> order_by([episode_work_activity: a], asc: a.remote_session_id, asc: a.sequence)
   end
 
-  @doc "Events still shown: not pruned, and whose owner has not expired."
+  @doc """
+  Events still shown: not pruned, and whose owner has not expired. Each event
+  asks about its own owner: `NOT IN` the expired set made PostgreSQL build the
+  set over every event, input and turn on each read, and every Slack reply,
+  repaint and episode page paid for the whole table (2026-11-03).
+  """
   def visible(queryable) do
-    expired = expired_ids()
-
     where(
       queryable,
       [episode_work_activity: a],
-      is_nil(a.operational_pruned_at) and a.id not in subquery(expired)
+      is_nil(a.operational_pruned_at) and not exists(subquery(expired_owner()))
+    )
+  end
+
+  # The rule of `expired_ids/0` for the one event the parent query reads.
+  defp expired_owner do
+    from(s in Session,
+      as: :expired_session,
+      left_join: i in Ingress.Inbox.Entry,
+      on: i.id == parent_as(:episode_work_activity).admission_input_id,
+      left_join: t in Turn,
+      on:
+        t.session_id == s.id and t.coop_turn_id == parent_as(:episode_work_activity).coop_turn_id,
+      where: s.id == parent_as(:episode_work_activity).session_id,
+      where:
+        not is_nil(i.operational_pruned_at) or not is_nil(t.operational_pruned_at) or
+          (s.cleanup_status == :discarded and
+             exists(
+               from(p in Turn,
+                 where:
+                   p.session_id == parent_as(:expired_session).id and
+                     not is_nil(p.operational_pruned_at)
+               )
+             ) and
+             not exists(
+               from(u in Turn,
+                 where:
+                   u.session_id == parent_as(:expired_session).id and
+                     is_nil(u.operational_pruned_at)
+               )
+             )),
+      select: 1
     )
   end
 
