@@ -116,7 +116,7 @@ def inspect_builder(prefix, run):
     return size_bytes(cache["Size"])
 
 
-def maintain(env_file, apply=False, run=command, measure_host=host_disk):
+def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, context=None, compose_file=None):
     before_host = measure_host(env_file.parent)
     result = {"version": 1, "measured_at": int(time.time()), "host": before_host,
               "builders": [], "errors": []}
@@ -125,9 +125,9 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk):
     # Freeze the container ID for this pass: a concurrent worker upgrade may
     # replace the worker, but cannot redirect exec into an unrelated container.
     try:
-        if os.environ.get("DOCKER_HOST") and not os.environ.get("DOCKER_CONTEXT"):
+        if context is None and os.environ.get("DOCKER_HOST") and not os.environ.get("DOCKER_CONTEXT"):
             raise RuntimeError("storage maintenance requires an explicit Docker context when DOCKER_HOST is set")
-        context = run(outer + ["context", "show"]).strip()
+        context = context or run(outer + ["context", "show"]).strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", context):
             raise RuntimeError("Docker context identity is invalid")
         endpoint = json.loads(run(outer + ["context", "inspect", context, "--format", "{{json .Endpoints.docker.Host}}"] ))
@@ -142,7 +142,7 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk):
     builders = [("host", outer)]
     try:
         container = run(outer + ["compose", "--env-file", str(env_file), "--file",
-                        str(ROOT / "compose.yml"), "ps", "--quiet", "ryker-coop-docker"]).strip()
+                        str(compose_file or ROOT / "compose.yml"), "ps", "--quiet", "ryker-coop-docker"]).strip()
         if not re.fullmatch(r"[0-9a-f]{12,64}", container):
             raise RuntimeError("worker Docker daemon is unavailable")
         capacity, free = parse_df(run(outer + ["exec", container, "df", "-Pk", "/var/lib/docker"]))

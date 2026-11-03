@@ -96,11 +96,17 @@ defmodule Ryker.Release do
   @spec issue_worker_token(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def issue_worker_token(worker_id, workspace_ref, operator_ref, options \\ []) do
-    settings = settings!(options)
+    settings = settings!(Keyword.drop(options, [:stop_admission]))
 
     with_repo!(settings, fn _repo ->
       with {:ok, issued} <-
-             CoopFleet.Enrollment.issue_token(worker_id, workspace_ref, operator_ref) do
+             CoopFleet.Enrollment.issue_token(
+               worker_id,
+               workspace_ref,
+               operator_ref,
+               900,
+               Keyword.take(options, [:stop_admission])
+             ) do
         report(settings, issued)
         {:ok, issued}
       end
@@ -164,6 +170,23 @@ defmodule Ryker.Release do
     with {:ok, timestamp, 0} <- DateTime.from_iso8601(requested_at) do
       with_repo!(settings, fn _repo ->
         CoopFleet.WorkerLifecycle.resume_if_drained_by(worker_id, operator_ref, timestamp)
+      end)
+    end
+  end
+
+  @doc "Activate a qualified worker only while the exact bootstrap admission hold remains."
+  @spec resume_worker_admission(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def resume_worker_admission(worker_id, operator_ref, stopped_at, options \\ []) do
+    settings = settings!(options)
+
+    with {:ok, timestamp, 0} <- DateTime.from_iso8601(stopped_at) do
+      with_repo!(settings, fn _repo ->
+        CoopFleet.WorkerLifecycle.start_admission_if_stopped_by(
+          worker_id,
+          operator_ref,
+          timestamp
+        )
       end)
     end
   end

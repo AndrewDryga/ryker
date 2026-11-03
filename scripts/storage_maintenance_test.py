@@ -92,6 +92,20 @@ class MaintenanceTest(unittest.TestCase):
         self.assertEqual(storage.summary(report), "")
         self.assertFalse(any("prune" in c for c in self.commands))
 
+    def test_separate_pool_maintenance_never_selects_the_controller_daemon(self):
+        self.cache = "12GB"
+        compose_file = pathlib.Path("/tmp/install/pool-compose.yml")
+        report = storage.maintain(pathlib.Path("/tmp/install/pool/compose.env"), True,
+                                 self.run_docker, self.measure_host,
+                                 context="colima-ryker-worker", compose_file=compose_file)
+        self.assertEqual(report["errors"], [])
+        self.assertFalse(any(c == ["docker", "context", "show"] for c in self.commands))
+        selected = [c for c in self.commands if "compose" in c]
+        self.assertEqual(selected[0][1:3], ["--context", "colima-ryker-worker"])
+        self.assertIn(str(compose_file), selected[0])
+        for command in [c for c in self.commands if "--force" in c]:
+            self.assertEqual(command[1:3], ["--context", "colima-ryker-worker"])
+
     def test_cache_pressure_targets_both_correct_daemons_only(self):
         self.cache = "12GB"
         report = self.maintain()

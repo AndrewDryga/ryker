@@ -113,6 +113,8 @@ services:
       - "${RYKER_CONTROL_BIND:-127.0.0.1}:${RYKER_CONTROL_PORT:-4321}:4321"
       - "${RYKER_GITHUB_BIND:-127.0.0.1}:${RYKER_GITHUB_PORT:-4319}:4319"
       - "${RYKER_WEBHOOK_BIND:-127.0.0.1}:${RYKER_WEBHOOK_PORT:-4320}:4320"
+      # The isolated worker VM routes only its authenticated gateway here.
+      - "127.0.0.1:4322:4322"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:4321/healthz"]
       interval: 5s

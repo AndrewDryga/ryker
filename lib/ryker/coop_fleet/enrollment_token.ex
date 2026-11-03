@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.EnrollmentToken do
     field(:worker_id, :string)
     field(:workspace_ref, :string)
     field(:operator_ref, :string)
+    field(:stop_admission, :boolean, default: false)
     field(:token_sha256, :string)
     field(:expires_at, :utc_datetime_usec)
     field(:consumed_at, :utc_datetime_usec)

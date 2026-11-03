@@ -1,0 +1,65 @@
+name: ryker-worker
+services:
+  volume-init:
+    image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+    user: root
+    restart: "no"
+    command: [sh, -ec, 'find /var/lib/coop /var/lib/ryker-coop \( ! -user 1000 -o ! -group 1000 \) -exec chown -h 1000:1000 {} +']
+    volumes:
+      - state:/var/lib/coop
+      - config:/var/lib/ryker-coop
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+  ryker-coop-docker:
+    image: docker:28.2.2-dind-alpine3.21@sha256:bbc590727c1e4fe707877314ff4f0f977bdda2985c485f2b044db0e18979efb3
+    privileged: true
+    restart: unless-stopped
+    depends_on:
+      volume-init: {condition: service_completed_successfully}
+    environment: {DOCKER_TLS_CERTDIR: ""}
+    command:
+      - dockerd
+      - --host=unix:///var/run/docker.sock
+      - --host=unix:///run/ryker-coop-docker/docker.sock
+      - --group=1000
+      - --bip=10.241.0.1/24
+      - --default-address-pool=base=10.241.0.0/16,size=24
+      - --log-driver=json-file
+      - --log-opt=max-size=10m
+      - --log-opt=max-file=3
+    volumes:
+      - docker:/var/lib/docker
+      - state:/var/lib/coop
+      - socket:/run/ryker-coop-docker
+    healthcheck:
+      test: [CMD, docker, info]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    logging: *logging
+  ryker-coop:
+    image: ${RYKER_POOL_IMAGE:?worker-pool.py installs the pinned image}
+    restart: unless-stopped
+    depends_on:
+      ryker-coop-docker: {condition: service_healthy}
+    environment:
+      DOCKER_HOST: unix:///run/ryker-coop-docker/docker.sock
+      RYKER_BUNDLED_COOP_WORKER_ID: ${RYKER_POOL_WORKER_ID:?worker identity required}
+      RYKER_BUNDLED_COOP_WORKSPACE: ${RYKER_POOL_WORKSPACE:?workspace required}
+    volumes:
+      - state:/var/lib/coop
+      - config:/var/lib/ryker-coop
+      - socket:/run/ryker-coop-docker
+    healthcheck:
+      test: [CMD, coop, sessions, doctor, --socket, /var/lib/coop/sessions/control.sock]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    logging: *logging
+volumes:
+  state: {}
+  config: {}
+  docker: {}
+  socket: {}

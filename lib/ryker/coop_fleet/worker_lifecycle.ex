@@ -32,7 +32,21 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   def start_admission(worker_id, operator_ref) do
     with :ok <- reference(worker_id, :worker_id),
          :ok <- reference(operator_ref, :operator_ref) do
-      Repo.transaction(fn -> start_admission_locked(worker_id) end)
+      Repo.transaction(fn ->
+        worker_id |> fetch_and_lock_worker!() |> start_admission_locked()
+      end)
+    end
+  end
+
+  @doc "Reopens only the exact admission hold acquired while qualifying a new worker."
+  @spec start_admission_if_stopped_by(String.t(), String.t(), DateTime.t()) ::
+          {:ok, result()} | {:error, term()}
+  def start_admission_if_stopped_by(worker_id, operator_ref, %DateTime{} = stopped_at) do
+    with :ok <- reference(worker_id, :worker_id),
+         :ok <- reference(operator_ref, :operator_ref) do
+      Repo.transaction(fn ->
+        start_owned_admission_locked(worker_id, operator_ref, stopped_at)
+      end)
     end
   end
 
@@ -70,11 +84,24 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     end
   end
 
+  defp start_owned_admission_locked(worker_id, operator_ref, stopped_at) do
+    worker = fetch_and_lock_worker!(worker_id)
+
+    unless worker.admission_stopped_by == operator_ref and
+             not is_nil(worker.admission_stopped_at) and
+             DateTime.compare(worker.admission_stopped_at, stopped_at) == :eq do
+      Repo.rollback(:coop_worker_admission_changed)
+    end
+
+    start_admission_locked(worker)
+  end
+
   defp resume_owned_drain_locked(worker_id, operator_ref, requested_at) do
     worker = fetch_and_lock_worker!(worker_id)
 
     unless worker.drain_requested_by == operator_ref and
-             worker.drain_requested_at == requested_at do
+             not is_nil(worker.drain_requested_at) and
+             DateTime.compare(worker.drain_requested_at, requested_at) == :eq do
       Repo.rollback(:coop_worker_drain_changed)
     end
 
@@ -104,9 +131,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     end
   end
 
-  defp start_admission_locked(worker_id) do
-    worker = fetch_and_lock_worker!(worker_id)
-
+  defp start_admission_locked(%Worker{} = worker) do
     cond do
       worker.state == :revoked ->
         Repo.rollback(:coop_worker_revoked)

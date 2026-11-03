@@ -95,6 +95,13 @@ esac
 exit 0
 FAKE
 chmod 0755 "$source/scripts/compose.sh"
+cat >"$source/scripts/worker_pool.py" <<'PY'
+import os, pathlib, sys
+root = pathlib.Path(os.environ["UPGRADE_TEST_STATE"])
+with (root / "calls").open("a") as stream:
+    stream.write("worker_pool.py " + " ".join(sys.argv[1:]) + "\n")
+sys.exit(1 if (root / "pool-upgrade.fail").exists() else 0)
+PY
 printf 'ARG COOP_REVISION=%s\n' aaaa >"$source/deploy/compose/coop/Dockerfile"
 s add -A && s commit -q -m first
 s remote add origin "$work/origin.git"
@@ -219,6 +226,20 @@ check "and asked again while it fails" "the worker upgrade failed again" "$(cat 
 rm "$work/worker-upgrade.fail"
 retry_seconds=0 upgrade
 check "until it moves" "the worker moved to the Coop" "$(cat "$work/out")"
+
+mkdir -p "$work/state/worker-pool"
+printf '{}\n' >"$work/state/worker-pool/state.json"
+touch "$work/pool-upgrade.fail"
+push "pool update"
+upgrade
+check "an installed separate pool is upgraded after the retained worker" "worker_pool.py upgrade" "$(cat "$work/calls")"
+check "a failed pool upgrade keeps the retry marker" "yes" "$([[ -f $work/upgrades/worker-behind ]] && echo yes || echo no)"
+rm "$work/pool-upgrade.fail"
+retry_seconds=0 upgrade
+check "the separate pool is retried without another controller deploy" "worker_pool.py upgrade" "$(cat "$work/calls")"
+refute "retrying the pool does not take another controller backup" "compose.sh backup" "$(cat "$work/calls")"
+rm "$work/state/worker-pool/state.json"
+rmdir "$work/state/worker-pool"
 
 # The daily backup holds the lifecycle lock: this round waits for the next.
 sleep 30 &

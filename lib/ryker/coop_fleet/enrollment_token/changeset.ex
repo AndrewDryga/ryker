@@ -8,8 +8,8 @@ defmodule Ryker.CoopFleet.EnrollmentToken.Changeset do
   @doc "A token an operator minted for one worker in one workspace, kept as its digest."
   def insert(attributes) do
     %EnrollmentToken{}
-    |> cast(attributes, @fields)
-    |> validate_required(@fields)
+    |> cast(attributes, [:stop_admission | @fields])
+    |> validate_required([:stop_admission | @fields])
     |> unique_constraint(:token_sha256)
     |> check_constraint(:worker_id, name: :coop_worker_enrollment_token_valid)
   end

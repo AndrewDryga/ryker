@@ -333,6 +333,17 @@ defmodule Ryker.ReleaseTest do
 
     assert is_binary(token) and byte_size(token) > 20
 
+    assert {:ok, %{stop_admission: true}} =
+             Release.issue_worker_token("worker-held-1", "workspace-own", "operator:local",
+               stop_admission: true,
+               log: false
+             )
+
+    assert Release.issue_worker_token("worker-bad-hold", "workspace-own", "operator:local",
+             stop_admission: "true",
+             log: false
+           ) == {:error, :invalid_coop_worker_enrollment_options}
+
     assert Repo.exists?(
              from(t in Ryker.CoopFleet.EnrollmentToken, where: t.worker_id == "worker-own-1")
            )

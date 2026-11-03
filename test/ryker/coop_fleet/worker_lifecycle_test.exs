@@ -10,6 +10,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Release
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Custody, StateBinding}
 
@@ -74,6 +75,74 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
     assert resumed.state == :offline
     assert resumed.drain_requested_at == nil
     assert resumed.drain_requested_by == nil
+  end
+
+  test "pool activation cannot clear another operator's or a replaced admission hold" do
+    enroll_manual!("worker-pool-guard", "pool-guard-certificate")
+
+    assert {:ok, %{worker: held}} =
+             WorkerLifecycle.stop_admission("worker-pool-guard", "operator:pool")
+
+    assert WorkerLifecycle.start_admission_if_stopped_by(
+             "worker-pool-guard",
+             "operator:other",
+             held.admission_stopped_at
+           ) == {:error, :coop_worker_admission_changed}
+
+    assert WorkerLifecycle.start_admission_if_stopped_by(
+             "worker-pool-guard",
+             "operator:pool",
+             DateTime.add(held.admission_stopped_at, -1)
+           ) == {:error, :coop_worker_admission_changed}
+
+    assert {:ok, %{status: :admission_started}} =
+             WorkerLifecycle.start_admission_if_stopped_by(
+               "worker-pool-guard",
+               "operator:pool",
+               held.admission_stopped_at
+             )
+
+    assert {:ok, %{worker: replacement}} =
+             WorkerLifecycle.stop_admission("worker-pool-guard", "operator:manual")
+
+    assert WorkerLifecycle.start_admission_if_stopped_by(
+             "worker-pool-guard",
+             "operator:pool",
+             held.admission_stopped_at
+           ) == {:error, :coop_worker_admission_changed}
+
+    assert Repo.peek(Worker.Query.by_id("worker-pool-guard")).admission_stopped_at ==
+             replacement.admission_stopped_at
+  end
+
+  # PostgreSQL JSON omits trailing fractional zeros. A recovered pool receipt
+  # must not strand admission or an upgrade just because its encoding changed.
+  test "SQL receipt precision preserves the exact admission and drain instant" do
+    enroll_manual!("worker-sql-receipt", "sql-receipt-certificate")
+    instant = ~U[2026-11-03 10:00:00.123450Z]
+    timestamp = "2026-11-03T10:00:00.12345+00:00"
+    owner = "operator:worker-upgrade:pool:precision-test"
+
+    {1, nil} =
+      Repo.update_all(Worker.Query.by_id("worker-sql-receipt"),
+        set: [admission_stopped_at: instant, admission_stopped_by: owner]
+      )
+
+    assert {:ok, %{status: :admission_started}} =
+             Release.resume_worker_admission("worker-sql-receipt", owner, timestamp, log: false)
+
+    assert {:ok, %{status: :draining}} = WorkerLifecycle.drain("worker-sql-receipt", owner)
+
+    {1, nil} =
+      Repo.update_all(Worker.Query.by_id("worker-sql-receipt"),
+        set: [drain_requested_at: instant]
+      )
+
+    assert WorkerLifecycle.resume("worker-sql-receipt", "operator:manual") ==
+             {:error, :coop_worker_upgrade_in_progress}
+
+    assert {:ok, %{status: :resumed}} =
+             Release.resume_worker_upgrade("worker-sql-receipt", owner, timestamp, log: false)
   end
 
   test "upgrade cleanup cannot resume another operator's drain or a newer drain" do

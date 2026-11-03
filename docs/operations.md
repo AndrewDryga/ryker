@@ -250,6 +250,60 @@ the admission decision. This is separate
 from `worker-drain`, which holds undelivered mutations and is appropriate immediately before a
 quiescent worker is restarted. Stopping admission does not move or delete retained sessions.
 
+### A bounded worker pool on macOS
+
+Before installing: controller-only backups continue, but the existing full backup/restore and
+uninstall commands cannot cover this additional worker. Preserve both workers’ volumes and the
+new VM disks; full pool restore is not yet available.
+
+`python3 -B scripts/worker_pool.py install` creates a separate Colima VM on an Apple Silicon
+host. The controller and PostgreSQL stay in their existing Docker context. The worker has a
+32 GiB data disk, a 20 GiB root disk and 8 GiB RAM. These are maximum virtual allocations,
+not reserved physical space: installation requires 74 GiB free, including possible host swap,
+12 GiB of controller/build reserve and filesystem overhead. Later checks account for the
+disks' remaining possible growth. Other applications can still consume host space.
+
+The pool uses no host directory mounts or host Docker socket. Its outer and nested Docker
+address pools are separate, and installation refuses overlapping host routes. A boot-required
+firewall permits the existing `https://172.30.42.10:4322` gateway through the host's loopback-only
+4322 publication while denying the host console and other loopback services. TLS verification,
+stored URLs and existing worker certificates are unchanged. This isolates ordinary work
+containers; it is not a boundary against a compromised privileged Docker daemon or VM root.
+Container logs and guest journals are bounded, and maintenance trims discarded blocks without
+claiming that a successful trim proves physical host space was reclaimed.
+
+Installation enrolls a new `ryker-pool` identity in the existing workspace, with admission held
+atomically before its first heartbeat. It copies only the public CA, never the old worker's model
+sign-ins, identity, session database or repositories. Rotating model credentials must not be
+copied into two live workers. It prepares the box and qualifies filtered networking while the
+old worker continues. Sign in each account listed by status using
+`python3 -B scripts/worker_pool.py model-login ACCOUNT`; activation requires all configured
+accounts to have completed their own sign-in. Inspect
+`python3 -B scripts/worker_pool.py status`, then run `python3 -B scripts/worker_pool.py activate`.
+Activation releases only the exact bootstrap hold, then stops admission on `ryker-compose`.
+If the second step fails, both workers stay intact and activation can be retried. Existing
+sessions continue on the old worker; retirement requires an empty custody inventory, not merely
+zero currently executing commands.
+
+The existing watchdog maintains both pools, including bounded build-cache cleanup and recovery
+after certificate expiry. An invalid identity is retained and reported. An unexpired enrollment
+token is reused; a token replaced before first enrollment still carries the admission hold.
+Insufficient physical headroom holds new pool admissions, and recovery releases only that exact
+maintenance-owned hold. A launch agent starts the owned VM after host login; an explicit start
+is `python3 -B scripts/worker_pool.py start`.
+
+`python3 -B scripts/worker_pool.py upgrade` prepares the pinned image, waits for controller and
+native quiescence under its own exact drain, then replaces only the pool worker. The automatic
+updater invokes it after upgrading the retained worker. The pool keeps its current and previous
+worker images. `python3 -B scripts/worker_pool.py model-login ACCOUNT` targets the pool's own
+provider volume and uses a guarded restart after sign-in. Status and watchdog failures name the
+separate pool; changing the global Docker context never selects it implicitly.
+
+Scheduled and pre-deploy controller-only backups remain supported. A full backup, full restore,
+uninstall or destroy is refused while a separate pool exists: the original archive does not
+contain its custody. Keep both workers' volumes and the pool VM disks. There is no automatic
+bulk session migration or full pool restore, and no command here deletes the retained worker.
+
 An install on another machine can upgrade itself instead, with nobody on its host:
 `scripts/install-auto-upgrade.sh` installs a launch agent there that runs `scripts/auto-upgrade.sh`
 every five minutes, and `RYKER_UPGRADE_REF` in its `compose.env` names the branch of `origin` it

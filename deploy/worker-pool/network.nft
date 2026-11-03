@@ -1,0 +1,35 @@
+table inet ryker_worker {
+  chain gateway_prerouting {
+    type nat hook prerouting priority -110; policy accept;
+    iifname != { "lo", "eth0" } ip daddr 172.30.42.10 tcp dport 4322 dnat ip to 192.168.5.2:4322
+  }
+  chain gateway_output {
+    type nat hook output priority -110; policy accept;
+    ip daddr 172.30.42.10 tcp dport 4322 dnat ip to 192.168.5.2:4322
+  }
+  chain protected_destinations {
+    ip daddr 192.168.5.2 tcp dport 4322 return
+    ip daddr 192.168.5.2 udp dport 53 return
+    ip daddr 192.168.5.2 tcp dport 53 return
+    ip daddr { 192.168.5.0/24, 172.30.42.10, 127.0.0.0/8, 169.254.0.0/16 } counter reject with icmpx type admin-prohibited
+    ip6 daddr { ::1, fe80::/10 } counter reject with icmpx type admin-prohibited
+  }
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+    jump protected_destinations
+  }
+  chain output {
+    type filter hook output priority -10; policy accept;
+    oifname "lo" accept
+    ct direction reply accept
+    jump protected_destinations
+  }
+  chain input {
+    type filter hook input priority -10; policy accept;
+    ct state established,related accept
+    iifname { "lo", "eth0" } accept
+    ip daddr $guest_ipv4 udp dport 53 accept
+    ip daddr $guest_ipv4 tcp dport 53 accept
+    counter reject with icmpx type admin-prohibited
+  }
+}

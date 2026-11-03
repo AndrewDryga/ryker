@@ -686,6 +686,16 @@ check "restore keeps newer state separately from active restored custody" 0 "$?"
 
 # Controller rollback must not rewind a worker that was never upgraded.
 seed
+mkdir -p "$state/worker-pool"
+printf '{}\n' >"$state/worker-pool/state.json"
+for action in backup uninstall destroy; do
+  out=$(cd "$repo" && sh scripts/compose.sh "$action" 2>&1; echo "exit=$?")
+  check "a separate pool prevents incomplete $action" "additional sessions" "$out"
+  check "the refused $action has a failing exit" "exit=1" "$out"
+done
+out=$(cd "$repo" && sh scripts/compose.sh restore "$backup" 2>&1; echo "exit=$?")
+check "full restore refuses unrepresented pool custody" "additional sessions" "$out"
+refute "refused pool custody operations do not stop any container" "stop " "$(cat "$fake/calls")"
 out=$(cd "$repo" && sh scripts/compose.sh backup --controller-only 2>&1; echo "exit=$?")
 check "controller-only backup succeeds" "exit=0" "$out"
 controller_backup=$(find "$state/backups" -name 'ryker-*.tar.gz' | head -n 1)
@@ -699,6 +709,8 @@ check "controller-only restore accepts a full archive" "exit=0" "$out"
 refute "controller-only restore does not stop the worker" "stop ryker-coop" "$(cat "$fake/calls")"
 refute "controller-only restore does not extract worker custody" "entrypoint tar ryker-coop" "$(cat "$fake/calls")"
 refute "controller-only restore does not re-enroll the worker" "prepare_bundled_coop" "$(cat "$fake/calls")"
+rm "$state/worker-pool/state.json"
+rmdir "$state/worker-pool"
 
 # Old split archives remain usable for explicit controller recovery, but
 # cannot silently replace private anchors while retaining the wrong forks.

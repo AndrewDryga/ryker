@@ -193,6 +193,24 @@ check "storage pressure alarms while the controller still reports ready" \
 out=$(run)
 check "reclaimed headroom clears the pressure alarm" "ALERT Ryker checks recovered" "$out"
 
+mkdir -p "$install/worker-pool"
+printf '{}\n' >"$install/worker-pool/state.json"
+export WATCHDOG_POOL_SCRIPT="$work/pool.py"
+cat >"$WATCHDOG_POOL_SCRIPT" <<'PY'
+import os, sys
+if os.environ.get("WATCHDOG_TEST_POOL_FAILURE"):
+    print("worker identity is invalid")
+    sys.exit(1)
+PY
+reset; ready
+out="$(WATCHDOG_TEST_POOL_FAILURE=1 run)$(WATCHDOG_TEST_POOL_FAILURE=1 run)"
+check "a separate pool recovery failure alarms even while the old worker is ready" \
+  "worker pool maintenance failed: worker identity is invalid" "$out"
+out=$(run)
+check "pool recovery clears its alarm" "ALERT Ryker checks recovered" "$out"
+rm "$install/worker-pool/state.json"
+rmdir "$install/worker-pool"
+
 # ---------------------------------------------------------------------------
 # 2026-09-13 to 09-18: the fleet was gone and /readyz said so for days.
 reset; not_ready "no_eligible_workers; no_session_capacity"

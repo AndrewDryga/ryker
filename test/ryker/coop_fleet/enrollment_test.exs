@@ -1,10 +1,90 @@
 defmodule Ryker.CoopFleet.EnrollmentTest do
   use Ryker.DataCase, async: true
-  alias Ryker.CoopFleet.{Certificate, ControlPlane, Enrollment, EnrollmentToken}
+  alias Ryker.CoopFleet.{Certificate, ControlPlane, Enrollment, EnrollmentToken, Worker}
 
   # A test CA key takes a moment to generate, and every test signs with one.
   setup_all do
     %{authority: authority()}
+  end
+
+  # A separate worker can heartbeat immediately after enrollment. Holding it
+  # afterward would let real work arrive before its storage/network qualification.
+  test "an operator's enrollment hold precedes the first heartbeat and survives identity recovery",
+       %{
+         authority: authority
+       } do
+    assert {:ok, issued} =
+             Enrollment.issue_token("worker-held", "workspace-main", "operator:pool", 300,
+               stop_admission: true
+             )
+
+    assert {:ok, enrolled} =
+             Enrollment.enroll(
+               %{"public_key_pem" => public_key_pem(private_key()), "token" => issued.token},
+               authority
+             )
+
+    worker = Repo.peek(Worker.Query.by_id("worker-held"))
+    assert worker.admission_stopped_by == "operator:pool"
+    assert %DateTime{} = worker.admission_stopped_at
+
+    assert {:ok, _renewed} =
+             Enrollment.renew(
+               certificate_der(enrolled["certificate_pem"]),
+               %{"public_key_pem" => public_key_pem(private_key())},
+               authority
+             )
+
+    assert {:ok, recovery} =
+             Enrollment.issue_token("worker-held", "workspace-main", "operator:recovery", 300)
+
+    assert {:ok, _recovered} =
+             Enrollment.enroll(
+               %{"public_key_pem" => public_key_pem(private_key()), "token" => recovery.token},
+               authority
+             )
+
+    recovered = Repo.peek(Worker.Query.by_id("worker-held"))
+    assert recovered.admission_stopped_at == worker.admission_stopped_at
+    assert recovered.admission_stopped_by == worker.admission_stopped_by
+
+    assert {:ok, held_recovery} =
+             Enrollment.issue_token("worker-held", "workspace-main", "operator:replacement", 300,
+               stop_admission: true
+             )
+
+    assert {:ok, _recovered} =
+             Enrollment.enroll(
+               %{
+                 "public_key_pem" => public_key_pem(private_key()),
+                 "token" => held_recovery.token
+               },
+               authority
+             )
+
+    held = Repo.peek(Worker.Query.by_id("worker-held"))
+    assert held.admission_stopped_at == worker.admission_stopped_at
+    assert held.admission_stopped_by == worker.admission_stopped_by
+  end
+
+  test "invalid enrollment admission options mint no credential" do
+    for options <- [
+          [stop_admission: "true"],
+          [unknown: true],
+          [stop_admission: true, stop_admission: false],
+          nil
+        ] do
+      assert Enrollment.issue_token(
+               "worker-invalid-hold",
+               "workspace-main",
+               "operator:pool",
+               300,
+               options
+             ) ==
+               {:error, :invalid_coop_worker_enrollment_options}
+    end
+
+    assert Repo.aggregate(EnrollmentToken, :count) == 0
   end
 
   test "a single-use token binds one named worker without receiving its private key", %{

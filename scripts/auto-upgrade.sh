@@ -58,12 +58,19 @@ busy() {
 
 # worker-behind holds when a worker last failed to move; it goes once one has.
 worker_behind=$upgrade_state/worker-behind
+upgrade_workers() {
+  scripts/compose.sh worker-upgrade </dev/null || return 1
+  if [[ -f $state_dir/worker-pool/state.json ]]; then
+    python3 -B scripts/worker_pool.py upgrade --state-dir "$state_dir" </dev/null || return 1
+  fi
+}
+
 retry_worker_upgrade() {
   local last
   last=$(cat "$worker_behind" 2>/dev/null) || return 0
   (($(date +%s) - ${last:-0} >= retry_seconds)) || return 0
   busy && return 0
-  if scripts/compose.sh worker-upgrade </dev/null; then
+  if upgrade_workers; then
     rm -f "$worker_behind"
     record "the worker moved to the Coop ${current:0:12} pins"
   else
@@ -144,7 +151,7 @@ fi
 # it ran and is moved by the next upgrade: asked only when the pin changed, a
 # worker busy at that moment stayed behind until the pin changed again
 # (2026-10-16).
-if ! scripts/compose.sh worker-upgrade </dev/null; then
+if ! upgrade_workers; then
   date +%s >"$worker_behind"
   record "upgraded ${current:0:12} -> ${target:0:12}, but the worker upgrade failed; the worker runs the Coop it ran"
   exit 1

@@ -284,6 +284,19 @@ if [[ -n $storage_problems ]]; then
   fi
 fi
 
+if [[ -f $(dirname "$env_file")/worker-pool/state.json ]]; then
+  pool_problems=$(python3 -B "${WATCHDOG_POOL_SCRIPT:-$repository/scripts/worker_pool.py}" \
+    maintain --state-dir "$(dirname "$env_file")" 2>&1) || pool_problems="worker pool maintenance failed: $pool_problems"
+  if [[ -n $pool_problems ]]; then
+    if [[ $state == "ready" ]]; then
+      state=$pool_problems
+      title="Ryker worker pool needs attention"
+    else
+      state="$state; $pool_problems"
+    fi
+  fi
+fi
+
 strikes=$(cat "$strike_file" 2>/dev/null || echo 0)
 if [[ $state == "ready" ]]; then
   if [[ -f $alerted_file ]]; then

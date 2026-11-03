@@ -83,6 +83,13 @@ recover_identity() {
   esac
 }
 
+# The separate VM's host reconciler reads this without exporting the identity
+# or deleting it. Only the running entrypoint owns expiry recovery.
+if [ "${1:-}" = enrollment-status ]; then
+  identity_state
+  exit
+fi
+
 until [ -r "$ca" ]; do sleep 1; done
 recover_identity
 

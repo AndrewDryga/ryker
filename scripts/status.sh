@@ -131,6 +131,9 @@ if [[ -f $env_file ]]; then
     df -h /var/lib/coop 2>/dev/null | awk 'NR == 2 { print $5 " of " $2 " used" }')
   printf '%-8s worker %s, Docker disk %s\n' "" "${worker:-not found}" "${disk:-unknown}"
   printf '%-8s %s\n' "" "$(python3 "$repository/scripts/storage_maintenance.py" --status --env-file "$env_file")"
+  if [[ -f $state_dir/worker-pool/state.json ]]; then
+    python3 -B "$repository/scripts/worker_pool.py" status --state-dir "$state_dir"
+  fi
 
   # shellcheck disable=SC2012 # backups are named by their time, nothing else
   newest=$(ls -t "$state_dir"/backups/*.tar.gz 2>/dev/null | head -n 1)

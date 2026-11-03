@@ -37,6 +37,13 @@ require_install() {
   }
 }
 
+refuse_separate_pool_custody() {
+  if [ -f "$state_dir/worker-pool/state.json" ]; then
+    echo "A separate worker pool owns additional sessions. This command cannot capture, restore, or remove that custody. Use --controller-only for controller backup/restore; leave both workers and their volumes intact." >&2
+    exit 1
+  fi
+}
+
 compose() {
   docker compose --env-file "$env_file" "$@"
 }
@@ -418,6 +425,7 @@ case "$command" in
       3) [ "$3" = --controller-only ] || usage; controller_only=1 ;;
       *) usage ;;
     esac
+    [ "$controller_only" = 1 ] || refuse_separate_pool_custody
     case $2 in
       /*) backup=$2 ;;
       *) backup=$caller_dir/$2 ;;
@@ -796,6 +804,7 @@ case "$command" in
       2) [ "$2" = --controller-only ] || usage; controller_only=1 ;;
       *) usage ;;
     esac
+    [ "$controller_only" = 1 ] || refuse_separate_pool_custody
     require_install
     take_lifecycle_lock backup
     backup_dir=$state_dir/backups
@@ -863,12 +872,14 @@ case "$command" in
     echo "$backup"
     ;;
   uninstall)
+    refuse_separate_pool_custody
     require_install
     lock_lifecycle uninstall
     compose down
     echo "Ryker stopped. Data and keys remain in Docker volumes and $env_file."
     ;;
   destroy)
+    refuse_separate_pool_custody
     require_install
     [ "${RYKER_DESTROY_CONFIRM:-}" = "delete-ryker-data" ] || {
       echo "This deletes Ryker's database, stored work, and encryption keys." >&2

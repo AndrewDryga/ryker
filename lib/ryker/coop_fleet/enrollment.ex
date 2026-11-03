@@ -17,18 +17,20 @@ defmodule Ryker.CoopFleet.Enrollment do
   @default_token_ttl_seconds 15 * 60
   @default_certificate_ttl_seconds 24 * 60 * 60
 
-  @spec issue_token(String.t(), String.t(), String.t(), pos_integer()) ::
+  @spec issue_token(String.t(), String.t(), String.t(), pos_integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def issue_token(
         worker_id,
         workspace_ref,
         operator_ref,
-        ttl_seconds \\ @default_token_ttl_seconds
+        ttl_seconds \\ @default_token_ttl_seconds,
+        options \\ []
       ) do
     with :ok <- reference(worker_id, :worker_id),
          :ok <- reference(workspace_ref, :workspace_ref),
          :ok <- reference(operator_ref, :operator_ref),
-         :ok <- token_ttl(ttl_seconds) do
+         :ok <- token_ttl(ttl_seconds),
+         {:ok, stop_admission} <- admission_policy(options) do
       token = Crypto.random_secret(32)
       token_sha256 = Crypto.sha256_hex(token)
 
@@ -40,6 +42,7 @@ defmodule Ryker.CoopFleet.Enrollment do
           %{
             expires_at: DateTime.add(now, ttl_seconds, :second),
             operator_ref: operator_ref,
+            stop_admission: stop_admission,
             token_sha256: token_sha256,
             worker_id: worker_id,
             workspace_ref: workspace_ref
@@ -51,6 +54,7 @@ defmodule Ryker.CoopFleet.Enrollment do
         %{
           expires_at: enrollment.expires_at,
           id: enrollment.id,
+          stop_admission: enrollment.stop_admission,
           token: token,
           worker_id: worker_id,
           workspace_ref: workspace_ref
@@ -93,6 +97,7 @@ defmodule Ryker.CoopFleet.Enrollment do
     ensure_token_usable!(token, now)
     issued = issue_certificate!(request.public_key_pem, token.worker_id, signer, now)
     worker = upsert_enrolled_worker!(token.worker_id, token.workspace_ref, issued.sha256)
+    worker = hold_initial_admission!(token, worker, now)
     insert_certificate!(worker.id, token.id, issued, :enrollment, token.operator_ref)
     # Enrolling again replaces the worker's identity, so the certificates it
     # had stop working now; they stayed valid until they expired, up to a week
@@ -106,6 +111,23 @@ defmodule Ryker.CoopFleet.Enrollment do
 
     response(worker, issued, signer.ca_certificate_pem)
   end
+
+  defp admission_policy([]), do: {:ok, false}
+  defp admission_policy(stop_admission: stop) when is_boolean(stop), do: {:ok, stop}
+  defp admission_policy(_options), do: {:error, :invalid_coop_worker_enrollment_options}
+
+  defp hold_initial_admission!(
+         %EnrollmentToken{stop_admission: true} = token,
+         %Worker{admission_stopped_at: nil} = worker,
+         now
+       ) do
+    worker
+    |> Worker.Changeset.stop_admission(now, token.operator_ref)
+    |> Repo.update()
+    |> unwrap_write()
+  end
+
+  defp hold_initial_admission!(_token, worker, _now), do: worker
 
   defp renew_locked(certificate_sha256, request, signer) do
     now = Repo.now!()

@@ -42,6 +42,33 @@ defmodule Ryker.BundledCoopIdentityTest do
     assert File.read!(identity) == original
   end
 
+  test "host enrollment inspection never deletes an expired or invalid identity",
+       %{root: root, identity: identity} = context do
+    source =
+      File.read!("deploy/compose/coop/entrypoint.sh")
+      |> String.replace("state=/var/lib/coop\n", "state=\"#{root}\"\n")
+      |> String.replace("shared=/var/lib/ryker-coop\n", "shared=$state\n")
+      |> String.replace("identity=$state/sessions/identity.json", "identity=$state/identity.json")
+      |> String.replace("ca=$shared/worker-ca.pem", "ca=$shared/ca.pem")
+
+    inspect_identity = fn ->
+      System.cmd("sh", ["-c", source, "entrypoint", "enrollment-status"], stderr_to_stdout: true)
+    end
+
+    assert inspect_identity.() == {"absent\n", 0}
+    original = write_identity!(context, DateTime.utc_now())
+    assert inspect_identity.() == {"valid\n", 0}
+    assert File.read!(identity) == original
+
+    expired = write_identity!(context, DateTime.add(DateTime.utc_now(), -3_600, :second))
+    assert inspect_identity.() == {"expired\n", 0}
+    assert File.read!(identity) == expired
+
+    File.write!(identity, "{}")
+    assert {_error, 1} = inspect_identity.()
+    assert File.read!(identity) == "{}"
+  end
+
   test "expiry recovery removes only the expired identity and acknowledgement",
        %{identity: identity, marker: marker, root: root} = context do
     write_identity!(context, DateTime.add(DateTime.utc_now(), -3_600, :second))
