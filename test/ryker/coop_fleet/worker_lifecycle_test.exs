@@ -13,6 +13,45 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Custody, StateBinding}
 
+  # Moving workers off the controller disk must not strand the jobs already
+  # placed there. An upgrade drain also holds their later turns and cleanup.
+  test "stopping admission preserves the original decision across heartbeats and upgrade drains" do
+    enroll_manual!("worker-retiring", "worker-retiring-certificate")
+    heartbeat!("worker-retiring")
+
+    assert {:ok, %{status: :admission_stopped, worker: stopped}} =
+             WorkerLifecycle.stop_admission("worker-retiring", "operator:pool-migration")
+
+    assert stopped.state == :eligible
+    assert stopped.admission_stopped_at
+    assert stopped.admission_stopped_by == "operator:pool-migration"
+
+    assert {:ok, %{status: :duplicate, worker: duplicate}} =
+             WorkerLifecycle.stop_admission("worker-retiring", "operator:other")
+
+    assert duplicate.admission_stopped_at == stopped.admission_stopped_at
+    assert duplicate.admission_stopped_by == stopped.admission_stopped_by
+    heartbeat!("worker-retiring")
+    owner = "operator:worker-upgrade:retiring-test"
+    assert {:ok, %{worker: drained}} = WorkerLifecycle.drain("worker-retiring", owner)
+
+    assert {:ok, %{worker: resumed}} =
+             WorkerLifecycle.resume_if_drained_by(
+               "worker-retiring",
+               owner,
+               drained.drain_requested_at
+             )
+
+    assert resumed.admission_stopped_at == stopped.admission_stopped_at
+    assert resumed.admission_stopped_by == stopped.admission_stopped_by
+
+    assert {:ok, %{status: :admission_started, worker: accepting}} =
+             WorkerLifecycle.start_admission("worker-retiring", "operator:pool-migration")
+
+    assert accepting.admission_stopped_at == nil
+    assert accepting.admission_stopped_by == nil
+  end
+
   test "drain is audited, idempotent, reversible, and removes placement eligibility" do
     certificate = "worker-drain-certificate"
     enroll_manual!("worker-drain", certificate)
@@ -173,6 +212,12 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
   end
 
   test "unknown and malformed lifecycle requests fail closed" do
+    assert WorkerLifecycle.stop_admission("missing-worker", "operator:cutover") ==
+             {:error, :coop_worker_not_found}
+
+    assert WorkerLifecycle.start_admission("worker", "") ==
+             {:error, {:invalid_coop_worker_lifecycle, :operator_ref}}
+
     assert WorkerLifecycle.drain("missing-worker", "operator:andrew") ==
              {:error, :coop_worker_not_found}
 
@@ -181,6 +226,28 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
 
     assert WorkerLifecycle.resume("worker", "") ==
              {:error, {:invalid_coop_worker_lifecycle, :operator_ref}}
+  end
+
+  test "reopening admission cannot clear a drain or revive a revoked worker" do
+    enroll_manual!("worker-admission-fence", "worker-admission-fence-certificate")
+    assert {:ok, _} = WorkerLifecycle.stop_admission("worker-admission-fence", "operator:cutover")
+
+    assert {:ok, %{worker: drained}} =
+             WorkerLifecycle.drain("worker-admission-fence", "operator:pause")
+
+    assert {:ok, %{worker: accepting}} =
+             WorkerLifecycle.start_admission("worker-admission-fence", "operator:cutover")
+
+    assert accepting.drain_requested_at == drained.drain_requested_at
+    assert accepting.drain_requested_by == drained.drain_requested_by
+    assert accepting.state == :draining
+    assert {:ok, _} = WorkerLifecycle.revoke("worker-admission-fence", "operator:security")
+
+    assert WorkerLifecycle.start_admission("worker-admission-fence", "operator:cutover") ==
+             {:error, :coop_worker_revoked}
+
+    assert WorkerLifecycle.stop_admission("worker-admission-fence", "operator:cutover") ==
+             {:error, :coop_worker_revoked}
   end
 
   defp enroll_manual!(worker_id, certificate) do

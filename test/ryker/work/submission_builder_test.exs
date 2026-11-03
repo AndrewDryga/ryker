@@ -1,8 +1,7 @@
 defmodule Ryker.Work.SubmissionBuilderTest do
-  # Async since 2026-10-14: the tests that save settings, which the one
-  # installation row holds for a whole sandboxed test, run serially in
-  # submission_builder_installation_test.exs.
-  use Ryker.DataCase, async: true
+  # Forgetting memory takes the installation-wide review lock. The sandbox
+  # retains it through submission assertions, so other owners must run separately.
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.{Artifacts, Episodes}

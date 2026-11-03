@@ -1,5 +1,7 @@
 defmodule Ryker.Delivery.PresentationTest do
-  use Ryker.DataCase, async: true
+  # Correction audits hold the installation-wide review lock until the sandbox
+  # transaction ends; parallel owners exceeded its one-second lock budget.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Episodes

@@ -48,6 +48,20 @@ defmodule Ryker.CoopFleet.Worker.Changeset do
     |> check_constraint(:state, name: :coop_worker_identity_valid)
   end
 
+  @doc "Stops new placement admission while existing work continues."
+  def stop_admission(%Worker{} = worker, at, operator_ref) do
+    worker
+    |> change(admission_stopped_at: at, admission_stopped_by: operator_ref)
+    |> check_constraint(:admission_stopped_by, name: :coop_worker_admission_valid)
+  end
+
+  @doc "Allows new placements without changing an independent upgrade drain."
+  def start_admission(%Worker{} = worker) do
+    worker
+    |> change(admission_stopped_at: nil, admission_stopped_by: nil)
+    |> check_constraint(:admission_stopped_by, name: :coop_worker_admission_valid)
+  end
+
   @doc "An operator lets a drained worker take work again."
   def resume(%Worker{} = worker) do
     worker

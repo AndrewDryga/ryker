@@ -1,5 +1,6 @@
 defmodule Ryker.Memories.CasesTest do
-  use Ryker.DataCase, async: true
+  # Channel deletion holds the global memory-review lock until sandbox rollback.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event, Origin}

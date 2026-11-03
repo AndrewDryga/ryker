@@ -3,7 +3,7 @@ defmodule Ryker.BundledCoopTest do
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
   alias Ryker.BundledCoop
-  alias Ryker.CoopFleet.{EnrollmentToken, Worker}
+  alias Ryker.CoopFleet.{EnrollmentToken, Worker, WorkerLifecycle}
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Settings
 
@@ -64,6 +64,11 @@ defmodule Ryker.BundledCoopTest do
     authorize!()
     refute BundledCoop.ready?()
     advertise!()
+    assert BundledCoop.ready?()
+
+    assert {:ok, _} = WorkerLifecycle.stop_admission("ryker-compose", "operator:pool-migration")
+    refute BundledCoop.ready?()
+    assert {:ok, _} = WorkerLifecycle.start_admission("ryker-compose", "operator:pool-migration")
     assert BundledCoop.ready?()
 
     for attributes <- [

@@ -1,8 +1,7 @@
 defmodule Ryker.Work.ExecutorTest do
-  # Async since 2026-10-14: the two tests that change installation-wide
-  # state, a saved setting and the global instructions, run serially in
-  # executor_installation_test.exs.
-  use Ryker.DataCase, async: true
+  # Correction-result tests now take the installation-wide review lock, which
+  # the sandbox retains until every later execution assertion finishes.
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [clocks_past!: 2, digest: 1, eventually: 2]
   import Ecto.Query
   alias Ryker.Artifacts

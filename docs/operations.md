@@ -241,6 +241,15 @@ confirm that process has stopped. Then release the abandoned drain with
 `Ryker.Release.resume_worker_upgrade/3` inside the controller, using that worker's recorded ID,
 `drain_requested_by` and exact `drain_requested_at` timestamp. A mismatched identity is refused.
 
+To move new work to another worker while existing workflows finish, use
+`scripts/compose.sh worker-stop-admission WORKER_ID OPERATOR_REF`. It excludes that worker from
+new placements while preserving existing leases, later turns, checkpoints and cleanup commands.
+`worker-start-admission` reopens placement; it does not clear an independent drain. Stopping records
+the operator and time; reopening clears that current stop receipt. An upgrade's resume cannot clear
+the admission decision. This is separate
+from `worker-drain`, which holds undelivered mutations and is appropriate immediately before a
+quiescent worker is restarted. Stopping admission does not move or delete retained sessions.
+
 An install on another machine can upgrade itself instead, with nobody on its host:
 `scripts/install-auto-upgrade.sh` installs a launch agent there that runs `scripts/auto-upgrade.sh`
 every five minutes, and `RYKER_UPGRADE_REF` in its `compose.env` names the branch of `origin` it

@@ -1122,6 +1122,59 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   # A worker upgrade interrupted a model turn after its submit command had succeeded.
   # Drain must hold new submissions even on existing placements, without starving completion reads.
+  test "stopping new assignments still delivers later turns and cleanup on existing placements" do
+    authorize_and_poll!("worker-a")
+    placement = place!("retiring-worker")
+    incoming = session!("new-worker-placement")
+
+    requirements = %{
+      capability_names: ["controller-tools"],
+      repository_ref: "ryker",
+      workspace_ref: "workspace-main"
+    }
+
+    assert ControlPlane.worker_available?(incoming, requirements)
+    assert {:ok, _} = WorkerLifecycle.stop_admission("worker-a", "operator:pool-migration")
+
+    assert {:ok, turn} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "submit_turn",
+               turn_payload("continued-existing-work"),
+               "retiring:turn"
+             )
+
+    assert {:ok, close} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "close_session",
+               %{"coop_session_id" => "native-session", "expected_revision" => 1},
+               "retiring:close"
+             )
+
+    assert {:ok, response} =
+             ControlPlane.handle_poll_certificate(
+               "worker-a",
+               poll("worker-a", "workspace-main", "retiring-poll")
+             )
+
+    assert Enum.sort(Enum.map(response["commands"], & &1["command_id"])) ==
+             Enum.sort([turn.id, close.id])
+
+    current = Repo.get!(Placement, placement.id)
+    assert current.worker_id == placement.worker_id
+    assert current.generation == placement.generation
+    assert DateTime.compare(current.lease_expires_at, placement.lease_expires_at) != :lt
+
+    refute ControlPlane.worker_available?(incoming, requirements)
+
+    assert ControlPlane.place_session(incoming.id, requirements, 60) ==
+             {:error, {:coop_worker_capacity_unavailable, incoming.id}}
+
+    assert {:ok, retained} = ControlPlane.place_session(placement.session_id, requirements, 60)
+    assert retained.id == placement.id
+  end
+
   test "draining holds new work before the delivery limit while existing work can settle" do
     authorize_and_poll!("worker-a")
     placement = place!("drain-delivery")

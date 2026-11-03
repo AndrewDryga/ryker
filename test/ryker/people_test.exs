@@ -6,7 +6,8 @@ defmodule Ryker.PeopleTest do
   # when they take it back, edit or delete the message, an operator forgets
   # them, or the channel goes. The learning pass's answer is constructed here:
   # these tests hold the host to what it does with any answer.
-  use Ryker.DataCase, async: true
+  # Channel deletion holds the global memory-review lock until sandbox rollback.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox

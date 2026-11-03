@@ -67,6 +67,7 @@ defmodule Ryker.Observability.Fleet do
 
       {:ok,
        %{
+         admission_storage: storage(eligible, cutoff, now),
          capacity: capacity(eligible),
          checkpoints: %{
            latest_age_seconds: UTCDateTime.age_seconds(now, latest_checkpoint),
@@ -108,7 +109,8 @@ defmodule Ryker.Observability.Fleet do
       # free session slots, because Coop refused every workspace on the volume
       # watermark — and readiness said "ready" throughout. A fleet that cannot
       # allocate a workspace cannot start work, whatever its slot counts say.
-      {fleet.storage.reporting > 0 and fleet.storage.refused >= fleet.storage.reporting,
+      {fleet.admission_storage.reporting > 0 and
+         fleet.admission_storage.refused >= fleet.admission_storage.reporting,
        :no_workspace_storage},
       {fleet.expired_current_placements > 0, :expired_current_placements},
       {fleet.event_cursor_lag > 0, :event_cursor_lag},
@@ -190,7 +192,8 @@ defmodule Ryker.Observability.Fleet do
   defp eligible?(worker, workspace_ref, capabilities) do
     worker.protocol_version == "2" and worker.workspace_ref == workspace_ref and
       worker.state == :eligible and
-      is_nil(worker.drain_requested_at) and is_nil(worker.revoked_at) and
+      is_nil(worker.drain_requested_at) and is_nil(worker.admission_stopped_at) and
+      is_nil(worker.revoked_at) and
       provider_state(worker) == "eligible" and capabilities?(worker, capabilities) and
       Enum.all?(@slot_kinds, &(slot(worker, &1, :free) > 0))
   end

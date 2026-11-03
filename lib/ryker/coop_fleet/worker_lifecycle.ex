@@ -1,8 +1,9 @@
 defmodule Ryker.CoopFleet.WorkerLifecycle do
   @moduledoc """
-  Operator-owned drain, resume, and revocation custody for one Coop worker.
+  Operator-owned admission, drain, resume, and revocation custody for one Coop worker.
 
   Drain stops new placement and undelivered mutations while already leased work finishes.
+  Stopping admission holds only new placements; existing workflows keep progressing.
   Revocation immediately invalidates central placement/state authority, every
   client certificate, and every unused enrollment token. The first operator
   decision remains the durable audit identity on exact retries.
@@ -11,7 +12,29 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   alias Ryker.CoopFleet.Worker
   alias Ryker.Repo
 
-  @type result :: %{status: :draining | :duplicate | :resumed | :revoked, worker: Worker.t()}
+  @type result :: %{
+          status:
+            :admission_stopped | :admission_started | :draining | :duplicate | :resumed | :revoked,
+          worker: Worker.t()
+        }
+
+  @doc "Stops new assignments without holding later commands on existing placements."
+  @spec stop_admission(String.t(), String.t()) :: {:ok, result()} | {:error, term()}
+  def stop_admission(worker_id, operator_ref) do
+    with :ok <- reference(worker_id, :worker_id),
+         :ok <- reference(operator_ref, :operator_ref) do
+      Repo.transaction(fn -> stop_admission_locked(worker_id, operator_ref) end)
+    end
+  end
+
+  @doc "Reopens new assignments; a separate drain or revocation still prevents work."
+  @spec start_admission(String.t(), String.t()) :: {:ok, result()} | {:error, term()}
+  def start_admission(worker_id, operator_ref) do
+    with :ok <- reference(worker_id, :worker_id),
+         :ok <- reference(operator_ref, :operator_ref) do
+      Repo.transaction(fn -> start_admission_locked(worker_id) end)
+    end
+  end
 
   @spec drain(String.t(), String.t()) :: {:ok, result()} | {:error, term()}
   def drain(worker_id, operator_ref) do
@@ -56,6 +79,50 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     end
 
     resume_locked(worker)
+  end
+
+  defp stop_admission_locked(worker_id, operator_ref) do
+    worker = fetch_and_lock_worker!(worker_id)
+
+    cond do
+      worker.state == :revoked ->
+        Repo.rollback(:coop_worker_revoked)
+
+      worker.admission_stopped_at ->
+        %{status: :duplicate, worker: worker}
+
+      true ->
+        now = Repo.now!()
+
+        updated =
+          worker
+          |> Worker.Changeset.stop_admission(now, operator_ref)
+          |> Repo.update()
+          |> unwrap_write()
+
+        %{status: :admission_stopped, worker: updated}
+    end
+  end
+
+  defp start_admission_locked(worker_id) do
+    worker = fetch_and_lock_worker!(worker_id)
+
+    cond do
+      worker.state == :revoked ->
+        Repo.rollback(:coop_worker_revoked)
+
+      is_nil(worker.admission_stopped_at) ->
+        %{status: :duplicate, worker: worker}
+
+      true ->
+        updated =
+          worker
+          |> Worker.Changeset.start_admission()
+          |> Repo.update()
+          |> unwrap_write()
+
+        %{status: :admission_started, worker: updated}
+    end
   end
 
   defp drain_locked(worker_id, operator_ref) do

@@ -189,7 +189,7 @@ defmodule Ryker.BundledCoop do
     cutoff = DateTime.add(DateTime.utc_now(), -CoopFleet.Worker.heartbeat_seconds(), :second)
     capacity = worker.capacity || %{}
 
-    worker.workspace_ref == configured_workspace_ref() and
+    worker.workspace_ref == configured_workspace_ref() and is_nil(worker.admission_stopped_at) and
       DateTime.compare(worker.last_seen_at, cutoff) != :lt and capacity["state"] == "eligible" and
       Enum.all?(~w(session turn workspace), fn kind ->
         is_integer(capacity["#{kind}_slots_free"]) and capacity["#{kind}_slots_free"] > 0

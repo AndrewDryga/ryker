@@ -7,7 +7,7 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Admission.Decision
   alias Ryker.Config
   alias Ryker.ControlPlane.Router
-  alias Ryker.CoopFleet.{Client, ControlPlane, Worker}
+  alias Ryker.CoopFleet.{Client, ControlPlane, Worker, WorkerLifecycle}
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -32,6 +32,45 @@ defmodule Ryker.ObservabilityTest do
   alias Ryker.Work.Session
 
   @now ~U[2026-08-29 12:00:00.000000Z]
+
+  # During disk isolation, the retiring worker keeps reporting its retained
+  # storage. That headroom cannot make an exhausted receiving worker ready.
+  test "retiring worker headroom cannot mask refused storage on the receiving worker" do
+    workspace = "workspace-admission-storage"
+
+    assert {:ok, client} =
+             Client.new(capability_names: ["controller-tools"], workspace_ref: workspace)
+
+    Config.put_override(:work, %{api: Client, client: client})
+
+    for {worker, allocation} <- [{"storage-retiring", "open"}, {"storage-receiving", "refused"}] do
+      assert {:ok, _} = CoopWorkers.authorize(worker, workspace, digest(worker))
+
+      assert {:ok, _} =
+               ControlPlane.handle_poll_certificate(
+                 worker,
+                 storage_poll(worker, workspace, 0, allocation)
+               )
+    end
+
+    assert {:ok, _} = WorkerLifecycle.stop_admission("storage-retiring", "operator:cutover")
+    assert {:error, result} = Observability.ready(check_progress: false, check_runtimes: false)
+    assert :no_workspace_storage in result.fleet_issues
+    assert result.fleet.storage.reporting == 2
+    assert result.fleet.storage.refused == 1
+
+    for {worker, allocation} <- [{"storage-retiring", "refused"}, {"storage-receiving", "open"}] do
+      assert {:ok, _} =
+               ControlPlane.handle_poll_certificate(
+                 worker,
+                 storage_poll(worker, workspace, 0, allocation)
+               )
+    end
+
+    assert {:ok, result} = Observability.ready(check_progress: false, check_runtimes: false)
+    assert result.fleet.storage.reporting == 2
+    assert result.fleet.storage.refused == 1
+  end
 
   # Production answered ready in 5.6 seconds, beyond the deploy probe's
   # three-second deadline: automatic deployments rolled back while counting history
@@ -636,6 +675,15 @@ defmodule Ryker.ObservabilityTest do
     assert metrics =~ ~s(ryker_coop_fleet_workers{state="eligible"} 1)
     refute metrics =~ "worker-observability"
     refute metrics =~ workspace_ref
+
+    assert {:ok, _} =
+             WorkerLifecycle.stop_admission("worker-observability", "operator:pool-migration")
+
+    assert {:ok, stopped_fleet} = Observability.fleet()
+    assert stopped_fleet.eligible_workers == 0
+
+    assert {:ok, _} =
+             WorkerLifecycle.start_admission("worker-observability", "operator:pool-migration")
 
     old = DateTime.add(DateTime.utc_now(), -120, :second)
 

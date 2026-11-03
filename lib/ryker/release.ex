@@ -113,16 +113,26 @@ defmodule Ryker.Release do
   prints the result as JSON. `scripts/compose.sh worker-drain`,
   `worker-resume` and `worker-revoke` run this inside the container, where
   there is no Mix to run `mix ryker.coop_worker` with.
+
+  `:stop_admission` holds only new assignments while existing workflows continue;
+  `:start_admission` reopens assignments without clearing a separate drain.
   """
-  @spec worker_lifecycle(:drain | :resume | :revoke, String.t(), String.t(), keyword()) ::
+  @spec worker_lifecycle(
+          :stop_admission | :start_admission | :drain | :resume | :revoke,
+          String.t(),
+          String.t(),
+          keyword()
+        ) ::
           {:ok, map()} | {:error, term()}
   def worker_lifecycle(action, worker_id, operator_ref, options \\ [])
-      when action in [:drain, :resume, :revoke] do
+      when action in [:stop_admission, :start_admission, :drain, :resume, :revoke] do
     settings = settings!(options)
 
     with_repo!(settings, fn _repo ->
       changed =
         case action do
+          :stop_admission -> CoopFleet.WorkerLifecycle.stop_admission(worker_id, operator_ref)
+          :start_admission -> CoopFleet.WorkerLifecycle.start_admission(worker_id, operator_ref)
           :drain -> CoopFleet.WorkerLifecycle.drain(worker_id, operator_ref)
           :resume -> CoopFleet.WorkerLifecycle.resume(worker_id, operator_ref)
           :revoke -> CoopFleet.WorkerLifecycle.revoke(worker_id, operator_ref)
@@ -133,6 +143,8 @@ defmodule Ryker.Release do
           "state" => Atom.to_string(worker.state),
           "status" => Atom.to_string(status),
           "worker_id" => worker.id,
+          "admission_stopped_at" => worker.admission_stopped_at,
+          "admission_stopped_by" => worker.admission_stopped_by,
           "drain_requested_at" => worker.drain_requested_at,
           "drain_requested_by" => worker.drain_requested_by
         }

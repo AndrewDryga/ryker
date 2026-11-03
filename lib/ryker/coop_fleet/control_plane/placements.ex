@@ -73,7 +73,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         Worker.Query.all()
         |> Repo.all()
         |> Enum.any?(fn worker ->
-          worker_current?(worker, prepared.workspace_ref, now) and
+          is_nil(worker.admission_stopped_at) and
+            worker_current?(worker, prepared.workspace_ref, now) and
             worker_eligible?(worker, prepared, now) and
             worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now)
         end)

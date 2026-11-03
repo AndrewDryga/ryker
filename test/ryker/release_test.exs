@@ -362,6 +362,8 @@ defmodule Ryker.ReleaseTest do
     {:ok, _worker} = CoopWorkers.authorize("worker-own-2", "workspace-own", hash)
 
     for {action, status, state} <- [
+          {:stop_admission, "admission_stopped", "offline"},
+          {:start_admission, "admission_started", "offline"},
           {:drain, "draining", "draining"},
           {:resume, "resumed", "offline"},
           {:revoke, "revoked", "revoked"}
@@ -374,8 +376,8 @@ defmodule Ryker.ReleaseTest do
              Release.worker_lifecycle(:drain, "worker-own-2", "operator:local", log: false)
 
     compose = read!("scripts/compose.sh")
-    assert compose =~ "worker-drain | worker-resume | worker-revoke)"
-    assert compose =~ "Ryker.Release.worker_lifecycle(:${1#worker-}"
+    assert compose =~ "worker-drain | worker-resume | worker-revoke | worker-stop-admission"
+    assert compose =~ "Ryker.Release.worker_lifecycle(:$action"
   end
 
   # A release-shaped archive with nothing trustworthy in it: the checker must

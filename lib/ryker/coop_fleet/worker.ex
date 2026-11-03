@@ -25,6 +25,8 @@ defmodule Ryker.CoopFleet.Worker do
     field(:last_seen_at, :utc_datetime_usec)
     field(:drain_requested_at, :utc_datetime_usec)
     field(:drain_requested_by, :string)
+    field(:admission_stopped_at, :utc_datetime_usec)
+    field(:admission_stopped_by, :string)
     field(:revoked_at, :utc_datetime_usec)
     field(:revoked_by, :string)
 

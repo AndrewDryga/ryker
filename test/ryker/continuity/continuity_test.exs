@@ -1,5 +1,6 @@
 defmodule Ryker.Continuity.ContinuityTest do
-  use Ryker.DataCase, async: true
+  # Channel deletion holds the global memory-review lock until sandbox rollback.
+  use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.CanonicalJSON

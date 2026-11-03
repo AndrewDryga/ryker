@@ -8,6 +8,8 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
       mix ryker.coop_worker drain WORKER_ID OPERATOR_REF
       mix ryker.coop_worker resume WORKER_ID OPERATOR_REF
       mix ryker.coop_worker revoke WORKER_ID OPERATOR_REF
+      mix ryker.coop_worker stop-admission WORKER_ID OPERATOR_REF
+      mix ryker.coop_worker start-admission WORKER_ID OPERATOR_REF
 
   The plaintext token is printed exactly once. Store it in the worker's private
   `enrollment_token_file`; the worker removes that file after enrollment.
@@ -30,6 +32,12 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   def run(["drain", worker_id, operator_ref]),
     do: lifecycle(fn -> CoopFleet.WorkerLifecycle.drain(worker_id, operator_ref) end)
 
+  def run(["stop-admission", worker_id, operator_ref]),
+    do: lifecycle(fn -> CoopFleet.WorkerLifecycle.stop_admission(worker_id, operator_ref) end)
+
+  def run(["start-admission", worker_id, operator_ref]),
+    do: lifecycle(fn -> CoopFleet.WorkerLifecycle.start_admission(worker_id, operator_ref) end)
+
   def run(["resume", worker_id, operator_ref]),
     do: lifecycle(fn -> CoopFleet.WorkerLifecycle.resume(worker_id, operator_ref) end)
 
@@ -49,6 +57,8 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   defp lifecycle(operation) do
     with_repo(operation, fn %{status: status, worker: worker} ->
       %{
+        "admission_stopped_at" => UTCDateTime.iso8601(worker.admission_stopped_at),
+        "admission_stopped_by" => worker.admission_stopped_by,
         "drain_requested_at" => UTCDateTime.iso8601(worker.drain_requested_at),
         "drain_requested_by" => worker.drain_requested_by,
         "revoked_at" => UTCDateTime.iso8601(worker.revoked_at),
@@ -70,7 +80,7 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   defp usage! do
     Mix.raise(
       "usage: mix ryker.coop_worker enroll WORKER_ID WORKSPACE_REF OPERATOR_REF [TTL_SECONDS] | " <>
-        "mix ryker.coop_worker drain|resume|revoke WORKER_ID OPERATOR_REF"
+        "mix ryker.coop_worker drain|resume|revoke|stop-admission|start-admission WORKER_ID OPERATOR_REF"
     )
   end
 end

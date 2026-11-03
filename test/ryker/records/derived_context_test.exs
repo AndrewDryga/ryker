@@ -1,5 +1,7 @@
 defmodule Ryker.Records.DerivedContextTest do
-  use Ryker.DataCase, async: true
+  # Remembering corrections holds the global review lock for the entire sandbox
+  # transaction, including the later projection assertions.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

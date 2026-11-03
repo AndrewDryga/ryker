@@ -18,7 +18,8 @@ defmodule Ryker.CoopFleet.Worker.Query do
     from(w in all(),
       where:
         w.workspace_ref == ^requirements.workspace_ref and w.state == :eligible and
-          is_nil(w.drain_requested_at) and is_nil(w.revoked_at) and
+          is_nil(w.drain_requested_at) and is_nil(w.admission_stopped_at) and
+          is_nil(w.revoked_at) and
           w.last_seen_at >= ^cutoff and w.id not in ^excluded_ids,
       order_by: [
         asc:
@@ -53,7 +54,7 @@ defmodule Ryker.CoopFleet.Worker.Query do
       select: %{
         ref: w.workspace_ref,
         workers: count(w.id),
-        eligible: filter(count(w.id), w.state == :eligible)
+        eligible: filter(count(w.id), w.state == :eligible and is_nil(w.admission_stopped_at))
       }
     )
   end

@@ -19,7 +19,7 @@ lock_lifecycle() {
 }
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup [--controller-only]|restore FILE [--controller-only]|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke|worker-stop-admission|worker-start-admission WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup [--controller-only]|restore FILE [--controller-only]|uninstall|destroy" >&2
   exit 2
 }
 
@@ -734,10 +734,10 @@ case "$command" in
     compose exec -T ryker /opt/ryker/bin/ryker eval \
       "Ryker.Release.issue_worker_token(\"$2\", \"$3\", \"$4\")"
     ;;
-  worker-drain | worker-resume | worker-revoke)
+  worker-drain | worker-resume | worker-revoke | worker-stop-admission | worker-start-admission)
     # Drain stops new work and lets held work finish, resume takes a drained
     # worker back, and revoke cuts a worker off at once. Each value is a plain
-    # reference, never Elixir.
+    # reference, never Elixir. Admission controls leave existing workflows running.
     require_install
     [ "$#" -eq 3 ] || usage
     for value in "$2" "$3"; do
@@ -748,8 +748,13 @@ case "$command" in
           ;;
       esac
     done
+    case $1 in
+      worker-stop-admission) action=stop_admission ;;
+      worker-start-admission) action=start_admission ;;
+      *) action=${1#worker-} ;;
+    esac
     compose exec -T ryker /opt/ryker/bin/ryker eval \
-      "Ryker.Release.worker_lifecycle(:${1#worker-}, \"$2\", \"$3\")"
+      "case Ryker.Release.worker_lifecycle(:$action, \"$2\", \"$3\") do {:ok, _} -> :ok; error -> IO.inspect(:stderr, error); System.halt(1) end"
     ;;
   replay)
     # A private replay of one retained Slack message, as a Slack operator: the
