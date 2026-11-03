@@ -178,7 +178,7 @@ class Pool:
                    env={**os.environ, "COLIMA_HOME": self.state["colima_home"]})
 
     def release(self, call):
-        expression = (f"case {call} do {{:ok, value}} -> IO.puts(Jason.encode!(value)); "
+        expression = (f"case ({call}) do {{:ok, value}} -> IO.puts(Jason.encode!(value)); "
                       "error -> IO.inspect(:stderr, error); System.halt(1) end")
         return json.loads(run(self.controller() + ["exec", "-T", "ryker", "/opt/ryker/bin/ryker",
                                                    "eval", expression]))

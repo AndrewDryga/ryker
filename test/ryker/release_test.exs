@@ -7,6 +7,27 @@ defmodule Ryker.ReleaseTest do
 
   @root Path.expand("../..", __DIR__)
 
+  test "worker refresh can release its drain through a nested release expression" do
+    # The first successful pool sign-in restarted its worker, then left the
+    # upgrade drain set because the host emitted invalid `case case ... end do`.
+    script = """
+    import sys
+    sys.path.insert(0, 'scripts')
+    import worker_pool
+    pool = object.__new__(worker_pool.Pool)
+    pool.controller = lambda: []
+    def capture(argv):
+        print(argv[-1])
+        return '{}'
+    worker_pool.run = capture
+    pool.release('case {:ok, %{}} do {:ok, _} -> {:ok, %{}}; error -> error end')
+    """
+
+    assert {expression, 0} = System.cmd("python3", ["-B", "-c", script], cd: @root)
+
+    assert ExUnit.CaptureIO.capture_io(fn -> Code.eval_string(expression) end) == "{}\n"
+  end
+
   test "production defaults to operational logging instead of debug SQL output" do
     configuration =
       Path.expand("../../config/prod.exs", __DIR__)
