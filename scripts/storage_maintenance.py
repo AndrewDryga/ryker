@@ -130,7 +130,8 @@ def inspect_host_builder(prefix, run):
     return size_bytes(total[1])
 
 
-def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, context=None, compose_file=None):
+def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, context=None, compose_file=None,
+             orbstack_machine=None, measure_quota=None):
     before_host = measure_host(env_file.parent)
     result = {"version": 1, "measured_at": int(time.time()), "host": before_host,
               "builders": [], "errors": []}
@@ -145,7 +146,10 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", context):
             raise RuntimeError("Docker context identity is invalid")
         endpoint = json.loads(run(outer + ["context", "inspect", context, "--format", "{{json .Endpoints.docker.Host}}"] ))
-        if not isinstance(endpoint, str) or not endpoint.startswith("unix:///"):
+        local_machine = (isinstance(orbstack_machine, str) and
+                         re.fullmatch(r"[A-Za-z0-9_.-]+", orbstack_machine) and
+                         endpoint == "ssh://root%40" + orbstack_machine + "@orb")
+        if not isinstance(endpoint, str) or not (endpoint.startswith("unix:///") or local_machine):
             raise RuntimeError("storage maintenance requires a local Unix Docker endpoint; run it on the Docker host")
         outer += ["--context", context]
     except (RuntimeError, ValueError, subprocess.TimeoutExpired, OSError) as error:
@@ -154,12 +158,23 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
     container = None
     capacity = free = None
     builders = [("host", outer)]
+
+    def worker_volume():
+        capacity, free = parse_df(run(outer + ["exec", container, "df", "-Pk", "/var/lib/docker"]))
+        if measure_quota is not None:
+            quota_capacity, quota_free = measure_quota()
+            if (any(isinstance(value, bool) or not isinstance(value, int) for value in (quota_capacity, quota_free)) or
+                    not 0 <= quota_free <= quota_capacity or quota_capacity <= 0):
+                raise RuntimeError("worker quota measurement is invalid")
+            capacity, free = min(capacity, quota_capacity), min(free, quota_free, capacity)
+        return capacity, free
+
     try:
         container = run(outer + ["compose", "--env-file", str(env_file), "--file",
                         str(compose_file or ROOT / "compose.yml"), "ps", "--quiet", "ryker-coop-docker"]).strip()
         if not re.fullmatch(r"[0-9a-f]{12,64}", container):
             raise RuntimeError("worker Docker daemon is unavailable")
-        capacity, free = parse_df(run(outer + ["exec", container, "df", "-Pk", "/var/lib/docker"]))
+        capacity, free = worker_volume()
         result["docker"] = {"capacity_bytes": capacity, "free_bytes": free,
                             "target_free_bytes": plan(capacity, free, 0, False)["target_free_bytes"]}
         builders.append(("worker", outer + ["exec", container, "docker"]))
@@ -210,7 +225,7 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
                               "--reserved-space", "0"], timeout=20)
                 item["pruned"] = True
             if capacity is not None:
-                _, free = parse_df(run(outer + ["exec", container, "df", "-Pk", "/var/lib/docker"]))
+                _, free = worker_volume()
                 item["free_after_bytes"] = free
                 item["free_delta_bytes"] = free - item["free_before_bytes"]
                 item["recovered"] = recovered(item["free_before_bytes"], free, item["target_free_bytes"])

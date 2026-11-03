@@ -23,6 +23,7 @@ services:
       - --host=unix:///var/run/docker.sock
       - --host=unix:///run/ryker-coop-docker/docker.sock
       - --group=1000
+      - --storage-driver=overlay2
       - --bip=10.241.0.1/24
       - --default-address-pool=base=10.241.0.0/16,size=24
       - --log-driver=json-file

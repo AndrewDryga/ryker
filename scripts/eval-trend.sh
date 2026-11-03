@@ -73,7 +73,7 @@ rows=$(
     fi
     # Inside $(...) bash drops -e: a report jq could not read through lost its
     # row, or, sorting last, stopped the table (2026-10-04 review).
-    jq -r --arg label "$label" --arg stamp "$stamp" --arg file "$file" '
+    jq -r --arg run_label "$label" --arg stamp "$stamp" --arg file "$file" '
       def count: (. // 0);
       if (.summary.candidate | type) != "object" then
         ["NOT_WORLD", $file] | @tsv
@@ -83,7 +83,7 @@ rows=$(
         | ([.results[]? | select(.lane == "candidate")
             | .quality.decision.overall_pass | select(. != null)]) as $judged
         | [
-            $label,
+            $run_label,
             $stamp,
             ($passed | tostring),
             ($total | tostring),

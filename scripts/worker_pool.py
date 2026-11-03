@@ -12,6 +12,7 @@ from pathlib import Path
 import platform
 import plistlib
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -26,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FILES = ROOT / "deploy/worker-pool"
 GIB = 1024 ** 3
 PROFILE = "ryker-worker"
-CONTEXT = "colima-" + PROFILE
+CONTEXT = "orbstack-" + PROFILE
 WORKER = "ryker-pool"
 WORKSPACE = "ryker-compose"
 REFERENCE = re.compile(r"[A-Za-z0-9._:-]+")
@@ -42,7 +43,7 @@ def run(argv, data=None, timeout=30, env=None):
                           {"eval", "psql", "load", "inspect", "up", "start", "exec", "run", "ssh"}), "command")
         context = argv[argv.index("--context") + 1] if "--context" in argv else None
         diagnostic = (f"docker --context {context} info" if context else
-                      "colima --profile ryker-worker status" if tool == "colima" else
+                      "orb info ryker-worker" if tool == "orb" else
                       "check this installation's worker-pool startup.log")
         raise RuntimeError(f"{tool} {operation} failed (exit {result.returncode}); inspect with {diagnostic}")
     if len(result.stdout) > 1024 * 1024:
@@ -76,44 +77,63 @@ def read_private_json(path):
     return json.loads(path.read_text())
 
 
-def required_free(data_gib=32, root_gib=20, memory_gib=8, allocated=0):
-    # Sparse virtual disks are maxima, not reservations. Include VM memory's
-    # possible host swap and 12 GiB for the controller/builds, plus metadata.
-    return max(0, (data_gib + root_gib) * GIB - allocated) + (memory_gib + 14) * GIB
+def required_free(data_gib=52, memory_gib=8):
+    # A machine may replace shared base extents with private blocks without
+    # increasing its quota usage. Reserve the whole possible private growth,
+    # plus its possible host swap and controller/build headroom.
+    return (data_gib + memory_gib + 14) * GIB
 
 
-def provisioning(owner):
+def orbstack_storage_root():
+    image = Path.home() / "Library/Group Containers/HUAQ24HBR6.dev.orbstack/data/data.img"
+    try:
+        image = image.resolve(strict=True)
+    except OSError as error:
+        raise RuntimeError("OrbStack data image is unavailable; verify its storage location") from error
+    if not image.is_file():
+        raise RuntimeError("OrbStack data image must be a regular file")
+    return image.parent
+
+
+def machine_config():
+    return {"isolated": True, "forward_ssh_agent": False, "isolate_network": False,
+            "memory_limit_mib": 8192, "cpu_limit": 4, "disk_limit_bytes": 52 * GIB}
+
+
+def provisioning(owner, networks):
     destinations = {
+        "install-docker.sh": "/usr/local/sbin/ryker-worker-install-docker",
         "network.nft": "/etc/ryker-worker-network.nft",
         "network.sh": "/usr/local/sbin/ryker-worker-network",
         "network.service": "/etc/systemd/system/ryker-worker-network.service",
         "docker-network.conf": "/etc/systemd/system/docker.service.d/ryker-network.conf",
         "journald.conf": "/etc/systemd/journald.conf.d/ryker-worker.conf",
     }
-    lines = ["#!/bin/sh", "set -eu", "systemctl stop docker.service docker.socket",
+    lines = ["#!/bin/sh", "set -eu",
+             f'test "$(cat /etc/ryker-worker-owner)" = {shlex.quote(owner)}',
+             "systemctl stop docker.service docker.socket 2>/dev/null || true",
              "mkdir -p /etc/systemd/system/docker.service.d /etc/systemd/journald.conf.d"]
     for source, target in destinations.items():
         encoded = base64.b64encode((FILES / source).read_bytes()).decode()
         lines.append(f"printf '%s' '{encoded}' | base64 -d > '{target}'")
-    lines += ["chmod 0700 /usr/local/sbin/ryker-worker-network",
-              f"printf '%s\\n' '{owner}' > /etc/ryker-worker-owner",
-              "chmod 0600 /etc/ryker-worker-owner", "systemctl daemon-reload",
-              "systemctl enable ryker-worker-network.service fstrim.timer",
+    daemon = {"storage-driver": "overlay2", "bip": "10.240.0.1/24",
+              "default-address-pools": [{"base": "10.240.0.0/16", "size": 24}],
+              "log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}
+    encoded_daemon = base64.b64encode(json.dumps(daemon).encode()).decode()
+    encoded_networks = base64.b64encode(("\n".join(networks) + "\n").encode()).decode()
+    lines += ["mkdir -p /etc/docker",
+              f"printf '%s' '{encoded_daemon}' | base64 -d > /etc/docker/daemon.json",
+              f"printf '%s' '{encoded_networks}' | base64 -d > /etc/ryker-worker-controller-networks",
+              "chmod 0600 /etc/ryker-worker-controller-networks /etc/docker/daemon.json",
+              "chmod 0700 /usr/local/sbin/ryker-worker-network /usr/local/sbin/ryker-worker-install-docker",
+              "sh /usr/local/sbin/ryker-worker-install-docker",
+              "systemctl daemon-reload",
+              "systemctl enable ryker-worker-network.service",
               "systemctl restart systemd-journald",
               "systemctl start ryker-worker-network.service",
               "systemctl start docker.service"]
     return "\n".join(lines) + "\n"
 
-
-def vm_config(owner):
-    return {"cpu": 4, "memory": 8, "disk": 32, "rootDisk": 20, "arch": "aarch64",
-            "runtime": "docker", "vmType": "vz", "mounts": [], "sshAgent": False,
-            "autoActivate": False, "portForwarder": "none",
-            "network": {"mode": "shared", "address": False},
-            "docker": {"bip": "10.240.0.1/24",
-                       "default-address-pools": [{"base": "10.240.0.0/16", "size": 24}],
-                       "log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}},
-            "provision": [{"mode": "system", "script": provisioning(owner)}]}
 
 
 def configuration_digest():
@@ -148,6 +168,8 @@ class Pool:
         self.env_file = self.directory / "compose.env"
         self.state = read_private_json(self.manifest) if self.manifest.exists() else None
         if self.state:
+            if self.state.get("version") != 2:
+                raise RuntimeError("worker pool state requires the explicit OrbStack custody migration")
             for key, expected in (("profile", PROFILE), ("context", CONTEXT),
                                   ("worker", WORKER), ("workspace", WORKSPACE)):
                 if self.state.get(key) != expected:
@@ -173,9 +195,99 @@ class Pool:
         return self.docker() + ["compose", "--env-file", str(self.env_file),
                                 "--file", str(FILES / "compose.yml")]
 
-    def guest(self, command, data=None, timeout=30):
-        return run(["colima", "ssh", "--profile", PROFILE, "--", "sudo"] + command, data, timeout,
-                   env={**os.environ, "COLIMA_HOME": self.state["colima_home"]})
+    def guest(self, command, timeout=30):
+        return run(["orb", "run", "--machine", PROFILE, "--user", "root"] + command, timeout=timeout)
+
+    def machine_info(self, timeout=12, require_running=True):
+        info = json.loads(run(["orb", "info", PROFILE, "--format", "json"], timeout=timeout))
+        record = info["record"]
+        if record["name"] != PROFILE or (require_running and record.get("state") != "running"):
+            raise RuntimeError("the owned OrbStack worker machine is not running")
+        if self.state.get("machine_id") and record["id"] != self.state["machine_id"]:
+            raise RuntimeError("worker machine identity changed")
+        config = record["config"]
+        if any(config.get(key) != value for key, value in machine_config().items()) or config.get("mounts"):
+            raise RuntimeError("worker machine isolation or resource limits changed")
+        used = info["disk_size"]
+        if isinstance(used, bool) or not isinstance(used, int) or used < 0:
+            raise RuntimeError("worker quota usage is invalid")
+        return info
+
+    def quota(self):
+        info = self.machine_info()
+        capacity = info["record"]["config"]["disk_limit_bytes"]
+        return capacity, max(0, capacity - info["disk_size"])
+
+    def create_machine(self):
+        if self.state.get("machine_id"):
+            self.machine_info(require_running=False)
+            run(["orb", "start", PROFILE], timeout=180)
+        else:
+            machines = json.loads(run(["orb", "list", "--format", "json"]))
+            if not any(machine["name"] == PROFILE for machine in machines):
+                cloud = self.directory / "machine-cloud-init.yaml"
+                document = {"write_files": [{"path": "/etc/ryker-worker-owner", "permissions": "0600",
+                                              "content": self.state["owner"] + "\n"}]}
+                atomic_bytes(cloud, ("#cloud-config\n" + json.dumps(document)).encode())
+                run(["orb", "create", "--isolated", "--cpus", "4", "--memory", "8G", "--disk", "52G",
+                     "--user-data", str(cloud), "debian:bookworm", PROFILE], timeout=600)
+            info = self.machine_info()
+            # Creation can finish after its client loses the response. The
+            # private cloud-init nonce proves ownership before adopting its ID.
+            deadline = time.monotonic() + 90
+            while True:
+                try:
+                    owner = self.guest(["cat", "/etc/ryker-worker-owner"]).strip()
+                    break
+                except RuntimeError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("worker ownership could not be established; leaving the machine intact") from None
+                    time.sleep(2)
+            if owner != self.state["owner"]:
+                raise RuntimeError("existing worker machine belongs to another operation")
+            self.state["machine_id"] = info["record"]["id"]
+            self.save()
+            (self.directory / "machine-cloud-init.yaml").unlink(missing_ok=True)
+        self.machine_info()
+
+    def controller_networks(self):
+        prefix = ["docker", "--context", self.state["controller_context"]]
+        ids = run(prefix + ["network", "ls", "--quiet"]).splitlines()
+        if not ids or len(ids) > 256 or any(not re.fullmatch(r"[0-9a-f]{12,64}", item) for item in ids):
+            raise RuntimeError("controller Docker network inventory is invalid")
+        networks = set()
+        for record in json.loads(run(prefix + ["network", "inspect"] + ids)):
+            for config in record.get("IPAM", {}).get("Config") or []:
+                if not config.get("Subnet"):
+                    continue
+                network = ipaddress.ip_network(config["Subnet"], strict=True)
+                if network.version == 4:
+                    if network.prefixlen == 0:
+                        raise RuntimeError("controller Docker network cannot cover the default route")
+                    networks.add(str(network))
+        if not any(ipaddress.ip_address("172.30.42.10") in ipaddress.ip_network(item) for item in networks):
+            raise RuntimeError("controller gateway network is not present in OrbStack")
+        return sorted(networks)
+
+    def refresh_networks(self):
+        networks = self.controller_networks()
+        if networks == self.state.get("protected_networks"):
+            return
+        encoded = base64.b64encode(("\n".join(networks) + "\n").encode()).decode()
+        self.guest(["sh", "-ec", f"umask 077; printf '%s' '{encoded}' | base64 -d > /run/ryker-worker-controller-networks; "
+                    "mv /run/ryker-worker-controller-networks /etc/ryker-worker-controller-networks; "
+                    "/usr/local/sbin/ryker-worker-network"])
+        self.state["protected_networks"] = networks
+        self.save()
+
+    def ensure_context(self):
+        endpoint = "ssh://root%40" + PROFILE + "@orb"
+        contexts = run(["docker", "context", "ls", "--format", "{{.Name}}"] ).splitlines()
+        if CONTEXT not in contexts:
+            run(["docker", "context", "create", CONTEXT, "--docker", "host=" + endpoint])
+        observed = run(["docker", "context", "inspect", CONTEXT, "--format", "{{.Endpoints.docker.Host}}"] ).strip()
+        if observed != endpoint:
+            raise RuntimeError("worker Docker context belongs to another endpoint")
 
     def release(self, call):
         expression = (f"case ({call}) do {{:ok, value}} -> IO.puts(Jason.encode!(value)); "
@@ -218,27 +330,22 @@ class Pool:
 
     def verify(self):
         if self.state["configuration"] != configuration_digest():
-            raise RuntimeError("worker VM configuration changed; qualify that change before updating the pool")
-        home = Path(self.state["colima_home"])
-        marker = home / PROFILE / ".ryker-owner"
-        if marker.is_symlink() or marker.read_text().strip() != self.state["owner"]:
-            raise RuntimeError("worker profile ownership does not match")
+            raise RuntimeError("worker machine configuration changed; qualify that change before updating the pool")
+        self.machine_info()
         if self.guest(["cat", "/etc/ryker-worker-owner"]).strip() != self.state["owner"]:
-            raise RuntimeError("worker VM ownership does not match")
+            raise RuntimeError("worker machine ownership does not match")
         endpoint = run(self.docker() + ["context", "inspect", CONTEXT, "--format", "{{.Endpoints.docker.Host}}"] ).strip()
-        expected = "unix://" + str(home / PROFILE / "docker.sock")
-        if endpoint != expected:
-            raise RuntimeError("worker Docker context points outside the owned VM")
+        if endpoint != "ssh://root%40" + PROFILE + "@orb":
+            raise RuntimeError("worker Docker context points outside the owned machine")
         daemon = run(self.docker() + ["info", "--format", "{{.ID}}"] ).strip()
         if self.state.get("daemon") and daemon != self.state["daemon"]:
             raise RuntimeError("worker Docker daemon identity changed")
+        if run(self.docker() + ["info", "--format", "{{.Driver}}"] ).strip() != "overlay2":
+            raise RuntimeError("worker Docker must use overlay2 to enforce the machine quota")
         self.guest(["systemctl", "is-active", "ryker-worker-network", "docker"])
-        sizes = self.guest(["sh", "-ec", "blockdev --getsize64 /dev/vda; blockdev --getsize64 /dev/vdb"]).split()
-        if list(map(int, sizes)) != [20 * GIB, 32 * GIB]:
-            raise RuntimeError("worker disks no longer have their qualified size limits")
         mounts = self.guest(["sh", "-ec", "findmnt -rn -t virtiofs,9p,fuse.sshfs || test $? -eq 1"])
         if mounts.strip():
-            raise RuntimeError("worker VM has host directory mounts")
+            raise RuntimeError("worker machine has host directory mounts")
         return daemon
 
     def write_env(self, image):
@@ -307,32 +414,34 @@ class Pool:
         self.verify()
         return {"worker": WORKER, "context": CONTEXT, "phase": self.state["phase"],
                 "image": self.state["image"], "model_accounts_needed": self.missing_accounts(),
+                "quota": dict(zip(("capacity_bytes", "free_bytes"), self.quota())),
                 "controller": self.worker_status()}
 
     def initialize(self):
-        home = Path(os.environ.get("COLIMA_HOME", Path.home() / ".colima")).resolve()
-        measured = home if home.exists() else home.parent
-        free = shutil.disk_usage(measured).free
+        if platform.system() != "Darwin" or platform.machine() != "arm64":
+            raise RuntimeError("this worker pool requires a qualified Apple Silicon OrbStack host")
+        if shutil.which("orb") is None:
+            raise RuntimeError("OrbStack is required for the isolated worker machine")
+        storage = orbstack_storage_root()
+        free = shutil.disk_usage(storage).free
         if free < required_free():
             raise RuntimeError(f"dedicated worker needs {required_free() / GIB:.0f} GiB free; "
                                f"this disk has {free / GIB:.1f} GiB")
-        if platform.system() != "Darwin" or platform.machine() != "arm64":
-            raise RuntimeError("this worker pool requires a qualified Apple Silicon Colima host")
-        if shutil.which("colima") is None:
-            raise RuntimeError("Colima is required for the isolated worker VM")
         check_route_ranges(run(["netstat", "-rn", "-f", "inet"]))
         context = run(["docker", "context", "show"]).strip()
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+", context) or context == CONTEXT:
-            raise RuntimeError("select the controller's Docker context before installing the pool")
+        if context != "orbstack":
+            raise RuntimeError("select the controller's OrbStack Docker context before installing the pool")
         endpoint = run(["docker", "context", "inspect", context, "--format", "{{.Endpoints.docker.Host}}"] ).strip()
         if not endpoint.startswith("unix:///"):
             raise RuntimeError("controller must use a local Unix Docker endpoint")
-        if (home / PROFILE).exists() or CONTEXT in run(["docker", "context", "ls", "--format", "{{.Name}}"] ).splitlines():
-            raise RuntimeError("worker profile/context already exists without this installation's ownership")
-        self.state = {"version": 1, "owner": uuid.uuid4().hex, "repository": str(ROOT),
+        machines = json.loads(run(["orb", "list", "--format", "json"]))
+        if any(machine["name"] == PROFILE for machine in machines) or CONTEXT in run(
+                ["docker", "context", "ls", "--format", "{{.Name}}"] ).splitlines():
+            raise RuntimeError("worker machine/context already exists without this installation's ownership")
+        self.state = {"version": 2, "owner": uuid.uuid4().hex, "repository": str(ROOT),
                       "profile": PROFILE, "context": CONTEXT, "worker": WORKER, "workspace": WORKSPACE,
                       "controller_context": context, "controller_endpoint": endpoint,
-                      "colima_home": str(home), "phase": "creating", "configuration": configuration_digest()}
+                      "storage_root": str(storage), "phase": "creating", "configuration": configuration_digest()}
         if self.worker_status() is not None:
             raise RuntimeError("worker ID already has controller custody; refusing to replace its identity")
         self.save()
@@ -343,22 +452,22 @@ class Pool:
         if self.state["phase"] in ("qualified", "active"):
             self.install_startup()
             return self.status()
-        home = Path(self.state["colima_home"])
         self.check_headroom()
-        profile = home / PROFILE
-        if not profile.exists():
-            profile.mkdir(mode=0o700, parents=True)
-            marker = profile / ".ryker-owner"
-            marker.write_text(self.state["owner"] + "\n")
-            marker.chmod(0o600)
-            atomic_json(profile / "colima.yaml", vm_config(self.state["owner"]))
-        elif (profile / ".ryker-owner").read_text().strip() != self.state["owner"]:
-            raise RuntimeError("existing Colima profile is not owned by this installation")
-        run(["colima", "start", PROFILE, "--activate=false", "--template=false", "--mount", "none",
-             "--port-forwarder", "none", "--runtime", "docker", "--vm-type", "vz",
-             "--cpus", "4", "--memory", "8", "--disk", "32", "--root-disk", "20"], timeout=600,
-            env={**os.environ, "COLIMA_HOME": self.state["colima_home"]})
+        self.create_machine()
+        self.ensure_context()
+        networks = self.controller_networks()
+        script = base64.b64encode(provisioning(self.state["owner"], networks).encode()).decode()
+        try:
+            self.guest(["sh", "-ec", 'umask 077; tmp=$(mktemp /run/ryker-worker-bootstrap.XXXXXX); '
+                        'trap \'rm -f "$tmp"\' EXIT HUP INT TERM; '
+                        f'printf \'%s\' \'{script}\' | base64 -d > "$tmp"; '
+                        'flock --nonblock /run/ryker-worker-bootstrap.lock sh "$tmp" '
+                        '> /var/log/ryker-worker-bootstrap.log 2>&1'], timeout=600)
+        except RuntimeError as error:
+            raise RuntimeError("worker bootstrap failed; inspect with orb run --machine ryker-worker --user root "
+                               "tail -n 50 /var/log/ryker-worker-bootstrap.log") from error
         self.state["daemon"] = self.verify()
+        self.state["protected_networks"] = networks
         self.save()
         image = self.image()
         self.copy_image(image)
@@ -371,8 +480,6 @@ class Pool:
             raise RuntimeError("controller did not supply its public worker CA")
         self.seed_file("worker-ca.pem", ca.encode())
         self.enroll()
-        # A fresh volume has no previous trusted box context to prewarm.
-        # The entrypoint builds it from the seeded CA before connecting.
         run(self.compose() + ["up", "--detach", "--no-build", "--wait", "ryker-coop"], timeout=600)
         run(self.compose() + ["exec", "-T", "ryker-coop", "coop", "net", "setup"], timeout=180)
         self.wait_qualified(require_hold=True)
@@ -596,6 +703,7 @@ class Pool:
     def maintain(self):
         growth, pressure_error = self.reconcile_headroom()
         self.verify()
+        self.refresh_networks()
         self.enroll()
         deadline = time.monotonic() + 50
 
@@ -607,14 +715,11 @@ class Pool:
 
         report = storage_maintenance.maintain(
             self.env_file, apply=True, run=bounded, context=CONTEXT, compose_file=FILES / "compose.yml",
-            measure_host=lambda _path: storage_maintenance.host_disk(Path(self.state["colima_home"])))
+            orbstack_machine=PROFILE, measure_quota=self.quota,
+            measure_host=lambda _path: storage_maintenance.host_disk(self.verified_storage_root()))
         health_error = None
         if self.state["phase"] == "active" and not qualified(self.worker_status() or {}):
             health_error = "pool worker is not reporting fresh eligible capacity"
-        if time.time() - self.state.get("trimmed_at", 0) >= 1800:
-            # A successful trim is not claimed as physical space reclaimed.
-            self.guest(["fstrim", "--all"], timeout=30)
-            self.state["trimmed_at"] = int(time.time())
         report["remaining_growth"] = growth
         if pressure_error:
             report["errors"].append(pressure_error)
@@ -659,37 +764,43 @@ class Pool:
             self.save()
         return growth, error
 
+    def verified_storage_root(self):
+        current = orbstack_storage_root()
+        if str(current) != self.state["storage_root"]:
+            raise RuntimeError("OrbStack storage location changed; qualify its new backing disk before resuming")
+        return current
+
     def check_headroom(self):
-        home = Path(self.state["colima_home"])
-        disks = [home / "_lima" / ("colima-" + PROFILE) / "disk",
-                 home / "_lima" / "_disks" / ("colima-" + PROFILE) / "datadisk"]
-        allocated = 0
-        for path in disks:
-            if path.exists():
-                info = path.lstat()
-                if not stat.S_ISREG(info.st_mode):
-                    raise RuntimeError("worker disk path is not a regular file")
-                allocated += info.st_blocks * 512
-        free = shutil.disk_usage(home if home.exists() else home.parent).free
-        needed = required_free(allocated=allocated)
+        try:
+            free = shutil.disk_usage(self.verified_storage_root()).free
+        except OSError as error:
+            raise RuntimeError("worker host storage cannot be measured") from error
+        needed = required_free()
         if free < needed:
-            raise RuntimeError(f"worker VM can still grow; needs {needed / GIB:.1f} GiB host headroom, "
+            raise RuntimeError(f"worker quota can still consume private host blocks; needs {needed / GIB:.1f} GiB host headroom, "
                                f"has {free / GIB:.1f} GiB")
-        return {"free_bytes": free, "required_bytes": needed, "allocated_disk_bytes": allocated}
+        return {"free_bytes": free, "required_bytes": needed}
+
+    def wait_boot(self):
+        deadline = time.monotonic() + 90
+        while True:
+            try:
+                self.guest(["systemctl", "is-active", "ryker-worker-network", "docker"], timeout=10)
+                return
+            except (RuntimeError, subprocess.TimeoutExpired):
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("worker boot services did not become ready") from None
+                time.sleep(1)
 
     def start(self):
-        home = Path(self.state["colima_home"])
-        if (home / PROFILE / ".ryker-owner").read_text().strip() != self.state["owner"]:
-            raise RuntimeError("worker profile ownership changed")
         self.check_headroom()
-        run(["colima", "start", PROFILE, "--activate=false", "--template=false"], timeout=600,
-            env={**os.environ, "COLIMA_HOME": self.state["colima_home"]})
+        self.machine_info(require_running=False)
+        run(["orb", "start", PROFILE], timeout=180)
+        self.wait_boot()
         self.verify()
         _container, image = self.running_image()
         if image not in (self.state["image"], self.state.get("upgrade_image")):
             raise RuntimeError("worker image changed outside the guarded upgrade; refusing to replace it")
-        # Start existing containers only: a crash after replacement can leave
-        # the previous env pin, which must never recreate an older worker.
         run(self.compose() + ["start", "ryker-coop-docker", "ryker-coop"], timeout=60)
         return {"worker": WORKER, "started": True}
 

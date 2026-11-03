@@ -254,23 +254,32 @@ quiescent worker is restarted. Stopping admission does not move or delete retain
 
 Before installing: controller-only backups continue, but the existing full backup/restore and
 uninstall commands cannot cover this additional worker. Preserve both workers’ volumes and the
-new VM disks; full pool restore is not yet available.
+complete isolated machine; full pool restore is not yet available.
 
-`python3 -B scripts/worker_pool.py install` creates a separate Colima VM on an Apple Silicon
-host. The controller and PostgreSQL stay in their existing Docker context. The worker has a
-32 GiB data disk, a 20 GiB root disk and 8 GiB RAM. These are maximum virtual allocations,
-not reserved physical space: installation requires 74 GiB free, including possible host swap,
-12 GiB of controller/build reserve and filesystem overhead. Later checks account for the
-disks' remaining possible growth. Other applications can still consume host space.
+`python3 -B scripts/worker_pool.py install` creates an isolated OrbStack Linux machine on an
+Apple Silicon host. The controller and PostgreSQL run in the local `orbstack` Docker context.
+The worker has a 52 GiB disk quota, 8 GiB RAM and four CPUs. Installation and maintenance require
+74 GiB of physical host headroom: the full possible private disk growth, 8 GiB of swap and 14 GiB
+for the controller, builds and overhead. Shared base extents can become private without increasing
+quota usage, so checks do not subtract current usage from that reserve. Other applications can
+still consume host space.
 
-The pool uses no host directory mounts or host Docker socket. Its outer and nested Docker
-address pools are separate, and installation refuses overlapping host routes. A boot-required
-firewall permits the existing `https://172.30.42.10:4322` gateway through the host's loopback-only
-4322 publication while denying the host console and other loopback services. TLS verification,
-stored URLs and existing worker certificates are unchanged. This isolates ordinary work
-containers; it is not a boundary against a compromised privileged Docker daemon or VM root.
-Container logs and guest journals are bounded, and maintenance trims discarded blocks without
-claiming that a successful trim proves physical host space was reclaimed.
+The machine has no host directory mounts or forwarded SSH agent. Its outer and nested Docker
+address pools are separate, and installation refuses overlapping host routes. Both daemons use
+`overlay2`: Docker's Btrfs subvolumes can escape the machine's direct quota. Coop measures the
+machine's Btrfs quota as well as filesystem space, including pending allocation reservations,
+so admission and GC see the worker's actual storage boundary. The operator also checks that
+boundary and the host's physical headroom. OrbStack manages discarded-block reclamation.
+
+A boot-required firewall permits only the controller's `172.30.42.10:4322` worker gateway and
+OrbStack DNS among host and sibling-machine destinations. Other controller Docker networks,
+Mac integration addresses, sibling machines and IPv6 are denied; public IPv4 remains available.
+Only the gateway’s `/32` is routed through OrbStack’s Docker bridge, preserving its stored URL.
+The protected controller network inventory is refreshed during maintenance. TLS verification,
+stored URLs and existing worker certificates are unchanged. The machine shares OrbStack's Linux
+kernel and physical storage with other workloads; it isolates ordinary work containers, while a
+compromised privileged daemon or machine root is outside this boundary. Container logs and guest
+journals are bounded.
 
 Installation enrolls a new `ryker-pool` identity in the existing workspace, with admission held
 atomically before its first heartbeat. It copies only the public CA, never the old worker's model
@@ -289,7 +298,7 @@ The existing watchdog maintains both pools, including bounded build-cache cleanu
 after certificate expiry. An invalid identity is retained and reported. An unexpired enrollment
 token is reused; a token replaced before first enrollment still carries the admission hold.
 Insufficient physical headroom holds new pool admissions, and recovery releases only that exact
-maintenance-owned hold. A launch agent starts the owned VM after host login; an explicit start
+maintenance-owned hold. A launch agent starts the owned machine after host login; an explicit start
 is `python3 -B scripts/worker_pool.py start`.
 
 `python3 -B scripts/worker_pool.py upgrade` prepares the pinned image, waits for controller and
@@ -299,9 +308,9 @@ worker images. `python3 -B scripts/worker_pool.py model-login ACCOUNT` targets t
 provider volume and uses a guarded restart after sign-in. Status and watchdog failures name the
 separate pool; changing the global Docker context never selects it implicitly.
 
-Scheduled and pre-deploy controller-only backups remain supported. A full backup, full restore,
+Scheduled and manual controller-only backups remain supported. A full backup, full restore,
 uninstall or destroy is refused while a separate pool exists: the original archive does not
-contain its custody. Keep both workers' volumes and the pool VM disks. There is no automatic
+contain its custody. Keep both workers' volumes and the complete pool machine. There is no automatic
 bulk session migration or full pool restore, and no command here deletes the retained worker.
 
 An install on another machine can upgrade itself instead, with nobody on its host:
@@ -391,11 +400,11 @@ Previously running services restart on success or failure; services already stop
 Worker leases use their normal expiry rules during this maintenance window; allow time for large
 bodies to copy. Use `backup --controller-only` for a controller deployment: it leaves the worker
 and its daemon running, and captures only database, encrypted controller state and environment.
-Pre-deploy backups hold the database, the encrypted files and the environment, and not the
-worker's state. A deploy keeps the newest ten of them and, past those, the newest of each of the
-last seven days; the backups you take yourself are never removed. Each archive is written under a
-hidden name and renamed once it is whole, so one cut short never looks like a good one. Store
-these owner-only archives as sensitive material.
+A deploy takes no backup. Before a migration that might need undoing, take a controller-only
+backup immediately before deploying: a restore needs the archive's release image, and deploys
+prune older images. Backups taken by hand remain until explicitly removed. Each archive is
+written under a hidden name and renamed once it is whole, so one cut short never looks like a
+good one. Store these owner-only archives as sensitive material.
 
 A full restore moves current worker contents into `.restore-held.*` directories on their original
 volumes before installing the archived state. Those directories preserve newer work for rescue;
@@ -445,7 +454,7 @@ recovery. The state-tools token may differ: a backup taken before
 the token was rotated restores, and the current token stays. With no
 existing installation state it restores the archived roots first, unless another checkout's
 installation already owns this host's database volume. It pins the release the backup was taken
-on, so restoring a pre-deploy backup rolls the deploy back; that release's image must be on this
+on, so restoring that controller backup rolls the deploy back; that release's image must be on this
 host, or the restore stops before changing anything. It then checks the archive before
 changing anything: it must hold the database dump, the environment and the encrypted files, and the
 dump must read. Only then does it stop Ryker, restore the database beside the live one, and swap
@@ -631,8 +640,8 @@ launch agent that runs `caffeinate -i -s` from login on, so the Mac doesn't slee
 power, after a restart too, and a laptop rides out a power cut on its battery. A laptop still sleeps
 when its lid is closed without an external display.
 
-After a restart, Ryker comes back once someone logs in: Docker starts at login if it's set to (for
-colima, `brew services start colima`), and Compose restarts Ryker's containers. With FileVault on, a
+After a restart, Ryker comes back once someone logs in: enable OrbStack’s “Start at login”
+setting, and Compose restarts Ryker’s containers. With FileVault on, a
 Mac waits at its unlock screen after a restart until someone types the password, and macOS doesn't
 log in by itself. Restart such a host with `sudo fdesetup authrestart`, which unlocks the disk once
 on the way back up. A crash, or a power cut longer than the battery lasts, still needs someone at

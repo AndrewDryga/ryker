@@ -1,4 +1,6 @@
 """Containment cannot depend on the current Docker context or erase old custody."""
+import copy
+import json
 import os
 from pathlib import Path
 import shlex
@@ -26,6 +28,7 @@ def operator():
                      "controller_endpoint": "unix:///controller.sock"}
     subject.save = Mock()
     subject.verify = Mock()
+    subject.refresh_networks = Mock()
     subject.missing_accounts = Mock(return_value=[])
     subject.wait_qualified = Mock(return_value=ready_worker())
     subject.status = Mock(return_value={"phase": "active"})
@@ -38,10 +41,9 @@ def operator():
 
 
 class CapacityTest(unittest.TestCase):
-    def test_sparse_disks_memory_and_controller_reserve_all_need_physical_headroom(self):
+    def test_private_cow_growth_memory_and_controller_reserve_all_need_physical_headroom(self):
         self.assertEqual(pool.required_free(), 74 * pool.GIB)
-        self.assertEqual(pool.required_free(allocated=12 * pool.GIB), 62 * pool.GIB)
-        self.assertEqual(pool.required_free(allocated=100 * pool.GIB), 22 * pool.GIB)
+        self.assertEqual(pool.required_free(data_gib=4, memory_gib=1), 19 * pool.GIB)
 
     def test_private_host_routes_cannot_be_shadowed_by_worker_docker_networks(self):
         pool.check_route_ranges("Destination Gateway\ndefault 192.168.1.1\n100.64/10 link#1\n192.168.1/24 link#2")
@@ -91,6 +93,95 @@ class ModelLoginTest(unittest.TestCase):
                     self.assertEqual(result.stdout.splitlines(), ["login", "codex@work", "ryker-coop-box"])
 
 
+class OrbStackMachineTest(unittest.TestCase):
+    def fixture(self):
+        return json.loads((pool.ROOT / "testdata/worker_pool/orbstack_machine.json").read_text())
+
+    def test_machine_identity_isolation_and_each_quota_are_verified(self):
+        subject = operator()
+        subject.state["machine_id"] = "machine-identity"
+        info = self.fixture()
+        expected = pool.machine_config()
+        for key in expected:
+            expected[key] = info["record"]["config"][key]
+        with patch.object(pool, "run", return_value=json.dumps(info)), \
+             patch.object(pool, "machine_config", return_value=expected):
+            self.assertEqual(subject.machine_info()["record"]["id"], "machine-identity")
+        for key, value in (("isolated", False), ("forward_ssh_agent", True),
+                           ("memory_limit_mib", 2048), ("cpu_limit", 8), ("disk_limit_bytes", 0),
+                           ("mounts", ["/Users"])):
+            changed = copy.deepcopy(info)
+            changed["record"]["config"][key] = value
+            with patch.object(pool, "run", return_value=json.dumps(changed)), \
+                 patch.object(pool, "machine_config", return_value=expected), \
+                 self.assertRaisesRegex(RuntimeError, "isolation or resource limits"):
+                subject.machine_info()
+
+    def test_start_refuses_a_replaced_machine_before_booting_it(self):
+        subject = operator()
+        subject.check_headroom = Mock()
+        subject.machine_info = Mock(side_effect=RuntimeError("worker machine identity changed"))
+        subject.state["image"] = "ryker-coop:11111111-aaaaaaaa"
+        subject.running_image = Mock(return_value=("a" * 64, subject.state["image"]))
+        with patch.object(pool, "run") as command, \
+             self.assertRaisesRegex(RuntimeError, "identity changed"):
+            subject.start()
+        command.assert_not_called()
+
+    def test_start_waits_for_boot_services_before_verifying_the_worker(self):
+        # OrbStack start returned while both boot-required units were inactive;
+        # the login agent exited before Docker became ready a second later.
+        subject = operator()
+        subject.check_headroom = Mock()
+        subject.machine_info = Mock()
+        subject.guest = Mock(side_effect=[RuntimeError("booting"), "active\nactive"])
+        subject.verify = Mock()
+        subject.state["image"] = "ryker-coop:11111111-aaaaaaaa"
+        subject.running_image = Mock(return_value=("a" * 64, subject.state["image"]))
+        with patch.object(pool, "run"), patch.object(pool.time, "sleep"):
+            subject.start()
+        self.assertEqual(subject.guest.call_count, 2)
+        subject.verify.assert_called_once()
+
+    def test_lost_create_response_recovers_only_its_cloud_init_ownership_nonce(self):
+        for owner, allowed in (("fixture-owner", True), ("someone-else", False)):
+            subject = operator()
+            subject.state["owner"] = "fixture-owner"
+            subject.machine_info = Mock(return_value={"record": {"id": "machine-identity"}})
+            subject.guest = Mock(return_value=owner)
+            with tempfile.TemporaryDirectory() as directory:
+                subject.directory = Path(directory)
+                with patch.object(pool, "run", return_value=json.dumps([{"name": pool.PROFILE}])) as command:
+                    if allowed:
+                        subject.create_machine()
+                        self.assertEqual(subject.state["machine_id"], "machine-identity")
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "another operation"):
+                            subject.create_machine()
+                        subject.save.assert_not_called()
+                    self.assertFalse(any("create" in call.args[0] for call in command.call_args_list))
+
+
+class PhysicalStorageTest(unittest.TestCase):
+    def test_headroom_follows_the_actual_orbstack_image_filesystem(self):
+        # The first OrbStack preparation looked under ~/.orbstack/data, which
+        # no longer exists. Measuring its metadata directory would also miss
+        # a data image moved to another disk.
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            data = home / "Library/Group Containers/HUAQ24HBR6.dev.orbstack/data"
+            data.mkdir(parents=True)
+            external = home / "external"
+            external.mkdir()
+            (external / "data.img").touch()
+            (data / "data.img").symlink_to(external / "data.img")
+            with patch.object(pool.Path, "home", return_value=home):
+                self.assertEqual(pool.orbstack_storage_root(), external.resolve())
+                (data / "data.img").unlink()
+                with self.assertRaisesRegex(RuntimeError, "OrbStack data image"):
+                    pool.orbstack_storage_root()
+
+
 class StoredStatusTest(unittest.TestCase):
     def test_held_worker_receipt_decodes_canonical_json_and_preserves_utc_authority(self):
         # The first real isolated worker enrolled and passed network checks,
@@ -107,14 +198,18 @@ class StoredStatusTest(unittest.TestCase):
 
 class NetworkBootTest(unittest.TestCase):
     def test_guest_dns_uses_the_allocated_address_and_unexpected_topology_never_applies_rules(self):
-        # The first source-configured VM received .4 while the earlier proof
-        # held .3. Requiring .3 correctly refused Docker, but prevented boot.
+        # OrbStack sends the default route to its Mac uplink; the first isolated
+        # machine timed out on the private controller until its /32 used the
+        # Docker bridge instead. The allocated guest address can also change.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             policy = root / "policy.nft"
             policy.write_bytes((pool.FILES / "network.nft").read_bytes())
+            networks = root / "networks"
+            networks.write_text("172.30.42.0/24\n")
             commands = {
-                "ip": '#!/bin/sh\ncase "$*" in "-4 route show default") printf "%s\\n" "$TEST_ROUTE";; "-6 route show default") printf "%s" "$TEST_IPV6";; *) printf "%s\\n" "$TEST_GUEST";; esac\n',
+                "sysctl": '#!/bin/sh\nexit 0\n',
+                "ip": '#!/bin/sh\ncase "$*" in "-4 route show default") printf "%s\\n" "$TEST_ROUTE";; "-6 route show default") printf "%s" "$TEST_IPV6";; "route replace 172.30.42.10/32 via 192.168.139.2 dev eth0") : > "$TEST_ROOT/routed";; *) printf "%s\\n" "$TEST_GUEST";; esac\n',
                 "mktemp": '#!/bin/sh\nexec /usr/bin/mktemp "$TEST_ROOT/batch.XXXXXX"\n',
                 "nft": '#!/bin/sh\ncase "$1" in list) exit 1;; --check) exit 0;; -f) cp "$2" "$TEST_ROOT/applied";; *) exit 90;; esac\n',
             }
@@ -123,17 +218,19 @@ class NetworkBootTest(unittest.TestCase):
                 path.write_text(content)
                 path.chmod(0o700)
             script = (pool.FILES / "network.sh").read_text().replace(
-                "cat /etc/ryker-worker-network.nft", "cat " + shlex.quote(str(policy)))
+                "cat /etc/ryker-worker-network.nft", "cat " + shlex.quote(str(policy))).replace(
+                "/etc/ryker-worker-controller-networks", shlex.quote(str(networks)))
             env = {**os.environ, "PATH": str(root) + ":" + os.environ["PATH"],
-                   "TEST_ROOT": str(root), "TEST_ROUTE": "default via 192.168.5.2 dev eth0 proto dhcp",
-                   "TEST_GUEST": "2: eth0 inet 192.168.5.4/24", "TEST_IPV6": ""}
+                   "TEST_ROOT": str(root), "TEST_ROUTE": "default via 192.168.139.1 dev eth0 proto dhcp",
+                   "TEST_GUEST": "2: eth0 inet 192.168.139.4/24", "TEST_IPV6": ""}
             result = subprocess.run(["sh", "-c", script], env=env, capture_output=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("define guest_ipv4 = 192.168.5.4", (root / "applied").read_text())
-            for updates in ({"TEST_GUEST": "2: eth0 inet 192.168.5.2/24"},
+            self.assertIn("define guest_ipv4 = 192.168.139.4", (root / "applied").read_text())
+            self.assertTrue((root / "routed").exists(), "gateway must route through the Docker bridge, not the Mac uplink")
+            for updates in ({"TEST_GUEST": "2: eth0 inet 192.168.139.1/24"},
                             {"TEST_GUEST": "2: eth0 inet 10.240.0.4/24"},
-                            {"TEST_GUEST": "2: eth0 inet 192.168.5.4/24\n2: eth0 inet 192.168.5.5/24"},
-                            {"TEST_ROUTE": "default via 192.168.5.9 dev eth0"},
+                            {"TEST_GUEST": "2: eth0 inet 192.168.139.4/24\n2: eth0 inet 192.168.139.5/24"},
+                            {"TEST_ROUTE": "default via 192.168.139.9 dev eth0"},
                             {"TEST_IPV6": "default via fe80::1 dev eth0"}):
                 (root / "applied").unlink(missing_ok=True)
                 result = subprocess.run(["sh", "-c", script], env={**env, **updates}, capture_output=True, check=False)
@@ -263,6 +360,28 @@ class CutoverTest(unittest.TestCase):
 
 
 class HeadroomRecoveryTest(unittest.TestCase):
+    def test_a_moved_or_unreadable_backing_disk_holds_admission_before_recovery(self):
+        subject = operator()
+        subject.state.update(phase="active", storage_root="/original/disk")
+        subject.lifecycle.side_effect = lambda _action, actor: {"admission_stopped_by": actor,
+                                                               "admission_stopped_at": "2026-11-03T10:00:00Z"}
+        with patch.object(pool, "orbstack_storage_root", return_value=Path("/replacement/disk")), \
+             patch.object(pool.shutil, "disk_usage", return_value=Mock(free=100 * pool.GIB)):
+            growth, error = subject.reconcile_headroom()
+        self.assertIsNone(growth)
+        self.assertIn("storage location changed", error)
+        self.assertEqual(subject.lifecycle.call_args.args, ("stop_admission",))
+        subject.release.assert_not_called()
+        subject.lifecycle.reset_mock()
+        with patch.object(pool, "orbstack_storage_root", return_value=Path("/original/disk")), \
+             patch.object(pool.shutil, "disk_usage", side_effect=OSError("disk unavailable")):
+            growth, error = subject.reconcile_headroom()
+        self.assertIsNone(growth)
+        self.assertIn("host storage cannot be measured", error)
+        subject.lifecycle.assert_called_once()
+        subject.release.assert_not_called()
+
+
     def test_lost_hold_response_can_be_recovered_after_host_space_returns(self):
         subject = operator()
         subject.state["phase"] = "active"
@@ -307,7 +426,7 @@ class HeadroomRecoveryTest(unittest.TestCase):
 class MonitoringTest(unittest.TestCase):
     def test_healthy_disks_cannot_hide_an_unavailable_active_pool(self):
         subject = operator()
-        subject.state.update(phase="active", trimmed_at=time.time(), colima_home="/tmp")
+        subject.state.update(phase="active", trimmed_at=time.time(), storage_root="/tmp")
         subject.env_file = Path("/tmp/pool-monitoring.env")
         subject.reconcile_headroom = Mock(return_value=({}, None))
         subject.enroll = Mock()
@@ -321,7 +440,7 @@ class MonitoringTest(unittest.TestCase):
 
     def test_worker_health_alarm_does_not_block_a_repair_upgrade_with_healthy_storage(self):
         subject = operator()
-        subject.state.update(phase="active", trimmed_at=time.time(), colima_home="/tmp")
+        subject.state.update(phase="active", trimmed_at=time.time(), storage_root="/tmp")
         subject.env_file = Path("/tmp/pool-monitoring.env")
         subject.reconcile_headroom = Mock(return_value=({}, None))
         subject.enroll = Mock()
@@ -379,10 +498,37 @@ class DeliveryTest(unittest.TestCase):
 
 
 class BootstrapTest(unittest.TestCase):
+    def test_interrupted_package_install_preserves_the_operators_existing_policy(self):
+        # A signal ran the original cleanup handler, then EXIT ran it again
+        # and deleted the operator's restored policy-rc.d.
+        source = (pool.FILES / "install-docker.sh").read_text()
+        cleanup = source[source.index("restore_policy() {"):source.index('rm -f "$policy"\nprintf')]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            policy = root / "policy"
+            saved = root / "saved"
+            saved.mkdir()
+            original = b"operator service policy\n"
+            (saved / "original").write_bytes(original)
+            policy.write_text("temporary deny policy\n")
+            result = subprocess.run(["sh", "-c", 'policy=$1; saved=$2\n' + cleanup +
+                                     '\nkill -TERM $$\nprintf should-not-continue', "installer", str(policy), str(saved)],
+                                    capture_output=True, check=False)
+            self.assertTrue(policy.exists(), "interrupted bootstrap deleted the operator's policy")
+            self.assertEqual(policy.read_bytes(), original)
+            self.assertEqual(result.returncode, 143)
+            self.assertNotIn(b"should-not-continue", result.stdout)
+
+
     def test_empty_pool_bootstraps_through_the_entrypoint_without_a_previous_box_context(self):
         with tempfile.TemporaryDirectory() as directory:
             subject = operator()
-            subject.state.update(phase="creating", colima_home=directory, owner="fixture-owner")
+            subject.state.update(phase="creating", storage_root=directory, owner="fixture-owner", machine_id="fixture-id")
+            subject.machine_info = Mock()
+            subject.guest = Mock()
+            subject.create_machine = Mock()
+            subject.ensure_context = Mock()
+            subject.controller_networks = Mock(return_value=["172.30.42.0/24"])
             subject.check_headroom = Mock()
             subject.image = Mock(return_value="ryker-coop:22222222-bbbbbbbb")
             subject.copy_image = Mock()
@@ -400,13 +546,11 @@ class BootstrapTest(unittest.TestCase):
         subject = operator()
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            profile = home / pool.PROFILE
-            profile.mkdir()
-            (profile / ".ryker-owner").write_text("fixture-owner")
-            subject.state.update(colima_home=directory, owner="fixture-owner",
+            subject.state.update(storage_root=directory, owner="fixture-owner",
                                  image="ryker-coop:11111111-aaaaaaaa",
                                  upgrade_image="ryker-coop:22222222-bbbbbbbb")
             subject.check_headroom = Mock()
+            subject.machine_info = Mock()
             subject.running_image = Mock(return_value=("a" * 64, subject.state["upgrade_image"]))
             with patch.object(pool, "run") as command:
                 subject.start()

@@ -58,6 +58,7 @@ class MaintenanceTest(unittest.TestCase):
         self.failure = None
         self.host_free = 40 * storage.GIB
         self.du_total = True
+        self.endpoint = "unix:///var/run/docker.sock"
 
     def run_docker(self, argv, timeout=12):
         self.commands.append(argv)
@@ -75,8 +76,8 @@ class MaintenanceTest(unittest.TestCase):
             return "--max-used-space --min-free-space --reserved-space --builder"
         if "context" in argv:
             if "inspect" in argv:
-                return '"unix:///var/run/docker.sock"'
-            return "default"
+                return storage.json.dumps(self.endpoint)
+            return argv[argv.index("--context") + 1] if "--context" in argv else "default"
         if "prune" in argv:
             if self.failure:
                 raise RuntimeError(self.failure)
@@ -101,6 +102,26 @@ class MaintenanceTest(unittest.TestCase):
         self.assertIn(["docker", "--context", "default", "buildx", "du", "--builder", "default"], self.commands)
         self.assertFalse(any(c[:4] == ["docker", "--context", "default", "system"] for c in self.commands))
 
+    def test_owned_orbstack_quota_bounds_cleanup_even_when_df_reports_the_shared_disk(self):
+        # The real isolated machine enforced 4 GiB while df reported 2.4 TiB.
+        # Both writable layers and volumes must use the quota's remaining room.
+        self.endpoint = "ssh://root%40ryker-worker@orb"
+        report = storage.maintain(
+            pathlib.Path("/tmp/install/compose.env"), True, self.run_docker, self.measure_host,
+            context="orbstack-ryker-worker", orbstack_machine="ryker-worker",
+            measure_quota=lambda: (4 * storage.GIB, storage.GIB))
+        self.assertEqual(report["errors"], [])
+        self.assertEqual(report["docker"]["capacity_bytes"], 4 * storage.GIB)
+        self.assertEqual(report["docker"]["free_bytes"], storage.GIB)
+
+    def test_an_unrelated_ssh_endpoint_cannot_be_treated_as_local_orbstack_storage(self):
+        self.endpoint = "ssh://root@another-host"
+        report = storage.maintain(
+            pathlib.Path("/tmp/install/compose.env"), True, self.run_docker, self.measure_host,
+            context="orbstack-ryker-worker", orbstack_machine="ryker-worker")
+        self.assertTrue(report["errors"])
+        self.assertFalse(any("prune" in command for command in self.commands))
+
     def test_host_cache_without_a_total_is_a_failed_measurement(self):
         self.du_total = False
         report = self.maintain()
@@ -117,14 +138,14 @@ class MaintenanceTest(unittest.TestCase):
         compose_file = pathlib.Path("/tmp/install/pool-compose.yml")
         report = storage.maintain(pathlib.Path("/tmp/install/pool/compose.env"), True,
                                  self.run_docker, self.measure_host,
-                                 context="colima-ryker-worker", compose_file=compose_file)
+                                 context="orbstack-ryker-worker", compose_file=compose_file)
         self.assertEqual(report["errors"], [])
         self.assertFalse(any(c == ["docker", "context", "show"] for c in self.commands))
         selected = [c for c in self.commands if "compose" in c]
-        self.assertEqual(selected[0][1:3], ["--context", "colima-ryker-worker"])
+        self.assertEqual(selected[0][1:3], ["--context", "orbstack-ryker-worker"])
         self.assertIn(str(compose_file), selected[0])
         for command in [c for c in self.commands if "--force" in c]:
-            self.assertEqual(command[1:3], ["--context", "colima-ryker-worker"])
+            self.assertEqual(command[1:3], ["--context", "orbstack-ryker-worker"])
 
     def test_cache_pressure_targets_both_correct_daemons_only(self):
         self.cache = "12GB"

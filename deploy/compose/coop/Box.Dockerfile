@@ -24,10 +24,15 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
 # own image, so it carries what repositories' gates commonly need. On
 # 2026-09-28 emisar's review gate failed eight browser tests with "no
 # Chrome/Chromium found".
+# The chart gate failed here without Debian's separate venv package. Prove
+# the runtime environment works when building the box, before a review needs it.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update \
- && apt-get install -y --no-install-recommends chromium-headless-shell imagemagick
+ && apt-get install -y --no-install-recommends chromium-headless-shell imagemagick python3-venv \
+ && python3 -m venv /tmp/ryker-venv-check \
+ && /tmp/ryker-venv-check/bin/python -m pip --version \
+ && rm -rf /tmp/ryker-venv-check
 
 # The PostgreSQL server compose.test.yml pins. A job or review gets neither
 # Docker nor sidecar services, so Ryker's scripts/elixir-test.sh starts a private

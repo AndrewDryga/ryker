@@ -1,0 +1,33 @@
+{
+  "record": {
+    "id": "machine-identity",
+    "name": "ryker-worker",
+    "image": {
+      "distro": "debian",
+      "version": "bookworm",
+      "arch": "arm64",
+      "variant": "default"
+    },
+    "config": {
+      "isolated": true,
+      "forward_ssh_agent": false,
+      "isolate_network": false,
+      "default_username": "operator",
+      "http_port": 0,
+      "https_port": 0,
+      "memory_limit_mib": 1024,
+      "cpu_limit": 2,
+      "disk_limit_bytes": 4294967296
+    },
+    "os_release": {
+      "name": "Debian GNU/Linux",
+      "version_id": "12",
+      "pretty_name": "Debian GNU/Linux 12 (bookworm)"
+    },
+    "builtin": false,
+    "state": "running"
+  },
+  "disk_size": 481673216,
+  "ip4": "192.168.139.10",
+  "ip6": "fd00::10"
+}

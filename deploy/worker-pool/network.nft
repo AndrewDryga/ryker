@@ -1,18 +1,17 @@
 table inet ryker_worker {
-  chain gateway_prerouting {
-    type nat hook prerouting priority -110; policy accept;
-    iifname != { "lo", "eth0" } ip daddr 172.30.42.10 tcp dport 4322 dnat ip to 192.168.5.2:4322
-  }
-  chain gateway_output {
-    type nat hook output priority -110; policy accept;
-    ip daddr 172.30.42.10 tcp dport 4322 dnat ip to 192.168.5.2:4322
+  set controller_networks {
+    type ipv4_addr
+    flags interval
+    auto-merge
+    elements = $controller_networks
   }
   chain protected_destinations {
-    ip daddr 192.168.5.2 tcp dport 4322 return
-    ip daddr 192.168.5.2 udp dport 53 return
-    ip daddr 192.168.5.2 tcp dport 53 return
-    ip daddr { 192.168.5.0/24, 172.30.42.10, 127.0.0.0/8, 169.254.0.0/16 } counter reject with icmpx type admin-prohibited
-    ip6 daddr { ::1, fe80::/10 } counter reject with icmpx type admin-prohibited
+    ip daddr 172.30.42.10 tcp dport 4322 return
+    ip daddr 0.250.250.200 udp dport 53 return
+    ip daddr 0.250.250.200 tcp dport 53 return
+    ip daddr @controller_networks counter reject with icmpx type admin-prohibited
+    ip daddr { 192.168.139.0/24, 0.250.250.0/24, 127.0.0.0/8, 169.254.0.0/16 } counter reject with icmpx type admin-prohibited
+    meta nfproto ipv6 counter reject with icmpx type admin-prohibited
   }
   chain forward {
     type filter hook forward priority -10; policy accept;
