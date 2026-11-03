@@ -70,7 +70,7 @@ defmodule Ryker.Fixtures.Knowledge do
     "topics" => ["draft-ai-suggestions"]
   }
 
-  def learn!(destination, repository \\ nil) do
+  def learn!(destination, repository \\ nil, topic_key \\ "draft-ai-suggestions") do
     id = Ecto.UUID.generate()
 
     entry =
@@ -101,8 +101,8 @@ defmodule Ryker.Fixtures.Knowledge do
 
     proposal =
       Map.merge(@note, %{
-        "topic_key" => "draft-ai-suggestions",
-        "title" => "Keep draft-ai-suggestions",
+        "topic_key" => topic_key,
+        "title" => "Keep #{topic_key}",
         "target_ref" => nil,
         "expected_version" => 0,
         "anchors" => []
@@ -114,7 +114,12 @@ defmodule Ryker.Fixtures.Knowledge do
         record_topic(entry, proposal, [])
       end)
 
-    document = Enum.find(Knowledge.context(destination, repository), & &1["can_update"])
+    document =
+      Enum.find(
+        Knowledge.context(destination, repository),
+        &(&1["can_update"] and &1["topic_key"] == topic_key)
+      )
+
     {entry, document}
   end
 

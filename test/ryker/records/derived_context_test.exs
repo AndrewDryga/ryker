@@ -564,6 +564,50 @@ defmodule Ryker.Records.DerivedContextTest do
            ) == {:error, :work_knowledge_context_stale}
   end
 
+  # On the tenant install a session's 181 topic versions rested on 16,605 sources, 499 of them
+  # distinct, and authorizing it expanded and checked each version's sources on its own: 2.3 s
+  # on 2026-11-03, growing with every topic the alerts channel learned. The sources of all the
+  # versions a session saw are expanded and checked together, so the work follows the distinct
+  # messages behind them, not how many versions there are.
+  test "a session's topic versions have their sources checked together, not one by one" do
+    one = claim!("one-topic")
+    {_source, topic} = KnowledgeFixtures.learn!(one.episode, "tenant-infra", "topic-one")
+    assert KnowledgeSnapshot.expose(one, [topic]) == :ok
+
+    three = claim!("three-topics")
+
+    topics =
+      for key <- ~w(topic-a topic-b topic-c) do
+        three.episode |> KnowledgeFixtures.learn!("tenant-infra", key) |> elem(1)
+      end
+
+    assert KnowledgeSnapshot.expose(three, topics) == :ok
+    assert Repo.get!(Session, three.session.id).knowledge_exposure_count == 3
+
+    assert {:ok, single} =
+             source_expansions(fn ->
+               KnowledgeSnapshot.authorize_session(one.episode, one.session)
+             end)
+
+    assert {:ok, several} =
+             source_expansions(fn ->
+               KnowledgeSnapshot.authorize_session(three.episode, three.session)
+             end)
+
+    assert single > 0
+    assert several == single
+
+    # Checked together, a forgotten source still fails the session that saw it.
+    [_ | _] = forgotten = Repo.all(from(o in ConversationObservation, select: o.id))
+
+    Repo.update_all(from(o in ConversationObservation, where: o.id in ^forgotten),
+      set: [forgotten_at: DateTime.utc_now()]
+    )
+
+    assert KnowledgeSnapshot.authorize_session(three.episode, three.session) ==
+             {:error, :work_knowledge_context_stale}
+  end
+
   test "previous deliveries in both briefing modes retain their producer source identity" do
     {producer, source, _record} = cited_source!()
     turn = settled_turn!(producer)
@@ -954,6 +998,36 @@ defmodule Ryker.Records.DerivedContextTest do
     if self() == owner and String.contains?(query, ~s(FROM "conversation_knowledge_revisions")) and
          String.contains?(query, "FOR SHARE"),
        do: send(owner, {reference, :checked})
+  end
+
+  # How many statements `authorize` sent that expand sources (`ryker_learning_roots`);
+  # {:ok, count} only when it authorized.
+  defp source_expansions(authorize) do
+    handler = {__MODULE__, make_ref()}
+    reference = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        &__MODULE__.record_source_expansion/4,
+        {self(), reference}
+      )
+
+    try do
+      case authorize.() do
+        :ok -> {:ok, count_topic_checks(reference)}
+        refused -> refused
+      end
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  @doc false
+  def record_source_expansion(_event, _measurements, %{query: query}, {owner, reference}) do
+    if self() == owner and String.contains?(query, "ryker_learning_roots("),
+      do: send(owner, {reference, :checked})
   end
 
   defp count_topic_checks(reference, count \\ 0) do

@@ -13,6 +13,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   @stale {:error, :work_knowledge_context_stale}
 
+  # Topic versions whose sources one statement expands and checks together.
+  @exposure_batch 200
+
   @doc """
   How long a transaction that reauthorizes Work's retained context may hold its
   connection. The cost follows how much the session, and every producer its
@@ -556,7 +559,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp session_sources_valid?(destination, session, query) do
     case Learning.Observations.fetch_and_lock_scope(destination, session.repository_ref) do
       {:ok, scope} ->
-        Enum.all?(Repo.stream(query, max_rows: 100), &valid_exposure_once?(&1, scope)) and
+        query
+        |> Repo.stream(max_rows: @exposure_batch)
+        |> Stream.chunk_every(@exposure_batch)
+        |> Enum.all?(&knowledge_exposures_valid?(&1, scope)) and
           source_exposures_valid?(session.id, scope, session.environment_ref)
 
       _ ->
@@ -723,17 +729,34 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   # A briefing that quotes earlier alerts brings every producer session behind
   # them, and in one channel those sessions have seen mostly the same topic
-  # versions. The check share-locks the topic, its revision, its sources and
-  # their observations, so a version that passed once stays passed for the
-  # rest of the transaction (`Repo.passed_once?/2`).
-  defp valid_exposure_once?(exposure, scope) do
+  # versions, resting on mostly the same messages. Each version passes its own
+  # checks and their sources are checked together, each message once
+  # (`LearningSources.all_valid?/2`). The checks share-lock the topic, its
+  # revision, its sources and their observations, so a version that passed
+  # stays passed for the rest of the transaction (`Repo.passed_once?/3`).
+  defp knowledge_exposures_valid?(exposures, scope) do
     Repo.passed_once?(
-      {:knowledge_exposure, exposure.knowledge_id, exposure.version, scope},
-      fn -> valid_exposure?(exposure, scope) end
+      exposures,
+      &{:knowledge_exposure, &1.knowledge_id, &1.version, scope},
+      fn pending ->
+        case exposures_dependencies(pending, scope) do
+          {:ok, dependencies} -> Learning.LearningSources.all_valid?(dependencies, scope)
+          :error -> false
+        end
+      end
     )
   end
 
-  defp valid_exposure?(exposure, scope) do
+  defp exposures_dependencies(exposures, scope) do
+    Enum.reduce_while(exposures, {:ok, []}, fn exposure, {:ok, dependencies} ->
+      case exposure_dependencies(exposure, scope) do
+        {:ok, sources} -> {:cont, {:ok, [sources | dependencies]}}
+        :error -> {:halt, :error}
+      end
+    end)
+  end
+
+  defp exposure_dependencies(exposure, scope) do
     revision_query =
       exposure.knowledge_id
       |> KnowledgeRevision.Query.by_knowledge_id()
@@ -760,9 +783,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
           "source_count" => count
         })
 
-      valid_document?(document, scope)
+      document_dependencies(document, scope)
     else
-      _ -> false
+      _ -> :error
     end
   end
 
@@ -795,7 +818,17 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     end
   end
 
-  defp valid_document?(
+  defp valid_document?(document, scope) do
+    case document_dependencies(document, scope) do
+      {:ok, dependencies} -> Learning.LearningSources.valid?(dependencies, scope)
+      :error -> false
+    end
+  end
+
+  # Everything a topic version must still be except what its sources say, which
+  # the caller checks: on its own (`valid_document?/2`) or with the other
+  # versions it holds (`knowledge_exposures_valid?/2`).
+  defp document_dependencies(
          %{"source_ref" => "knowledge:" <> id, "version" => version} = document,
          scope
        )
@@ -806,8 +839,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          {:ok, revision} <- Repo.fetch(shared_revision(id, version)),
          true <- revision.source_generation == head.source_generation,
          true <- revision.state["retention"] != "pruned",
-         true <- revision.state == Map.take(document, ~w(title summary topics anchors)),
-         true <- Learning.LearningSources.valid?(revision.source_dependencies, scope) do
+         true <- revision.state == Map.take(document, ~w(title summary topics anchors)) do
       sources =
         id
         |> KnowledgeSource.Query.by_generation(revision.source_generation)
@@ -817,13 +849,15 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
         |> Repo.all()
         |> Enum.uniq_by(& &1.observation_id)
 
-      valid_sources?(sources, document, head)
+      if valid_sources?(sources, document, head),
+        do: {:ok, revision.source_dependencies},
+        else: :error
     else
-      _ -> false
+      _ -> :error
     end
   end
 
-  defp valid_document?(_, _), do: false
+  defp document_dependencies(_document, _scope), do: :error
 
   defp visible_head(id, scope) do
     id

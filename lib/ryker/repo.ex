@@ -75,13 +75,14 @@ defmodule Ryker.Repo do
   @passed_checks {__MODULE__, :passed_checks}
 
   @doc """
-  Whether `check` passes for `key`; once it has passed, the rest of the
-  outermost transaction this process has open takes that answer without
-  running it again. A check that fails runs again when asked again, and
-  outside a transaction every call runs it.
+  Whether `check` passes for every item in `items`. Items whose `key` already
+  passed in the outermost transaction this process has open are left out:
+  `check` gets the rest, and once it passes their keys are remembered for the
+  rest of that transaction. A check that fails runs again when asked again,
+  and outside a transaction every call checks every item.
 
   Only for a check whose pass holds for the rest of the transaction: it locks
-  the rows its answer rests on `FOR SHARE` or stronger, `key` names whatever
+  the rows its answer rests on `FOR SHARE` or stronger, the key names whatever
   else the answer depends on, and the transaction itself writes nothing later
   that could make it false.
 
@@ -90,15 +91,23 @@ defmodule Ryker.Repo do
   distinct, past the 15-second transaction limit on every retry, and the
   tenant install's alerts channel got no answer all night.
   """
-  @spec passed_once?(term(), (-> boolean())) :: boolean()
-  def passed_once?(key, check) when is_function(check, 0) do
+  @spec passed_once?([item], (item -> term()), ([item] -> boolean())) :: boolean()
+        when item: term()
+  def passed_once?(items, key, check)
+      when is_list(items) and is_function(key, 1) and is_function(check, 1) do
     case Process.get(@passed_checks) do
-      nil -> check.()
-      passed -> MapSet.member?(passed, key) or remember_pass(key, check.())
+      nil ->
+        check.(items)
+
+      passed ->
+        case Enum.reject(items, &MapSet.member?(passed, key.(&1))) do
+          [] -> true
+          pending -> remember_passes(Enum.map(pending, key), check.(pending))
+        end
     end
   end
 
-  defp remember_pass(key, true) do
+  defp remember_passes(keys, true) do
     # Re-read: the check may have passed nested checks of its own meanwhile.
     case Process.get(@passed_checks) do
       nil ->
@@ -107,12 +116,12 @@ defmodule Ryker.Repo do
       passed ->
         # The transaction's bookkeeping, as the after-commit queue is.
         # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
-        Process.put(@passed_checks, MapSet.put(passed, key))
+        Process.put(@passed_checks, Enum.into(keys, passed))
         true
     end
   end
 
-  defp remember_pass(_key, result), do: result
+  defp remember_passes(_keys, result), do: result
 
   # Every Repo.transaction/2 runs through transact/2, so this is the one place
   # that sees each transaction open and close.

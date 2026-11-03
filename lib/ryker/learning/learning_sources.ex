@@ -776,8 +776,13 @@ defmodule Ryker.Learning.LearningSources do
   defp source_key(source), do: {source["observation_id"], source["source_input_id"]}
 
   defp validate_roots(sources, roots, scope, input_only) do
-    with true <- available_references?(sources),
-         true <- future_inputs_absent?(roots, scope) do
+    if available_references?(sources) and roots_valid?(roots, scope, input_only),
+      do: {:ok, roots},
+      else: :error
+  end
+
+  defp roots_valid?(roots, scope, input_only) do
+    with true <- future_inputs_absent?(roots, scope) do
       ids = roots |> Enum.map(& &1["observation_id"]) |> Enum.uniq()
 
       notes =
@@ -790,14 +795,114 @@ defmodule Ryker.Learning.LearningSources do
       notes = notes |> Observations.authorized_notes(scope) |> Map.new(&{&1.id, &1})
       cutoff = horizon_cutoff()
 
-      if Enum.all?(
-           roots,
-           &valid_receipt?(&1, notes[&1["observation_id"]], scope, cutoff, input_only)
-         ),
-         do: {:ok, roots},
-         else: :error
-    else
-      _ -> :error
+      Enum.all?(
+        roots,
+        &valid_receipt?(&1, notes[&1["observation_id"]], scope, cutoff, input_only)
+      )
+    end
+  end
+
+  @doc """
+  Whether `valid?/2` holds for every dependency list in `lists`, each distinct
+  source checked once. A topic version's list is one reference to its topic's
+  sources up to that version, so the versions a session saw rest on mostly
+  the same messages: 181 versions in one session on the tenant install
+  expanded to 16,605 sources, 499 of them distinct, and checking each list on
+  its own grew with every topic the channel learned (2026-11-03). Each
+  reference keeps the bounds `expand/1` sets on it.
+  """
+  @spec all_valid?([list()], map()) :: boolean()
+  def all_valid?(lists, scope) when is_list(lists) do
+    {references, others} = Enum.split_with(lists, &single_reference?/1)
+
+    Enum.all?(others, &valid?(&1, scope)) and
+      references |> Enum.map(&hd/1) |> Enum.uniq() |> references_valid?(scope)
+  end
+
+  def all_valid?(_lists, _scope), do: false
+
+  defp single_reference?([source]), do: reference?(source)
+  defp single_reference?(_sources), do: false
+
+  defp references_valid?([], _scope), do: true
+
+  defp references_valid?(references, scope) do
+    case expand_references(references) do
+      {:ok, roots} -> roots_valid?(roots, scope, MapSet.new())
+      :exact -> Enum.all?(references, &valid?([&1], scope))
+      :error -> false
+    end
+  end
+
+  # One statement expands every reference as `expand/1` expands one: a receipt
+  # per source, its earliest kept. It reports, per reference, whether its
+  # revision is still current, how many sources it has, and their size as
+  # PostgreSQL prints them, which never undercounts the canonical encoding the
+  # byte bound measures; only a reference over the bound by that count is
+  # measured exactly, on its own. The receipts every reference kept come back
+  # once each, the same source under two retention times as two.
+  defp expand_references(references) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        WITH refs AS (
+          SELECT d, i FROM jsonb_array_elements($1::text::jsonb) WITH ORDINALITY AS t(d, i)
+        ), kept AS (
+          SELECT DISTINCT ON (refs.i, CASE WHEN jsonb_typeof(r) = 'object' THEN r - 'retained_at' ELSE r END)
+            refs.i, r
+          FROM refs, LATERAL ryker_learning_roots(jsonb_build_array(refs.d)::text) r
+          ORDER BY refs.i,
+            CASE WHEN jsonb_typeof(r) = 'object' THEN r - 'retained_at' ELSE r END,
+            CASE WHEN pg_input_is_valid(r->>'retained_at', 'timestamptz')
+              THEN (r->>'retained_at')::timestamptz ELSE '-infinity'::timestamptz END
+        ), bounds AS (
+          SELECT i, count(*) AS sources, coalesce(sum(octet_length(r::text)), 0) AS bytes,
+            bool_or(r IS NULL OR jsonb_typeof(r) <> 'object') AS malformed
+          FROM kept GROUP BY i
+        )
+        SELECT 'reference', refs.i,
+          EXISTS (
+            SELECT 1 FROM conversation_knowledge_revisions v
+            JOIN conversation_knowledge head
+              ON head.id = v.knowledge_id AND head.source_generation = v.source_generation
+            WHERE v.knowledge_id = (refs.d->>'knowledge_id')::uuid
+              AND v.source_generation = (refs.d->>'generation')::bigint
+              AND v.version = (refs.d->>'through_version')::bigint
+              AND v.state::jsonb <> '{"retention":"pruned"}'::jsonb
+          ),
+          coalesce(bounds.malformed, true), coalesce(bounds.sources, 0),
+          coalesce(bounds.bytes, 0)::bigint, NULL::jsonb
+        FROM refs LEFT JOIN bounds ON bounds.i = refs.i
+        UNION ALL
+        SELECT DISTINCT 'receipt', NULL::bigint, NULL::boolean, NULL::boolean, NULL::bigint,
+          NULL::bigint, r
+        FROM kept WHERE jsonb_typeof(r) = 'object'
+        """,
+        [CanonicalJSON.encode!(references)]
+      )
+
+    {bounds, receipts} = Enum.split_with(rows, &match?(["reference" | _], &1))
+    references_kept(bounds, Enum.map(receipts, &List.last/1), length(references))
+  end
+
+  defp references_kept(bounds, receipts, count) do
+    cond do
+      length(bounds) != count or
+          Enum.any?(bounds, fn [_kind, _index, current, malformed, sources, _bytes, _root] ->
+            not current or malformed or sources > @maximum_sources
+          end) ->
+        :error
+
+      Enum.any?(bounds, fn [_kind, _index, _current, _malformed, sources, bytes, _root] ->
+        bytes + sources + 1 > @maximum_bytes
+      end) ->
+        :exact
+
+      Enum.all?(receipts, &valid_shape?/1) ->
+        {:ok, receipts}
+
+      true ->
+        :error
     end
   end
 
