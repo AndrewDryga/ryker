@@ -33,10 +33,6 @@ defmodule Ryker.CoopFleet.Placement.Changeset do
     |> check_constraint(:generation, name: :coop_session_placement_identity_valid)
   end
 
-  @doc "The worker's poll keeps the placement until `expires_at`."
-  def renew(%Placement{} = placement, expires_at),
-    do: change(placement, lease_expires_at: expires_at)
-
   @doc "What the placement was granted no longer holds; its worker stops it."
   def revoke(%Placement{} = placement), do: change(placement, state: :revoking)
 

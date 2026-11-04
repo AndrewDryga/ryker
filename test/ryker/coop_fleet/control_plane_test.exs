@@ -13,6 +13,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Observability
+  alias Ryker.QueryWork
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.Binding
@@ -481,6 +482,34 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert DateTime.compare(Repo.get!(Placement, placement.id).lease_expires_at, old_expiry) ==
              :gt
+  end
+
+  # Every poll wrote every active lease: 58 rows a second, each with all its indexes, on the
+  # tenant install with 71 placements, and autovacuum ran on the table every twenty seconds
+  # (2026-11-04). A lease still has three quarters of its time after any poll.
+  test "a poll rewrites only the leases that have spent a quarter of their time" do
+    authorize_and_poll!("worker-a")
+    fresh = place!("lease-fresh")
+    spent = place!("lease-spent")
+    spent_until = DateTime.add(Repo.now!(), 40, :second)
+    spent |> Ecto.Changeset.change(lease_expires_at: spent_until) |> Repo.update!()
+
+    {polled, statements} =
+      QueryWork.statements(fn ->
+        ControlPlane.handle_poll_certificate(
+          "worker-a",
+          poll("worker-a", "workspace-main", "poll:worker-a:leases")
+        )
+      end)
+
+    assert {:ok, _response} = polled
+    assert Repo.get!(Placement, fresh.id).lease_expires_at == fresh.lease_expires_at
+
+    renewed = Repo.get!(Placement, spent.id).lease_expires_at
+    assert DateTime.diff(renewed, Repo.now!()) in 45..60
+
+    assert [_one_write] =
+             Enum.filter(statements, &(&1.sql =~ ~s(UPDATE "coop_session_placements")))
   end
 
   test "a successfully closed session no longer reserves a reported worker slot" do

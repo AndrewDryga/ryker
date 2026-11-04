@@ -609,31 +609,57 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   @doc false
   def renew_worker_placements(worker, now, lease_seconds) do
-    expires_at = DateTime.add(now, lease_seconds, :second)
     retire_expired_placements(worker, now)
 
-    placements =
+    {current, lapsed} =
       worker.id
       |> Placement.Query.by_worker_id()
       |> Placement.Query.active()
-      |> Placement.Query.lock_for_update()
       |> Repo.all()
+      |> Enum.split_with(&placement_authority_current?(&1.requirements, worker))
 
-    # A lease that ran out with nothing placed in its stead is the worker's
-    # still: this poll shows the worker holds it. Replacing it here disrupted
-    # all work in flight whenever Ryker itself was down for more than a lease,
-    # for a deploy or a stalled Docker VM (2026-10-04 review). A placement
-    # another worker took over is no longer active and is not renewed.
-    Enum.each(placements, fn placement ->
-      changeset =
-        if placement_authority_current?(placement.requirements, worker),
-          do: Placement.Changeset.renew(placement, expires_at),
-          else: Placement.Changeset.revoke(placement)
-
-      Repo.update!(changeset)
-    end)
-
+    revoke_placements(Enum.map(lapsed, & &1.id))
+    renew_placements(current, now, lease_seconds)
     :ok
+  end
+
+  defp revoke_placements([]), do: :ok
+
+  defp revoke_placements(ids) do
+    ids
+    |> Placement.Query.by_ids()
+    |> Placement.Query.active()
+    |> Placement.Query.lock_for_update()
+    |> Repo.all()
+    |> Enum.each(&Repo.update!(Placement.Changeset.revoke(&1)))
+  end
+
+  # A lease that ran out with nothing placed in its stead is the worker's
+  # still: this poll shows the worker holds it. Replacing it here disrupted
+  # all work in flight whenever Ryker itself was down for more than a lease,
+  # for a deploy or a stalled Docker VM (2026-10-04 review). A placement
+  # another worker took over is no longer active and is not renewed.
+  #
+  # Writing every active lease on every poll rewrote 58 rows a second on the
+  # tenant install with 71 placements, every index of each, and autovacuum ran on
+  # the table every twenty seconds (2026-11-04). A lease with three quarters of
+  # its time left waits for a later poll.
+  defp renew_placements(placements, now, lease_seconds) do
+    enough = trunc(lease_seconds * 750)
+
+    ids =
+      for placement <- placements,
+          DateTime.diff(placement.lease_expires_at, now, :millisecond) < enough,
+          do: placement.id
+
+    if ids != [] do
+      ids
+      |> Placement.Query.by_ids()
+      |> Placement.Query.active()
+      |> Repo.update_all(
+        set: [lease_expires_at: DateTime.add(now, lease_seconds, :second), updated_at: now]
+      )
+    end
   end
 
   defp choose_worker!(session, requirements, now) do

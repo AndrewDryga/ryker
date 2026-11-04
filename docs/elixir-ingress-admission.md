@@ -493,8 +493,8 @@ slot, and a worker runs one command at a time, so a prepare is sent only while t
 session is idle: every slot free, no session being created, no command waiting. A running agent holds
 one of the worker's slots, so a worker keeps at most one prepared routing session, and the others
 stay ready unprepared, still sparing a message the create. A session Coop refuses to prepare is not
-asked again. Nothing in Coop or the fleet expires an open session that was never prompted (its
-placement lease is renewed on every worker poll), so the half hour is derived from the agent's
+asked again. Nothing in Coop or the fleet expires an open session that was never prompted (the
+worker's polls keep its placement lease renewed), so the half hour is derived from the agent's
 lifetime: five minutes less than 35, so a message that claims a prepared session reaches its turn
 while the agent still runs, and well inside the worker's 24-hour certificate.
 

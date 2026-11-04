@@ -28,6 +28,9 @@ defmodule Ryker.CoopFleet.Placement.Query do
     )
   end
 
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [coop_session_placements: p], p.id in ^ids)
+
   def by_worker_id(queryable \\ all(), worker_id),
     do: where(queryable, [coop_session_placements: p], p.worker_id == ^worker_id)
 
