@@ -4,6 +4,7 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.RetainedMemory
   alias Ryker.Knowledge.KnowledgeRetention
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -48,9 +49,9 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
       assert [_] = current_sources = LearningSources.for_entry(current_entry)
 
       schema = unquote(schema)
-      history = retained!(schema, unquote(Macro.escape(history)), source)
-      expired = retained!(schema, expired_sources, source)
-      current = retained!(schema, current_sources, source)
+      history = RetainedMemory.retained!(schema, unquote(Macro.escape(history)), source)
+      expired = RetainedMemory.retained!(schema, expired_sources, source)
+      current = RetainedMemory.retained!(schema, current_sources, source)
 
       assert Repo.transaction(fn ->
                KnowledgeRetention.prune_in_transaction(@retention_seconds)
@@ -93,10 +94,10 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
 
       schema = unquote(schema)
       malformed_receipt = Map.put(receipt, "retained_at", unquote(retained_at))
-      malformed = retained!(schema, [malformed_receipt], source)
+      malformed = RetainedMemory.retained!(schema, [malformed_receipt], source)
       original_text = retained_text(schema, malformed.id)
-      expired = retained!(schema, expired_sources, source)
-      current = retained!(schema, current_sources, source)
+      expired = RetainedMemory.retained!(schema, expired_sources, source)
+      current = RetainedMemory.retained!(schema, current_sources, source)
 
       assert Repo.transaction(fn ->
                KnowledgeRetention.prune_in_transaction(@retention_seconds)
@@ -134,8 +135,8 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
       assert {:ok, instant, 0} = DateTime.from_iso8601(clock)
       assert DateTime.to_iso8601(instant) == receipt["retained_at"]
       schema = unquote(schema)
-      expired = retained!(schema, [Map.put(receipt, "retained_at", clock)], source)
-      current = retained!(schema, current_sources, source)
+      expired = RetainedMemory.retained!(schema, [Map.put(receipt, "retained_at", clock)], source)
+      current = RetainedMemory.retained!(schema, current_sources, source)
 
       assert Repo.transaction(fn ->
                KnowledgeRetention.prune_in_transaction(@retention_seconds)
@@ -157,54 +158,5 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
       "SELECT state, source_dependencies FROM #{schema.__schema__(:source)} WHERE id::text = $1",
       [id]
     ).rows
-  end
-
-  defp retained!(schema, dependencies, source) do
-    id = Ecto.UUID.generate()
-    now = DateTime.utc_now()
-    state = %{"situation" => "Retained structural fixture for source-history expiry."}
-
-    attributes = %{
-      id: id,
-      workspace_ref: source.workspace_ref,
-      visibility: source.visibility,
-      repository_ref: source.repository_ref,
-      state: state,
-      state_fingerprint: CanonicalJSON.digest(state),
-      source_dependencies: dependencies || []
-    }
-
-    specific =
-      case schema do
-        ConversationSummary ->
-          %{
-            ref: "continuity:#{id}",
-            identity_key: CanonicalJSON.digest(id),
-            transport: source.transport,
-            conversation_ref: source.conversation_ref,
-            source_result_ref: "result:#{id}"
-          }
-
-        ConversationRollup ->
-          %{
-            ref: "continuity-rollup:#{id}",
-            scope_kind: :conversation,
-            scope_ref: source.conversation_ref,
-            period_start: DateTime.add(now, -86_400, :second),
-            period_end: now,
-            expires_at: DateTime.add(now, 86_400, :second),
-            source_refs: ["continuity:#{id}"],
-            source_scopes: [],
-            source_count: 1
-          }
-      end
-
-    saved = schema |> struct!(Map.merge(attributes, specific)) |> Repo.insert!()
-
-    # The schema defaults to []; retain actual SQL NULL when that is the case
-    # under test rather than accidentally testing an empty array twice.
-    if is_nil(dependencies),
-      do: Repo.update!(Ecto.Changeset.change(saved, source_dependencies: nil)),
-      else: saved
   end
 end

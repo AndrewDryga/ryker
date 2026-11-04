@@ -71,24 +71,22 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
   defp prune_summary(table, seconds) do
     # Only fixed table names from above enter this query. Preserve identity and
     # source fences; copied prose expires even when the summary itself is new.
+    # Each pass expanded every summary's sources to find the ones past their
+    # time, 1.5 s of each minute on the tenant install with nothing to prune
+    # (2026-11-04). A trigger keeps the oldest of them on the row, and clearing
+    # the sources clears it.
     Repo.query!(
       """
       WITH candidates AS (
         SELECT m.id FROM #{table} m
-        WHERE (m.state::jsonb = '{"retention":"pruned"}'::jsonb AND
-            m.source_dependencies IS DISTINCT FROM '[]') OR
-          (m.state::jsonb <> '{"retention":"pruned"}'::jsonb AND #{expired_sources("m")})
-        ORDER BY m.id LIMIT 100 FOR UPDATE SKIP LOCKED
+        WHERE m.oldest_source_at < (SELECT clock_timestamp() - ($1 * interval '1 second'))
+        ORDER BY m.oldest_source_at, m.id LIMIT 100 FOR UPDATE SKIP LOCKED
       )
-      UPDATE #{table} m SET state = '{"retention":"pruned"}', state_fingerprint = $3,
+      UPDATE #{table} m SET state = '{"retention":"pruned"}', state_fingerprint = $2,
         source_dependencies = '[]'
       FROM candidates c WHERE m.id = c.id
       """,
-      [
-        seconds,
-        Learning.LearningSources.utc_timestamp_pattern(),
-        CanonicalJSON.digest(%{"retention" => "pruned"})
-      ]
+      [seconds, CanonicalJSON.digest(%{"retention" => "pruned"})]
     ).num_rows
   end
 
