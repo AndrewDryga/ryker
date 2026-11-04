@@ -17,7 +17,9 @@
 # runs; a second one waits. The static checks run first and stop the gate on
 # their own failure, about half a minute in. A test file that fails is run
 # again alone: if it passes then, the host's load failed it, and the gate says
-# so and passes. A tree that passed once passes again without rerunning.
+# so and passes. Every failure ExUnit reports has to be accounted for first: when
+# a partition's own totals differ from the failures read from it, the gate fails
+# and says so. A tree that passed once passes again without rerunning.
 set -euo pipefail
 
 source_root=$(git rev-parse --show-toplevel)
@@ -202,13 +204,90 @@ if ((tests_status == 0)); then
   exit 0
 fi
 
-# A failure is a numbered line, then the file and line it happened at.
-failed_files=$(awk '
-  /^  +[0-9]+\) / { failure = 1; next }
-  failure && match($0, /test\/[^ :]+_test\.exs/) { print substr($0, RSTART, RLENGTH) }
-  { failure = 0 }
-' "$log" | LC_ALL=C sort -u)
+# What the partitions reported. A failure is a numbered line, then the file and
+# line it happened at. ExUnit right-aligns the number, so 1-9 have two spaces
+# before them, 10-99 one and 100 up none. Each line of the result is "file PATH"
+# or "mismatch WHAT": a partition whose own totals do not match the failures read
+# from it, or that went red with nothing to run again. Passing such a run would
+# pass a failure nobody looked at.
+#
+# 2026-11-03: the pattern wanted two spaces, so every failure numbered 10 or
+# higher was dropped. A run with 39 failures reran the 14 files behind the first
+# 15, and 15 other files were never run again; one of them, release_test.exs, had
+# failed for real an hour earlier and the gate recorded that tree as passed.
+partition_report() {
+  awk '
+    function finish_partition() {
+      if (partition == "") return
+      if (!totals) {
+        print "mismatch " name ": no ExUnit totals, so it never finished"
+      } else if (printed != found) {
+        print "mismatch " name ": ExUnit printed " printed " failures, this gate read " found
+      }
+      if (invalid > 0) {
+        print "mismatch " name ": " invalid " tests never ran after a failed setup_all"
+      }
+      reported[partition] = printed
+      partition = ""
+    }
+    /^== async files$/ {
+      finish_partition()
+      partition = "0"; name = "the async files"; totals = printed = found = invalid = header = 0
+      next
+    }
+    /^== serial files, partition [0-9]+ of [0-9]+$/ {
+      finish_partition()
+      partition = $5; name = "serial partition " $5; totals = printed = found = invalid = header = 0
+      next
+    }
+    /^== red partitions:/ {
+      finish_partition()
+      finished = 1
+      for (word = 4; word <= NF; word++) {
+        if ($word != "none" && reported[$word] + 0 == 0) {
+          print "mismatch partition " $word " went red without a failure to run again"
+        }
+      }
+      next
+    }
+    partition == "" { next }
+    header {
+      header = 0
+      if (match($0, /^ +test\/[^ :]+_test\.exs:[0-9]+$/)) {
+        found++
+        path = $1
+        sub(/:[0-9]+$/, "", path)
+        print "file " path
+        next
+      }
+    }
+    /^ *[0-9]+\) (test|doctest|property) / { header = 1; next }
+    /^[0-9]+ (test|doctest|propert)[a-z]*, / {
+      totals = 1
+      fields = split($0, field, /, | \(/)
+      for (i = 1; i <= fields; i++) {
+        if (field[i] ~ /^[0-9]+ failures?$/) printed = field[i] + 0
+        if (field[i] ~ /^[0-9]+ invalid$/) invalid = field[i] + 0
+      }
+    }
+    END {
+      finish_partition()
+      if (!finished) print "mismatch the test run ended before every partition reported"
+    }
+  ' "$log"
+}
+
+report=$(partition_report)
+failed_files=$(printf '%s\n' "$report" | sed -n 's/^file //p' | LC_ALL=C sort -u)
+mismatches=$(printf '%s\n' "$report" | sed -n 's/^mismatch //p')
 count=$(printf '%s' "$failed_files" | grep -c . || true)
+
+if [[ -n $mismatches ]]; then
+  sed -n '/^== async files/,$p' "$log"
+  echo "gate failed in $(elapsed): what the partitions reported does not add up, so none was run again"
+  printf '%s\n' "$mismatches" | sed 's/^/  /'
+  exit 1
+fi
 
 if ((count == 0 || count > rerun_limit)) || grep -q "escaped every test's log capture" "$log"; then
   sed -n '/^== async files/,$p' "$log"

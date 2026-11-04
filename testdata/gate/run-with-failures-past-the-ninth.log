@@ -1,0 +1,100 @@
+== async files
+  1) test a citation preserves its source measurement time separately from its title and recording time (Ryker.StateTools.EvidenceToolsTest)
+     test/ryker/state_tools/evidence_tools_test.exs:52
+  2) test an older admission generation is remotely discarded after a failed close (Ryker.Admission.FleetSessionTest)
+     test/ryker/admission/fleet_session_test.exs:112
+  3) test a missing or malformed sentiment is left out and never refuses or changes the decision (Ryker.Admission.SentimentTest)
+     test/ryker/admission/sentiment_test.exs:119
+  4) test a reaction on a Work reply is the request's event and feedback on the answer, once (Ryker.Episodes.ReactionsTest)
+     test/ryker/episodes/reactions_test.exs:61
+  5) test the named queue predecessor is the lane predicate the dispatcher claims by (Ryker.Ingress.InboxTest)
+     test/ryker/ingress/inbox_test.exs:676
+  6) test Grafana firing and resolved deliveries retain one stable item with ordered revisions (Ryker.Webhooks.AdapterEndToEndTest)
+     test/ryker/webhooks/adapter_end_to_end_test.exs:101
+  7) test an attempt Ryker could not use says so in words, never as a code (Ryker.ControlPlane.ImprovementRequestsTest)
+     test/ryker/control_plane/improvement_requests_test.exs:150
+  8) test a placement that stopped a run under a newer policy never carries the next turn (Ryker.Work.CancellationWorkerTest)
+     test/ryker/work/cancellation_worker_test.exs:104
+  9) test separate webhook occurrences can revise one stable source item (Ryker.Webhooks.RouterTest)
+     test/ryker/webhooks/router_test.exs:100
+ 10) test routing through Coop offers the sentiment, and one the model got wrong costs no correction (Ryker.Admission.SentimentTest)
+     test/ryker/admission/sentiment_test.exs:177
+ 11) test more threads than one reconcile takes keep every live status (Ryker.Slack.ThreadStatusProjectionTest)
+     test/ryker/slack/thread_status_projection_test.exs:449
+ 12) test only input-only custody accepts a forgotten original receipt (Ryker.Learning.LearningSourcesTest)
+     test/ryker/learning/learning_sources_test.exs:16
+ 13) test one admission generation has fleet identity without fabricating a kernel episode (Ryker.Admission.FleetSessionTest)
+     test/ryker/admission/fleet_session_test.exs:17
+ 14) test consecutive tool calls read as one card, a line per step, Emisar's with its mark (Ryker.ControlPlane.TimelineLoadingTest)
+     test/ryker/control_plane/timeline_loading_test.exs:338
+ 15) test a review's Model run reads its model, attempts, time, tokens and raw response (Ryker.ControlPlane.ImprovementRequestsTest)
+     test/ryker/control_plane/improvement_requests_test.exs:176
+ 16) test an app, an edit, a first message or one after only an update is not asked how it feels (Ryker.Admission.SentimentTest)
+     test/ryker/admission/sentiment_test.exs:228
+ 17) test a cursor from another conversation or a malformed cursor is refused (Ryker.ControlPlane.ConversationHistoryTest)
+     test/ryker/control_plane/conversation_history_test.exs:236
+ 18) test a local model is asked each recorded decision once and scored per action (Ryker.Evals.RoutingReplayTest)
+     test/ryker/evals/routing_replay_test.exs:79
+ 19) test worker survives every dispatcher outcome and keeps polling (Ryker.Retention.RuntimeTest)
+     test/ryker/retention/runtime_test.exs:91
+ 20) test the message sent after a refused upload is read intact (Ryker.ControlPlane.RouterTest)
+     test/ryker/control_plane/router_test.exs:904
+ 21) test an unknown or oversized artifact reference discloses nothing (Ryker.ControlPlane.LazyArtifactTest)
+     test/ryker/control_plane/lazy_artifact_test.exs:168
+ 22) test closed failures keep the human explanation rather than model-only state-tool codes (Ryker.ControlPlane.TimelineLoadingTest)
+     test/ryker/control_plane/timeline_loading_test.exs:179
+ 23) test new work recovers eyes after an uncertain deletion, including an abandoned cleanup lease (Ryker.GitHub.ProcessingReactionsTest)
+     test/ryker/github/processing_reactions_test.exs:89
+ 24) test an inline review on a Slack task's pull request is answered in its review thread (Ryker.GitHub.EndToEndTest)
+     test/ryker/github/end_to_end_test.exs:165
+ 25) test page boundaries split exact timestamp ties without skipping or repeating (Ryker.ControlPlane.ConversationHistoryTest)
+     test/ryker/control_plane/conversation_history_test.exs:95
+ 26) test a deleted message no work owns is settled without a model turn (Ryker.Admission.ExecutorTest)
+     test/ryker/admission/executor_test.exs:978
+ 27) test plain tool output has no copy chrome after opening or refreshing (Ryker.ControlPlane.LazyArtifactTest)
+     test/ryker/control_plane/lazy_artifact_test.exs:180
+ 28) test provider failures remain retryable instead of becoming authorization denials (Ryker.GitHub.RepositoryAccessTest)
+     test/ryker/github/repository_access_test.exs:58
+ 29) test read, triage-equivalent, and missing access cannot start repository work (Ryker.GitHub.RepositoryAccessTest)
+     test/ryker/github/repository_access_test.exs:36
+ 30) test repository write access authorizes requests without a saved username (Ryker.GitHub.RepositoryAccessTest)
+     test/ryker/github/repository_access_test.exs:15
+ 31) test the archive checker refuses a release that carries eval-only code (Ryker.ReleaseTest)
+     test/ryker/release_test.exs:224
+ 32) test no helper is copied between functions (Ryker.CopiedHelpersTest)
+     test/ryker/copied_helpers_test.exs:67
+ 33) test all memory revisions remain reachable after the latest fifty (Ryker.Knowledge.KnowledgeTest)
+     test/ryker/knowledge/knowledge_test.exs:801
+Finished in 530.7 seconds (530.7s async, 0.00s sync)
+3990 tests, 33 failures (1 excluded)
+== serial files, partition 1 of 6
+  1) test keeps running after an input enters durable blocked custody (Ryker.Admission.WorkerTest)
+     test/ryker/admission/worker_test.exs:52
+  2) test polls the durable inbox and processes an input without an external nudge (Ryker.Admission.WorkerTest)
+     test/ryker/admission/worker_test.exs:13
+Finished in 935.5 seconds (0.00s async, 935.5s sync)
+601 tests, 2 failures (3 excluded)
+== serial files, partition 2 of 6
+Finished in 1050.4 seconds (0.00s async, 1050.4s sync)
+495 tests, 0 failures (2 excluded)
+== serial files, partition 3 of 6
+  1) test a rescued database renewal failure reaps the actual provider before polling returns (Ryker.Delivery.DispatcherTest)
+     test/ryker/delivery/dispatcher_test.exs:866
+Finished in 1040.2 seconds (0.00s async, 1040.2s sync)
+790 tests, 1 failure (2 excluded)
+== serial files, partition 4 of 6
+  1) test an open page reloads through Access when its sign-in ends (Ryker.ControlPlane.CloudflareViewerLiveTest)
+     test/ryker/control_plane/cloudflare_viewer_live_test.exs:163
+Finished in 933.6 seconds (0.00s async, 933.6s sync)
+679 tests, 1 failure
+== serial files, partition 5 of 6
+Finished in 988.3 seconds (0.00s async, 988.3s sync)
+609 tests, 0 failures (1 excluded)
+== serial files, partition 6 of 6
+  1) test every internal link and GET form on every page opens (Ryker.ControlPlane.LinkCrawlTest)
+     test/ryker/control_plane/link_crawl_test.exs:156
+  2) test a polling process survives pool exhaustion and resumes on its own delayed timer (Ryker.PollingWorkerTest)
+     test/ryker/polling_worker_test.exs:82
+Finished in 911.7 seconds (0.00s async, 911.7s sync)
+443 tests, 2 failures
+== red partitions: 0 1 3 4 6

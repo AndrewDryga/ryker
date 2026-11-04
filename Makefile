@@ -254,7 +254,9 @@ test-db-ready:
 	fi
 
 # The checks that need no test database, side by side; dev-check runs them
-# before the suite, so a format slip fails in half a minute, not six.
+# before the suite, so a format slip fails in half a minute, not six. The
+# gate's own self-test is among them: the gate passing a failure it misread
+# is the one defect no later gate would catch.
 .PHONY: chart-check
 chart-check:
 	python3 -m venv _build/charts
@@ -262,7 +264,7 @@ chart-check:
 	PYTHONDONTWRITEBYTECODE=1 _build/charts/bin/python3 -m unittest discover -s test/charts -p '*_test.py'
 
 static-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-static control-plane-js-check shellcheck chart-check
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-static control-plane-js-check shellcheck chart-check gate-check
 
 # The commit and deploy gate: everything deterministic that the suite itself
 # proves, minus the `slow` capacity tests, and nothing that is already inside

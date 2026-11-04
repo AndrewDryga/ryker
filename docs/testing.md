@@ -62,8 +62,11 @@ new files included, written through a temporary index and checked out in a workt
 what changed. Editing on, other sessions' tests and their compiles cannot change the tree under it.
 One gate runs on the host at a time and none beside a model-world eval; a second one waits. The
 static checks run first, so a format slip fails in about half a minute. A test file that fails is run
-again alone; passing then means the host's load failed it, and the gate says so and passes. A tree
-that passed once passes again without rerunning. The whole output is in `~/.cache/ryker-gate/last.log`.
+again alone; passing then means the host's load failed it, and the gate says so and passes. Before
+that the gate adds up what each partition reported: if ExUnit's totals differ from the failures it
+read, if `setup_all` kept tests from running, or if a partition went red with nothing to run again, the
+gate fails and says which. A tree that passed once passes again without rerunning. The whole output is
+in `~/.cache/ryker-gate/last.log`.
 
 `make dev-check` checks formatting, compilation warnings, that no compile-time dependency cycle exists, Credo,
 Sobelow's security checks, migrations, and the ExUnit suite except slow capacity tests, plus the
