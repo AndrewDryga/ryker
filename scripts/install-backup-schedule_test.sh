@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as directory:
             f'{label} lost the installation context and will follow another Docker daemon'
         print(f'ok   {label} retains its installation Docker context')
 
-    # A fresh deployment backup must not hide a week of failed daily backups.
+    # One rolling archive reports current recovery coverage, regardless of producer.
     for name, body in {'curl': '#!/bin/sh\nexit 1\n', 'gh': '#!/bin/sh\nprintf "[]"\n'}.items():
         path = binaries / name
         path.write_text(body)
@@ -50,13 +50,10 @@ with tempfile.TemporaryDirectory() as directory:
     backups = installation / 'backups'
     backups.mkdir(parents=True)
     (installation / 'compose.env').write_text('RYKER_CONTROL_PORT=4321\n')
-    old = backups / 'scheduled-20261019T033017Z.tar.gz'
-    old.write_text('old daily backup')
-    os.utime(old, (1, 1))
-    (backups / 'pre-deploy-new.tar.gz').write_text('fresh deployment backup')
+    (backups / 'ryker-latest.tar.gz').write_text('latest snapshot')
     environment['RYKER_INSTALL_STATE'] = str(installation)
-    status = subprocess.check_output(['bash', str(root / 'scripts/status.sh')],
-                                     env=environment, text=True)
-    assert 'DAILY BACKUP OVERDUE' in status, status
-    print('ok   a new deployment backup cannot hide an overdue daily backup')
+    status = subprocess.check_output(['bash', str(root / 'scripts/status.sh')], env=environment, text=True)
+    assert 'newest backup ryker-latest.tar.gz' in status, status
+    assert 'DAILY BACKUP OVERDUE' not in status, status
+    print('ok   the shared rolling snapshot reports current recovery coverage')
 PY

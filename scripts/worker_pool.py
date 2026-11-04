@@ -357,11 +357,6 @@ class Pool:
         if not storage_maintenance.build_ready(self.state["maintenance"]["storage"]):
             raise RuntimeError("pool lacks measured build headroom; its existing worker stays running")
         run(self.docker() + ["image", "inspect", image, "--format", "{{.Id}}"] )
-        # Preserve provider state before a binary that may migrate its format.
-        backup = "agents.pool-pre-" + str(int(time.time()))
-        run(self.compose() + ["exec", "-T", "ryker-coop", "sh", "-ec",
-                              f'cd /var/lib/coop; cp -a agents {backup}; '
-                              'ls -dt agents.pool-pre-* | tail -n +3 | xargs rm -rf'])
         self.prewarm(image)
         volume = run(self.docker() + ["inspect", "--format",
                      '{{range .Mounts}}{{if eq .Destination "/var/lib/coop"}}{{.Name}}{{end}}{{end}}', container]).strip()

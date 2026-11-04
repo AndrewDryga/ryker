@@ -1042,7 +1042,7 @@ worker_upgrade
 check "a worker upgrade resumes capacity before checking controller readiness" "exit=0" "$out"
 check "it builds the pinned Coop's worker" "deploy/compose/coop/Dockerfile --tag $worker_pinned" "$calls"
 check "named for the Coop it pins" "ryker-coop:1234abcd-" "$worker_pinned"
-check "it keeps the model sign-in aside" "cp -a agents agents.pre-1234abcd-" "$calls"
+refute "worker upgrades make no automatic sign-in copy" "cp -a agents" "$calls"
 check "it prepares the new worker's box with the new image" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$fake/prewarm.env")"
 check "it pins the new worker" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 check "it acquires an audited drain before replacing the worker" 'worker_lifecycle(:drain' "$calls"
@@ -1195,6 +1195,39 @@ if [[ -e $state/lifecycle.lock ]]; then
 else
   printf 'ok   a finished deploy releases the lock\n'
 fi
+
+# Independent backup policies grew the disk again after cleanup. Every completed
+# writer must leave one archive, and failed writes must preserve valid recovery data.
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$root/scripts/compose-lifecycle.sh"
+rolling="$work/rolling"
+rolling_input="$work/rolling-input"
+mkdir -p "$rolling" "$rolling_input"
+printf 'captured custody\n' >"$rolling_input/database.dump"
+for old in ryker-manual.tar.gz scheduled-old.tar.gz pre-upgrade-old.tar.gz; do
+  printf 'old snapshot\n' >"$rolling/$old"
+done
+write_backup "$rolling/ryker-latest.tar.gz" "$rolling_input" database.dump
+check "one archive replaces every previous backup producer" 1 "$(find "$rolling" -type f | wc -l | tr -d ' ')"
+check "the rolling archive is complete" database.dump "$(tar -tzf "$rolling/ryker-latest.tar.gz")"
+cp "$rolling/ryker-latest.tar.gz" "$work/last-valid-rolling.tar.gz"
+if (tar() { printf broken >"$2"; return 1; }; write_backup "$rolling/ryker-latest.tar.gz" "$rolling_input" database.dump); then
+  write_status=0
+else
+  write_status=$?
+fi
+check "a failed snapshot fails its writer" 1 "$write_status"
+check "failed capture preserves the valid predecessor" same "$(cmp -s "$rolling/ryker-latest.tar.gz" "$work/last-valid-rolling.tar.gz" && echo same)"
+printf 'rescue snapshot\n' >"$rolling/scheduled-rescue.tar.gz"
+if (mv() { return 1; }; write_backup "$rolling/ryker-latest.tar.gz" "$rolling_input" database.dump); then
+  write_status=0
+else
+  write_status=$?
+fi
+check "a failed atomic rename fails its writer" 1 "$write_status"
+check "failed rename preserves all earlier archives" 2 "$(find "$rolling" -maxdepth 1 -name '*.tar.gz' | wc -l | tr -d ' ')"
+check "failed rename removes its incomplete archive" 0 "$(find "$rolling" -name '.partial-*' | wc -l | tr -d ' ')"
+check "failed rename preserves the valid predecessor" same "$(cmp -s "$rolling/ryker-latest.tar.gz" "$work/last-valid-rolling.tar.gz" && echo same)"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures deploy check(s) failed"

@@ -1,8 +1,7 @@
 #!/bin/bash
 # Proves scripts/auto-upgrade.sh upgrades an install when the branch it follows moves, and only
-# then: forward only, after a backup, then moving the worker to the Coop the commit pins. A
-# failed upgrade puts the checkout and the pin back, and restores the backup only when the release
-# before no longer serves. A commit whose upgrade failed before anything changed is tried again
+# then: forward only, through the canonical deploy, with no automatic snapshot or restore. A
+# failed upgrade restores the previous source/pin only; stopped releases need explicit recovery. A commit whose upgrade failed before anything changed is tried again
 # half an hour later; one that stopped the release is not. A worker that did not move is asked
 # again every half hour until it has.
 #
@@ -94,6 +93,23 @@ esac
 [ -f "$UPGRADE_TEST_STATE/$1.fail" ] && exit 1
 exit 0
 FAKE
+cat >"$source/scripts/deploy.sh" <<'FAKE'
+#!/bin/sh
+echo "deploy.sh $*" >>"$UPGRADE_TEST_STATE/calls"
+# Match the canonical deploy's local-main guard. A configured upgrade ref is
+# already authorized by the operator and may be checked out on its own branch.
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse refs/heads/main)" ] && [ "${1:-}" != --allow-not-main ]; then
+  exit 1
+fi
+[ -f "$UPGRADE_TEST_STATE/upgrade.fail" ] && exit 1
+sed 's/^RYKER_VERSION=.*/RYKER_VERSION=new/' "$RYKER_INSTALL_STATE/compose.env" >"$RYKER_INSTALL_STATE/env.new"
+mv "$RYKER_INSTALL_STATE/env.new" "$RYKER_INSTALL_STATE/compose.env"
+if [ -f "$UPGRADE_TEST_STATE/acceptance.fail" ]; then
+  echo new >"$UPGRADE_TEST_STATE/console/version"
+  exit 1
+fi
+FAKE
+chmod 0755 "$source/scripts/deploy.sh"
 chmod 0755 "$source/scripts/compose.sh"
 cat >"$source/scripts/worker_pool.py" <<'PY'
 import os, pathlib, sys
@@ -109,6 +125,7 @@ s push -q origin main main:tenant/test
 
 install=$work/install
 git clone -q "$work/origin.git" "$install" -b main
+git -C "$install" checkout -q -b tenant/test origin/tenant/test
 mkdir -p "$work/state/backups"
 pin_old() {
   printf 'RYKER_UPGRADE_REF=tenant/test\nRYKER_VERSION=old\nRYKER_IMAGE=ryker:old\nRYKER_CONTROL_PORT=%s\n' \
@@ -137,8 +154,9 @@ push second
 second=$(s rev-parse HEAD)
 upgrade
 check "a moved branch is upgraded to" "$second" "$(head_of)"
-check "after a controller-only backup" "compose.sh backup --controller-only"$'\n'"compose.sh upgrade" "$(cat "$work/calls")"
-check "and the worker is asked to run the Coop it pins" "compose.sh upgrade"$'\n'"compose.sh worker-upgrade" "$(cat "$work/calls")"
+check "a configured branch can use the canonical deploy" "deploy.sh --allow-not-main" "$(cat "$work/calls")"
+refute "automatic upgrades never create a snapshot" "compose.sh backup" "$(cat "$work/calls")"
+check "and the worker is asked to run the Coop it pins" "deploy.sh --allow-not-main"$'\n'"compose.sh worker-upgrade" "$(cat "$work/calls")"
 check "and the upgrade is recorded" "-> ${second:0:12}" "$(grep ' upgraded ' "$work/upgrades/upgrades.log")"
 
 printf 'ARG COOP_REVISION=%s\n' bbbb >"$source/deploy/compose/coop/Dockerfile"
@@ -169,26 +187,15 @@ check "but after it, since nothing had changed" "$unbuilt" "$(head_of)"
 check "and its upgrade is recorded" "upgraded ${before:0:12} -> ${unbuilt:0:12}" "$(cat "$work/out")"
 before=$(head_of)
 
-# A migration that failed: the release before no longer serves, so the backup comes back.
+# A stopped release needs explicit recovery; automation must not roll its database back.
 pin_old
-# The new rollback behavior exists only in the target revision. Resetting to
-# the old checkout before restoring would silently run the broken implementation.
-python3 - "$source/scripts/compose.sh" <<'PY'
-import pathlib,sys
-path=pathlib.Path(sys.argv[1])
-text=path.read_text().replace('case $1 in', 'case $1 in\n  restore) echo "target restore $*" >>"$UPGRADE_TEST_STATE/restore-version";;', 1)
-path.write_text(text)
-PY
-s add scripts/compose.sh
 push "does not migrate"
 unmigrated=$(s rev-parse HEAD)
 touch "$work/upgrade.fail"
 printf '503' >"$work/console/code"
 upgrade
-check "a failed upgrade that stopped the release restores the backup it took" \
-  "compose.sh restore $work/state/backups/pre-upgrade-" "$(cat "$work/calls")"
-check "rollback uses the target revision's controller-only restore before resetting" \
-  "--controller-only" "$(cat "$work/restore-version" 2>/dev/null)"
+refute "a failed migration never restores data automatically" "compose.sh restore" "$(cat "$work/calls")"
+check "the stopped release names explicit recovery" "deploy a fixed release or restore a manual backup" "$(cat "$work/out")"
 check "and puts the checkout back too" "$before" "$(head_of)"
 rm "$work/upgrade.fail" "$work/console/code"
 retry_seconds=0 upgrade
@@ -255,11 +262,28 @@ rm -rf "$work/state/lifecycle.lock"
 upgrade
 check "and upgraded once it is free" "$waiting" "$(head_of)"
 
+printf "manual snapshot\n" >"$work/state/backups/ryker-latest.tar.gz"
 for _ in 1 2 3 4 5 6; do
   push more
   upgrade
 done
-check "only the newest five upgrade backups stay" "5" "$(find "$work/state/backups" -name 'pre-upgrade-*' | wc -l | tr -d ' ')"
+check "repeated automatic upgrades create no backups" "1" "$(find "$work/state/backups" -name '*.tar.gz' | wc -l | tr -d ' ')"
+check "automatic upgrades preserve the manual snapshot" "manual snapshot" "$(cat "$work/state/backups/ryker-latest.tar.gz")"
+
+# Canonical deploy may serve and pin the new release, then fail live acceptance.
+# Never roll source back or call that ready release stopped.
+pin_old
+push "ready but acceptance fails"
+accepted=$(s rev-parse HEAD)
+touch "$work/acceptance.fail"
+upgrade
+check "failed live acceptance stays a failure" "exit=1" "$(cat "$work/out")"
+check "a ready new release keeps its source after acceptance fails" "$accepted" "$(head_of)"
+check "and keeps its new pin" "RYKER_VERSION=new" "$(cat "$work/state/compose.env")"
+check "and reports the running release and failed checks" "new is running, but deployment checks failed; source and pin kept" "$(cat "$work/out")"
+check "its pending worker upgrade remains retryable" "yes" "$([[ -f $work/upgrades/worker-behind ]] && echo yes || echo no)"
+refute "no database is restored after acceptance fails" "compose.sh restore" "$(cat "$work/calls")"
+rm "$work/acceptance.fail" "$work/console/version"
 
 last=$(head_of)
 s reset -q --hard HEAD~1

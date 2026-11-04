@@ -11,10 +11,10 @@
 # (scripts/install-auto-upgrade.sh).
 #
 # It only moves forward: a branch that does not build on what runs is refused.
-# It backs up, upgrades with scripts/compose.sh (which pins the release and
-# keeps the worker), and moves the worker when the commit pins another Coop.
-# A failed upgrade puts the checkout back and the release before back in its
-# pin; when that release no longer serves, it restores the backup it took. A
+# It deploys with scripts/deploy.sh, then moves the worker when the commit
+# pins another Coop. It takes no automatic backup and never restores data
+# automatically. A failed upgrade keeps the previous pin; a stopped release
+# needs a fixed release or an explicit manual restore. A
 # commit whose upgrade failed before anything changed is tried again half an
 # hour later; one that stopped the release is not, and the next move of the
 # branch is. A worker that did not move is asked again every half hour until it
@@ -26,9 +26,6 @@ cd "$repository" || exit 1
 state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
 upgrade_state=${RYKER_UPGRADE_STATE:-$HOME/.local/state/ryker-upgrade}
-# Each upgrade takes a backup, and an install that follows main upgrades many
-# times a day: only the newest of these stay. Backups taken otherwise are kept.
-keep_backups=${RYKER_KEEP_UPGRADE_BACKUPS:-5}
 # A worker that did not move to the Coop its commit pins, and a commit whose
 # upgrade failed before anything changed, are tried again this long after they
 # last were, between pushes. The tenant install's download of Coop broke off
@@ -111,37 +108,32 @@ fi
 record "upgrading ${current:0:12} -> ${target:0:12}"
 previous_version=$(compose_env_value RYKER_VERSION "$env_file")
 previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
-# The backup prints the archive it wrote as its last line.
-taken=$(scripts/compose.sh backup --controller-only </dev/null | tail -n 1)
-if [[ ! -f $taken ]]; then
-  record "FAILED ${target:0:12}: the backup before it did not complete; nothing changed"
-  echo "$target $(date +%s)" >"$upgrade_state/failed"
-  exit 1
-fi
-backup="$(dirname "$taken")/pre-upgrade-$(basename "$taken" | sed 's/^ryker-//')"
-mv -- "$taken" "$backup"
-find "$(dirname "$backup")" -maxdepth 1 -name 'pre-upgrade-*.tar.gz' | sort -r | tail -n +$((keep_backups + 1)) |
-  while IFS= read -r old; do rm -f -- "$old"; done
 git merge --ff-only --quiet "$target"
 
-if ! scripts/compose.sh upgrade </dev/null; then
+# The configured ref already authorizes this forward-only target, including
+# installs checked out on a tenant branch instead of local main.
+if ! scripts/deploy.sh --allow-not-main </dev/null; then
   echo "$target" >"$upgrade_state/failed"
   # An upgrade that failed before it replaced Ryker (an image that did not
   # build) left the release before it serving and the database untouched:
-  # only the pin goes back, and nothing written since the backup is lost.
+  # only the pin goes back; no database restore runs.
   control_port=$(compose_env_value RYKER_CONTROL_PORT "$env_file")
   probe_console "$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "${control_port:-4321}")"
-  if [[ $readyz_code == 200 && $running_version == "$previous_version" ]]; then
+  pinned_version=$(compose_env_value RYKER_VERSION "$env_file")
+  # Deploy keeps a verified release running when its later live acceptance
+  # fails. Keep matching source too, and leave worker movement retryable.
+  if [[ $readyz_code == 200 && $running_version == "$pinned_version" && $pinned_version != "$previous_version" ]]; then
+    date +%s >"$worker_behind"
+    record "FAILED ${target:0:12}: $running_version is running, but deployment checks failed; source and pin kept"
+    exit 1
+  elif [[ $readyz_code == 200 && $running_version == "$previous_version" ]]; then
     pin_release "$previous_version" "$previous_image"
     echo "$target $(date +%s)" >"$upgrade_state/failed"
     record "FAILED ${target:0:12}: the upgrade failed before it replaced $previous_version, which still runs"
-  elif scripts/compose.sh restore "$backup" --controller-only </dev/null; then
-    record "FAILED ${target:0:12}: the upgrade failed; restored ${current:0:12} from $(basename "$backup")"
   else
-    record "FAILED ${target:0:12}: the upgrade failed, and so did restoring $(basename "$backup"); the install needs a person"
+    record "FAILED ${target:0:12}: the release is not ready; deploy a fixed release or restore a manual backup"
   fi
-  # Restore with the target's implementation before removing it from the
-  # checkout. Worker custody never changed during a controller upgrade.
+  # Moving source back does not undo migrations or replace worker custody.
   git reset --quiet --hard "$current"
   exit 1
 fi

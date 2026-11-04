@@ -642,7 +642,7 @@ case "$command" in
     ;;
   worker-upgrade)
     # The bundled worker moves to the Coop the worker Dockerfile pins: build
-    # it, keep the model sign-in aside, prepare its box on the live worker's
+    # it, preserve the canonical sign-in, prepare its box on the live worker's
     # volumes while that worker keeps working, then swap only the worker. By
     # hand this was a dozen steps across five copies of the pin (2026-10-14).
     [ "$#" -eq 1 ] || usage
@@ -665,11 +665,6 @@ case "$command" in
     if ! docker image inspect "$image" >/dev/null 2>&1; then
       docker build --file "$repository/deploy/compose/coop/Dockerfile" --tag "$image" "$repository"
     fi
-    # Coop 11 moved its sign-in one way (2026-10-11); a copy is the way back.
-    # The two newest copies stay.
-    stamp=$(date -u +%Y%m%dT%H%M%SZ)
-    compose run --rm --no-deps -T --entrypoint sh ryker-coop -c \
-      "cd /var/lib/coop && cp -a agents agents.pre-${image#ryker-coop:}-$stamp && ls -dt agents.pre-* | tail -n +3 | xargs rm -rf"
     # The new image in the worker's own place: its volumes, network and the
     # Docker daemon it builds boxes with. The environment wins over the file.
     env RYKER_COOP_IMAGE="$image" docker compose --env-file "$env_file" run --rm --no-deps -T \
@@ -879,7 +874,7 @@ case "$command" in
       printf 'complete-v1\n' >"$scratch/worker-custody"
     fi
     chmod 0600 "$scratch"/*
-    backup=$backup_dir/ryker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
+    backup=$backup_dir/ryker-latest.tar.gz
     if [ "$controller_only" = 1 ]; then
       write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz compose.env
     else

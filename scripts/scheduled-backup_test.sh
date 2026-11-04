@@ -1,10 +1,6 @@
 #!/bin/bash
-# Proves scripts/scheduled-backup.sh keeps the newest scheduled backups and nothing a person took,
-# and leaves every backup alone when the backup itself fails.
-#
-# Until 2026-10-14 no install took a backup on its own. One that did, and kept every archive,
-# would fill the disk it protects; one that rotated by name could delete the backup a person took
-# before an upgrade.
+# Proves scheduled and manual snapshots share one rolling archive, preserve its
+# predecessor on failure, and wait for lifecycle contention without stopping workers.
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -28,7 +24,7 @@ mkdir -p "$work/bin"
 printf '#!/bin/sh\nexit 0\n' >"$work/bin/sleep"
 chmod +x "$work/bin/sleep"
 # A stand-in for scripts/compose.sh backup: it writes the archive under the name the real one
-# uses, one second apart, and prints its path last. With $work/fail, it fails before writing.
+# uses and prints its path last. With $work/fail, it fails before writing.
 cat >"$work/compose.sh" <<FAKE
 #!/bin/bash
 [[ \$# == 2 && \$1 == backup && \$2 == --controller-only ]] || exit 2
@@ -43,8 +39,10 @@ fi
 count=\$(cat "$work/count" 2>/dev/null || echo 0)
 count=\$((count + 1))
 echo "\$count" >"$work/count"
-archive="$backups/ryker-20261014T0300\$(printf '%02d' "\$count")Z.tar.gz"
-echo archive >"\$archive"
+archive="$backups/ryker-latest.tar.gz"
+echo archive >"$work/input"
+. "$root/scripts/compose-lifecycle.sh"
+write_backup "\$archive" "$work" input
 echo "Pausing Ryker to capture the database and encrypted files consistently." >&2
 echo "\$archive"
 FAKE
@@ -54,11 +52,11 @@ echo kept >"$backups/ryker-20261001T120000Z.tar.gz"
 echo kept >"$backups/pre-deploy-20261013T210335Z.tar.gz"
 
 scheduled() {
-  find "$backups" -maxdepth 1 -name 'scheduled-*.tar.gz' -exec basename {} \; | sort | tr '\n' ' ' | sed 's/ $//'
+  find "$backups" -maxdepth 1 -name '*.tar.gz' -exec basename {} \; | sort | tr '\n' ' ' | sed 's/ $//'
 }
 
 run() {
-  PATH="$work/bin:$PATH" RYKER_COMPOSE_SH="$work/compose.sh" RYKER_KEEP_SCHEDULED_BACKUPS=2 \
+  PATH="$work/bin:$PATH" RYKER_COMPOSE_SH="$work/compose.sh" \
     "$root/scripts/scheduled-backup.sh" >>"$work/log" 2>&1
 }
 
@@ -69,24 +67,24 @@ done
 # The live worker holds over 100 GB. Pausing it for a full archive every
 # night would interrupt active work; daily backups protect controller custody.
 check "daily backups leave the worker and its daemon running" "backup --controller-only" "$(cat "$work/arguments")"
-check "only the newest two scheduled backups stay" \
-  "scheduled-20261014T030002Z.tar.gz scheduled-20261014T030003Z.tar.gz" \
+check "only one shared rolling snapshot stays" \
+  "ryker-latest.tar.gz" \
   "$(scheduled)"
-check "a backup a person took stays" "kept" "$(cat "$backups/ryker-20261001T120000Z.tar.gz")"
-check "a pre-deploy backup stays" "kept" "$(cat "$backups/pre-deploy-20261013T210335Z.tar.gz")"
+check "an older manual snapshot is rotated" no "$([[ -e $backups/ryker-20261001T120000Z.tar.gz ]] && echo yes || echo no)"
+check "an older upgrade snapshot is rotated" no "$([[ -e $backups/pre-deploy-20261013T210335Z.tar.gz ]] && echo yes || echo no)"
 
 # A deploy owned the lifecycle lock at the scheduled time; skipping the only
 # daily attempt left the installation without a scheduled backup for a week.
 touch "$work/busy"
 run
 check "a busy deployment postpones the scheduled backup until the lock is free" 0 "$?"
-check "the delayed backup is written" yes "$([[ -f $backups/scheduled-20261014T030004Z.tar.gz ]] && echo yes || echo no)"
+check "the delayed backup is written" yes "$([[ -f $backups/ryker-latest.tar.gz ]] && echo yes || echo no)"
 
 touch "$work/fail"
 run
 check "a failed backup fails the run" 1 "$?"
 check "a failed backup removes no earlier one" \
-  "scheduled-20261014T030003Z.tar.gz scheduled-20261014T030004Z.tar.gz" \
+  "ryker-latest.tar.gz" \
   "$(scheduled)"
 
 rm "$work/fail"

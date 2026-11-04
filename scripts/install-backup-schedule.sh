@@ -5,9 +5,8 @@
 #   scripts/install-backup-schedule.sh [HH:MM]
 #
 # The backup runs at HH:MM in this Mac's time zone, 03:30 unless given. It pauses Ryker while it
-# captures the database and encrypted controller state; the worker keeps running. Each run keeps the newest 14
-# scheduled backups in .ryker/backups (scripts/scheduled-backup.sh); a backup taken by hand stays
-# until it is deleted. Like the watchdog's, the agent is checked to be registered, not merely
+# captures the database and encrypted controller state; the worker keeps running. Each successful run replaces the single rolling
+# archive in .ryker/backups, shared with manual snapshots. Like the watchdog's, the agent is checked to be registered, not merely
 # accepted (scripts/launch-agent.sh).
 set -euo pipefail
 
@@ -57,4 +56,4 @@ PLIST
 
 plutil -lint "$plist" >/dev/null
 "$here/launch-agent.sh" load "$label" "$plist"
-echo "backups: scheduled daily at $at this Mac's time; the newest 14 stay in .ryker/backups; log in $state/backup.log"
+echo "backups: scheduled daily at $at this Mac's time; one rolling archive stays in .ryker/backups; log in $state/backup.log"

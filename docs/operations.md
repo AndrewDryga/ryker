@@ -222,8 +222,8 @@ scripts/compose.sh worker-upgrade
 moves the bundled worker to the Coop `deploy/compose/coop/Dockerfile` pins, the one place that pin
 lives: it builds `ryker-coop:`, the revision's first eight digits and eight of a digest of what the
 image is built from (that Dockerfile, the worker's entrypoint and `Box.Dockerfile`, so a change to
-any of them reaches every install even with the same Coop), copies the model sign-in aside
-in the worker's volume (`agents.pre-*`, the newest two kept), prepares the new worker's box on the
+any of them reaches every install even with the same Coop), preserves the canonical model sign-in
+and prepares the new worker's box on the
 live worker's volumes and Docker daemon while that worker keeps working
 (`deploy/compose/coop/prewarm.sh`), then acquires an audited fleet drain. New submissions and cleanup
 mutations wait while existing commands, model turns and validation finish. The candidate image reads
@@ -298,19 +298,20 @@ follows. With `RYKER_UPGRADE_REF=main`, as the tenant install has, every push to
 within minutes; a branch of its own, pushed on purpose (`git push origin main:tenant/NAME`), makes
 each upgrade a choice.
 
-It moves only forward: a branch that does not build on the commit that runs is refused. It takes a
-backup, runs `upgrade`, and runs `worker-upgrade` when the commit pins another Coop. A failed upgrade
-puts the checkout and the pin back, and restores the backup it took only when the release before no
-longer serves, so an image that did not build loses nothing written since. A commit whose upgrade
-failed before anything changed is tried again half an hour later (`RYKER_UPGRADE_RETRY_SECONDS`); one
-that stopped the release is not, and the next push of the branch is. A worker that did not move leaves Ryker on the new release. Its backups are
-named `pre-upgrade-*` and the newest five stay (`RYKER_KEEP_UPGRADE_BACKUPS`); while another lifecycle
-command, such as the daily backup, holds the lock, it waits for the next round. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
-host, and the watchdog here sees the new version through the install's readiness.
+It moves only forward: a branch that does not build on the commit that runs is refused. It deploys the committed controller image, then upgrades workers when the commit pins another Coop. Automatic upgrades
+take no database snapshot or sign-in copy and never restore data automatically. If deployment
+fails before replacing a healthy release, the previous checkout and pin stay and the commit is
+tried again after half an hour (`RYKER_UPGRADE_RETRY_SECONDS`). If the release stopped, deploy a
+fixed release or explicitly restore a manual backup; automation waits for the next push.
+If the new release is ready but its later live acceptance fails, it keeps running with its
+matching source and pin; the failed check is reported and worker upgrades remain retryable.
+A worker that did not move leaves Ryker on the new release and is retried independently.
+A busy lifecycle lock leaves the attempt for the next round. Attempts are recorded in
+`~/.local/state/ryker-upgrade/upgrades.log`; readiness reports the version actually running.
 
-Once the new release is ready, upgrade removes this installation's older source builds
-(`ryker:0.1.0-source.*`). It keeps the release it started and the one it replaced, which a restore
-of the backup taken before the upgrade runs, and it never removes a tagged release or another tag.
+Once the new release is ready, deployment prunes older commit images (`ryker:0.1.0-g<commit>`).
+It keeps the current and previous image plus two additional recent builds by default
+(`RYKER_KEEP_IMAGES`), and preserves tagged releases and other manually named tags.
 
 A worker image built another way, for example from a Coop checkout ahead of the pin, is named in
 `RYKER_COOP_IMAGE` by hand, and its Coop may keep the worker's state in a schema an older pinned
@@ -380,9 +381,10 @@ bodies to copy. Use `backup --controller-only` for a controller deployment: it l
 and its daemon running, and captures only database, encrypted controller state and environment.
 A deploy takes no backup. Before a migration that might need undoing, take a controller-only
 backup immediately before deploying: a restore needs the archive's release image, and deploys
-prune older images. Backups taken by hand remain until explicitly removed. Each archive is
-written under a hidden name and renamed once it is whole, so one cut short never looks like a
-good one. Store these owner-only archives as sensitive material.
+prune older images. Manual and explicitly scheduled backups share
+`.ryker/backups/ryker-latest.tar.gz`. A successful snapshot replaces the previous archive and
+removes older archives; a failed capture or replacement preserves them. Each archive is written
+under a hidden name and renamed once it is whole. Store this owner-only archive as sensitive material.
 
 A full restore moves current worker contents into `.restore-held.*` directories on their original
 volumes before installing the archived state. Those directories preserve newer work for rescue;
@@ -390,37 +392,30 @@ they are outside active custody and excluded from subsequent backups. Do not del
 the restored work and any newer uncommitted changes have been reconciled. Controller-only restore
 leaves worker volumes untouched.
 
-Take one every day on its own:
+A successful manual snapshot atomically replaces `.ryker/backups/ryker-latest.tar.gz`.
+Only one completed archive stays, shared by every producer. Older manual, scheduled and upgrade
+archives are removed only after the replacement is complete. A failed capture or atomic rename
+preserves the previous valid archive. Copy it to another disk before replacing it if needed.
+
+Daily backups are opt-in; deployments do not install or enable them. To explicitly enable one:
 
 ```bash
 scripts/install-backup-schedule.sh 03:30
 ```
 
 The backup, watchdog and upgrade installers pin the selected Docker context in their launch
-agents. Reinstall an agent with the intended `DOCKER_CONTEXT` when moving the installation to
-another daemon; changing the desktop's default context does not move its scheduled work.
-
-It installs a launch agent on this Mac that runs `scripts/scheduled-backup.sh` at that time of
-day, in the Mac's time zone, 03:30 unless you give another. Each run takes a controller-only
-backup: database, already saved encrypted checkpoint bodies and environment keys. The controller
-pauses during its snapshot. The worker and its Docker daemon keep running; worker journals, model
-sign-ins and workspace changes not captured in a saved checkpoint are not in this archive. It names the archive
-`scheduled-YYYYMMDDTHHMMSSZ.tar.gz` and keeps the
-newest 14 scheduled backups (`RYKER_KEEP_SCHEDULED_BACKUPS`). Backups you take yourself are
-never touched. A busy lifecycle lock retries up to five times, one minute
-apart; other failures stop immediately. `scripts/status.sh` separately reports the latest daily
-backup and marks it overdue after 36 hours, even when another backup is newer.
-The log is `~/.local/state/ryker-backup/backup.log`. Run the
-install again to change the time. Copy archives to another disk for recovery. A daily archive
-recovers controller custody and captured checkpoints, not every current worker file. For complete
-worker disaster recovery, plan a maintenance window and run `scripts/compose.sh backup`: it pauses
-all writers while archiving the worker's working copies and repository bases, which can exceed
-100 GB. Do not schedule that pause as part of the ordinary daily backup.
+agents. The daily job captures only controller custody, leaving the worker and its daemon running,
+and replaces the same single rolling archive. A busy lifecycle lock retries up to five times,
+one minute apart; other failures stop immediately. Its log is
+`~/.local/state/ryker-backup/backup.log`. `scripts/status.sh` reports the current archive.
+A controller snapshot includes saved encrypted checkpoints, not every current worker file.
+A full `scripts/compose.sh backup` pauses all writers while capturing worker files and can exceed
+100 GB; take it explicitly in a maintenance window.
 
 Restore with:
 
 ```bash
-scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz
+scripts/compose.sh restore .ryker/backups/ryker-latest.tar.gz
 ```
 
 Restore refuses an archive whose encryption keys (`RYKER_CHECKPOINT_KEY`, `RYKER_CREDENTIAL_KEY`)

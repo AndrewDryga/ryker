@@ -483,6 +483,9 @@ class UpgradeTest(unittest.TestCase):
              self.assertRaisesRegex(RuntimeError, "work in flight"):
             subject.upgrade()
         self.assertFalse(any("up" in call.args[0] for call in command.call_args_list))
+        self.assertFalse(any("cp -a agents" in " ".join(map(str, call.args[0]))
+                             for call in command.call_args_list),
+                         "worker upgrades must not accumulate automatic sign-in copies")
         subject.write_env.assert_not_called()
         self.assertEqual(subject.resume_upgrade.call_count, 2)
         self.assertTrue(subject.state["upgrade_drain"]["actor"].startswith("operator:worker-upgrade:pool:"))

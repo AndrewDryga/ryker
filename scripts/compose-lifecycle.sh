@@ -155,7 +155,15 @@ write_backup() {
   backup_partial=$(dirname "$backup_archive")/.partial-$(basename "$backup_archive")
   shift
   if (umask 077 && tar -czf "$backup_partial" -C "$@"); then
-    mv -f "$backup_partial" "$backup_archive"
+    if ! mv -f "$backup_partial" "$backup_archive"; then
+      rm -f "$backup_partial"
+      return 1
+    fi
+    # Every producer shares this directory and lifecycle lock. Only a complete
+    # replacement may remove earlier manual, scheduled or upgrade archives.
+    for old_backup in "$(dirname "$backup_archive")"/*.tar.gz; do
+      [ "$old_backup" = "$backup_archive" ] || [ ! -f "$old_backup" ] || rm -f -- "$old_backup" || return 1
+    done
   else
     rm -f "$backup_partial"
     return 1
