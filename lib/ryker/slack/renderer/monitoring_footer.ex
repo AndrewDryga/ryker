@@ -30,14 +30,14 @@ defmodule Ryker.Slack.Renderer.MonitoringFooter do
 
   def text(status, native? \\ true) do
     checks = status["checks"]
-    count = Wording.count(checks, "check") <> " completed"
+    count = if checks > 0, do: Wording.count(checks, "check") <> " completed"
     time = fn at -> if native?, do: slack_date(at), else: display_time(at) end
 
     [
       count,
       status["last_check_at"] && "Last checked #{time.(status["last_check_at"])}",
-      label(status["state"], checks),
-      status["next_check_at"] && "Next check #{time.(status["next_check_at"])}",
+      label(status["state"], status["next_check_at"]),
+      status["next_check_at"] && "Next follow-up #{time.(status["next_check_at"])}",
       status["history_url"] &&
         if(native?,
           do: link(status["history_url"], "View checks"),
@@ -48,8 +48,8 @@ defmodule Ryker.Slack.Renderer.MonitoringFooter do
     |> Enum.join(" · ")
   end
 
-  defp label("waiting", 0), do: "Monitoring scheduled"
-  defp label("waiting", _checks), do: "No new reply needed"
+  defp label("waiting", nil), do: "Waiting for an update"
+  defp label("waiting", _next_check_at), do: "Follow-up scheduled"
   defp label("checking", _checks), do: "Check pending"
   defp label("failed", _checks), do: "Couldn't complete the latest check"
   defp label("cancelled", _checks), do: "Monitoring cancelled"

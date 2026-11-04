@@ -1,0 +1,60 @@
+{
+  "provenance": "Production controller event ledger harvested 2026-11-04 for a timed verification followed by a visible reply and an unscheduled human-update wait. Event ordering, decisions and timestamps retained; identities substituted; only host projection fields retained.",
+  "wait_ref": "record:event_wait:database-check",
+  "next_wait_ref": "record:event_wait:human-update",
+  "events": [
+    {
+      "kind": "result_accepted",
+      "payload": {
+        "delivery": "reply",
+        "occurred_at": "2026-11-04T19:45:36.508266Z",
+        "delivery_ref": "delivery:initial",
+        "expected_turn_ref": "turn:initial"
+      }
+    },
+    {
+      "kind": "delivery_confirmed",
+      "payload": {
+        "next_wait": {
+          "ref": "record:event_wait:database-check",
+          "kind": "event",
+          "deadline_at": "2026-11-04T20:45:00.000000Z"
+        },
+        "occurred_at": "2026-11-04T19:45:37.118363Z",
+        "expected_delivery_ref": "delivery:initial"
+      }
+    },
+    {
+      "kind": "wait_resumed",
+      "payload": {
+        "turn_ref": "turn:database-recheck",
+        "occurred_at": "2026-11-04T20:15:08.141475Z",
+        "expected_wait": {
+          "ref": "record:event_wait:database-check",
+          "kind": "event"
+        }
+      }
+    },
+    {
+      "kind": "result_accepted",
+      "payload": {
+        "delivery": "reply",
+        "occurred_at": "2026-11-04T20:17:20.715667Z",
+        "delivery_ref": "delivery:database-recheck",
+        "expected_turn_ref": "turn:database-recheck"
+      }
+    },
+    {
+      "kind": "delivery_confirmed",
+      "payload": {
+        "next_wait": {
+          "ref": "record:event_wait:human-update",
+          "kind": "event",
+          "deadline_at": null
+        },
+        "occurred_at": "2026-11-04T20:17:21.645309Z",
+        "expected_delivery_ref": "delivery:database-recheck"
+      }
+    }
+  ]
+}

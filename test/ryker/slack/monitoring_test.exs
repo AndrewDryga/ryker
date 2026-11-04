@@ -3,6 +3,54 @@ defmodule Ryker.Slack.MonitoringTest do
   alias Ryker.Slack.{Monitoring, Renderer}
 
   @captured Jason.decode!(File.read!("testdata/slack/quiet-followups.json"))
+  @handoff Jason.decode!(File.read!("testdata/slack/followup-handoff.json"))
+
+  # A real completed database recheck posted a follow-up and started another
+  # wait; that new reply said zero checks completed and promised monitoring.
+  test "a follow-up reply retains completed checks when it starts a new wait" do
+    assert Monitoring.project(@handoff["next_wait_ref"], @handoff["events"]) == %{
+             "checks" => 1,
+             "last_check_at" => "2026-11-04T20:17:20.715667Z",
+             "state" => "waiting",
+             "owner_ref" => @handoff["next_wait_ref"]
+           }
+
+    # The earlier message still records that its follow-up was delivered.
+    assert Monitoring.project(@handoff["wait_ref"], @handoff["events"])["state"] == "replied"
+  end
+
+  test "inherited check history follows only the matching wait lineage" do
+    assert Monitoring.project(
+             @handoff["next_wait_ref"],
+             @captured["events"] ++ @handoff["events"]
+           )[
+             "checks"
+           ] == 1
+
+    assert Monitoring.project("record:event_wait:fourth", @captured["events"])["checks"] == 3
+  end
+
+  test "an unscheduled wait promises an update rather than a scheduled check" do
+    status = %{
+      "checks" => 0,
+      "last_check_at" => nil,
+      "state" => "waiting",
+      "next_check_at" => nil,
+      "history_url" => nil
+    }
+
+    record = Map.put(wait_record(), "presentation", %{"monitoring" => status})
+
+    assert {:ok, result} =
+             Renderer.render(%{
+               "message" => "Changes saved, testing unfinished.",
+               "records" => [record]
+             })
+
+    assert result["text"] =~ "Waiting for an update"
+    refute result["text"] =~ "scheduled"
+    refute result["text"] =~ "0 checks"
+  end
 
   # Three successful quiet follow-ups left the original Slack footer promising
   # a check hours in the past (2026-10-26). A timer firing isn't a completed check.
@@ -93,8 +141,8 @@ defmodule Ryker.Slack.MonitoringTest do
     assert answer["text"] == "Original answer."
     text = hd(footer["elements"])["text"]
     assert text =~ "3 checks completed"
-    assert text =~ "No new reply needed"
-    assert text =~ "Next check <!date^"
+    assert text =~ "Follow-up scheduled"
+    assert text =~ "Next follow-up <!date^"
     assert text =~ "View checks"
     refute text =~ "Watching until"
     assert rendered["text"] =~ "3 checks completed"
@@ -111,7 +159,7 @@ defmodule Ryker.Slack.MonitoringTest do
       assert {:ok, result} =
                Renderer.render(%{"message" => "Original answer.", "records" => [changed]})
 
-      refute inspect(result) =~ "Next check"
+      refute inspect(result) =~ "Next follow-up"
       refute inspect(result) =~ "No new reply needed"
       if state == "failed", do: assert(inspect(result) =~ "Couldn't complete the latest check")
     end

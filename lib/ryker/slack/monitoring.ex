@@ -15,11 +15,88 @@ defmodule Ryker.Slack.Monitoring do
 
   @doc "Follows an original wait through ordered kernel events, ignoring unrelated turns."
   def project(wait_ref, events) do
+    {checks, last_check_at} =
+      events |> Enum.reduce(%{}, &check_history/2) |> Map.get({"event", wait_ref}, {0, nil})
+
     Enum.reduce(
       events,
-      %{"checks" => 0, "last_check_at" => nil, "state" => "waiting", "owner_ref" => wait_ref},
+      %{
+        "checks" => checks,
+        "last_check_at" => last_check_at,
+        "state" => "waiting",
+        "owner_ref" => wait_ref
+      },
       &advance/2
     )
+  end
+
+  # A visible follow-up can start another wait. Its footer inherits completed
+  # checks, while the earlier message still records that its reply was sent.
+  # Initial answers are not checks: only a resumed wait introduces a turn here.
+  defp check_history(
+         %{
+           "kind" => "wait_resumed",
+           "payload" => %{
+             "expected_wait" => %{"kind" => "event", "ref" => ref},
+             "turn_ref" => next
+           }
+         },
+         history
+       ),
+       do: Map.put(history, {"turn", next}, Map.get(history, {"event", ref}, {0, nil}))
+
+  defp check_history(
+         %{
+           "kind" => "owner_transferred",
+           "payload" => %{
+             "expected_owner" => %{"kind" => "turn", "ref" => ref},
+             "new_owner" => %{"kind" => "turn", "ref" => next}
+           }
+         },
+         history
+       ),
+       do: inherit_history(history, {"turn", ref}, {"turn", next})
+
+  defp check_history(
+         %{"kind" => "result_accepted", "payload" => %{"expected_turn_ref" => ref} = payload},
+         history
+       ) do
+    with {:ok, {checks, _at}} <- Map.fetch(history, {"turn", ref}),
+         {kind, next} <- completed_owner(payload) do
+      Map.put(history, {kind, next}, {checks + 1, payload["occurred_at"]})
+    else
+      _not_a_check -> history
+    end
+  end
+
+  defp check_history(
+         %{
+           "kind" => "delivery_confirmed",
+           "payload" => %{
+             "expected_delivery_ref" => ref,
+             "next_wait" => %{"kind" => "event", "ref" => next}
+           }
+         },
+         history
+       ),
+       do: inherit_history(history, {"delivery", ref}, {"event", next})
+
+  defp check_history(_event, history), do: history
+
+  defp completed_owner(%{
+         "delivery" => "none",
+         "next_wait" => %{"kind" => "event", "ref" => ref}
+       }),
+       do: {"event", ref}
+
+  defp completed_owner(%{"delivery" => "reply", "delivery_ref" => ref}), do: {"delivery", ref}
+  defp completed_owner(_payload), do: nil
+
+  defp inherit_history(history, from, next) do
+    case Map.fetch(history, from) do
+      {:ok, completed} -> Map.put(history, next, completed)
+      :error -> history
+    end
   end
 
   defp advance(

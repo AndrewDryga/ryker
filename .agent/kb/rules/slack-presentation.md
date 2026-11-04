@@ -205,6 +205,17 @@ or publish internal decision reasons. Preserve the original reply and human
 answers. Quiet checks update the same message through durable repaint custody;
 normal replies for changed outcomes keep their existing delivery path.
 
+An unscheduled event wait says “Waiting for an update,” without a zero-check
+counter or a promise of scheduled monitoring. A timed wait says “Follow-up
+scheduled” and gives its actual next follow-up. A new reply continuing the same
+wait lineage inherits completed-check history; the earlier reply still records
+that its follow-up was delivered. Do not repeat an unchanged human blocker in
+new messages. Ask an actionable question once, stay quiet while it remains open,
+and send a reminder only when an explicitly scheduled reminder is due. An
+unsupported execution capability is Ryker's limitation, not something a person
+can supply to the running Coop job; never ask them for a database connection or
+schedule reminders to add capabilities.
+
 An ordinary edit to an otherwise available source keeps the exact original
 reply text with a small note: “Some information behind this reply has changed.
 It may be out of date.” Keep its read-only record details and accepted-answer

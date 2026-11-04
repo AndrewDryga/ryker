@@ -36,6 +36,27 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "Preserve the repository's required tests and review checks"
   end
 
+  test "an unavailable execution capability never becomes an impossible human prerequisite" do
+    # A real change waited for a person to supply a test database even though
+    # people cannot add capabilities to an admitted Coop run.
+    instructions = normalized_instructions()
+    assert instructions =~ "People cannot add execution capabilities to a Coop run"
+    assert instructions =~ "do not ask them to supply a database connection"
+
+    assert instructions =~
+             "Do not request or schedule reminders for an unavailable execution capability"
+
+    assert instructions =~
+             "preserve the changes and state exactly which required checks remain unverified"
+  end
+
+  test "an unchanged human wait stays quiet except for its explicitly due reminder" do
+    instructions = normalized_instructions()
+    assert instructions =~ "A continued human wait is not a new update"
+    assert instructions =~ "Only send a reminder when an explicitly scheduled reminder is due"
+    assert instructions =~ "Keep the already delivered question and its existing wait"
+  end
+
   test "finishing instructions name exactly the provider's required candidate fields" do
     # Every Work turn still said four fields after title became a fifth required
     # field. A valid example must not contradict the final-call checklist.
