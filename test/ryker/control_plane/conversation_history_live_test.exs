@@ -152,11 +152,20 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
 
     # One message committed with a timestamp between loaded rows, then a
     # burst of sixty: more than one page arrives between two refreshes.
-    {:ok, %{entry: backdated}} = send!(id, "Backdated between 100 and 101", 1000)
+    # The Linux gate twice let the announcement render the provisional timestamp.
+    # Commit its final sort key before subscribers can cache this arrival's position.
+    {:ok, backdated} =
+      Repo.transaction(fn ->
+        {:ok, %{entry: entry}} = send!(id, "Backdated between 100 and 101", 1000)
 
-    Repo.update_all(from(e in Entry, where: e.id == ^backdated.id),
-      set: [inserted_at: DateTime.add(@epoch, 100, :second) |> DateTime.add(500, :millisecond)]
-    )
+        Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
+          set: [
+            inserted_at: DateTime.add(@epoch, 100, :second) |> DateTime.add(500, :millisecond)
+          ]
+        )
+
+        entry
+      end)
 
     for index <- 121..180, do: send!(id, "Message #{index}", index)
     render_hook(view, "refresh", %{})

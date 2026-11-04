@@ -17,6 +17,7 @@ defmodule Ryker.Coop.Client do
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Crypto
   alias Ryker.Evals.Job
+  alias Ryker.Learning
   alias Ryker.Repo
   alias Ryker.Work.{OperationKeys, RepositorySource, Session, ValidationIntent}
 
@@ -384,25 +385,42 @@ defmodule Ryker.Coop.Client do
 
   defp eval_session(key) do
     query = from(session in Session, lock: "FOR UPDATE")
+    eval_session_key(String.split(key, ":"), query)
+  end
 
-    case String.split(key, ":") do
-      ["ryker", "work", "create", id, "g" <> generation] ->
-        with {:ok, id} <- Ecto.UUID.cast(id),
-             {generation, ""} <- Integer.parse(generation) do
-          Repo.one(
-            from(session in query,
-              where: session.id == ^id and session.create_generation == ^generation
-            )
+  defp eval_session_key(["ryker", "work", "create", id, "g" <> generation], query) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         {generation, ""} <- Integer.parse(generation) do
+      Repo.one(
+        from(session in query,
+          where: session.id == ^id and session.create_generation == ^generation
+        )
+      )
+    else
+      _invalid -> nil
+    end
+  end
+
+  defp eval_session_key(["ryker", "learning", "create", id], query),
+    do: learning_eval_session(query, id, 1)
+
+  defp eval_session_key(["ryker", "learning", "create", id, "g" <> generation], query) do
+    case Integer.parse(generation) do
+      {generation, ""} when generation > 1 -> learning_eval_session(query, id, generation)
+      _invalid -> nil
+    end
+  end
+
+  defp eval_session_key(_key, _query), do: nil
+
+  defp learning_eval_session(query, id, generation) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        Repo.one(
+          from(session in query,
+            where: session.learning_run_id == ^id and session.create_generation == ^generation
           )
-        else
-          _invalid -> nil
-        end
-
-      ["ryker", "learning", "create", id] ->
-        case Ecto.UUID.cast(id) do
-          {:ok, id} -> Repo.one(from(session in query, where: session.learning_run_id == ^id))
-          :error -> nil
-        end
+        )
 
       _invalid ->
         nil
@@ -412,8 +430,8 @@ defmodule Ryker.Coop.Client do
   defp exact_create_key?(%Session{execution_kind: :work} = session, key),
     do: key == OperationKeys.create(session)
 
-  defp exact_create_key?(%Session{execution_kind: :learning, learning_run_id: id}, key),
-    do: key == "ryker:learning:create:#{id}"
+  defp exact_create_key?(%Session{execution_kind: :learning} = session, key),
+    do: key == Learning.FleetSession.create_key(session)
 
   defp exact_create_key?(_session, _key), do: false
 

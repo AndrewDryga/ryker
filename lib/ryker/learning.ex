@@ -12,7 +12,7 @@ defmodule Ryker.Learning do
   alias Ryker.Ingress
   alias Ryker.JSONSchema
   alias Ryker.Knowledge
-  alias Ryker.Learning.{Batches, Rebuilds}
+  alias Ryker.Learning.{Batches, FleetSession, Rebuilds}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
@@ -380,9 +380,16 @@ defmodule Ryker.Learning do
       if is_nil(run.submit_revision), do: authorize_submission!(run)
 
       case run.submit_revision do
-        nil -> run |> Ecto.Changeset.change(submit_revision: revision) |> Repo.update!()
-        ^revision -> run
-        _ -> Repo.rollback(:learning_submission_conflict)
+        nil ->
+          run
+          |> Ecto.Changeset.change(submit_revision: revision, submit_started_at: Repo.now!())
+          |> Repo.update!()
+
+        ^revision ->
+          run
+
+        _ ->
+          Repo.rollback(:learning_submission_conflict)
       end
     end)
   end
@@ -535,6 +542,13 @@ defmodule Ryker.Learning do
     end)
   end
 
+  @doc "The persisted first-submission clock, with the original clock for historical attempts."
+  @spec execution_started_at(LearningRun.t()) :: DateTime.t() | nil
+  def execution_started_at(%LearningRun{submit_revision: nil, started_at: started_at}),
+    do: started_at
+
+  def execution_started_at(%LearningRun{} = run), do: run.submit_started_at || run.started_at
+
   @doc """
   Stop an attempt whose turn may have reached the model once no turn of it can
   still be running, whatever its worker last said. A turn is sent only inside
@@ -545,8 +559,10 @@ defmodule Ryker.Learning do
   def record_expired_stop(id, closed_after_seconds, claim)
       when is_integer(closed_after_seconds) and closed_after_seconds > 0 do
     owned_transaction(id, claim, fn run ->
-      unless run.status in [:stale, :rejected] and not is_nil(run.started_at) and
-               DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
+      started_at = execution_started_at(run)
+
+      unless run.status in [:stale, :rejected] and not is_nil(started_at) and
+               DateTime.diff(Repo.now!(), started_at) >= closed_after_seconds,
              do: Repo.rollback(:learning_remote_unresolved)
 
       session = Repo.peek(Work.Session.Query.by_learning_run_id(id))
@@ -560,8 +576,43 @@ defmodule Ryker.Learning do
     end)
   end
 
+  @doc "Begin the current physical create window without changing the logical attempt's start."
+  def begin_create_window(id, claim),
+    do: owned_transaction(id, claim, &begin_create_window!/1)
+
+  defp begin_create_window!(
+         %LearningRun{
+           status: :prepared,
+           submit_revision: nil,
+           create_window_started_at: nil
+         } = run
+       ) do
+    run |> Ecto.Changeset.change(create_window_started_at: Repo.now!()) |> Repo.update!()
+  end
+
+  defp begin_create_window!(run), do: run
+
+  @doc "Pause only pre-submission resource waiting, retaining all start and model budgets."
+  def pause_create_window(id, claim),
+    do: owned_transaction(id, claim, &pause_create_window!/1)
+
+  defp pause_create_window!(
+         %LearningRun{
+           status: :prepared,
+           submit_revision: nil,
+           coop_turn_id: nil,
+           create_window_started_at: %DateTime{}
+         } = run
+       ) do
+    run |> Ecto.Changeset.change(create_window_started_at: nil) |> Repo.update!()
+  end
+
+  defp pause_create_window!(run), do: run
+
   @doc "The idempotency key of a pass's `:create`, `:submit` or `:cancel` call to Coop."
-  def operation_key(%LearningRun{id: id}, phase) when phase in [:create, :submit, :cancel],
+  def operation_key(%LearningRun{} = run, :create), do: FleetSession.create_key(run)
+
+  def operation_key(%LearningRun{id: id}, phase) when phase in [:submit, :cancel],
     do: "ryker:learning:#{phase}:#{id}"
 
   @doc "End an unusable judgment without confusing it with successful learning or remote cleanup."

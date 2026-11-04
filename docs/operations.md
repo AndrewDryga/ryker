@@ -585,6 +585,12 @@ filesystems; early warnings target more headroom. Existing requests remain in du
 waits. Cache cleanup cannot recover space held by active or retained work, or unrelated host data;
 those require capacity or workload changes. The maintenance policy does not restart either daemon.
 
+Learning keeps its logical attempt and start budget while a native session create is refused for
+storage. Only an exact failed-create receipt with no session or submission permits a fresh physical
+create key. The original receipts remain, and the first model submission starts its own execution
+clock. Cleanup reads creation evidence in bounded cursor batches; many proven refusals are not
+conflicting evidence, and any unresolved or crossed ownership still protects the copy.
+
 On a Mac, `scripts/install-watchdog.sh` installs `scripts/watchdog.sh` as a launch agent. Once a
 minute it checks `/readyz` and the pinned version, the project's containers, the models beside
 Ryker, blocked work in `/metrics` and the whisper servers on the Mac's GPU when `compose.env` names

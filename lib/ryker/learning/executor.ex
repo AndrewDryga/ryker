@@ -15,9 +15,7 @@ defmodule Ryker.Learning.Executor do
     result =
       case Learning.authorize(run.id, claim) do
         {:ok, run} ->
-          if Repo.passed?(run.started_at, settings.execution_timeout_seconds),
-            do: stop(claim, run, :learning_execution_timeout, settings),
-            else: execute(claim, run, settings)
+          execute_authorized(claim, run, settings)
 
         {:error, :learning_lease_lost} ->
           {:error, :learning_lease_lost}
@@ -30,13 +28,18 @@ defmodule Ryker.Learning.Executor do
       end
 
     case result do
-      {:error, {:operation_failed, phase, operation}} ->
+      {:error,
+       {:operation_failed, :create, key, %{"error_code" => "storage_unavailable"} = operation}} ->
+        with {:ok, session} <- FleetSession.advance_create(claim, run, key, operation),
+             do: {:error, {:learning_storage_unavailable, session.id}}
+
+      {:error, {:operation_failed, phase, key, operation}} ->
         with {:ok, _} <- Learning.end_attempt(run.id, :learning_provider_failed, claim),
              {:ok, _} <-
                Learning.record_fenced_absence(
                  run.id,
                  phase,
-                 Learning.operation_key(run, phase),
+                 key,
                  operation,
                  claim
                ),
@@ -46,6 +49,35 @@ defmodule Ryker.Learning.Executor do
         other
     end
   end
+
+  defp execute_authorized(claim, %{submit_revision: revision} = run, settings)
+       when is_integer(revision),
+       do: execute_with_deadline(claim, run, settings)
+
+  defp execute_authorized(claim, run, settings) do
+    with {:ok, run} <- Learning.begin_create_window(run.id, claim),
+         do: execute_with_deadline(claim, run, settings)
+  end
+
+  defp execute_with_deadline(claim, run, settings) do
+    if execution_expired?(run, settings.execution_timeout_seconds),
+      do: stop(claim, run, :learning_execution_timeout, settings),
+      else: execute(claim, run, settings)
+  end
+
+  defp execution_expired?(run, seconds) do
+    case execution_started_at(run) do
+      nil -> false
+      started_at -> Repo.passed?(started_at, seconds)
+    end
+  end
+
+  defp execution_started_at(%{submit_revision: revision} = run) when is_integer(revision),
+    do: Learning.execution_started_at(run)
+
+  # Resource waiting pauses only physical creation. Pending operations still
+  # have a bounded window; model execution has its own once-frozen clock.
+  defp execution_started_at(run), do: run.create_window_started_at || run.started_at
 
   defp execute(claim, run, settings) do
     case remote_session(claim, run, settings, :create) do
@@ -412,11 +444,11 @@ defmodule Ryker.Learning.Executor do
            stopped_turn(claim, run, session, settings) do
       settle_stopped_turn(claim, run, session, turn, settings)
     else
-      {:error, {:operation_failed, phase, operation}} ->
+      {:error, {:operation_failed, phase, key, operation}} ->
         Learning.record_fenced_absence(
           run.id,
           phase,
-          Learning.operation_key(run, phase),
+          key,
           operation,
           claim
         )
@@ -482,10 +514,10 @@ defmodule Ryker.Learning.Executor do
 
     case result do
       {:ok, %{"operation" => op}} ->
-        operation_result(op, method, type, fetch, phase)
+        operation_result(op, method, type, fetch, phase, key)
 
       {:ok, %{"method" => _} = op} ->
-        operation_result(op, method, type, fetch, phase)
+        operation_result(op, method, type, fetch, phase, key)
 
       {:ok, resource} when is_map(resource) ->
         case resource[type] do
@@ -508,18 +540,26 @@ defmodule Ryker.Learning.Executor do
          method,
          type,
          fetch,
-         _phase
+         _phase,
+         _key
        )
        when is_binary(id), do: fetch.(id)
 
-  defp operation_result(%{"method" => method, "state" => "failed"} = op, method, _, _, phase),
-    do: {:error, {:operation_failed, phase, op}}
+  defp operation_result(
+         %{"method" => method, "state" => "failed"} = op,
+         method,
+         _,
+         _,
+         phase,
+         key
+       ),
+       do: {:error, {:operation_failed, phase, key, op}}
 
-  defp operation_result(%{"method" => method, "state" => state}, method, _, _, _)
+  defp operation_result(%{"method" => method, "state" => state}, method, _, _, _, _)
        when state in @pending,
        do: {:ok, :waiting}
 
-  defp operation_result(_, _, _, _, _), do: {:error, :learning_remote_unresolved}
+  defp operation_result(_, _, _, _, _, _), do: {:error, :learning_remote_unresolved}
 
   defp exact_session(
          %{

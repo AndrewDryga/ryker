@@ -687,6 +687,79 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert Repo.get!(Session, session.id).cleanup_receipt == nil
   end
 
+  test "many proven failed creates can still settle unbound cleanup" do
+    # A long storage wait now keeps one logical attempt. Counting its physical
+    # create generations as conflicting evidence stranded cleanup after 100.
+    worker = enroll!("many-refused-creates")
+    {session, _remote} = unbound_created_session!("many-refused-creates", worker, false)
+
+    original =
+      Repo.one!(
+        from(c in Command, where: c.session_id == ^session.id and c.kind == "create_session")
+      )
+
+    creates =
+      for index <- 1..128 do
+        key = "ryker:work:create:#{session.id}:g#{index}"
+
+        command = %{
+          original
+          | id: Ecto.UUID.generate(),
+            idempotency_key: key,
+            inserted_at: DateTime.add(original.inserted_at, index, :microsecond)
+        }
+
+        fingerprint =
+          Ryker.CanonicalJSON.digest(%{
+            "idempotency_key" => key,
+            "kind" => command.kind,
+            "payload" => command.payload,
+            "placement_id" => command.placement_id,
+            "version" => command.command_version
+          })
+
+        operation = %{
+          "id" => "op_" <> digest(key),
+          "method" => "CreateRemoteSession",
+          "state" => "failed",
+          "error_code" => "storage_unavailable"
+        }
+
+        result = %{"status" => 200, "body" => %{"operation" => operation}}
+
+        if index == 1 do
+          original |> Ecto.Changeset.change(result: result) |> Repo.update!()
+        else
+          Repo.insert!(%{command | payload_fingerprint: fingerprint, result: result})
+        end
+      end
+
+    assert Creation.resolve(session) == {:ok, :absent}
+    assert {:ok, claim} = Custody.claim_next("cleanup:many-refused-creates", 300)
+    last = List.last(creates)
+    assert Creation.lookup_on_holder?(claim.session, worker, last.idempotency_key)
+
+    # An unresolved generation beyond the former read bound still protects
+    # the copy; neither its position nor the other absences can erase it.
+    pending = List.last(creates)
+
+    Repo.update!(
+      Ecto.Changeset.change(pending,
+        result: put_in(pending.result, ["body", "operation", "state"], "running")
+      )
+    )
+
+    assert {:pending, unresolved} = Creation.resolve(session)
+    assert unresolved.id == pending.id
+    Repo.update!(Ecto.Changeset.change(Repo.get!(Command, pending.id), result: pending.result))
+    assert {:ok, {:absent, _}} = Custody.recover_creation(session.id, claim.lease_ref)
+
+    assert {:ok, %{cleanup_status: :discarded}} =
+             Custody.settle_absent(session.id, claim.lease_ref)
+
+    assert Repo.aggregate(from(c in Command, where: c.session_id == ^session.id), :count) == 128
+  end
+
   test "repeated pending reads cannot hide an exact terminal create result" do
     # Two live requests had 115 and 120 status polls before storage refusal.
     # Counting those polls as distinct evidence blocked both despite the exact

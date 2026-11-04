@@ -1343,6 +1343,39 @@ defmodule Ryker.Work.ExecutorTest do
     assert waiting.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
   end
 
+  test "a refused checkpoint preserves the answer and names the repair without spending retries" do
+    # A credential refusal was hidden as a 500, spending every finalization
+    # retry and leaving a completed production task with no useful diagnosis.
+    {claim, fake} = completed_runner_wait!("checkpoint-refused")
+
+    refusal =
+      {:coop_error, 409, "invalid_session_state", "workspace checkpoint contains a credential"}
+
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, refusal))
+
+    assert {:ok, {:blocked, ^refusal}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "checkpoint-refused",
+               executor_options: options(fake),
+               max_attempts: 8
+             )
+
+    blocked = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert blocked.status == :blocked
+    assert blocked.work_attempt_count == claim.turn.work_attempt_count
+    assert blocked.cancellation_intent == nil
+    assert blocked.candidate == claim.turn.candidate
+    assert blocked.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+
+    assert Ryker.Work.FailureCause.explain(blocked.last_error_detail).cause =~
+             "workspace checkpoint contains a credential"
+
+    assert FakeAPI.state(fake).session["state"] == "open"
+    assert FakeAPI.state(fake).cancel_keys == []
+    assert FakeAPI.state(fake).submit_count == 0
+    assert FakeAPI.state(fake).create_count == 0
+  end
+
   test "a completed checkpoint failure preserves the answer and retries finalization without model replay" do
     # The generic stop path closed the completed runner session and stranded its
     # patch. Finalization recovery must retain the exact turn, answer and worker.

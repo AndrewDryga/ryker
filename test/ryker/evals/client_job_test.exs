@@ -156,6 +156,37 @@ defmodule Ryker.Evals.ClientJobTest do
     assert pinned.worker_job_document["source"] == nil
     assert pinned.worker_job_document["repository_read_only"]
     assert {:ok, ^pinned} = JobAuthority.validate(pinned)
+
+    # Storage retries keep the frozen job but use the current physical create.
+    Repo.update!(Session.Changeset.advance_create(pinned, 2))
+    retry_key = Ryker.Learning.operation_key(run, :create)
+    assert retry_key != key
+
+    assert Client.prepare_create_session(
+             %{client | job: job},
+             retry_key,
+             job.name,
+             FleetSession.external_ref(run),
+             nil
+           ) == :ok
+
+    for stale <- [
+          key,
+          retry_key <> "0",
+          String.replace_suffix(retry_key, "g2", "g02"),
+          String.replace_suffix(retry_key, "g2", "g1")
+        ] do
+      assert {:error, _} =
+               Client.prepare_create_session(
+                 %{client | job: job},
+                 stale,
+                 job.name,
+                 FleetSession.external_ref(run),
+                 nil
+               )
+    end
+
+    assert Repo.get!(Session, session.id).worker_job_document == pinned.worker_job_document
   end
 
   test "weekly qualification pins its exact standalone job before any network call", %{

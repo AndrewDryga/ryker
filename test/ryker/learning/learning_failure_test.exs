@@ -437,6 +437,8 @@ defmodule Ryker.Learning.LearningFailureTest do
           :batch_budget_version,
           :rebuild,
           :started_at,
+          :submit_started_at,
+          :create_window_started_at,
           :submit_revision,
           :coop_turn_id,
           :candidate_attempt,

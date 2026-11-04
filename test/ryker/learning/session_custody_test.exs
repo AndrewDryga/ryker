@@ -364,6 +364,16 @@ defmodule Ryker.Learning.SessionCustodyTest do
     assert %Batch{status: :deferred, error_code: "learning_remote_unresolved"} =
              drive_to_terminal!(settings, 13)
 
+    # Disk preparation can be days older than the actual submission. Expiring
+    # from that old timestamp would release a freshly running model's custody.
+    Repo.update_all(from(r in LearningRun, where: r.id == ^submitted.id),
+      set: [started_at: DateTime.add(Repo.now!(), -3 * 24 * 3_600)]
+    )
+
+    make_due!()
+    assert {:ok, %Batch{id: ^id, status: :deferred}} = Dispatcher.run_once(settings)
+    assert is_nil(Repo.get!(LearningRun, submitted.id).remote_stopped_at)
+
     # Within a day the turn may still be running, so the conversation waits.
     age!(submitted, 23 * 3_600)
     make_due!()
@@ -509,12 +519,15 @@ defmodule Ryker.Learning.SessionCustodyTest do
 
   defp drive_to_terminal!(_, _), do: flunk("the attempt did not reach its reconciliation budget")
 
-  # Move an attempt's start back by the database clock, which decides expiry.
+  # Age the actual submission as well as preparation by the database clock.
   defp age!(run, seconds) do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
 
     Repo.update_all(from(r in LearningRun, where: r.id == ^run.id),
-      set: [started_at: DateTime.add(now, -seconds)]
+      set: [
+        started_at: DateTime.add(now, -seconds),
+        submit_started_at: DateTime.add(now, -seconds)
+      ]
     )
   end
 

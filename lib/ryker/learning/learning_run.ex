@@ -9,6 +9,8 @@ defmodule Ryker.Learning.LearningRun do
     field(:rebuild, Ryker.CanonicalJSON.Type)
     field(:started_at, :utc_datetime_usec)
     field(:submit_revision, :integer)
+    field(:submit_started_at, :utc_datetime_usec)
+    field(:create_window_started_at, :utc_datetime_usec)
     field(:coop_turn_id, :string)
     field(:candidate_attempt, :integer)
     field(:validation_receipt, Ryker.CanonicalJSON.Type)

@@ -228,6 +228,15 @@ execution mode, lease owner/expiry, heartbeat, start count, next attempt time an
 table has Inbox entry ID as primary key, an exact batch FK and terminal reason. Claim and input
 assignment are atomic; lease expiry recovers the same batch. A LearningRun gets `started_at` and
 frozen remote operation identity before first submission; resume cannot set a second start.
+A native storage refusal proven to have created no session advances only the physical create
+identity within that same run. It changes no start allowance, frozen prompt or model budget.
+Physical creation uses `create_window_started_at`; proven resource waiting pauses that window,
+while an unresolved healthy operation still has its bounded preparation time. A later retry opens
+a fresh physical window and preserves the original logical start. The first submit freezes
+`submit_started_at` once; execution and remote-expiry checks use that
+clock for submitted runs, preserving `started_at` as the original host start. Historical submitted
+runs without the newer clock retain their recorded start. Old create receipts remain available to
+cleanup, which streams all evidence rather than treating more than 100 attempts as ambiguity.
 Provider failure, semantic rejection and match correction have separate reasons but share the
 absolute start budget. Source/version invalidation before a start is free; invalidating a completed
 model execution does not undo its cost. No reset on a new generation or receipt pruning.

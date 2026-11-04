@@ -209,11 +209,14 @@ defmodule Ryker.Learning.Dispatcher do
 
   defp failed(
          claim,
-         {:ok, _outstanding},
-         {:coop_worker_capacity_unavailable, _session},
+         {:ok, outstanding},
+         {reason, _session},
          _settings
-       ),
-       do: Batches.yield(claim, @worker_hold_seconds)
+       )
+       when reason in [:coop_worker_capacity_unavailable, :learning_storage_unavailable] do
+    with {:ok, _run} <- Learning.pause_create_window(outstanding.id, claim),
+         do: Batches.yield(claim, @worker_hold_seconds)
+  end
 
   defp failed(claim, {:ok, outstanding}, reason, settings),
     do: unresolved(claim, outstanding, settings, reason)

@@ -445,6 +445,9 @@ defmodule Ryker.Work.Session.Query do
     })
   end
 
+  def select_create_generation(queryable),
+    do: select(queryable, [episode_work_sessions: s], s.create_generation)
+
   def select_generation(queryable),
     do: select(queryable, [episode_work_sessions: s], s.generation)
 

@@ -7,17 +7,46 @@ defmodule Ryker.Retention.Creation do
 
   @doc "No create, an exact created resource, or the original key that still needs reconciliation."
   def resolve(%Work.Session{} = session) do
-    commands =
-      Repo.all(CoopFleet.Command.Query.limit_to(CoopFleet.Command.Query.creates(session.id), 101))
-
-    if length(commands) > 100 do
-      {:error, :retention_creation_ambiguous}
+    if Repo.in_transaction?() do
+      resolve_in_transaction(session)
     else
-      commands
-      |> Enum.map(&resolve_command(session, &1))
-      |> combine()
+      Repo.transaction(fn -> resolve_in_transaction(session) end)
+      |> transaction_result()
     end
   end
+
+  defp transaction_result({:ok, result}), do: result
+  defp transaction_result({:error, reason}), do: {:error, reason}
+
+  defp resolve_in_transaction(session) do
+    deadline = cleanup_deadline(session)
+
+    # A long resource wait may have many proven failed physical creates.
+    # Bound each read, not the amount of valid evidence that can be reconciled.
+    session.id
+    |> CoopFleet.Command.Query.creates()
+    |> Repo.stream(max_rows: 100)
+    |> Enum.reduce_while(%{pending: nil, created: nil}, fn command, state ->
+      result =
+        if deadline_expired?(deadline),
+          do: {:error, :retention_lease_lost},
+          else: resolve_command(session, command, deadline)
+
+      combine(result, state)
+    end)
+    |> finish()
+  end
+
+  defp cleanup_deadline(%Work.Session{
+         cleanup_lease_ref: lease,
+         cleanup_lease_expires_at: %DateTime{} = expires
+       })
+       when is_binary(lease),
+       do: System.monotonic_time(:millisecond) + DateTime.diff(expires, Repo.now!(), :millisecond)
+
+  defp cleanup_deadline(_session), do: nil
+  defp deadline_expired?(nil), do: false
+  defp deadline_expired?(deadline), do: System.monotonic_time(:millisecond) >= deadline
 
   @doc "Whether the existing routing still addresses the create's exact original worker."
   def on_original_holder?(session, command) do
@@ -35,42 +64,57 @@ defmodule Ryker.Retention.Creation do
 
   @doc "A leased unbound cleanup may only read its original create key on its proven holder."
   def lookup_on_holder?(%Work.Session{} = session, worker_id, key \\ nil) do
-    leased? =
-      session.cleanup_status == :close_pending and is_binary(session.cleanup_lease_ref) and
-        match?(%DateTime{}, session.cleanup_lease_expires_at) and
-        DateTime.compare(session.cleanup_lease_expires_at, Repo.now!()) == :gt
-
-    if leased? do
-      case resolve(session) do
-        {:pending, command} ->
-          lookup_command?(session, command, worker_id, key)
-
-        {:ok, {:created, command, _id}} ->
-          lookup_command?(session, command, worker_id, key)
-
-        {:ok, :absent} ->
-          # A terminal reply may arrive in the poll delivering this GET. The
-          # same original-key read remains harmless; no new create is admitted.
-          session.id
-          |> CoopFleet.Command.Query.creates()
-          |> CoopFleet.Command.Query.limit_to(100)
-          |> Repo.all()
-          |> Enum.any?(&lookup_command?(session, &1, worker_id, key))
-
-        _ ->
-          false
-      end
-    else
-      false
-    end
+    if cleanup_lookup_allowed?(session, worker_id),
+      do: lookup_resolution(resolve(session), session, worker_id, key),
+      else: false
   end
+
+  defp cleanup_lookup_allowed?(
+         %Work.Session{
+           cleanup_status: :close_pending,
+           cleanup_lease_ref: lease,
+           cleanup_lease_expires_at: %DateTime{} = expires
+         },
+         worker_id
+       )
+       when is_binary(lease) and is_binary(worker_id),
+       do: DateTime.compare(expires, Repo.now!()) == :gt
+
+  defp cleanup_lookup_allowed?(_session, _worker_id), do: false
+
+  defp lookup_resolution({:pending, command}, session, worker_id, key),
+    do: lookup_command?(session, command, worker_id, key)
+
+  defp lookup_resolution({:ok, {:created, command, _id}}, session, worker_id, key),
+    do: lookup_command?(session, command, worker_id, key)
+
+  defp lookup_resolution({:ok, :absent}, session, worker_id, key) do
+    # A terminal reply may arrive in the poll delivering this GET. The same
+    # original-key read remains harmless; no new create is admitted.
+    query =
+      session.id
+      |> CoopFleet.Command.Query.creates()
+      |> CoopFleet.Command.Query.by_worker_id(worker_id)
+
+    query =
+      if is_binary(key),
+        do: CoopFleet.Command.Query.by_idempotency_key(query, key),
+        else: query
+
+    command = query |> CoopFleet.Command.Query.limit_to(1) |> Repo.peek()
+    lookup_command?(session, command, worker_id, key)
+  end
+
+  defp lookup_resolution(_result, _session, _worker_id, _key), do: false
+
+  defp lookup_command?(_session, nil, _worker_id, _key), do: false
 
   defp lookup_command?(session, command, worker_id, key) do
     command.worker_id == worker_id and (is_nil(key) or key == command.idempotency_key) and
       on_original_holder?(session, command)
   end
 
-  defp resolve_command(session, %CoopFleet.Command{placement_id: nil} = command) do
+  defp resolve_command(session, %CoopFleet.Command{placement_id: nil} = command, _deadline) do
     if CoopFleet.ControlPlane.Commands.local_fence?(command) and is_nil(command.delivered_at) and
          is_nil(command.result) and
          command.payload ==
@@ -83,46 +127,59 @@ defmodule Ryker.Retention.Creation do
        else: {:error, :retention_creation_provenance_mismatch}
   end
 
-  defp resolve_command(session, command) do
+  defp resolve_command(session, command, deadline) do
     if exact_create?(session, command),
-      do: resolve_exact_command(command),
+      do: resolve_exact_command(command, deadline),
       else: {:error, :retention_creation_provenance_mismatch}
   end
 
-  defp resolve_exact_command(command) do
-    operation = operation(command.result)
+  defp resolve_exact_command(command, deadline) do
+    original = operation(command.result)
 
-    reconciliations =
-      command
-      |> CoopFleet.Command.Query.select_creation_reconciliation_results()
-      |> Repo.all()
+    state = %{
+      terminal: if(terminal?(original), do: original),
+      any_operation: not is_nil(original)
+    }
 
-    reconciled =
-      reconciliations
-      |> Enum.map(&operation/1)
-      |> Enum.filter(&(same_operation?(&1, operation) and terminal?(&1)))
-
-    results = if terminal?(operation), do: [operation | reconciled], else: reconciled
-
-    # A refused create made nothing however often cleanup asked about it since; only an answer
-    # naming an operation could say otherwise. Counting the questions first turned a worker's
-    # refusal into "ambiguous" once cleanup had asked 100 times (2026-10-12, 116 asks).
-    # Repeated pending reads are one observation, not conflicting resources.
-    # Read every distinct result: a row limit hid old proof and also rejected
-    # exact terminal proof after a slow create had been polled 115 times.
-    if refused?(command) and is_nil(operation) and
-         Enum.all?(reconciliations, &is_nil(operation(&1))),
-       do: :absent,
-       else: terminal_result(results, command)
+    command
+    |> CoopFleet.Command.Query.select_creation_reconciliation_results()
+    |> Repo.stream(max_rows: 100)
+    |> Enum.reduce_while(state, &fold_reconciliation(&1, &2, original, deadline))
+    |> finish_command(command)
   end
 
-  defp terminal_result(results, command) do
-    case Enum.uniq_by(results, &Map.take(&1, ~w(id method state resource_type resource_id))) do
-      [result] -> creation_result(result, command)
-      [] -> {:pending, command}
-      _ -> {:error, :retention_creation_ambiguous}
+  defp fold_reconciliation(result, state, original, deadline) do
+    if deadline_expired?(deadline) do
+      {:halt, {:error, :retention_lease_lost}}
+    else
+      observed = operation(result)
+      state = %{state | any_operation: state.any_operation or not is_nil(observed)}
+
+      if same_operation?(observed, original) and terminal?(observed),
+        do: terminal_result(observed, state),
+        else: {:cont, state}
     end
   end
+
+  defp terminal_result(result, %{terminal: nil} = state),
+    do: {:cont, %{state | terminal: result}}
+
+  defp terminal_result(result, state) do
+    fields = ~w(id method state resource_type resource_id)
+
+    if Map.take(result, fields) == Map.take(state.terminal, fields),
+      do: {:cont, state},
+      else: {:halt, {:error, :retention_creation_ambiguous}}
+  end
+
+  defp finish_command({:error, reason}, _command), do: {:error, reason}
+
+  defp finish_command(%{any_operation: false}, command) do
+    if refused?(command), do: :absent, else: {:pending, command}
+  end
+
+  defp finish_command(%{terminal: nil}, command), do: {:pending, command}
+  defp finish_command(%{terminal: result}, command), do: creation_result(result, command)
 
   # Ryker refused the create before delivering it, or the worker refused it before sending it to
   # its daemon: Coop reports that as invalid_command, a definite failure its daemon never saw
@@ -210,17 +267,24 @@ defmodule Ryker.Retention.Creation do
 
   defp creation_result(_result, _command), do: {:error, :retention_creation_provenance_mismatch}
 
-  defp combine(results) do
-    errors = Enum.filter(results, &match?({:error, _}, &1))
-    pending = Enum.filter(results, &match?({:pending, _}, &1))
-    created = Enum.filter(results, &match?({:created, _, _}, &1))
+  defp combine(:absent, state), do: {:cont, state}
+  defp combine({:error, reason}, _state), do: {:halt, {:error, reason}}
 
-    case {errors, pending, created} do
-      {[error | _], _, _} -> error
-      {[], [{:pending, command} | _], _} -> {:pending, command}
-      {[], [], []} -> {:ok, :absent}
-      {[], [], [{:created, command, id}]} -> {:ok, {:created, command, id}}
-      _ -> {:error, :retention_creation_ambiguous}
-    end
-  end
+  defp combine({:pending, command}, state),
+    do: {:cont, %{state | pending: state.pending || command}}
+
+  defp combine({:created, command, id}, %{created: nil} = state),
+    do: {:cont, %{state | created: {command, id}}}
+
+  defp combine({:created, _command, _id}, state),
+    do: {:cont, %{state | created: :ambiguous}}
+
+  defp finish({:error, reason}), do: {:error, reason}
+  defp finish(%{pending: %CoopFleet.Command{} = command}), do: {:pending, command}
+  defp finish(%{pending: nil, created: nil}), do: {:ok, :absent}
+
+  defp finish(%{pending: nil, created: :ambiguous}),
+    do: {:error, :retention_creation_ambiguous}
+
+  defp finish(%{pending: nil, created: {command, id}}), do: {:ok, {:created, command, id}}
 end

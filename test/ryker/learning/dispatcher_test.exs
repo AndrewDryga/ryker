@@ -91,10 +91,34 @@ defmodule Ryker.Learning.DispatcherTest do
 
     def create_session(client, key, policy, ref, source) do
       lose_after(client, :create, fn ->
-        if Fake.state(client)[:capacity_wait],
-          do: {:error, {:coop_worker_capacity_unavailable, "learning-capacity-session"}},
-          else: Fake.create_session(client, key, policy, ref, source)
+        cond do
+          Fake.state(client)[:storage_wait] ->
+            storage_refusal(client, key)
+
+          Fake.state(client)[:capacity_wait] ->
+            {:error, {:coop_worker_capacity_unavailable, "learning-capacity-session"}}
+
+          true ->
+            Fake.create_session(client, key, policy, ref, source)
+        end
       end)
+    end
+
+    defp storage_refusal(client, key) do
+      operation = %{
+        "id" => "op_" <> binary_part(Ryker.Crypto.sha256_hex(key), 0, 32),
+        "method" => "CreateRemoteSession",
+        "state" => "failed",
+        "error_code" => "storage_unavailable"
+      }
+
+      Agent.update(client, fn state ->
+        state
+        |> put_in([:known_operations, key], operation)
+        |> Map.update!(:create_keys, &(&1 ++ [key]))
+      end)
+
+      {:ok, operation}
     end
 
     def submit_frozen_turn(client, sid, key, revision, submission, nil, []) do
@@ -587,11 +611,123 @@ defmodule Ryker.Learning.DispatcherTest do
     end
 
     [original] = Repo.all(LearningRun)
+    old_start = DateTime.add(Repo.now!(), -settings.execution_timeout_seconds - 60)
+    Repo.update_all(LearningRun, set: [started_at: old_start])
     Agent.update(fake, &Map.put(&1, :capacity_wait, false))
     assert %{status: :applied, start_count: 1} = drive_to_applied!(settings, 5)
     assert [%{id: id, reconcile_attempt_count: 0}] = Repo.all(LearningRun)
     assert id == original.id
     assert FakeCoopAPI.state(fake).submit_count == 1
+  end
+
+  test "disk pressure retries a proven failed create without another learning start" do
+    # Native source-free jobs still allocate an empty fork. Their failed
+    # CreateRemoteSession receipt used every start without calling the model.
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+    Agent.update(fake, &Map.put(&1, :storage_wait, true))
+    settings = Map.put(@settings, :client, fake)
+
+    for _ <- 1..13 do
+      make_due!()
+      assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
+      assert [%{status: :prepared, remote_stopped_at: nil}] = Repo.all(LearningRun)
+      assert FakeCoopAPI.state(fake).submit_count == 0
+    end
+
+    [original] = Repo.all(LearningRun)
+    old_start = DateTime.add(Repo.now!(), -settings.execution_timeout_seconds - 60)
+    Repo.update_all(LearningRun, set: [started_at: old_start])
+    make_due!()
+    assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
+    assert FakeCoopAPI.state(fake).submit_count == 0
+
+    Agent.update(fake, fn state ->
+      state
+      |> Map.put(:storage_wait, false)
+      |> Map.put(:async_submit, true)
+      |> Map.put(:async_operations_running, true)
+    end)
+
+    assert %{status: :applied, start_count: 1} = drive_to_applied!(settings, 5)
+
+    assert [%{id: id, started_at: ^old_start, submit_started_at: submitted_at}] =
+             Repo.all(LearningRun)
+
+    assert DateTime.compare(submitted_at, old_start) == :gt
+    assert id == original.id
+    assert FakeCoopAPI.state(fake).submit_count == 1
+    assert length(Enum.uniq(FakeCoopAPI.state(fake).create_keys)) == 15
+
+    assert Map.fetch!(FakeCoopAPI.state(fake).known_operations, "ryker:learning:create:" <> id)[
+             "error_code"
+           ] ==
+             "storage_unavailable"
+  end
+
+  test "a storage retry cannot advance from stale or ambiguous creation proof" do
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+    Agent.update(fake, &Map.put(&1, :storage_wait, true))
+    settings = Map.put(@settings, :client, fake)
+    assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
+    [run] = Repo.all(LearningRun)
+    old_key = "ryker:learning:create:" <> run.id
+    operation = Map.fetch!(FakeCoopAPI.state(fake).known_operations, old_key)
+    current_key = Learning.operation_key(run, :create)
+    assert current_key != old_key
+    make_due!()
+    assert {:ok, claim} = Batches.claim("storage-proof", settings)
+
+    for {key, proof} <- [
+          {old_key, operation},
+          {current_key, Map.put(operation, "resource_id", "unconfirmed-session")},
+          {current_key, Map.put(operation, "method", "SubmitTurn")},
+          {current_key, Map.put(operation, "state", "running")},
+          {current_key, Map.put(operation, "error_code", "internal_error")}
+        ] do
+      assert FleetSession.advance_create(claim, run, key, proof) ==
+               {:error, :learning_storage_refusal_unconfirmed}
+
+      assert Learning.operation_key(run, :create) == current_key
+    end
+
+    assert {:ok, submitted} = Learning.freeze_submit(run.id, 1, claim)
+    clock = submitted.submit_started_at
+    assert {:ok, %{submit_started_at: ^clock}} = Learning.pause_create_window(run.id, claim)
+    assert {:ok, %{submit_started_at: ^clock}} = Learning.freeze_submit(run.id, 1, claim)
+
+    assert FleetSession.advance_create(claim, run, current_key, operation) ==
+             {:error, :learning_storage_refusal_unconfirmed}
+
+    Repo.update_all(Batch, set: [lease_expires_at: DateTime.add(Repo.now!(), -1)])
+
+    assert FleetSession.advance_create(claim, run, current_key, operation) ==
+             {:error, :learning_lease_lost}
+
+    assert Learning.operation_key(run, :create) == current_key
+    assert FakeCoopAPI.state(fake).submit_count == 0
+  end
+
+  test "an unresolved healthy create retains a bounded preparation window" do
+    entries = inputs!()
+
+    {:ok, fake} =
+      FakeCoopAPI.start_link([result(entries)],
+        async_create: true,
+        async_operations_running: true
+      )
+
+    settings = Map.put(@settings, :client, fake)
+    assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
+    [run] = Repo.all(LearningRun)
+    assert %DateTime{} = run.create_window_started_at
+    expired = DateTime.add(Repo.now!(), -settings.execution_timeout_seconds - 1)
+    Repo.update_all(LearningRun, set: [create_window_started_at: expired])
+    make_due!()
+    assert {:ok, _batch} = Dispatcher.run_once(settings)
+    assert Repo.get!(LearningRun, run.id).error_code == "learning_execution_timeout"
+    assert FakeCoopAPI.state(fake).submit_count == 0
   end
 
   # Coop reports a turn as starting while its agent boots. Learning took that
