@@ -168,7 +168,7 @@ defmodule Ryker.Learning.LearningSources do
   @doc "Exclude receiptless derived prose before bounded recall and compaction selection."
   def sourced(query), do: SourceDependency.Query.sourced(query)
 
-  @doc "Filter inherited source eligibility before recall limits; locked validation still follows."
+  @doc "Rows whose every source is still eligible in `scope`; locked validation still follows."
   def eligible(query, scope),
     do: SourceDependency.Query.eligible(query, scope, retention_seconds(), @utc_timestamp_pattern)
 

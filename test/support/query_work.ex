@@ -95,6 +95,11 @@ defmodule Ryker.QueryWork do
   def rows_read(statements, table),
     do: statements |> reading(table) |> Enum.sum_by(&statement_rows_read(&1, table))
 
+  @doc "The rows of `table` these statements scanned, for raw SQL that names it unquoted."
+  @spec rows_scanned([statement()], String.t()) :: non_neg_integer()
+  def rows_scanned(statements, table),
+    do: Enum.sum_by(statements, &statement_rows_read(&1, table))
+
   @doc "The most rows of `table` any one of the statements scanned."
   @spec most_rows_read([statement()], String.t()) :: non_neg_integer()
   def most_rows_read(statements, table) do

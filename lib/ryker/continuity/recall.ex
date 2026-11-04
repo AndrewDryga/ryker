@@ -20,7 +20,9 @@ defmodule Ryker.Continuity.Recall do
 
   @maximum_related 8
   @maximum_rollups 4
-  @maximum_candidates 64
+  # A week of a workspace's summaries, or a season of its rollups: older summaries
+  # fold into rollups, and rollups expire. Only a bound on what one recall ranks.
+  @maximum_descriptors 1_024
 
   @doc """
   The continuity a model receives for an episode: the destination's current
@@ -175,48 +177,59 @@ defmodule Ryker.Continuity.Recall do
   defp continuity_search_document({:rollup, rollup}),
     do: rollup |> rollup_document() |> Map.put("kind", "continuity")
 
+  # Checking a candidate's sources expands each of them: about 10 ms a summary on the tenant
+  # install, more as topics learn, and on every summary of the workspace that took 2.3 to 3.0
+  # of a briefing recall's 3.1 to 3.6 s (2026-11-04). So the small fields rank the candidates
+  # and the check runs in that order until enough pass. A newer candidate that fails it takes
+  # no place from an older one that passes, as it would in a window taken before checking.
   defp related_summaries(context, request) do
-    query =
+    candidates =
       context
       |> searchable_summaries_query("workspace")
       |> ConversationSummary.Query.by_environment(context.environment_ref)
-      |> Learning.LearningSources.in_environment(context.environment_ref)
       |> ConversationSummary.Query.excluding_identity_key(context.identity_key)
-      |> ConversationSummary.Query.ordered_by_recently_updated()
-      |> ConversationSummary.Query.limit_to(@maximum_candidates)
       |> Learning.LearningSources.sourced()
+
+    checked =
+      candidates
+      |> Learning.LearningSources.in_environment(context.environment_ref)
       |> Learning.LearningSources.eligible(context)
 
     # Rank small descriptors first. Loading 64 full 8 MiB dependency lists
     # makes a bounded result count a very unbounded application-memory cost.
-    query
+    candidates
+    |> ConversationSummary.Query.ordered_by_recently_updated()
+    |> ConversationSummary.Query.limit_to(@maximum_descriptors)
     |> ConversationSummary.Query.select_descriptors()
     |> Repo.all()
     |> Enum.filter(&Relevance.related?(state_text(&1.state), request))
     |> Enum.sort_by(&summary_rank(&1, context, request))
-    |> Stream.map(&Repo.peek(ConversationSummary.Query.by_id(query, &1.id)))
+    |> Stream.map(&Repo.peek(ConversationSummary.Query.by_id(checked, &1.id)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&summary_visible?(&1, context))
     |> Enum.take(@maximum_related)
   end
 
   defp related_rollups(context, request) do
-    query =
+    candidates =
       context
       |> ConversationRollup.Query.by_context()
       |> ConversationRollup.Query.by_environment(context.environment_ref)
-      |> Learning.LearningSources.in_environment(context.environment_ref)
-      |> ConversationRollup.Query.ordered_by_period_end_desc()
-      |> ConversationRollup.Query.limit_to(@maximum_candidates)
       |> ConversationRollup.Query.visible_to(context)
       |> Learning.LearningSources.sourced()
+
+    checked =
+      candidates
+      |> Learning.LearningSources.in_environment(context.environment_ref)
       |> Learning.LearningSources.eligible(context)
 
-    query
+    candidates
+    |> ConversationRollup.Query.ordered_by_period_end_desc()
+    |> ConversationRollup.Query.limit_to(@maximum_descriptors)
     |> ConversationRollup.Query.select_descriptors()
     |> Repo.all()
     |> Relevance.rank(request, &state_text(&1.state))
-    |> Stream.map(&Repo.peek(ConversationRollup.Query.by_id(query, &1.id)))
+    |> Stream.map(&Repo.peek(ConversationRollup.Query.by_id(checked, &1.id)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
     |> Enum.take(@maximum_rollups)

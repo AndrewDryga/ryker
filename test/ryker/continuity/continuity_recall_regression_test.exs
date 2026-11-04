@@ -12,6 +12,7 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Memories.MemorySearchPage
+  alias Ryker.QueryWork
   alias Ryker.Slack.ChannelMembership
 
   # Copied verbatim from the "cross-channel operational continuity" behavioral
@@ -56,6 +57,35 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
       after
         :telemetry.detach(handler)
       end
+    end
+
+    # Checking one candidate's sources expands all of them, and recall checked every candidate
+    # before ranking: 2.3 to 3.0 s of each briefing on the tenant install (2026-11-04).
+    test "automatic #{kind} recall checks the sources of what it shows, not of every candidate" do
+      [input | _] = captured_inputs!()
+      memory = captured_memory!(unquote(kind), input, older: false)
+      expand_stale_memory!(unquote(kind), memory)
+
+      {context, reads} =
+        QueryWork.statements(fn ->
+          Continuity.model_context(
+            target(input.destination_conversation_ref),
+            input.repository_ref,
+            ["Ship the requested behavior"]
+          )
+        end)
+
+      {key, table, shown} =
+        if unquote(kind) == :summary,
+          do: {"related", "conversation_summaries", 8},
+          else: {"rollups", "conversation_rollups", 4}
+
+      assert length(context[key]) == shown
+
+      checks =
+        Enum.filter(reads, &(&1.sql =~ "ryker_learning_roots" and &1.sql =~ ~s("#{table}")))
+
+      assert QueryWork.rows_scanned(checks, table) == shown
     end
 
     test "64 newer withdrawn #{kind} receipts cannot hide healthy older automatic memory" do
