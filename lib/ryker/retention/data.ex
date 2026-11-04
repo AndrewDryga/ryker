@@ -31,12 +31,8 @@ defmodule Ryker.Retention.Data do
   @summary_compaction_seconds 7 * 86_400
   @memory_review_seconds 30 * 86_400
 
-  # Old nil bindings could be marked discarded without proving the remote
-  # create absent. Keep their history and worker journal until custody has
-  # recovered the resource or recorded genuine absence; age is not proof.
-  @unresolved_creation "COALESCE((session.coop_session_id IS NULL AND session.cleanup_receipt::jsonb ->> 'kind' = 'never_bound' AND session.cleanup_receipt::jsonb ->> 'remote_state' = 'unknown'), FALSE)"
-  @session_discarded "(session.cleanup_status = 'discarded' AND NOT #{@unresolved_creation})"
-  @session_not_discarded "(session.cleanup_status <> 'discarded' OR #{@unresolved_creation})"
+  @session_discarded "session.cleanup_status = 'discarded'"
+  @session_not_discarded "session.cleanup_status <> 'discarded'"
 
   @type result :: %{
           audit_episodes: non_neg_integer(),

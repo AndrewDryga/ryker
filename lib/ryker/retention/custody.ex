@@ -647,19 +647,6 @@ defmodule Ryker.Retention.Custody do
 
   defp claimable_status?(%Work.Session{cleanup_status: :active}, _now), do: true
 
-  defp claimable_status?(%Work.Session{cleanup_status: :discarded} = session, _now) do
-    case session.cleanup_receipt do
-      %{"kind" => "never_bound", "remote_state" => "unknown"} ->
-        is_nil(session.coop_session_id) and
-          session.cleanup_receipt["local_session_id"] == session.id and
-          session.cleanup_receipt_fingerprint == CanonicalJSON.digest(session.cleanup_receipt) and
-          Repo.exists?(CoopFleet.Command.Query.creates(session.id))
-
-      _ ->
-        false
-    end
-  end
-
   defp claimable_status?(%Work.Session{cleanup_status: status} = session, now)
        when status in @pending_statuses do
     is_nil(session.cleanup_next_attempt_at) or
@@ -693,9 +680,6 @@ defmodule Ryker.Retention.Custody do
 
   defp prepare_phase(%Work.Session{cleanup_status: :active} = session),
     do: persist(session, %{cleanup_status: :close_pending})
-
-  defp prepare_phase(%Work.Session{cleanup_status: :discarded} = session),
-    do: persist(session, %{cleanup_status: :close_pending, discarded_at: nil})
 
   defp prepare_phase(%Work.Session{cleanup_status: :grace} = session),
     do: persist(session, %{cleanup_status: :close_pending})

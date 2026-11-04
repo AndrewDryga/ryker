@@ -21,6 +21,7 @@ defmodule Ryker.HistoryIndexesTest do
   alias Ryker.Knowledge.KnowledgeSource
   alias Ryker.Observability.Fleet
   alias Ryker.QueryWork
+  alias Ryker.Retention.Cleanup
   alias Ryker.Slack
   alias Ryker.Slack.InteractionAudit
   alias Ryker.Work.ActivityEvent
@@ -53,6 +54,29 @@ defmodule Ryker.HistoryIndexesTest do
 
     {_failed, reads} = QueryWork.statements(fn -> ReadySessions.failed_starts() end)
     assert sessions_read(reads) <= 17
+  end
+
+  # Readiness and every cleanup claim asked which sessions were eligible, and one arm of the
+  # question, for receipts no install holds any more, read every session ever discarded: 17 scans a
+  # minute of 9,160 rows on the tenant install (2026-11-04).
+  test "cleanup eligibility reads the sessions still in play, not every one discarded" do
+    now = Repo.now!()
+
+    discarded =
+      for second <- 1..60 do
+        at = DateTime.add(now, -3_600 - second, :second)
+        pool_session(:retired, at) |> Map.merge(%{cleanup_status: :discarded, discarded_at: at})
+      end
+
+    {60, _rows} = Repo.insert_all(Session, discarded)
+    Repo.query!("ANALYZE episode_work_sessions")
+
+    {_oldest, reads} =
+      QueryWork.statements(fn ->
+        now |> Cleanup.Query.eligible() |> Cleanup.Query.select_oldest_eligible_at() |> Repo.one()
+      end)
+
+    assert sessions_read(reads) <= 5
   end
 
   # An episode page's Slack status steps read every thread's receipts to find

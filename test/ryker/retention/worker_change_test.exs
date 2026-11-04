@@ -484,37 +484,6 @@ defmodule Ryker.Retention.WorkerChangeTest do
     end
   end
 
-  test "an unknown never-bound receipt is reconsidered when its retained create proves a resource" do
-    worker = enroll!("false-absence")
-    {session, remote} = unbound_created_session!("false-absence", worker)
-
-    receipt = %{
-      "kind" => "never_bound",
-      "local_session_id" => session.id,
-      "remote_session_id" => nil,
-      "remote_state" => "unknown"
-    }
-
-    session
-    |> Ecto.Changeset.change(
-      cleanup_status: :discarded,
-      cleanup_receipt: receipt,
-      cleanup_receipt_fingerprint: Ryker.CanonicalJSON.digest(receipt),
-      discarded_at: Repo.now!()
-    )
-    |> Repo.update!()
-
-    expire_placements!(session)
-    fleet = fleet_client(worker, @started, remote_session(remote))
-
-    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:false-absence:recover")
-    recovered = Repo.get!(Session, session.id)
-    assert recovered.coop_session_id == remote.coop_session_id
-    assert is_nil(recovered.discarded_at)
-    assert recovered.cleanup_receipt == receipt
-    assert Enum.take(commands(session), 2) == ~w(create_session reconcile_operation)
-  end
-
   test "an unresolved create is reconciled on its expired original holder without workspace work" do
     worker = enroll!("pending-create")
     {session, remote} = unbound_created_session!("pending-create", worker, false)

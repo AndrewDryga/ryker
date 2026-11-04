@@ -182,7 +182,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
         "kind" => "never_bound",
         "local_session_id" => Ecto.UUID.generate(),
         "remote_session_id" => nil,
-        "remote_state" => "unknown"
+        "remote_state" => "absent"
       },
       cleanup_receipt_fingerprint: String.duplicate("c", 64)
     )
@@ -261,7 +261,7 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
 
     copy_session!(first, 2,
       coop_session_id: nil,
-      cleanup_receipt: receipt.("never_bound", "unknown")
+      cleanup_receipt: receipt.("never_bound", "absent")
     )
 
     last =
