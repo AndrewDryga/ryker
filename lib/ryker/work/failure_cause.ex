@@ -42,6 +42,15 @@ defmodule Ryker.Work.FailureCause do
   # environment (tenantcorp/tenant-core and skypjack/entt, 2026-10-03).
   @refused_source ~r/\{:coop_worker_(source|companion)_refused, "([A-Za-z0-9._\/-]+)", "([A-Za-z0-9._\/-]+)"\}/
 
+  @project_setup_refusal ~r/\{:coop_worker_project_setup_refused,\s*"((?:[^"\\]|\\.)*)",\s*:(not_found|invalid_path|invalid_environment|invalid_settings|invalid_yaml)\}/
+  @project_setup_reasons %{
+    "not_found" => "is missing from the task's source commit",
+    "invalid_path" => "does not name a file inside the repository",
+    "invalid_environment" => "contains an invalid environment variable or value",
+    "invalid_settings" => "contains invalid project options",
+    "invalid_yaml" => "is not valid project YAML"
+  }
+
   # The saved error names one of these conditions somewhere in its term, and
   # each says the same thing wherever it nests. `depends` says what a retry
   # depends on, where the generic "the condition named above" would mislead.
@@ -197,6 +206,9 @@ defmodule Ryker.Work.FailureCause do
       refused = refused_source(detail) ->
         refused
 
+      refused = project_setup_refusal(detail) ->
+        refused
+
       limit = provider_limit(detail) ->
         %{
           cause: "The model provider limited the worker's account: " <> limit,
@@ -332,16 +344,35 @@ defmodule Ryker.Work.FailureCause do
     end
   end
 
-  defp provider_sentence(pattern, detail) do
-    case Regex.run(pattern, detail, capture: :all_but_first) do
-      [escaped] ->
-        escaped
-        |> Macro.unescape_string()
-        |> InspectionRedactor.artifact(max_bytes: 500)
-        |> Map.fetch!(:text)
+  defp project_setup_refusal(detail) do
+    case Regex.run(@project_setup_refusal, detail, capture: :all_but_first) do
+      [path, reason] ->
+        %{
+          cause:
+            "The project's test setup could not start: #{decoded_sentence(path)} #{@project_setup_reasons[reason]}.",
+          next_step:
+            "Fix .agent/project.yaml or the file it names, then start a new task so Ryker reads the corrected setup."
+        }
 
       nil ->
         nil
     end
+  end
+
+  defp provider_sentence(pattern, detail) do
+    case Regex.run(pattern, detail, capture: :all_but_first) do
+      [escaped] ->
+        decoded_sentence(escaped)
+
+      nil ->
+        nil
+    end
+  end
+
+  defp decoded_sentence(escaped) do
+    escaped
+    |> Macro.unescape_string()
+    |> InspectionRedactor.artifact(max_bytes: 500)
+    |> Map.fetch!(:text)
   end
 end

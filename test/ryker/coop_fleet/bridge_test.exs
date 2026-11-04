@@ -3,7 +3,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.Bodies
-  alias Ryker.CoopFleet.{Bridge, Command, ControlPlane, Placement}
+  alias Ryker.CoopFleet.{Bridge, Command, ControlPlane, JobSpec, Placement}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -14,6 +14,39 @@ defmodule Ryker.CoopFleet.BridgeTest do
   alias Ryker.Work
 
   @policy_digest String.duplicate("b", 64)
+
+  # Placing a test-capable job on an older worker only fails after dispatch.
+  # Retained jobs have no new runtime grant and must keep their old placement needs.
+  test "project runtime is placed only on a worker that advertises that runtime" do
+    worker = "worker-project-runtime"
+    ready_worker!(worker)
+    session = session!()
+    options = [workspace_ref: "workspace-main", capability_names: ["controller-tools"]]
+    assert Bridge.accepts?(session, options)
+
+    job =
+      Map.put(session.worker_job_document, "runtime", %{
+        "version" => 1,
+        "dockerfile" => "",
+        "compose" => "compose.test.yml",
+        "environment" => %{}
+      })
+
+    assert {:ok, digest} = JobSpec.digest(job)
+    session = session |> Work.Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+    refute Bridge.accepts?(session, options)
+
+    advertised =
+      put_in(poll(worker, "runtime-qualified"), ["worker", "capabilities"], [
+        %{"name" => "controller-tools", "version" => "1"},
+        %{"name" => "project-runtime", "version" => "1"}
+      ])
+
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker, advertised)
+    assert Bridge.accepts?(session, options)
+    assert {:ok, placement} = Bridge.place(session, options)
+    assert placement.worker_id == worker
+  end
 
   # Twenty create identities reused one placement and kept roughly 96,000
   # receipt acknowledgements failing. A proven failed create spends both identities.

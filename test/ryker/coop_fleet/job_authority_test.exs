@@ -16,6 +16,42 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     def read(_binding, _repository, ".agent/project.yaml", _ref), do: {:ok, "gate: make check\n"}
   end
 
+  defmodule RuntimeReader do
+    def read(_binding, _repository, path, ref) do
+      send(self(), {:runtime_read, path, ref})
+      File.read(path)
+    end
+  end
+
+  defmodule FrozenSetupReader do
+    def read(_binding, _repository, _path, _ref),
+      do: raise("read the later project setup of a frozen job")
+  end
+
+  defmodule NoRuntimeReader do
+    def read(_binding, _repository, ".agent/project.yaml", _ref),
+      do: {:ok, "gate: make dev-check\n"}
+
+    def read(_binding, _repository, _path, _ref), do: {:ok, :not_found}
+  end
+
+  defmodule EnvOnlyReader do
+    def read(_binding, _repository, ".agent/project.yaml", ref) do
+      value = if ref == String.duplicate("a", 40), do: "before", else: "after"
+      {:ok, "box:\n  env:\n    TEST_SETUP: " <> value <> "\n"}
+    end
+
+    def read(_binding, _repository, _path, _ref), do: {:ok, :not_found}
+  end
+
+  defmodule AddedRuntimeReader do
+    def read(binding, repository, path, ref) do
+      if ref == String.duplicate("a", 40),
+        do: {:ok, :not_found},
+        else: RuntimeReader.read(binding, repository, path, ref)
+    end
+  end
+
   setup context do
     {:ok, _} = Settings.initialize(@actor)
     snapshot = add_repository!("app", 17)
@@ -134,7 +170,11 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
 
     RecordedGitHub.reply([
       {:get, "/repos/example/app/contents/.agent/project.yaml?ref=#{String.duplicate("a", 40)}",
-       {:ok, %{status: 200, body: %{"content" => content, "encoding" => "base64"}, headers: []}}}
+       {:ok, %{status: 200, body: %{"content" => content, "encoding" => "base64"}, headers: []}}},
+      {:get, "/repos/example/app/contents/.agent/Dockerfile?ref=#{String.duplicate("a", 40)}",
+       {:ok, %{status: 404, body: %{}, headers: []}}},
+      {:get, "/repos/example/app/contents/.agent/compose.yml?ref=#{String.duplicate("a", 40)}",
+       {:ok, %{status: 404, body: %{}, headers: []}}}
     ])
 
     assert {:ok, pinned} =
@@ -171,6 +211,146 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert Repo.get!(Session, session.id).worker_job_document == nil
   end
 
+  # Work could change Ryker but could not reach the PostgreSQL its tests need.
+  # Harvest the repository's actual test setup and freeze it beside its gate.
+  test "a working copy carries the project toolchain and test services from its base commit", %{
+    session: session
+  } do
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, "/private/source", &prepare/3, RuntimeReader)
+
+    assert pinned.worker_job_document["runtime"] == %{
+             "version" => 1,
+             "dockerfile" => ".agent/Dockerfile",
+             "compose" => "compose.test.yml",
+             "environment" => %{
+               "PGHOST" => "episode-db",
+               "PGPORT" => "5432",
+               "MIX_BUILD_ROOT" => "_build/box"
+             }
+           }
+
+    assert pinned.worker_job_document["environment"] == %{}
+
+    assert pinned.worker_job_document["check"] == %{
+             "argv" => ["make", "dev-check"],
+             "environment" => %{}
+           }
+
+    for path <- [".agent/project.yaml", ".agent/Dockerfile", "compose.test.yml"] do
+      assert_received {:runtime_read, ^path, commit}
+      assert commit == source()["binding"]["base_commit"]
+    end
+
+    assert {:ok, ^pinned} =
+             JobAuthority.ensure_pinned(pinned, "/private/source", &prepare/3, FrozenSetupReader)
+  end
+
+  test "an uncreated conversation refreshed to another base uses only that base's runtime", %{
+    session: session
+  } do
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, "/private/source", &prepare/3, RuntimeReader)
+
+    assert Map.has_key?(pinned.worker_job_document, "runtime")
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, refreshed} =
+             JobAuthority.ensure_pinned(pinned, nil, prepared_at(moved), NoRuntimeReader)
+
+    assert refreshed.worker_job_document["source"]["binding"]["base_commit"] == moved
+
+    assert refreshed.worker_job_document["runtime"] == %{
+             "version" => 1,
+             "dockerfile" => "",
+             "compose" => "",
+             "environment" => %{}
+           }
+
+    assert refreshed.worker_job_document["environment"] == %{}
+  end
+
+  test "project environment refreshes with its source without overwriting controller authority",
+       %{
+         session: session
+       } do
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, "/private/source", &prepare/3, EnvOnlyReader)
+
+    assert get_in(pinned.worker_job_document, ["runtime", "environment"]) == %{
+             "TEST_SETUP" => "before"
+           }
+
+    assert pinned.worker_job_document["environment"] == %{}
+
+    controller = %{"TEST_SETUP" => "controller"}
+    job = Map.put(pinned.worker_job_document, "environment", controller)
+    assert {:ok, digest} = JobSpec.digest(job)
+    pinned = pinned |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, refreshed} =
+             JobAuthority.ensure_pinned(pinned, nil, prepared_at(moved), EnvOnlyReader)
+
+    assert get_in(refreshed.worker_job_document, ["runtime", "environment"]) == %{
+             "TEST_SETUP" => "after"
+           }
+
+    assert refreshed.worker_job_document["environment"] == controller
+  end
+
+  test "a new job with no project files can adopt its next source's first test stack", %{
+    session: session
+  } do
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(
+               session,
+               "/private/source",
+               &prepare/3,
+               AddedRuntimeReader
+             )
+
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, refreshed} =
+             JobAuthority.ensure_pinned(pinned, nil, prepared_at(moved), AddedRuntimeReader)
+
+    assert refreshed.worker_job_document["runtime"] == %{
+             "version" => 1,
+             "dockerfile" => ".agent/Dockerfile",
+             "compose" => "compose.test.yml",
+             "environment" => %{
+               "PGHOST" => "episode-db",
+               "PGPORT" => "5432",
+               "MIX_BUILD_ROOT" => "_build/box"
+             }
+           }
+  end
+
+  test "a retained job without runtime cannot gain project authority when its source refreshes",
+       %{
+         session: session
+       } do
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
+    retained = Map.delete(pinned.worker_job_document, "runtime")
+    assert {:ok, digest} = JobSpec.digest(retained)
+    pinned = pinned |> Session.Changeset.pin_worker_job(retained, digest) |> Repo.update!()
+    refute Map.has_key?(pinned.worker_job_document, "runtime")
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, refreshed} =
+             JobAuthority.ensure_pinned(pinned, nil, prepared_at(moved), RuntimeReader)
+
+    assert refreshed.worker_job_document["source"]["binding"]["base_commit"] == moved
+    refute Map.has_key?(refreshed.worker_job_document, "runtime")
+
+    assert refreshed.worker_job_document["environment"] ==
+             pinned.worker_job_document["environment"]
+
+    refute_received {:runtime_read, ".agent/Dockerfile", _commit}
+    refute_received {:runtime_read, "compose.test.yml", _commit}
+  end
+
   # Closing and removing a session run nothing under its grant. Checking a version-1 job as one
   # Ryker would grant today refused every cleanup of a session created before version 2: three
   # sessions on each install stopped as "the worker's answer didn't match this session" the day
@@ -182,7 +362,7 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
 
     v1 =
       pinned.worker_job_document
-      |> Map.drop(~w(environment check resources))
+      |> Map.drop(~w(environment check resources runtime))
       |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
 
     created =

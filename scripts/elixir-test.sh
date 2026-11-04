@@ -46,8 +46,8 @@ cleanup() {
 
 trap cleanup EXIT
 
-# A Coop fleet job or review gets neither Docker nor sidecar services, so the run
-# brings its own server, with compose.test.yml's settings, and removes it at exit.
+# A fleet job without declared test services has no Docker, so the run can use
+# the image's server binaries with compose.test.yml's settings and remove it at exit.
 start_private_postgres() {
   private_postgres=$(mktemp -d "${TMPDIR:-/tmp}/ryker-test-postgres.XXXXXX")
   # C.UTF-8 is built into glibc and needs no locales package, which a box may

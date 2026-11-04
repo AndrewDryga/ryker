@@ -138,13 +138,23 @@ defmodule Ryker.CoopFleet.Bridge do
     end
   end
 
-  defp requirements(session, settings),
-    do: %{
+  defp requirements(session, settings) do
+    versions =
+      case session.worker_job_document do
+        %{"runtime" => %{"version" => 1}} ->
+          Map.put(settings.capability_versions, "project-runtime", "1")
+
+        _retained_or_source_free ->
+          settings.capability_versions
+      end
+
+    %{
       capability_names: settings.capability_names,
-      capability_versions: settings.capability_versions,
+      capability_versions: versions,
       repository_ref: session.repository_ref,
       workspace_ref: settings.workspace_ref
     }
+  end
 
   @spec await_command(Ecto.UUID.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def await_command(command_id, options) do

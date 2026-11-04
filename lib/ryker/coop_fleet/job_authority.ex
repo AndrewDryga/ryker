@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   @moduledoc "Freezes controller settings and exact sources before a session can be placed."
   alias Ryker.CanonicalJSON
   alias Ryker.Config
-  alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources}
+  alias Ryker.CoopFleet.{Command, JobSetup, JobSpec, JobTemplates, ManagedSources}
   alias Ryker.CoopFleet.Placement
   alias Ryker.GitHub
   alias Ryker.{Repo, Settings}
@@ -14,7 +14,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
         session,
         source_root,
         prepare \\ &ManagedSources.prepare/3,
-        reader \\ check_reader()
+        reader \\ setup_reader()
       )
 
   def ensure_pinned(
@@ -31,7 +31,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
          {:ok, purpose} <- purpose(snapshot, session, refs),
          {:ok, source, companions} <- sources(snapshot, session, refs, root, prepare),
          job = document(session, snapshot.work, purpose, source, companions),
-         {:ok, job} <- with_check(job, snapshot, reader),
+         {:ok, job} <- with_setup(job, snapshot, reader),
          {:ok, digest} <- JobSpec.digest(job) do
       pin(session, snapshot.installation.revision, job, digest)
     end
@@ -41,16 +41,18 @@ defmodule Ryker.CoopFleet.JobAuthority do
     with {:ok, session} <- validate(session), do: refresh_sources(session, root, prepare, reader)
   end
 
-  defp check_reader, do: Config.get_env(:job_check_reader, GitHub.RepositoryFiles)
+  defp setup_reader, do: Config.get_env(:job_setup_reader, GitHub.RepositoryFiles)
 
-  # A working copy's review runs the repository's gate as of the job's base
-  # commit: Coop's job-setup:2 runs no other check. A read-only job reviews
-  # nothing. GitHub that cannot be read now is a wait, never a job frozen
-  # without the check its repository names.
-  defp with_check(
+  # Freeze a working copy's tools, test stack, environment and gate from the
+  # same base commit as its source. A temporary GitHub failure is a wait,
+  # never a job stripped of the dependencies its tests need.
+  defp with_setup(job, snapshot, reader, runtime? \\ true)
+
+  defp with_setup(
          %{"repository_read_only" => false, "source" => %{} = source} = job,
          snapshot,
-         reader
+         reader,
+         runtime?
        ) do
     ref = source["repository_ref"]
     repository = Enum.find(snapshot.repositories, &(&1.ref == ref))
@@ -58,15 +60,25 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
     with %{} <- repository,
          %{} <- binding,
-         {:ok, check} <-
-           JobCheck.resolve(binding, repository, source["binding"]["base_commit"], reader) do
-      {:ok, Map.put(job, "check", check)}
+         {:ok, setup} <-
+           JobSetup.resolve(
+             binding,
+             repository,
+             source["binding"]["base_commit"],
+             reader,
+             runtime?
+           ) do
+      {:ok, job |> Map.delete("runtime") |> Map.merge(setup)}
     else
-      _unavailable -> {:error, :coop_worker_source_unavailable}
+      {:error, {:coop_worker_project_setup_refused, path, reason}} ->
+        {:error, {:coop_worker_project_setup_refused, path, reason}}
+
+      _unavailable ->
+        {:error, :coop_worker_source_unavailable}
     end
   end
 
-  defp with_check(job, _snapshot, _reader), do: {:ok, job}
+  defp with_setup(job, _snapshot, _reader, _runtime?), do: {:ok, job}
 
   # A session's job is pinned once, and a replacement copies its predecessor's,
   # so each companion repository stayed at the commit its default branch had
@@ -145,13 +157,14 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  # A working copy's check is its gate as of the job's base commit, so a
-  # source pinned anew is checked anew.
+  # The setup belongs to the job's base commit, so a source pinned anew is
+  # resolved anew. Changing companion sources cannot change primary authority.
+  # An older job without runtime authority can refresh only its check.
   defp rechecked(%{"source" => same} = job, %{"source" => same}, _snapshot, _reader),
     do: {:ok, job}
 
-  defp rechecked(job, _pinned, snapshot, reader),
-    do: with_check(job, snapshot, reader)
+  defp rechecked(job, pinned, snapshot, reader),
+    do: with_setup(job, snapshot, reader, Map.has_key?(pinned, "runtime"))
 
   defp source_commits(%{"source" => source}), do: commits(source)
 

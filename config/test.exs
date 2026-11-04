@@ -60,10 +60,10 @@ config :ryker, :emisar_requester, Ryker.TestSupport.EmisarMCP
 # test records: no test reaches GitHub.
 config :ryker, :github_files_requester, Ryker.TestSupport.RecordedGitHub
 
-# The check a working copy's review runs is read from the repository's
-# .agent/project.yaml (Ryker.CoopFleet.JobCheck); tests read none unless they
+# A working copy's tools, services and check are read from the repository's
+# .agent/project.yaml (Ryker.CoopFleet.JobSetup); tests read none unless they
 # name a reader.
-config :ryker, :job_check_reader, Ryker.TestSupport.NoProjectFile
+config :ryker, :job_setup_reader, Ryker.TestSupport.NoProjectFile
 
 # Plugs initialize at runtime, as in development (config/dev.exs).
 config :phoenix, :plug_init_mode, :runtime

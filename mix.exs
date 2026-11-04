@@ -61,7 +61,7 @@ defmodule Ryker.MixProject do
       {:jsv, "~> 0.22", only: :test},
       {:lazy_html, "~> 0.1.12", only: :test},
       # A repository's .agent/project.yaml names the check its reviews run
-      # (Ryker.CoopFleet.JobCheck); the Slack app manifest test reads YAML too.
+      # (Ryker.CoopFleet.JobSetup); the Slack app manifest test reads YAML too.
       {:yaml_elixir, "~> 2.12"},
       # The weekly report's send time is read in a person's time zone; Elixir
       # ships a database that knows only UTC. Its IANA data is compiled in, and

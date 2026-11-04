@@ -6,8 +6,11 @@ defmodule Ryker.CoopFleet.JobSpec do
   `job-setup:2`. It names exact frozen GitHub repository and source identities,
   never a worker path, URL or secret, and carries the whole work and review
   setup Ryker resolved: the work environment, the check a review runs (literal
-  argv and its extra environment), and per-container resource caps. A worker
-  applies nothing from the repository's own settings.
+  argv and its extra environment), and per-container resource caps. Writable
+  source jobs can also carry a version-1 project runtime, which workers advertise
+  as `project-runtime:1`. Retained jobs without it keep their original authority.
+  The runtime's environment is project defaults: review overrides can replace
+  them, while controller and check environments remain authoritative.
   """
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.Protocol
@@ -15,6 +18,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   alias Ryker.Work
 
   @maximum_bytes 256 * 1_024
+  @maximum_runtime_environment_bytes 64 * 1_024
   @root_fields ~w(version job_ref source companions targets mode repository_read_only egress limits environment check resources)
   @source_fields ~w(repository_ref github_repository github_repository_id binding submodules)
   @submodule_fields ~w(path repository_ref github_repository github_repository_id commit tree submodules)
@@ -70,7 +74,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp identity_and_mode?(job) do
-    Maps.exact_keys?(job, @root_fields) and
+    Maps.exact_keys?(job, @root_fields, ~w(runtime)) and
       job["version"] == 2 and
       Protocol.reference?(job["job_ref"]) and
       job["mode"] == "normal" and
@@ -86,7 +90,31 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp execution_bounds?(job) do
     egress?(job["egress"]) and limits?(job["limits"]) and
       environment?(job["environment"]) and check?(job["check"]) and
-      resources?(job["resources"])
+      resources?(job["resources"]) and runtime?(job)
+  end
+
+  defp runtime?(%{"runtime" => %{} = runtime, "source" => %{}, "repository_read_only" => false}) do
+    Maps.exact_keys?(runtime, ~w(version dockerfile compose environment)) and
+      runtime["version"] === 1 and runtime_path?(runtime["dockerfile"]) and
+      runtime_path?(runtime["compose"]) and runtime_environment?(runtime["environment"])
+  end
+
+  defp runtime?(job), do: not Map.has_key?(job, "runtime")
+
+  @doc false
+  def runtime_path?(""), do: true
+
+  def runtime_path?(path) when is_binary(path) and byte_size(path) <= 1024,
+    do: submodule_path?(path)
+
+  def runtime_path?(_path), do: false
+
+  # Runtime defaults cross one host-parent environment relay. Count the same
+  # escaped worker bytes Go writes, including HTML and Unicode separators.
+  @doc false
+  def runtime_environment?(values) do
+    environment?(values) and
+      byte_size(CanonicalJSON.worker_encode!(values)) <= @maximum_runtime_environment_bytes
   end
 
   # Coop's rules for the setup it refuses to normalize: shell-identifier names

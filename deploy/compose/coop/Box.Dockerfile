@@ -20,8 +20,8 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
  && printf '%s\n' 'Acquire::Retries "10";' 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
       >/etc/apt/apt.conf.d/90ryker-box-downloads
 
-# Jobs and Coop's trusted review gate run in this box, not in a repository's
-# own image, so it carries what repositories' gates commonly need. On
+# Jobs use this shared toolchain directly or extend it with their project's
+# Dockerfile. It carries tools that repository checks commonly need. On
 # 2026-09-28 emisar's review gate failed eight browser tests with "no
 # Chrome/Chromium found".
 # The chart gate failed here without Debian's separate venv package. Prove
@@ -34,9 +34,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && /tmp/ryker-venv-check/bin/python -m pip --version \
  && rm -rf /tmp/ryker-venv-check
 
-# The PostgreSQL server compose.test.yml pins. A job or review gets neither
-# Docker nor sidecar services, so Ryker's scripts/elixir-test.sh starts a private
-# server from these binaries; without one every review of Ryker failed its gate.
+# The PostgreSQL server compose.test.yml pins. Retained jobs without project
+# runtime authority still need scripts/elixir-test.sh to start a private server.
+# New jobs use their declared Compose test services beside the box.
 # The signing key is checked against its digest (key B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

@@ -18,11 +18,20 @@ platform. `coop fork merge` runs `make dev-check` in the box before it lands a f
 path named like a secret (`credentials`, `secrets`, `*.pem`, …) from a box, so no source path may
 use such a name; `test/ryker/coop_box_visibility_test.exs` fails on one.
 
-A Ryker Work job and the draft-PR review of Ryker's own repository run in the fleet's trusted box
-(`deploy/compose/coop/Box.Dockerfile`), which gets neither Docker nor sidecar services. It carries
-the release's Erlang and Elixir and the PostgreSQL server `compose.test.yml` pins, and
-`scripts/elixir-test.sh` starts a private server from them for the run and removes it at exit. The
-review runs the `gate:` in `.agent/project.yaml`, `make dev-check`.
+A writable Ryker Work job freezes the project's toolchain, test services and literal environment
+from `.agent/project.yaml` at its base commit. Coop builds the selected Dockerfile on the worker
+from sanitized source inputs and starts the selected Compose services beside the box. Each job has
+its own network and named volumes; data in named volumes survives ordinary turns and goes with
+final cleanup. Data in tmpfs or anonymous volumes is disposable.
+The box reaches PostgreSQL by the `PGHOST` above and needs no Docker access.
+
+The draft-PR review gets the same project toolchain and runs the frozen `gate:`, `make dev-check`
+here. A candidate's `review.compose` and `review.env` can select a separate disposable review stack.
+Project `box.env` values are defaults; a candidate's `review.env` overrides them, and explicit
+controller and check environment values take precedence over both.
+Jobs created before project-runtime support keep their original setup: the fleet's trusted base
+(`deploy/compose/coop/Box.Dockerfile`) carries PostgreSQL binaries so `scripts/elixir-test.sh` can
+start a private server for those jobs and remove it at exit.
 
 Parallel PostgreSQL tests must use suite-owned conversation and workspace identities. Sandbox
 rollback does not release transaction-scoped advisory locks until the test ends, so unrelated tests

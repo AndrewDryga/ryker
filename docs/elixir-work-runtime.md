@@ -87,15 +87,31 @@ tools own durable records. The generic Delivery module owns external message cus
 - Exact source selection belongs to the frozen job. Repository work requires
   `repository-freshness:2`; workers do not advertise policies, repositories or a separate
   source-selector capability. Missing freshness support refuses creation before code is used.
-- The frozen job is a version-2 JobSpec (Coop `job-setup:2`, 2026-10-04): beside its sources it
-  names its whole setup, and the worker applies nothing from the repository's own settings.
-  Work gets an empty environment and the caps every job carries (4 CPUs, 8 GiB, 4096 processes;
-  Docker refuses a CPU cap above the host's cores). A working copy's `check` is the repository's
-  `gate:` from `.agent/project.yaml` at the job's base commit, split into argv the way Coop splits
-  it (`Ryker.CoopFleet.JobCheck`); a read-only job and a repository without a gate get no check,
-  and such a review is not publishable. A gate GitHub cannot read now is a wait
-  (`coop_worker_source_unavailable`), never a job frozen without it. Sessions are placed only on
-  workers advertising `job-setup:2`.
+- The frozen job is a version-2 JobSpec (Coop `job-setup:2`): beside its sources it carries the
+  caps every job gets (4 CPUs, 8 GiB, 4096 processes; Docker refuses a CPU cap above the host's
+  cores). `Ryker.CoopFleet.JobSetup` resolves a writable source's `.agent/project.yaml` at its
+  base commit. Its `box.env` becomes the runtime's literal environment defaults, and `gate:`
+  becomes the review `check`, split into argv the way Coop splits it. Every new writable-source
+  job carries a version-1 `runtime`, including when both selectors are empty. It names the selected
+  `box.dockerfile` and `box.compose` paths plus an `environment` map (even when empty);
+  the default paths are `.agent/Dockerfile` and `.agent/compose.yml` when present.
+  `box.auto_up: false` or `box.network: false` omits services.
+  A declared missing file or invalid setup refuses preparation; a temporary source read failure
+  waits (`coop_worker_source_unavailable`). The worker builds the toolchain from sanitized
+  frozen source inputs, starts job-private services and gives the box their network. Work and
+  review use that toolchain; a candidate's `review.compose` and `review.env` can override its
+  disposable review stack. Environment precedence is project runtime defaults, then candidate
+  review overrides, then explicit controller and check values. The root job environment stays
+  under controller authority, separate from the project's defaults. Project runtime defaults
+  must fit 64 KiB of canonical worker JSON, including HTML and Unicode escaping, so they fit
+  the host-parent transport. Controller and check environment limits are unchanged.
+  Required services must become healthy before work begins.
+- Runtime-bearing jobs require `project-runtime:1` alongside `job-setup:2` and
+  `repository-freshness:2` before placement. The runtime adds no project authority over egress,
+  resource limits, credentials or host mounts. A read-only job and a repository without a gate
+  get no check, so their review is not publishable. Retained jobs without `runtime` are not
+  retrofitted with it. Normal source-freshness handling keeps their original runtime and
+  environment authority; resuming them cannot grant project services or another toolchain.
 - Version-1 jobs are refused. The move to version 2 carried the sessions that still held one
   until 2026-10-08, when the last were closed; sessions retained from then are cleaned up as any
   other, since a cleanup receipt is checked against the stored job whatever its version.

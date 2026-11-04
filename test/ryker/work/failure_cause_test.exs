@@ -2,7 +2,27 @@ defmodule Ryker.Work.FailureCauseTest do
   # The Failures page and a task's stages each took the cause out of an
   # explanation by hand until 2026-10-08.
   use ExUnit.Case, async: true
+  alias Ryker.ErrorDetail
   alias Ryker.Work.FailureCause
+
+  # A missing test dependency must name the project file to fix instead of
+  # leaving a stopped task with the generic "could not confirm why" message.
+  test "a project setup refusal tells the operator which declaration needs fixing" do
+    for {path, reason, explanation} <- [
+          {"compose.test.yml", :not_found, "missing from the task's source commit"},
+          {"box.compose", :invalid_path, "file inside the repository"},
+          {"box.env", :invalid_environment, "invalid environment variable or value"},
+          {"box", :invalid_settings, "invalid project options"},
+          {".agent/project.yaml", :invalid_yaml, "not valid project YAML"}
+        ] do
+      detail = ErrorDetail.detail({:coop_worker_project_setup_refused, path, reason})
+      assert %{cause: cause, next_step: next_step} = FailureCause.explain(detail)
+      assert cause =~ path
+      assert cause =~ explanation
+      assert next_step =~ ".agent/project.yaml"
+      assert next_step =~ "new task"
+    end
+  end
 
   # A retained task retried its stop dozens of times while the page hid the
   # worker's saved uncertain-operation refusal behind a generic wrapper.

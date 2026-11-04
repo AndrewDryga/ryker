@@ -60,6 +60,78 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     end
   end
 
+  # Work could edit a project but could not start its declared test database or
+  # toolchain. Runtime authority must travel in the frozen job, never ambient YAML.
+  test "a writable source job binds its project runtime into its immutable digest" do
+    job = Map.put(valid_job(), "repository_read_only", false)
+
+    runtime = %{
+      "version" => 1,
+      "dockerfile" => ".agent/Dockerfile",
+      "compose" => "compose.test.yml",
+      "environment" => %{}
+    }
+
+    assert {:ok, original} = JobSpec.digest(job)
+    assert {:ok, configured} = JobSpec.digest(Map.put(job, "runtime", runtime))
+    refute configured == original
+    assert {:ok, ^original} = JobSpec.digest(job)
+
+    assert JobSpec.validate(Map.put(valid_job(), "runtime", runtime)) ==
+             {:error, :invalid_coop_worker_job}
+
+    assert JobSpec.validate(job |> Map.put("source", nil) |> Map.put("runtime", runtime)) ==
+             {:error, :invalid_coop_worker_job}
+  end
+
+  test "runtime authority has canonical repository paths and an exact versioned shape" do
+    job = Map.put(valid_job(), "repository_read_only", false)
+    runtime = %{"version" => 1, "dockerfile" => "", "compose" => "", "environment" => %{}}
+    assert JobSpec.validate(Map.put(job, "runtime", runtime)) == :ok
+
+    for invalid <- [
+          nil,
+          Map.delete(runtime, "compose"),
+          Map.delete(runtime, "environment"),
+          Map.put(runtime, "environment", nil),
+          Map.put(runtime, "environment", %{"COOP_IMAGE" => "arbitrary"}),
+          Map.put(runtime, "environment", %{"CI" => "1\nEVIL=1"}),
+          Map.put(runtime, "environment", %{"CI" => false}),
+          Map.put(runtime, "version", 2),
+          Map.put(runtime, "version", 1.0),
+          Map.put(runtime, "network", true),
+          Map.put(runtime, "dockerfile", "/host/Dockerfile"),
+          Map.put(runtime, "dockerfile", "../Dockerfile"),
+          Map.put(runtime, "dockerfile", "./Dockerfile"),
+          Map.put(runtime, "dockerfile", "dev//Dockerfile"),
+          Map.put(runtime, "dockerfile", "dev/../Dockerfile"),
+          Map.put(runtime, "dockerfile", "dev\\Dockerfile"),
+          Map.put(runtime, "compose", "dev/compose.yml\n"),
+          Map.put(runtime, "compose", String.duplicate("a", 1025))
+        ] do
+      assert JobSpec.validate(Map.put(job, "runtime", invalid)) ==
+               {:error, :invalid_coop_worker_job},
+             inspect(invalid)
+    end
+  end
+
+  # Runtime defaults cross a host-parent environment relay. Go's HTML and
+  # Unicode escapes expand these values beyond their raw source byte count.
+  test "runtime defaults fit their transport budget after canonical worker escaping" do
+    value = "x" <> String.duplicate("<>&\u2028", 340) <> "x"
+    small = Map.new(1..8, &{"KEY#{&1}", value})
+    large = Map.put(small, "KEY9", value)
+    job = Map.put(valid_job(), "repository_read_only", false)
+    runtime = %{"version" => 1, "dockerfile" => "", "compose" => "", "environment" => small}
+    assert JobSpec.validate(Map.put(job, "runtime", runtime)) == :ok
+
+    assert JobSpec.validate(Map.put(job, "runtime", %{runtime | "environment" => large})) ==
+             {:error, :invalid_coop_worker_job}
+
+    assert JobSpec.validate(Map.put(job, "environment", large)) == :ok
+    assert JobSpec.validate(put_in(job, ["check", "environment"], large)) == :ok
+  end
+
   test "the immutable job digest matches Coop's sorted and escaped Go JSON" do
     for {timestamp, digest} <- [
           {"2026-09-26T12:00:00Z",

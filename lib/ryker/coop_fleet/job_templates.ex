@@ -1,7 +1,7 @@
 defmodule Ryker.CoopFleet.JobTemplates do
   @moduledoc "Controller-owned execution settings, independent of worker advertisements."
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.JobCheck
+  alias Ryker.CoopFleet.JobSetup
   alias Ryker.Settings
 
   @installation [
@@ -109,15 +109,15 @@ defmodule Ryker.CoopFleet.JobTemplates do
   # tenant's worker VM has six; 4096 processes is Coop's own default cap.
   @resources %{"cpu_millis" => 4_000, "memory_bytes" => 8 * 1_073_741_824, "pids" => 4_096}
 
-  # A job names its whole setup (Coop job-setup:2). Work gets no environment
-  # of its own; a working copy's check is the repository's gate, which
-  # `Ryker.CoopFleet.JobAuthority` resolves at the job's base commit.
+  # The template starts without repository setup. JobAuthority resolves a
+  # writable source's toolchain, test services, environment and check at its
+  # base commit before the job is frozen.
   def execution(work, purpose, repository?) do
     %{
       "targets" => Map.fetch!(work, model_field(purpose)),
       "mode" => "normal",
       "environment" => %{},
-      "check" => JobCheck.none(),
+      "check" => JobSetup.no_check(),
       "resources" => @resources,
       "repository_read_only" => not repository? or purpose != :contributor,
       "egress" => egress(purpose),
