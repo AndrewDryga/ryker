@@ -331,8 +331,6 @@ defmodule Ryker.Behaviors.StandingRules do
   end
 
   defp finalize_assignment_runs_locked(input_ref, action, decision_ref, episode, outcome) do
-    now = Repo.now!()
-
     episode_id =
       if action in [:start_episode, :continue_episode, :reply] and episode, do: episode.id
 
@@ -348,34 +346,25 @@ defmodule Ryker.Behaviors.StandingRules do
         outcome: outcome
       }
 
-      finalize_assignment_run(run, desired, now)
+      finalize_assignment_run(run, desired)
     end)
 
     :ok
   end
 
-  defp finalize_assignment_run(%StandingAssignmentRun{outcome: :pending} = run, desired, now) do
+  defp finalize_assignment_run(%StandingAssignmentRun{outcome: :pending} = run, desired) do
     changeset = StandingAssignmentRun.Changeset.finalize(run, desired)
 
     case Repo.update(changeset) do
-      {:ok, _updated} -> increment_assignment_use(run.assignment_id, now)
+      {:ok, _updated} -> Behaviors.count_use([run.assignment_id])
       {:error, changeset} -> Repo.rollback({:standing_assignment_run_failed, changeset.errors})
     end
   end
 
-  defp finalize_assignment_run(%StandingAssignmentRun{} = existing_run, desired, _now) do
+  defp finalize_assignment_run(%StandingAssignmentRun{} = existing_run, desired) do
     if Map.take(existing_run, [:decision_action, :decision_ref, :episode_id, :outcome]) == desired,
       do: :ok,
       else: Repo.rollback(:standing_assignment_run_conflict)
-  end
-
-  defp increment_assignment_use(assignment_id, now) do
-    _count =
-      assignment_id
-      |> Behavior.Query.by_id()
-      |> Repo.update_all(inc: [use_count: 1], set: [last_used_at: now])
-
-    Behaviors.broadcast_behavior_updated(assignment_id)
   end
 
   defp valid_final_episode(action, %Episodes.Episode{}, _outcome)

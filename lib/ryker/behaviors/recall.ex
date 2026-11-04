@@ -137,29 +137,25 @@ defmodule Ryker.Behaviors.Recall do
   defp account_guidance([], _context), do: []
 
   defp account_guidance(behaviors, context) do
+    # The share lock waits out a concurrent edit or delete and reads the result,
+    # and holds no other turn's recall or snapshot back.
     current =
       Behavior.Query.unchanged(behaviors)
       |> Behavior.Query.by_status(:active)
       |> Behavior.Query.unexpired()
       |> Behavior.Query.select_ids()
+      |> Behavior.Query.lock_for_share()
+      |> Repo.all()
 
-    retained = current |> charge_use(context) |> MapSet.new()
+    charge_use(current, context)
+    retained = MapSet.new(current)
     behaviors |> Enum.filter(&MapSet.member?(retained, &1.id)) |> Enum.map(&guidance_document/1)
   end
 
   # A shadow turn reads what a live one would and counts no use: its reads kept
   # stale guidance out of the review queue (2026-10-04 review).
-  defp charge_use(current, %{execution_mode: :shadow}), do: Repo.all(current)
-
-  defp charge_use(current, _context) do
-    {_count, ids} =
-      Repo.update_all(current, inc: [use_count: 1], set: [last_used_at: Repo.now!()])
-
-    # One announcement for the guidance a turn uses, which a page redraws for
-    # once: it sent one per row (2026-10-04 review).
-    with [id | _rest] <- ids, do: Behaviors.broadcast_behavior_updated(id)
-    ids
-  end
+  defp charge_use(_ids, %{execution_mode: :shadow}), do: :ok
+  defp charge_use(ids, _context), do: Behaviors.count_use(ids)
 
   @doc "Internal — the exact stable model projection of one guidance revision."
   def guidance_document(%Behavior{} = behavior) do

@@ -262,6 +262,18 @@ defmodule Ryker.Behaviors.Behavior.Query do
     )
   end
 
+  @doc "Of `ids`, the rows no transaction holds right now, locked, as their ids."
+  def free_to_count(ids) do
+    free =
+      from(b in all(),
+        where: b.id in ^ids,
+        select: b.id,
+        lock: "FOR NO KEY UPDATE SKIP LOCKED"
+      )
+
+    from(b in all(), where: b.id in subquery(free), select: b.id)
+  end
+
   def ordered_by_id(queryable), do: order_by(queryable, [operator_behaviors: b], asc: b.id)
   def select_ids(queryable), do: select(queryable, [operator_behaviors: b], b.id)
   def limit_to(queryable, count), do: limit(queryable, ^count)

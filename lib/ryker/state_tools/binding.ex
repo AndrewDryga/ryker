@@ -59,13 +59,15 @@ defmodule Ryker.StateTools.Binding do
   def fetch_and_lock_current(binding) do
     # Routine Work bookkeeping briefly owns this row while the model is using
     # MCP. Wait within the existing recall lock budget, then recheck authority.
+    # A tool can hold it for seconds, and every activity row's foreign key takes
+    # a key lock here: this lock leaves those free.
     Repo.lock_timeout!(1_000)
 
     session =
       binding.session.id
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.by_episode_id(binding.episode.id)
-      |> Work.Session.Query.lock_for_update()
+      |> Work.Session.Query.lock_for_no_key_update()
       |> Repo.peek()
 
     with %Work.Session{cleanup_status: :active} <- session,

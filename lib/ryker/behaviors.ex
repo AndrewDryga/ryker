@@ -768,4 +768,28 @@ defmodule Ryker.Behaviors do
       Ryker.PubSub.broadcast(behaviors_topic(), {:behavior_updated, behavior_id})
     end)
   end
+
+  @doc """
+  Counts one use of guidance `ids` once the open transaction commits. A count
+  inside it held each rule write-locked for all of a turn's recall, so another
+  turn's snapshot read the rule as busy, and it waited on the share locks those
+  snapshots hold (2026-11-03). A rule another transaction holds at that moment
+  misses this one count: it is a rule in use, and the count only ever fed the
+  review of rules nobody uses.
+  """
+  @spec count_use([Ecto.UUID.t()]) :: :ok
+  def count_use([]), do: :ok
+
+  def count_use(ids) do
+    Repo.after_commit(fn ->
+      {_count, counted} =
+        ids
+        |> Behavior.Query.free_to_count()
+        |> Repo.update_all(inc: [use_count: 1], set: [last_used_at: Repo.now!()])
+
+      # One announcement for the guidance a turn uses, which a page redraws for
+      # once: it sent one per row (2026-10-04 review).
+      with [id | _rest] <- counted, do: broadcast_behavior_updated(id)
+    end)
+  end
 end

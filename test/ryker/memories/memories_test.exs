@@ -1246,6 +1246,17 @@ defmodule Ryker.Memories.MemoriesTest do
     assert match["kind"] == "guidance"
     assert Repo.get!(Behavior, first.behavior.id).use_count == 1
     assert Repo.get!(Behavior, second.behavior.id).use_count == 1
+
+    # Counted inside the transaction, each rule stayed write-locked for all of a turn's recall:
+    # another turn's snapshot read it as busy and refused to go on (2026-11-03).
+    assert Repo.transaction(fn ->
+             assert [_match, _other] =
+                      MemoryPages.guidance(context, "lead with the outcome", "workspace", 20)
+
+             Repo.get!(Behavior, first.behavior.id).use_count
+           end) == {:ok, 1}
+
+    assert Repo.get!(Behavior, first.behavior.id).use_count == 2
   end
 
   test "fact search does not count a nonmatching candidate as recalled" do
