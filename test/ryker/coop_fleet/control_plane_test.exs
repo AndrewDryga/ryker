@@ -486,12 +486,15 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
   # Every poll wrote every active lease: 58 rows a second, each with all its indexes, on the
   # tenant install with 71 placements, and autovacuum ran on the table every twenty seconds
-  # (2026-11-04). A lease still has three quarters of its time after any poll.
-  test "a poll rewrites only the leases that have spent a quarter of their time" do
+  # (2026-11-04). The lease is also the deadline a worker holds a running command to, so any
+  # poll must leave the minute it always left, or a Ryker outage of 46 s cancels commands.
+  test "a poll rewrites only the leases that have spent a quarter, and leaves each a minute" do
     authorize_and_poll!("worker-a")
     fresh = place!("lease-fresh")
     spent = place!("lease-spent")
-    spent_until = DateTime.add(Repo.now!(), 40, :second)
+    fresh_until = DateTime.add(Repo.now!(), 70, :second)
+    spent_until = DateTime.add(Repo.now!(), 50, :second)
+    fresh |> Ecto.Changeset.change(lease_expires_at: fresh_until) |> Repo.update!()
     spent |> Ecto.Changeset.change(lease_expires_at: spent_until) |> Repo.update!()
 
     {polled, statements} =
@@ -503,10 +506,12 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       end)
 
     assert {:ok, _response} = polled
-    assert Repo.get!(Placement, fresh.id).lease_expires_at == fresh.lease_expires_at
+    kept = Repo.get!(Placement, fresh.id).lease_expires_at
+    assert DateTime.compare(kept, fresh_until) == :eq
+    assert DateTime.diff(kept, Repo.now!()) >= 60
 
     renewed = Repo.get!(Placement, spent.id).lease_expires_at
-    assert DateTime.diff(renewed, Repo.now!()) in 45..60
+    assert DateTime.diff(renewed, Repo.now!()) in 60..80
 
     assert [_one_write] =
              Enum.filter(statements, &(&1.sql =~ ~s(UPDATE "coop_session_placements")))

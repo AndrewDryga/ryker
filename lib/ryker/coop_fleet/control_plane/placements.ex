@@ -643,7 +643,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # Writing every active lease on every poll rewrote 58 rows a second on the
   # tenant install with 71 placements, every index of each, and autovacuum ran on
   # the table every twenty seconds (2026-11-04). A lease with three quarters of
-  # its time left waits for a later poll.
+  # its time left waits for a later poll, which still leaves the minute a running
+  # command needs (`Workers`).
   defp renew_placements(placements, now, lease_seconds) do
     enough = trunc(lease_seconds * 750)
 

@@ -25,6 +25,11 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   alias Ryker.UTCDateTime
   alias Ryker.Work
 
+  # What a poll renews a lease to. It renews once a quarter is spent (`Placements`), so every
+  # poll leaves at least a minute: the lease is also the deadline a worker holds a running command
+  # to, and a Ryker outage shorter than that must not cancel one (2026-11-04).
+  @poll_lease_seconds 80
+
   @spec handle_poll_certificate(binary(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def handle_poll_certificate(certificate, document, options \\ [])
@@ -63,7 +68,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   # it there. A poll with no certificate skipped that check, and only tests
   # ever sent one (2026-10-04 review).
   defp handle_poll(authenticated_worker_id, certificate_sha256, document, options) do
-    lease_seconds = Keyword.get(options, :lease_seconds, 60)
+    lease_seconds = Keyword.get(options, :lease_seconds, @poll_lease_seconds)
     state_tools_secret = Keyword.get(options, :state_tools_secret)
 
     with :ok <- Shared.reference(authenticated_worker_id, 256, :worker_id),
