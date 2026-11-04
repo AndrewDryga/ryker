@@ -406,10 +406,10 @@ backup: database, already saved encrypted checkpoint bodies and environment keys
 pauses during its snapshot. The worker and its Docker daemon keep running; worker journals, model
 sign-ins and workspace changes not captured in a saved checkpoint are not in this archive. It names the archive
 `scheduled-YYYYMMDDTHHMMSSZ.tar.gz` and keeps the
-newest 14 scheduled backups (`RYKER_KEEP_SCHEDULED_BACKUPS`). Backups you take yourself and
-pre-deploy backups are never touched. A busy lifecycle lock retries up to five times, one minute
+newest 14 scheduled backups (`RYKER_KEEP_SCHEDULED_BACKUPS`). Backups you take yourself are
+never touched. A busy lifecycle lock retries up to five times, one minute
 apart; other failures stop immediately. `scripts/status.sh` separately reports the latest daily
-backup and marks it overdue after 36 hours, even when a deployment backup is newer.
+backup and marks it overdue after 36 hours, even when another backup is newer.
 The log is `~/.local/state/ryker-backup/backup.log`. Run the
 install again to change the time. Copy archives to another disk for recovery. A daily archive
 recovers controller custody and captured checkpoints, not every current worker file. For complete
