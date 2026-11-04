@@ -2,10 +2,12 @@ defmodule Ryker.Observability.Retention do
   @moduledoc """
   Workspace cleanup reported by reason, not only as a queue depth.
 
-  Every retained byte must be explainable, so sessions are counted by cleanup
-  status and the retained ones by why they are kept. An absent measurement
-  stays absent: the report never substitutes zero for something no worker has
-  reported.
+  Every retained byte must be explainable, so sessions still in cleanup custody
+  are counted by status and the retained ones by why they are kept. Discarded
+  ones hold nothing and are left out: counting them read every session ever
+  kept, about 2.6 times a minute on the tenant install (2026-11-04). An absent
+  measurement stays absent: the report never substitutes zero for something no
+  worker has reported.
   """
   alias Ryker.Observability.Reads
   alias Ryker.Retention
@@ -24,7 +26,7 @@ defmodule Ryker.Observability.Retention do
            Reads.one(Retention.Cleanup.Query.select_oldest_eligible_at(eligible)),
          {:ok, retained} <- Reads.all(Work.Session.Query.retained_by_reason()),
          {:ok, retrying} <- Reads.count(Work.Session.Query.cleanup_retrying_after(now)),
-         {:ok, sessions} <- Reads.counts(Work.Session.Query.all(), :cleanup_status) do
+         {:ok, sessions} <- Reads.counts(Work.Session.Query.not_discarded(), :cleanup_status) do
       {:ok,
        %{
          blocked: blocked,

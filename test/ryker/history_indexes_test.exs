@@ -20,8 +20,8 @@ defmodule Ryker.HistoryIndexesTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Knowledge.KnowledgeSource
   alias Ryker.Observability.Fleet
+  alias Ryker.Observability.Retention
   alias Ryker.QueryWork
-  alias Ryker.Retention.Cleanup
   alias Ryker.Slack
   alias Ryker.Slack.InteractionAudit
   alias Ryker.Work.ActivityEvent
@@ -56,10 +56,10 @@ defmodule Ryker.HistoryIndexesTest do
     assert sessions_read(reads) <= 17
   end
 
-  # Readiness and every cleanup claim asked which sessions were eligible, and one arm of the
-  # question, for receipts no install holds any more, read every session ever discarded: 17 scans a
-  # minute of 9,160 rows on the tenant install (2026-11-04).
-  test "cleanup eligibility reads the sessions still in play, not every one discarded" do
+  # Readiness asked which sessions cleanup could claim, when it last reclaimed one and how many
+  # there were of each status, and each question read every session ever discarded: about 17 scans
+  # a minute of 9,160 rows on the tenant install (2026-11-04).
+  test "readiness's cleanup report reads the sessions still in play, not every one discarded" do
     now = Repo.now!()
 
     discarded =
@@ -71,11 +71,10 @@ defmodule Ryker.HistoryIndexesTest do
     {60, _rows} = Repo.insert_all(Session, discarded)
     Repo.query!("ANALYZE episode_work_sessions")
 
-    {_oldest, reads} =
-      QueryWork.statements(fn ->
-        now |> Cleanup.Query.eligible() |> Cleanup.Query.select_oldest_eligible_at() |> Repo.one()
-      end)
+    {report, reads} = QueryWork.statements(fn -> Retention.snapshot(now) end)
 
+    assert {:ok, %{sessions: sessions}} = report
+    refute Map.has_key?(sessions, :discarded)
     assert sessions_read(reads) <= 5
   end
 

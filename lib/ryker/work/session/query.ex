@@ -256,6 +256,23 @@ defmodule Ryker.Work.Session.Query do
   def by_cleanup_status(queryable \\ all(), status),
     do: where(queryable, [episode_work_sessions: s], s.cleanup_status == ^status)
 
+  @doc "Sessions cleanup has not finished with, by the index on their status."
+  def not_discarded(queryable \\ all()) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.cleanup_status in [
+        :active,
+        :close_pending,
+        :grace,
+        :plan_pending,
+        :discard_pending,
+        :retained,
+        :blocked
+      ]
+    )
+  end
+
   @doc "Sessions whose cleanup failed and waits to retry after `now`."
   def cleanup_retrying_after(now) do
     where(
