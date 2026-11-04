@@ -60,7 +60,9 @@ services:
       start_period: 30s
     logging: *logging
 volumes:
-  state: {}
-  config: {}
-  docker: {}
-  socket: {}
+  state: {external: true, name: ryker-worker_state}
+  config: {external: true, name: ryker-worker_config}
+  docker: {external: true, name: ryker-worker_docker}
+  socket: {external: true, name: ryker-worker_socket}
+networks:
+  default: {external: true, name: ryker_default}

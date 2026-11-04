@@ -68,7 +68,7 @@ or Tailscale Serve can carry it to browsers elsewhere. Health and readiness answ
 reaches them; metrics answer only at a loopback address, as the watchdog reads them.
 
 Inside Compose the console admits only its own loopback and `RYKER_CONTROL_PEER`, the address
-published traffic arrives from: the network's gateway, `172.30.42.1` (measured under OrbStack).
+published traffic arrives from: normally the network's gateway, `172.30.42.1`.
 A Docker runtime that forwards published ports from another address answers every page with
 "Loopback access only"; set `RYKER_CONTROL_PEER` in `.ryker/compose.env` to that
 address and run `scripts/compose.sh start`. Every published request arrives from that one
@@ -250,68 +250,46 @@ the admission decision. This is separate
 from `worker-drain`, which holds undelivered mutations and is appropriate immediately before a
 quiescent worker is restarted. Stopping admission does not move or delete retained sessions.
 
-### A bounded worker pool on macOS
+### A worker pool on Docker
 
-Before installing: controller-only backups continue, but the existing full backup/restore and
-uninstall commands cannot cover this additional worker. Preserve both workers’ volumes and the
-complete isolated machine; full pool restore is not yet available.
+`python3 -B scripts/worker_pool.py install` runs the pool as Compose project `ryker-worker`
+on the installation's existing Docker engine, beside the controller and retained worker.
+It uses the operator's `DOCKER_CONTEXT`, `DOCKER_HOST`, or current Docker context, then records
+that endpoint and daemon identity so later desktop or shell changes cannot redirect the pool.
+It uses ordinary named volumes and Docker's shared image cache. It creates no Linux machine,
+installs no additional system Docker engine, and sets no custom disk, CPU or RAM quotas.
+The existing job-runtime sidecar runs as a container in the pool's Compose project.
 
-`python3 -B scripts/worker_pool.py install` creates an isolated OrbStack Linux machine on an
-Apple Silicon host. The controller and PostgreSQL run in the local `orbstack` Docker context.
-The worker has a 52 GiB disk quota, 8 GiB RAM and four CPUs. Installation and maintenance require
-74 GiB of physical host headroom: the full possible private disk growth, 8 GiB of swap and 14 GiB
-for the controller, builds and overhead. Shared base extents can become private without increasing
-quota usage, so checks do not subtract current usage from that reserve. Other applications can
-still consume host space.
+The pool owns `ryker-worker_state`, `ryker-worker_config`, `ryker-worker_docker` and
+`ryker-worker_socket`. A private ownership label prevents another installation's volumes
+from being adopted. The pool joins the existing `ryker_default` network, so the stored worker
+URL and public CA remain unchanged. Provider credentials and native session state stay separate
+from the retained worker. Moving an existing pool requires a quiescent custody transfer; do not
+copy rotating credentials into two live workers.
 
-The machine has no host directory mounts or forwarded SSH agent. Its outer and nested Docker
-address pools are separate, and installation refuses overlapping host routes. Both daemons use
-`overlay2`: Docker's Btrfs subvolumes can escape the machine's direct quota. Coop measures the
-machine's Btrfs quota as well as filesystem space, including pending allocation reservations,
-so admission and GC see the worker's actual storage boundary. The operator also checks that
-boundary and the host's physical headroom. OrbStack manages discarded-block reclamation.
-
-A boot-required firewall permits only the controller's `172.30.42.10:4322` worker gateway and
-OrbStack DNS among host and sibling-machine destinations. Other controller Docker networks,
-Mac integration addresses, sibling machines and IPv6 are denied; public IPv4 remains available.
-Only the gateway’s `/32` is routed through OrbStack’s Docker bridge, preserving its stored URL.
-The protected controller network inventory is refreshed during maintenance. TLS verification,
-stored URLs and existing worker certificates are unchanged. The machine shares OrbStack's Linux
-kernel and physical storage with other workloads; it isolates ordinary work containers, while a
-compromised privileged daemon or machine root is outside this boundary. Container logs and guest
-journals are bounded.
-
-Installation enrolls a new `ryker-pool` identity in the existing workspace, with admission held
-atomically before its first heartbeat. It copies only the public CA, never the old worker's model
-sign-ins, identity, session database or repositories. Rotating model credentials must not be
-copied into two live workers. It prepares the box and qualifies filtered networking while the
-old worker continues. Sign in each account listed by status using
-`python3 -B scripts/worker_pool.py model-login ACCOUNT`; activation requires all configured
-accounts to have completed their own sign-in. Inspect
+Installation enrolls a new `ryker-pool` identity with admission held before its first heartbeat.
+It copies only the public CA, prepares the box and qualifies filtered networking while the old
+worker continues. Sign in each account listed by status using
+`python3 -B scripts/worker_pool.py model-login ACCOUNT`, inspect
 `python3 -B scripts/worker_pool.py status`, then run `python3 -B scripts/worker_pool.py activate`.
-Activation releases only the exact bootstrap hold, then stops admission on `ryker-compose`.
-If the second step fails, both workers stay intact and activation can be retried. Existing
-sessions continue on the old worker; retirement requires an empty custody inventory, not merely
-zero currently executing commands.
+Activation releases only its exact bootstrap hold, then stops new admission on `ryker-compose`.
+Existing sessions remain on the retained worker; retirement requires an empty custody inventory.
 
-The existing watchdog maintains both pools, including bounded build-cache cleanup and recovery
-after certificate expiry. An invalid identity is retained and reported. An unexpired enrollment
-token is reused; a token replaced before first enrollment still carries the admission hold.
-Insufficient physical headroom holds new pool admissions, and recovery releases only that exact
-maintenance-owned hold. A launch agent starts the owned machine after host login; an explicit start
-is `python3 -B scripts/worker_pool.py start`.
+The watchdog maintains both workers' unused build caches and recovers expired certificates.
+Invalid identities are preserved and reported. Start the selected Docker engine at login; the containers' restart
+policies bring the pool back with its engine. An explicit start is
+`python3 -B scripts/worker_pool.py start`.
 
-`python3 -B scripts/worker_pool.py upgrade` prepares the pinned image, waits for controller and
-native quiescence under its own exact drain, then replaces only the pool worker. The automatic
-updater invokes it after upgrading the retained worker. The pool keeps its current and previous
-worker images. `python3 -B scripts/worker_pool.py model-login ACCOUNT` targets the pool's own
-provider volume and uses a guarded restart after sign-in. Status and watchdog failures name the
-separate pool; changing the global Docker context never selects it implicitly.
+`python3 -B scripts/worker_pool.py upgrade` prepares the pinned worker image, waits for controller
+and native quiescence under its own exact drain, then replaces only the pool worker. The pool
+keeps its current and previous images. The retained worker’s image cleanup also protects the pool’s
+current, previous and pending image pins. Model sign-in uses the pool's own provider volume and a
+guarded restart. Commands explicitly select the saved Docker endpoint, regardless of later shell settings.
 
-Scheduled and manual controller-only backups remain supported. A full backup, full restore,
-uninstall or destroy is refused while a separate pool exists: the original archive does not
-contain its custody. Keep both workers' volumes and the complete pool machine. There is no automatic
-bulk session migration or full pool restore, and no command here deletes the retained worker.
+Controller-only backups remain supported. Full backup, full restore, uninstall and destroy are
+refused while a separate pool exists because those archives do not contain its custody. Preserve
+both workers' volumes, the controller environment and the private worker-pool state. There is no
+automatic bulk session migration or full pool restore, and no command here deletes retained work.
 
 An install on another machine can upgrade itself instead, with nobody on its host:
 `scripts/install-auto-upgrade.sh` installs a launch agent there that runs `scripts/auto-upgrade.sh`
@@ -640,8 +618,8 @@ launch agent that runs `caffeinate -i -s` from login on, so the Mac doesn't slee
 power, after a restart too, and a laptop rides out a power cut on its battery. A laptop still sleeps
 when its lid is closed without an external display.
 
-After a restart, Ryker comes back once someone logs in: enable OrbStack’s “Start at login”
-setting, and Compose restarts Ryker’s containers. With FileVault on, a
+After a restart, Ryker comes back when its Docker engine starts. Enable your chosen engine
+at login on a Mac; Compose restarts Ryker’s containers. With FileVault on, a
 Mac waits at its unlock screen after a restart until someone types the password, and macOS doesn't
 log in by itself. Restart such a host with `sudo fdesetup authrestart`, which unlocks the disk once
 on the way back up. A crash, or a power cut longer than the battery lasts, still needs someone at

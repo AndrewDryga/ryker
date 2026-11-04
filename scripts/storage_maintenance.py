@@ -130,8 +130,7 @@ def inspect_host_builder(prefix, run):
     return size_bytes(total[1])
 
 
-def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, context=None, compose_file=None,
-             orbstack_machine=None, measure_quota=None):
+def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, context=None, host=None, compose_file=None):
     before_host = measure_host(env_file.parent)
     result = {"version": 1, "measured_at": int(time.time()), "host": before_host,
               "builders": [], "errors": []}
@@ -140,18 +139,23 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
     # Freeze the container ID for this pass: a concurrent worker upgrade may
     # replace the worker, but cannot redirect exec into an unrelated container.
     try:
-        if context is None and os.environ.get("DOCKER_HOST") and not os.environ.get("DOCKER_CONTEXT"):
-            raise RuntimeError("storage maintenance requires an explicit Docker context when DOCKER_HOST is set")
-        context = context or run(outer + ["context", "show"]).strip()
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+", context):
-            raise RuntimeError("Docker context identity is invalid")
-        endpoint = json.loads(run(outer + ["context", "inspect", context, "--format", "{{json .Endpoints.docker.Host}}"] ))
-        local_machine = (isinstance(orbstack_machine, str) and
-                         re.fullmatch(r"[A-Za-z0-9_.-]+", orbstack_machine) and
-                         endpoint == "ssh://root%40" + orbstack_machine + "@orb")
-        if not isinstance(endpoint, str) or not (endpoint.startswith("unix:///") or local_machine):
-            raise RuntimeError("storage maintenance requires a local Unix Docker endpoint; run it on the Docker host")
-        outer += ["--context", context]
+        if host is None:
+            context = context or os.environ.get("DOCKER_CONTEXT")
+            if not context:
+                host = os.environ.get("DOCKER_HOST")
+        if host:
+            endpoint = host
+            outer += ["--host", host]
+        else:
+            context = context or run(outer + ["context", "show"]).strip()
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", context):
+                raise RuntimeError("Docker context identity is invalid")
+            endpoint = json.loads(run(outer + ["context", "inspect", context, "--format", "{{json .Endpoints.docker.Host}}"] ))
+            outer += ["--context", context]
+        if not isinstance(endpoint, str) or not endpoint:
+            raise RuntimeError("Docker endpoint is unavailable")
+        local_endpoint = endpoint.startswith(("unix://", "npipe://"))
+        result["remote"] = not local_endpoint
     except (RuntimeError, ValueError, subprocess.TimeoutExpired, OSError) as error:
         result["errors"].append(str(error) if isinstance(error, RuntimeError) else "Docker context measurement failed")
         return result
@@ -161,12 +165,6 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
 
     def worker_volume():
         capacity, free = parse_df(run(outer + ["exec", container, "df", "-Pk", "/var/lib/docker"]))
-        if measure_quota is not None:
-            quota_capacity, quota_free = measure_quota()
-            if (any(isinstance(value, bool) or not isinstance(value, int) for value in (quota_capacity, quota_free)) or
-                    not 0 <= quota_free <= quota_capacity or quota_capacity <= 0):
-                raise RuntimeError("worker quota measurement is invalid")
-            capacity, free = min(capacity, quota_capacity), min(free, quota_free, capacity)
         return capacity, free
 
     try:
@@ -186,7 +184,7 @@ def maintain(env_file, apply=False, run=command, measure_host=host_disk, *, cont
         try:
             inspect = inspect_host_builder if name == "host" else inspect_builder
             item["cache_bytes"] = inspect(prefix, run)
-            host_pressure = measure_host(env_file.parent)["pressure"]
+            host_pressure = local_endpoint and measure_host(env_file.parent)["pressure"]
             if capacity is None:
                 # Outer cache recovery remains available if the nested daemon
                 # is down. Unknown VM headroom never passes a build preflight.
@@ -253,7 +251,7 @@ def build_ready(report):
     # Do not deadlock the repair release on space occupied by unrelated host data.
     return not report["errors"] and all(
         name in report and report[name]["free_bytes"] >= min(report[name]["capacity_bytes"] // 5, 12 * GIB)
-        for name in ("host", "docker")
+        for name in (("docker",) if report.get("remote") else ("host", "docker"))
     )
 
 

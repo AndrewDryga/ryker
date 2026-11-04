@@ -102,25 +102,31 @@ class MaintenanceTest(unittest.TestCase):
         self.assertIn(["docker", "--context", "default", "buildx", "du", "--builder", "default"], self.commands)
         self.assertFalse(any(c[:4] == ["docker", "--context", "default", "system"] for c in self.commands))
 
-    def test_owned_orbstack_quota_bounds_cleanup_even_when_df_reports_the_shared_disk(self):
-        # The real isolated machine enforced 4 GiB while df reported 2.4 TiB.
-        # Both writable layers and volumes must use the quota's remaining room.
-        self.endpoint = "ssh://root%40ryker-worker@orb"
+    def test_engine_uses_available_filesystem_space_without_a_worker_quota(self):
         report = storage.maintain(
             pathlib.Path("/tmp/install/compose.env"), True, self.run_docker, self.measure_host,
-            context="orbstack-ryker-worker", orbstack_machine="ryker-worker",
-            measure_quota=lambda: (4 * storage.GIB, storage.GIB))
+            context="deployment-engine")
         self.assertEqual(report["errors"], [])
-        self.assertEqual(report["docker"]["capacity_bytes"], 4 * storage.GIB)
-        self.assertEqual(report["docker"]["free_bytes"], storage.GIB)
+        self.assertEqual(report["docker"]["capacity_bytes"], 100 * storage.GIB)
+        self.assertEqual(report["docker"]["free_bytes"], self.free)
 
-    def test_an_unrelated_ssh_endpoint_cannot_be_treated_as_local_orbstack_storage(self):
-        self.endpoint = "ssh://root@another-host"
-        report = storage.maintain(
-            pathlib.Path("/tmp/install/compose.env"), True, self.run_docker, self.measure_host,
-            context="orbstack-ryker-worker", orbstack_machine="ryker-worker")
-        self.assertTrue(report["errors"])
-        self.assertFalse(any("prune" in command for command in self.commands))
+    def test_cache_cleanup_uses_the_selected_context_for_every_docker_transport(self):
+        for endpoint in ("unix:///engine.sock", "ssh://operator@docker-host", "tcp://docker-host:2376"):
+            with self.subTest(endpoint=endpoint):
+                self.commands.clear()
+                self.endpoint = endpoint
+                report = storage.maintain(pathlib.Path("/tmp/install/compose.env"), True,
+                                         self.run_docker, self.measure_host, context="deployment-engine")
+                self.assertEqual(report["errors"], [])
+                self.assertTrue(all(command[:3] == ["docker", "--context", "deployment-engine"]
+                                    for command in self.commands if "exec" in command or "buildx" in command))
+
+    def test_explicit_docker_host_never_prunes_the_default_context(self):
+        endpoint = "tcp://docker-host:2376"
+        with patch.dict(storage.os.environ, {"DOCKER_HOST": endpoint}, clear=True):
+            report = self.maintain()
+        self.assertEqual(report["errors"], [])
+        self.assertTrue(all(command[:3] == ["docker", "--host", endpoint] for command in self.commands))
 
     def test_host_cache_without_a_total_is_a_failed_measurement(self):
         self.du_total = False
@@ -138,14 +144,14 @@ class MaintenanceTest(unittest.TestCase):
         compose_file = pathlib.Path("/tmp/install/pool-compose.yml")
         report = storage.maintain(pathlib.Path("/tmp/install/pool/compose.env"), True,
                                  self.run_docker, self.measure_host,
-                                 context="orbstack-ryker-worker", compose_file=compose_file)
+                                 context="pool", compose_file=compose_file)
         self.assertEqual(report["errors"], [])
         self.assertFalse(any(c == ["docker", "context", "show"] for c in self.commands))
         selected = [c for c in self.commands if "compose" in c]
-        self.assertEqual(selected[0][1:3], ["--context", "orbstack-ryker-worker"])
+        self.assertEqual(selected[0][1:3], ["--context", "pool"])
         self.assertIn(str(compose_file), selected[0])
         for command in [c for c in self.commands if "--force" in c]:
-            self.assertEqual(command[1:3], ["--context", "orbstack-ryker-worker"])
+            self.assertEqual(command[1:3], ["--context", "pool"])
 
     def test_cache_pressure_targets_both_correct_daemons_only(self):
         self.cache = "12GB"
@@ -211,8 +217,9 @@ class MaintenanceTest(unittest.TestCase):
                 return '"ssh://another-host"'
             return self.run_docker(argv, timeout)
         report = storage.maintain(pathlib.Path("/tmp/install/compose.env"), True, remote_context, self.measure_host)
-        self.assertIn("local Unix Docker endpoint", storage.summary(report))
-        self.assertFalse(any("prune" in c or "exec" in c for c in self.commands))
+        self.assertEqual(report["errors"], [])
+        self.assertFalse(any("prune" in c for c in self.commands))
+        self.assertTrue(storage.build_ready(report), "a remote build must not depend on the laptop's free disk")
 
     def test_missing_filesystem_measurement_is_unknown_not_healthy(self):
         for text in ("", "Filesystem\n/dev\n", "Filesystem\n/dev a b c\n"):

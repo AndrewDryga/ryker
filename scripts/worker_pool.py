@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
-"""Operate the bounded worker VM without moving controller or retained-worker custody."""
+"""Operate the worker pool on the installation’s selected Docker engine."""
 import argparse
-import base64
 from datetime import datetime, timezone
 import fcntl
 import hashlib
-import ipaddress
 import json
 import os
 from pathlib import Path
-import platform
-import plistlib
 import re
-import shlex
-import shutil
 import stat
 import subprocess
 import sys
@@ -26,8 +20,8 @@ import storage_maintenance
 ROOT = Path(__file__).resolve().parent.parent
 FILES = ROOT / "deploy/worker-pool"
 GIB = 1024 ** 3
-PROFILE = "ryker-worker"
-CONTEXT = "orbstack-" + PROFILE
+VOLUMES = tuple("ryker-worker_" + name for name in ("state", "config", "docker", "socket"))
+OWNER_LABEL = "io.ryker.worker-pool.owner"
 WORKER = "ryker-pool"
 WORKSPACE = "ryker-compose"
 REFERENCE = re.compile(r"[A-Za-z0-9._:-]+")
@@ -43,8 +37,7 @@ def run(argv, data=None, timeout=30, env=None):
                           {"eval", "psql", "load", "inspect", "up", "start", "exec", "run", "ssh"}), "command")
         context = argv[argv.index("--context") + 1] if "--context" in argv else None
         diagnostic = (f"docker --context {context} info" if context else
-                      "orb info ryker-worker" if tool == "orb" else
-                      "check this installation's worker-pool startup.log")
+                      "python3 -B scripts/worker_pool.py status")
         raise RuntimeError(f"{tool} {operation} failed (exit {result.returncode}); inspect with {diagnostic}")
     if len(result.stdout) > 1024 * 1024:
         raise RuntimeError("operator response exceeded 1 MiB")
@@ -77,87 +70,12 @@ def read_private_json(path):
     return json.loads(path.read_text())
 
 
-def required_free(data_gib=52, memory_gib=8):
-    # A machine may replace shared base extents with private blocks without
-    # increasing its quota usage. Reserve the whole possible private growth,
-    # plus its possible host swap and controller/build headroom.
-    return (data_gib + memory_gib + 14) * GIB
-
-
-def orbstack_storage_root():
-    image = Path.home() / "Library/Group Containers/HUAQ24HBR6.dev.orbstack/data/data.img"
-    try:
-        image = image.resolve(strict=True)
-    except OSError as error:
-        raise RuntimeError("OrbStack data image is unavailable; verify its storage location") from error
-    if not image.is_file():
-        raise RuntimeError("OrbStack data image must be a regular file")
-    return image.parent
-
-
-def machine_config():
-    return {"isolated": True, "forward_ssh_agent": False, "isolate_network": False,
-            "memory_limit_mib": 8192, "cpu_limit": 4, "disk_limit_bytes": 52 * GIB}
-
-
-def provisioning(owner, networks):
-    destinations = {
-        "install-docker.sh": "/usr/local/sbin/ryker-worker-install-docker",
-        "network.nft": "/etc/ryker-worker-network.nft",
-        "network.sh": "/usr/local/sbin/ryker-worker-network",
-        "network.service": "/etc/systemd/system/ryker-worker-network.service",
-        "docker-network.conf": "/etc/systemd/system/docker.service.d/ryker-network.conf",
-        "journald.conf": "/etc/systemd/journald.conf.d/ryker-worker.conf",
-    }
-    lines = ["#!/bin/sh", "set -eu",
-             f'test "$(cat /etc/ryker-worker-owner)" = {shlex.quote(owner)}',
-             "systemctl stop docker.service docker.socket 2>/dev/null || true",
-             "mkdir -p /etc/systemd/system/docker.service.d /etc/systemd/journald.conf.d"]
-    for source, target in destinations.items():
-        encoded = base64.b64encode((FILES / source).read_bytes()).decode()
-        lines.append(f"printf '%s' '{encoded}' | base64 -d > '{target}'")
-    daemon = {"storage-driver": "overlay2", "bip": "10.240.0.1/24",
-              "default-address-pools": [{"base": "10.240.0.0/16", "size": 24}],
-              "log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}
-    encoded_daemon = base64.b64encode(json.dumps(daemon).encode()).decode()
-    encoded_networks = base64.b64encode(("\n".join(networks) + "\n").encode()).decode()
-    lines += ["mkdir -p /etc/docker",
-              f"printf '%s' '{encoded_daemon}' | base64 -d > /etc/docker/daemon.json",
-              f"printf '%s' '{encoded_networks}' | base64 -d > /etc/ryker-worker-controller-networks",
-              "chmod 0600 /etc/ryker-worker-controller-networks /etc/docker/daemon.json",
-              "chmod 0700 /usr/local/sbin/ryker-worker-network /usr/local/sbin/ryker-worker-install-docker",
-              "sh /usr/local/sbin/ryker-worker-install-docker",
-              "systemctl daemon-reload",
-              "systemctl enable ryker-worker-network.service",
-              "systemctl restart systemd-journald",
-              "systemctl start ryker-worker-network.service",
-              "systemctl start docker.service"]
-    return "\n".join(lines) + "\n"
-
-
-
 def configuration_digest():
     digest = hashlib.sha256()
     for path in sorted(FILES.iterdir()):
         if path.is_file():
             digest.update(path.name.encode() + b"\0" + path.read_bytes())
     return digest.hexdigest()
-
-
-def check_route_ranges(output):
-    reserved = [ipaddress.ip_network(net) for net in ("10.240.0.0/16", "10.241.0.0/16")]
-    for line in output.splitlines():
-        fields = line.split()
-        if not fields or not re.match(r"^\d", fields[0]):
-            continue
-        address, slash, prefix = fields[0].partition("/")
-        octets = address.split(".")
-        if len(octets) > 4:
-            continue
-        address = ".".join(octets + ["0"] * (4 - len(octets)))
-        network = ipaddress.ip_network(address + "/" + (prefix if slash else str(8 * len(octets))), strict=False)
-        if any(network.overlaps(net) for net in reserved):
-            raise RuntimeError("worker Docker ranges overlap a host route; do not create this pool")
 
 
 class Pool:
@@ -168,10 +86,11 @@ class Pool:
         self.env_file = self.directory / "compose.env"
         self.state = read_private_json(self.manifest) if self.manifest.exists() else None
         if self.state:
-            if self.state.get("version") != 2:
-                raise RuntimeError("worker pool state requires the explicit OrbStack custody migration")
-            for key, expected in (("profile", PROFILE), ("context", CONTEXT),
-                                  ("worker", WORKER), ("workspace", WORKSPACE)):
+            if self.state.get("version") != 3:
+                raise RuntimeError("worker pool needs an explicit Docker custody migration")
+            if self.state.get("controller_context") != self.state.get("context"):
+                raise RuntimeError("pool and controller must use the same Docker installation")
+            for key, expected in (("worker", WORKER), ("workspace", WORKSPACE)):
                 if self.state.get(key) != expected:
                     raise RuntimeError("worker pool identity does not match this installation")
             if self.state.get("repository") != str(ROOT):
@@ -181,113 +100,22 @@ class Pool:
         atomic_json(self.manifest, self.state)
 
     def docker(self):
+        if self.state["context"] is None:
+            return ["docker", "--host", self.state["controller_endpoint"]]
         return ["docker", "--context", self.state["context"]]
 
     def controller(self):
-        endpoint = run(["docker", "context", "inspect", self.state["controller_context"],
-                        "--format", "{{.Endpoints.docker.Host}}"] ).strip()
-        if endpoint != self.state["controller_endpoint"]:
-            raise RuntimeError("controller Docker context changed; refusing a different installation")
-        return ["docker", "--context", self.state["controller_context"], "compose",
-                "--env-file", str(self.install_env), "--file", str(ROOT / "compose.yml")]
+        if self.state["controller_context"] is not None:
+            endpoint = run(["docker", "context", "inspect", self.state["controller_context"],
+                            "--format", "{{.Endpoints.docker.Host}}"] ).strip()
+            if endpoint != self.state["controller_endpoint"]:
+                raise RuntimeError("controller Docker context changed; refusing a different installation")
+        return self.docker() + ["compose", "--env-file", str(self.install_env),
+                                "--file", str(ROOT / "compose.yml")]
 
     def compose(self):
         return self.docker() + ["compose", "--env-file", str(self.env_file),
                                 "--file", str(FILES / "compose.yml")]
-
-    def guest(self, command, timeout=30):
-        return run(["orb", "run", "--machine", PROFILE, "--user", "root"] + command, timeout=timeout)
-
-    def machine_info(self, timeout=12, require_running=True):
-        info = json.loads(run(["orb", "info", PROFILE, "--format", "json"], timeout=timeout))
-        record = info["record"]
-        if record["name"] != PROFILE or (require_running and record.get("state") != "running"):
-            raise RuntimeError("the owned OrbStack worker machine is not running")
-        if self.state.get("machine_id") and record["id"] != self.state["machine_id"]:
-            raise RuntimeError("worker machine identity changed")
-        config = record["config"]
-        if any(config.get(key) != value for key, value in machine_config().items()) or config.get("mounts"):
-            raise RuntimeError("worker machine isolation or resource limits changed")
-        used = info["disk_size"]
-        if isinstance(used, bool) or not isinstance(used, int) or used < 0:
-            raise RuntimeError("worker quota usage is invalid")
-        return info
-
-    def quota(self):
-        info = self.machine_info()
-        capacity = info["record"]["config"]["disk_limit_bytes"]
-        return capacity, max(0, capacity - info["disk_size"])
-
-    def create_machine(self):
-        if self.state.get("machine_id"):
-            self.machine_info(require_running=False)
-            run(["orb", "start", PROFILE], timeout=180)
-        else:
-            machines = json.loads(run(["orb", "list", "--format", "json"]))
-            if not any(machine["name"] == PROFILE for machine in machines):
-                cloud = self.directory / "machine-cloud-init.yaml"
-                document = {"write_files": [{"path": "/etc/ryker-worker-owner", "permissions": "0600",
-                                              "content": self.state["owner"] + "\n"}]}
-                atomic_bytes(cloud, ("#cloud-config\n" + json.dumps(document)).encode())
-                run(["orb", "create", "--isolated", "--cpus", "4", "--memory", "8G", "--disk", "52G",
-                     "--user-data", str(cloud), "debian:bookworm", PROFILE], timeout=600)
-            info = self.machine_info()
-            # Creation can finish after its client loses the response. The
-            # private cloud-init nonce proves ownership before adopting its ID.
-            deadline = time.monotonic() + 90
-            while True:
-                try:
-                    owner = self.guest(["cat", "/etc/ryker-worker-owner"]).strip()
-                    break
-                except RuntimeError:
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("worker ownership could not be established; leaving the machine intact") from None
-                    time.sleep(2)
-            if owner != self.state["owner"]:
-                raise RuntimeError("existing worker machine belongs to another operation")
-            self.state["machine_id"] = info["record"]["id"]
-            self.save()
-            (self.directory / "machine-cloud-init.yaml").unlink(missing_ok=True)
-        self.machine_info()
-
-    def controller_networks(self):
-        prefix = ["docker", "--context", self.state["controller_context"]]
-        ids = run(prefix + ["network", "ls", "--quiet"]).splitlines()
-        if not ids or len(ids) > 256 or any(not re.fullmatch(r"[0-9a-f]{12,64}", item) for item in ids):
-            raise RuntimeError("controller Docker network inventory is invalid")
-        networks = set()
-        for record in json.loads(run(prefix + ["network", "inspect"] + ids)):
-            for config in record.get("IPAM", {}).get("Config") or []:
-                if not config.get("Subnet"):
-                    continue
-                network = ipaddress.ip_network(config["Subnet"], strict=True)
-                if network.version == 4:
-                    if network.prefixlen == 0:
-                        raise RuntimeError("controller Docker network cannot cover the default route")
-                    networks.add(str(network))
-        if not any(ipaddress.ip_address("172.30.42.10") in ipaddress.ip_network(item) for item in networks):
-            raise RuntimeError("controller gateway network is not present in OrbStack")
-        return sorted(networks)
-
-    def refresh_networks(self):
-        networks = self.controller_networks()
-        if networks == self.state.get("protected_networks"):
-            return
-        encoded = base64.b64encode(("\n".join(networks) + "\n").encode()).decode()
-        self.guest(["sh", "-ec", f"umask 077; printf '%s' '{encoded}' | base64 -d > /run/ryker-worker-controller-networks; "
-                    "mv /run/ryker-worker-controller-networks /etc/ryker-worker-controller-networks; "
-                    "/usr/local/sbin/ryker-worker-network"])
-        self.state["protected_networks"] = networks
-        self.save()
-
-    def ensure_context(self):
-        endpoint = "ssh://root%40" + PROFILE + "@orb"
-        contexts = run(["docker", "context", "ls", "--format", "{{.Name}}"] ).splitlines()
-        if CONTEXT not in contexts:
-            run(["docker", "context", "create", CONTEXT, "--docker", "host=" + endpoint])
-        observed = run(["docker", "context", "inspect", CONTEXT, "--format", "{{.Endpoints.docker.Host}}"] ).strip()
-        if observed != endpoint:
-            raise RuntimeError("worker Docker context belongs to another endpoint")
 
     def release(self, call):
         expression = (f"case ({call}) do {{:ok, value}} -> IO.puts(Jason.encode!(value)); "
@@ -328,24 +156,37 @@ class Pool:
                 worker[field] = value.astimezone(timezone.utc).isoformat()
         return worker
 
-    def verify(self):
+    def verify_volumes(self, names):
+        records = json.loads(run(self.docker() + ["volume", "inspect", *names]))
+        if ({record.get("Name") for record in records} != set(names) or
+                any(record.get("Driver") != "local" or record.get("Options") or
+                    (record.get("Labels") or {}).get(OWNER_LABEL) != self.state["owner"]
+                    for record in records)):
+            raise RuntimeError("worker volumes belong to another installation")
+
+    def create_volumes(self):
+        existing = set(run(self.docker() + ["volume", "ls", "--quiet"]).splitlines())
+        owned = [name for name in VOLUMES if name in existing]
+        if owned:
+            self.verify_volumes(owned)
+        for name in VOLUMES:
+            if name not in existing:
+                run(self.docker() + ["volume", "create", "--label", OWNER_LABEL + "=" + self.state["owner"],
+                                    "--label", "com.docker.compose.project=ryker-worker",
+                                    "--label", "com.docker.compose.volume=" + name.removeprefix("ryker-worker_"), name])
+
+    def verify_engine(self):
         if self.state["configuration"] != configuration_digest():
-            raise RuntimeError("worker machine configuration changed; qualify that change before updating the pool")
-        self.machine_info()
-        if self.guest(["cat", "/etc/ryker-worker-owner"]).strip() != self.state["owner"]:
-            raise RuntimeError("worker machine ownership does not match")
-        endpoint = run(self.docker() + ["context", "inspect", CONTEXT, "--format", "{{.Endpoints.docker.Host}}"] ).strip()
-        if endpoint != "ssh://root%40" + PROFILE + "@orb":
-            raise RuntimeError("worker Docker context points outside the owned machine")
+            raise RuntimeError("worker configuration changed; qualify it before updating the pool")
+        self.controller()
         daemon = run(self.docker() + ["info", "--format", "{{.ID}}"] ).strip()
-        if self.state.get("daemon") and daemon != self.state["daemon"]:
-            raise RuntimeError("worker Docker daemon identity changed")
-        if run(self.docker() + ["info", "--format", "{{.Driver}}"] ).strip() != "overlay2":
-            raise RuntimeError("worker Docker must use overlay2 to enforce the machine quota")
-        self.guest(["systemctl", "is-active", "ryker-worker-network", "docker"])
-        mounts = self.guest(["sh", "-ec", "findmnt -rn -t virtiofs,9p,fuse.sshfs || test $? -eq 1"])
-        if mounts.strip():
-            raise RuntimeError("worker machine has host directory mounts")
+        if daemon != self.state["daemon"]:
+            raise RuntimeError("Docker engine identity changed")
+        return daemon
+
+    def verify(self):
+        daemon = self.verify_engine()
+        self.verify_volumes(VOLUMES)
         return daemon
 
     def write_env(self, image):
@@ -359,24 +200,6 @@ class Pool:
     def image(self):
         return run(["sh", "-c", '. "$1/scripts/compose-lifecycle.sh"; worker_image "$1"',
                     "pool", str(ROOT)]).strip()
-
-    def copy_image(self, image):
-        run(["docker", "--context", self.state["controller_context"], "image", "inspect", image,
-             "--format", "{{.Id}}"])
-        with tempfile.TemporaryFile() as output:
-            producer = subprocess.Popen(["docker", "--context", self.state["controller_context"],
-                                         "image", "save", image], stdout=subprocess.PIPE, stderr=output)
-            consumer = subprocess.Popen(self.docker() + ["image", "load"], stdin=producer.stdout,
-                                        stdout=output, stderr=output)
-            producer.stdout.close()
-            try:
-                if consumer.wait(timeout=300) or producer.wait(timeout=30):
-                    raise RuntimeError("worker image transfer failed")
-            finally:
-                for child in (producer, consumer):
-                    if child.poll() is None:
-                        child.kill()
-                        child.wait()
 
     def seed_file(self, destination, content):
         if destination not in ("worker-ca.pem", "enrollment-token"):
@@ -412,36 +235,22 @@ class Pool:
 
     def status(self):
         self.verify()
-        return {"worker": WORKER, "context": CONTEXT, "phase": self.state["phase"],
+        return {"worker": WORKER, "context": self.state["context"], "phase": self.state["phase"],
                 "image": self.state["image"], "model_accounts_needed": self.missing_accounts(),
-                "quota": dict(zip(("capacity_bytes", "free_bytes"), self.quota())),
                 "controller": self.worker_status()}
 
     def initialize(self):
-        if platform.system() != "Darwin" or platform.machine() != "arm64":
-            raise RuntimeError("this worker pool requires a qualified Apple Silicon OrbStack host")
-        if shutil.which("orb") is None:
-            raise RuntimeError("OrbStack is required for the isolated worker machine")
-        storage = orbstack_storage_root()
-        free = shutil.disk_usage(storage).free
-        if free < required_free():
-            raise RuntimeError(f"dedicated worker needs {required_free() / GIB:.0f} GiB free; "
-                               f"this disk has {free / GIB:.1f} GiB")
-        check_route_ranges(run(["netstat", "-rn", "-f", "inet"]))
-        context = run(["docker", "context", "show"]).strip()
-        if context != "orbstack":
-            raise RuntimeError("select the controller's OrbStack Docker context before installing the pool")
-        endpoint = run(["docker", "context", "inspect", context, "--format", "{{.Endpoints.docker.Host}}"] ).strip()
-        if not endpoint.startswith("unix:///"):
-            raise RuntimeError("controller must use a local Unix Docker endpoint")
-        machines = json.loads(run(["orb", "list", "--format", "json"]))
-        if any(machine["name"] == PROFILE for machine in machines) or CONTEXT in run(
-                ["docker", "context", "ls", "--format", "{{.Name}}"] ).splitlines():
-            raise RuntimeError("worker machine/context already exists without this installation's ownership")
-        self.state = {"version": 2, "owner": uuid.uuid4().hex, "repository": str(ROOT),
-                      "profile": PROFILE, "context": CONTEXT, "worker": WORKER, "workspace": WORKSPACE,
+        context = os.environ.get("DOCKER_CONTEXT") or None
+        endpoint = os.environ.get("DOCKER_HOST") if not context else None
+        if not endpoint:
+            context = context or run(["docker", "context", "show"]).strip()
+            endpoint = run(["docker", "context", "inspect", context,
+                            "--format", "{{.Endpoints.docker.Host}}"] ).strip()
+        self.state = {"version": 3, "owner": uuid.uuid4().hex, "repository": str(ROOT),
+                      "context": context, "worker": WORKER, "workspace": WORKSPACE,
                       "controller_context": context, "controller_endpoint": endpoint,
-                      "storage_root": str(storage), "phase": "creating", "configuration": configuration_digest()}
+                      "phase": "creating", "configuration": configuration_digest()}
+        self.state["daemon"] = run(self.docker() + ["info", "--format", "{{.ID}}"] ).strip()
         if self.worker_status() is not None:
             raise RuntimeError("worker ID already has controller custody; refusing to replace its identity")
         self.save()
@@ -450,27 +259,12 @@ class Pool:
         if self.state is None:
             self.initialize()
         if self.state["phase"] in ("qualified", "active"):
-            self.install_startup()
             return self.status()
-        self.check_headroom()
-        self.create_machine()
-        self.ensure_context()
-        networks = self.controller_networks()
-        script = base64.b64encode(provisioning(self.state["owner"], networks).encode()).decode()
-        try:
-            self.guest(["sh", "-ec", 'umask 077; tmp=$(mktemp /run/ryker-worker-bootstrap.XXXXXX); '
-                        'trap \'rm -f "$tmp"\' EXIT HUP INT TERM; '
-                        f'printf \'%s\' \'{script}\' | base64 -d > "$tmp"; '
-                        'flock --nonblock /run/ryker-worker-bootstrap.lock sh "$tmp" '
-                        '> /var/log/ryker-worker-bootstrap.log 2>&1'], timeout=600)
-        except RuntimeError as error:
-            raise RuntimeError("worker bootstrap failed; inspect with orb run --machine ryker-worker --user root "
-                               "tail -n 50 /var/log/ryker-worker-bootstrap.log") from error
-        self.state["daemon"] = self.verify()
-        self.state["protected_networks"] = networks
-        self.save()
+        self.verify_engine()
+        self.create_volumes()
+        self.verify()
         image = self.image()
-        self.copy_image(image)
+        run(self.docker() + ["image", "inspect", image, "--format", "{{.Id}}"])
         self.write_env(image)
         self.state["image"] = image
         self.save()
@@ -485,7 +279,6 @@ class Pool:
         self.wait_qualified(require_hold=True)
         self.state["phase"] = "qualified"
         self.save()
-        self.install_startup()
         return self.status()
 
     def prewarm(self, image):
@@ -560,11 +353,10 @@ class Pool:
             self.state.pop("upgrade_image", None)
             self.save()
             return self.status()
-        self.check_headroom()
         self.maintain()
         if not storage_maintenance.build_ready(self.state["maintenance"]["storage"]):
             raise RuntimeError("pool lacks measured build headroom; its existing worker stays running")
-        self.copy_image(image)
+        run(self.docker() + ["image", "inspect", image, "--format", "{{.Id}}"] )
         # Preserve provider state before a binary that may migrate its format.
         backup = "agents.pool-pre-" + str(int(time.time()))
         run(self.compose() + ["exec", "-T", "ryker-coop", "sh", "-ec",
@@ -603,19 +395,7 @@ class Pool:
         self.state["image"] = image
         self.state.pop("upgrade_image", None)
         self.save()
-        self.remove_old_images()
         return self.status()
-
-    def remove_old_images(self):
-        previous = self.state.get("previous_image")
-        if not previous:
-            return
-        tags = run(self.docker() + ["image", "ls", "--format", "{{.Repository}}:{{.Tag}}", "ryker-coop"])
-        for tag in tags.splitlines():
-            if re.fullmatch(r"ryker-coop:[0-9a-f]{8}-[0-9a-f]{8}", tag) and tag not in (self.state["image"], previous):
-                # An in-use image is retained by Docker; never force removal.
-                subprocess.run(self.docker() + ["image", "rm", tag], stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30, check=False)
 
     def native_quiescent(self, image, volume):
         command = self.docker() + ["run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
@@ -701,9 +481,7 @@ class Pool:
         return self.status()
 
     def maintain(self):
-        growth, pressure_error = self.reconcile_headroom()
         self.verify()
-        self.refresh_networks()
         self.enroll()
         deadline = time.monotonic() + 50
 
@@ -714,119 +492,23 @@ class Pool:
             return storage_maintenance.command(argv, min(timeout, remaining))
 
         report = storage_maintenance.maintain(
-            self.env_file, apply=True, run=bounded, context=CONTEXT, compose_file=FILES / "compose.yml",
-            orbstack_machine=PROFILE, measure_quota=self.quota,
-            measure_host=lambda _path: storage_maintenance.host_disk(self.verified_storage_root()))
+            self.env_file, apply=True, run=bounded, context=self.state["context"],
+            host=self.state["controller_endpoint"] if self.state["context"] is None else None,
+            compose_file=FILES / "compose.yml")
         health_error = None
         if self.state["phase"] == "active" and not qualified(self.worker_status() or {}):
             health_error = "pool worker is not reporting fresh eligible capacity"
-        report["remaining_growth"] = growth
-        if pressure_error:
-            report["errors"].append(pressure_error)
         self.state["maintenance"] = {"at": int(time.time()), "storage": report, "worker_error": health_error}
         self.save()
         return "; ".join(message for message in (storage_maintenance.summary(report), health_error) if message)
 
-    def reconcile_headroom(self):
-        try:
-            growth, error = self.check_headroom(), None
-        except RuntimeError as caught:
-            growth, error = None, str(caught)
-        receipt = self.state.get("headroom_hold")
-        if error and self.state["phase"] == "active":
-            if not receipt:
-                receipt = {"actor": "operator:worker-pool-host-space:" + uuid.uuid4().hex}
-                self.state["headroom_hold"] = receipt
-                self.save()
-            held = self.lifecycle("stop_admission", actor=receipt["actor"])
-            if held["admission_stopped_by"] == receipt["actor"]:
-                receipt["at"] = held["admission_stopped_at"]
-            else:
-                # The other operator's hold already prevents admission.
-                self.state.pop("headroom_hold", None)
-            self.save()
-        elif not error and receipt:
-            worker = self.worker_status()
-            if not worker:
-                raise RuntimeError("pool admission custody is unavailable")
-            timestamp = worker.get("admission_stopped_at")
-            if timestamp and worker.get("admission_stopped_by") == receipt["actor"]:
-                if receipt.get("at") and not same_time(receipt["at"], timestamp):
-                    raise RuntimeError("host-space admission receipt changed")
-                actor = receipt["actor"]
-                if not REFERENCE.fullmatch(actor) or not re.fullmatch(r"[0-9T:.+Z-]+", timestamp):
-                    raise RuntimeError("invalid host-space admission receipt")
-                self.release('case Ryker.Release.resume_worker_admission("ryker-pool", '
-                             f'"{actor}", "{timestamp}", log: false) do '
-                             '{:ok, _} -> {:ok, %{}}; error -> error end')
-            # A manual release or replacement leaves no hold owned by us.
-            del self.state["headroom_hold"]
-            self.save()
-        return growth, error
-
-    def verified_storage_root(self):
-        current = orbstack_storage_root()
-        if str(current) != self.state["storage_root"]:
-            raise RuntimeError("OrbStack storage location changed; qualify its new backing disk before resuming")
-        return current
-
-    def check_headroom(self):
-        try:
-            free = shutil.disk_usage(self.verified_storage_root()).free
-        except OSError as error:
-            raise RuntimeError("worker host storage cannot be measured") from error
-        needed = required_free()
-        if free < needed:
-            raise RuntimeError(f"worker quota can still consume private host blocks; needs {needed / GIB:.1f} GiB host headroom, "
-                               f"has {free / GIB:.1f} GiB")
-        return {"free_bytes": free, "required_bytes": needed}
-
-    def wait_boot(self):
-        deadline = time.monotonic() + 90
-        while True:
-            try:
-                self.guest(["systemctl", "is-active", "ryker-worker-network", "docker"], timeout=10)
-                return
-            except (RuntimeError, subprocess.TimeoutExpired):
-                if time.monotonic() >= deadline:
-                    raise RuntimeError("worker boot services did not become ready") from None
-                time.sleep(1)
-
     def start(self):
-        self.check_headroom()
-        self.machine_info(require_running=False)
-        run(["orb", "start", PROFILE], timeout=180)
-        self.wait_boot()
         self.verify()
         _container, image = self.running_image()
         if image not in (self.state["image"], self.state.get("upgrade_image")):
             raise RuntimeError("worker image changed outside the guarded upgrade; refusing to replace it")
         run(self.compose() + ["start", "ryker-coop-docker", "ryker-coop"], timeout=60)
         return {"worker": WORKER, "started": True}
-
-    def install_startup(self):
-        label = "ai.ryker.worker-pool"
-        directory = Path.home() / "Library/LaunchAgents"
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / (label + ".plist")
-        arguments = [shutil.which("python3"), "-B", str(ROOT / "scripts/worker_pool.py"),
-                     "start", "--state-dir", str(self.directory.parent)]
-        document = {"Label": label, "ProgramArguments": arguments, "RunAtLoad": True,
-                    "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"},
-                    "StandardOutPath": str(self.directory / "startup.log"),
-                    "StandardErrorPath": str(self.directory / "startup.log")}
-        if path.exists():
-            if path.is_symlink() or plistlib.loads(path.read_bytes()) != document:
-                raise RuntimeError("worker startup agent already belongs to another configuration")
-        else:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as stream:
-                plistlib.dump(document, stream)
-        domain = "gui/" + str(os.getuid())
-        found = subprocess.run(["launchctl", "print", domain + "/" + label],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        if found.returncode:
-            run(["launchctl", "bootstrap", domain, str(path)])
 
 
 def same_time(left, right):
@@ -867,8 +549,7 @@ def main():
     fd = os.open(directory / "operation.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as lock:
         try:
-            # Login-time startup must eventually run if maintenance got the
-            # lock first; silently skipping it can leave the VM off all day.
+            # An explicit start waits for maintenance rather than silently skipping it.
             flags = fcntl.LOCK_EX if args.command == "start" else fcntl.LOCK_EX | fcntl.LOCK_NB
             fcntl.flock(lock, flags)
         except BlockingIOError:

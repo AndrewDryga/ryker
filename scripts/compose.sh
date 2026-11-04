@@ -200,9 +200,25 @@ worker_native_quiescence() {
 # removes other worker images: 18 of them held 8.5 GB here (2026-10-04).
 remove_older_worker_images() {
   [ -n "$2" ] || return 0
+  pool_images=
+  if [ -f "$state_dir/worker-pool/state.json" ]; then
+    # Unknown custody preserves every tag; a healthy pool protects its pins.
+    pool_images=$(python3 -B - "$state_dir/worker-pool/state.json" 2>/dev/null <<'PYTHON'
+import json, re, sys
+from pathlib import Path
+state = json.loads(Path(sys.argv[1]).read_text())
+assert state["version"] == 3
+images = [state[key] for key in ("image", "previous_image", "upgrade_image") if key in state]
+assert images and all(isinstance(image, str) and re.fullmatch(r"ryker-coop:[0-9a-f]{8}-[0-9a-f]{8}", image) for image in images)
+print("\n".join(images))
+PYTHON
+    ) || return 0
+  fi
   docker image ls --format '{{.Repository}}:{{.Tag}}' ryker-coop 2>/dev/null |
     while IFS= read -r tag; do
-      if [ "$tag" != "$1" ] && [ "$tag" != "$2" ] && docker image rm "$tag" >/dev/null 2>&1; then
+      if [ "$tag" != "$1" ] && [ "$tag" != "$2" ] &&
+        ! printf '%s\n' "$pool_images" | grep -Fqx "$tag" &&
+        docker image rm "$tag" >/dev/null 2>&1; then
         echo "Removed the older worker image $tag."
       fi
     done
