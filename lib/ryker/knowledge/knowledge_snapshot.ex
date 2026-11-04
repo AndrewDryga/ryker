@@ -92,11 +92,12 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          documents,
          kind
        ) do
-    # Serialize tool disclosure with result acceptance and session replacement.
+    # Serialize tool disclosure with result acceptance and session replacement,
+    # and leave the key lock free for the turn's own activity rows (`Binding`).
     current =
       session.id
       |> Work.Session.Query.by_id()
-      |> Work.Session.Query.lock_for_update()
+      |> Work.Session.Query.lock_for_no_key_update()
       |> Repo.fetch!()
 
     unless exposure_counts_consistent?(current),
