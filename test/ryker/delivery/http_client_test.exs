@@ -19,6 +19,77 @@ defmodule Ryker.Delivery.HTTPClientTest do
     assert {:ok, %{status: 200, body: "fresh"}} = get(url)
   end
 
+  # One exhausted pool crashed the GitHub delivery poller on 2026-11-04.
+  # Queue pressure must be retryable without taking its caller down.
+  test "an exhausted connection pool remains usable after returning a retryable error" do
+    pool = __MODULE__.QueueFinch
+    start_supervised!({Finch, name: pool, pools: %{default: [size: 1, count: 1]}})
+    url = "http://127.0.0.1:#{responding_server()}/"
+    request = HTTPClient.build(:get, url)
+    parent = self()
+
+    holder =
+      start_supervised!(
+        {Task,
+         fn ->
+           result =
+             Finch.stream_while(request, pool, nil, fn
+               {:status, 200}, acc ->
+                 send(parent, :pool_held)
+
+                 receive do
+                   :release -> {:cont, acc}
+                 end
+
+               _entry, acc ->
+                 {:cont, acc}
+             end)
+
+           send(parent, {:holder_result, result})
+         end},
+        id: :pool_holder
+      )
+
+    on_exit(fn -> send(holder, :release) end)
+    assert_receive :pool_held, 1_000
+
+    assert HTTPClient.stream(request, pool, 2_000, 1_024) ==
+             {:error, {:delivery_transport_unavailable, :pool_timeout}}
+
+    send(holder, :release)
+    assert_receive {:holder_result, {:ok, nil}}, 1_000
+    assert {:ok, %{status: 200, body: "ok"}} = HTTPClient.stream(request, pool, 2_000, 1_024)
+  end
+
+  defp responding_server do
+    {:ok, listen} =
+      :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}, reuseaddr: true])
+
+    {:ok, port} = :inet.port(listen)
+    on_exit(fn -> :gen_tcp.close(listen) end)
+
+    start_supervised!(
+      {Task,
+       fn ->
+         for _request <- 1..2 do
+           {:ok, socket} = :gen_tcp.accept(listen)
+           {:ok, _headers} = receive_request(socket, "")
+
+           :ok =
+             :gen_tcp.send(
+               socket,
+               "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+             )
+
+           :gen_tcp.close(socket)
+         end
+       end},
+      id: :responding_server
+    )
+
+    port
+  end
+
   defp get(url),
     do: HTTPClient.stream(HTTPClient.build(:get, url), Ryker.CoopFinch, 2_000, 1_024)
 

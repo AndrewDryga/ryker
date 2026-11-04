@@ -101,6 +101,17 @@ defmodule Ryker.Delivery.HTTPClient do
       receive_timeout: receive_timeout
     )
     |> stream_result()
+  rescue
+    error in RuntimeError ->
+      # Finch reraises only checkout timeouts with NimblePool's original stack.
+      # Other RuntimeErrors remain defects rather than retryable transport errors.
+      case __STACKTRACE__ do
+        [{NimblePool, :exit!, 3, _}, {Finch.HTTP1.Pool, :request, 6, _} | _] ->
+          {:error, {:delivery_transport_unavailable, :pool_timeout}}
+
+        _other ->
+          reraise error, __STACKTRACE__
+      end
   end
 
   defp stream_result({:ok, %{error: :response_too_large}}),
