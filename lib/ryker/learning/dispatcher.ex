@@ -207,6 +207,14 @@ defmodule Ryker.Learning.Dispatcher do
   defp failed(claim, {:error, :not_found}, reason, settings),
     do: Batches.release(claim, error_reason(code(reason)), settings.step_delay_seconds)
 
+  defp failed(
+         claim,
+         {:ok, _outstanding},
+         {:coop_worker_capacity_unavailable, _session},
+         _settings
+       ),
+       do: Batches.yield(claim, @worker_hold_seconds)
+
   defp failed(claim, {:ok, outstanding}, reason, settings),
     do: unresolved(claim, outstanding, settings, reason)
 

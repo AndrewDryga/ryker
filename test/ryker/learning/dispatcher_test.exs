@@ -91,7 +91,9 @@ defmodule Ryker.Learning.DispatcherTest do
 
     def create_session(client, key, policy, ref, source) do
       lose_after(client, :create, fn ->
-        Fake.create_session(client, key, policy, ref, source)
+        if Fake.state(client)[:capacity_wait],
+          do: {:error, {:coop_worker_capacity_unavailable, "learning-capacity-session"}},
+          else: Fake.create_session(client, key, policy, ref, source)
       end)
     end
 
@@ -567,6 +569,29 @@ defmodule Ryker.Learning.DispatcherTest do
       assert length(remote.create_keys) == 1
       assert remote.submit_count == 1
     end
+  end
+
+  test "a full worker keeps the same learning attempt without spending failed reconciliations" do
+    # Recovery of a production backlog spent all 12 reconciliations on ordinary
+    # capacity waits, fenced an unsent create and exhausted the batch's last start.
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+    Agent.update(fake, &Map.put(&1, :capacity_wait, true))
+    settings = Map.put(@settings, :client, fake)
+
+    for _ <- 1..13 do
+      make_due!()
+      assert {:ok, %{status: :queued, start_count: 1}} = Dispatcher.run_once(settings)
+      assert [%{reconcile_attempt_count: 0, remote_stopped_at: nil}] = Repo.all(LearningRun)
+      assert FakeCoopAPI.state(fake).submit_count == 0
+    end
+
+    [original] = Repo.all(LearningRun)
+    Agent.update(fake, &Map.put(&1, :capacity_wait, false))
+    assert %{status: :applied, start_count: 1} = drive_to_applied!(settings, 5)
+    assert [%{id: id, reconcile_attempt_count: 0}] = Repo.all(LearningRun)
+    assert id == original.id
+    assert FakeCoopAPI.state(fake).submit_count == 1
   end
 
   # Coop reports a turn as starting while its agent boots. Learning took that
