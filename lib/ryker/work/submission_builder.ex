@@ -29,6 +29,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   @retained_cases 3
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
+  @optional_notes ~w(related_outcomes observations knowledge)
 
   @doc """
   The frozen submission plus the ledger of what this turn actually selected.
@@ -260,15 +261,15 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   # Optional notes are dropped from the tail to fit. The count before the drop
   # is the only place the eligible total exists, so it is measured here.
-  defp fit_optional_observations(context) do
+  defp fit_optional_notes(context) do
     eligible =
-      for key <- ["observations", "knowledge"],
-          notes = get_in(context, ["operator_context", "continuity", key]),
+      for key <- @optional_notes,
+          notes = get_in(context, note_path(key)),
           is_list(notes),
           into: %{},
           do: {key, length(notes)}
 
-    {context |> fit_memory("observations") |> fit_memory("knowledge"), eligible}
+    {Enum.reduce(@optional_notes, context, &fit_note(&2, &1)), eligible}
   end
 
   # The notes kept are the longest head of the list that fits. Canonical JSON
@@ -276,8 +277,8 @@ defmodule Ryker.Work.SubmissionBuilder do
   # k notes is the briefing with none, plus each of theirs, plus k - 1 commas,
   # and each note is measured once. The whole briefing, up to 160 KiB, was
   # encoded again for every note dropped (2026-10-04 review).
-  defp fit_memory(context, key) do
-    path = ["operator_context", "continuity", key]
+  defp fit_note(context, key) do
+    path = note_path(key)
 
     case get_in(context, path) do
       [_ | _] = notes ->
@@ -288,6 +289,9 @@ defmodule Ryker.Work.SubmissionBuilder do
         context
     end
   end
+
+  defp note_path("related_outcomes"), do: ["related_outcomes"]
+  defp note_path(key), do: ["operator_context", "continuity", key]
 
   defp fitting_head(notes, room) do
     notes
@@ -383,7 +387,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     documents =
       (active ++ historical) |> Enum.uniq_by(& &1.id) |> Map.new(&{&1.id, document.(&1)})
 
-    bare = Enum.reduce(["observations", "knowledge"], context, &without_notes/2)
+    bare = Enum.reduce(@optional_notes, context, &without_notes/2)
     measure = &measure_inputs(bare, snapshot, documents, &1)
 
     dropped =
@@ -393,7 +397,7 @@ defmodule Ryker.Work.SubmissionBuilder do
       %{bytes: bytes, artifacts: artifacts} = fit
       when bytes <= @maximum_context_bytes and artifacts <= 5 ->
         {fitted, eligible} =
-          context |> Map.put("inputs", fit.inputs) |> fit_optional_observations()
+          context |> Map.put("inputs", fit.inputs) |> fit_optional_notes()
 
         {:ok, fitted, eligible}
 
@@ -406,7 +410,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   end
 
   defp without_notes(key, context) do
-    path = ["operator_context", "continuity", key]
+    path = note_path(key)
     if is_list(get_in(context, path)), do: put_in(context, path, []), else: context
   end
 
@@ -490,7 +494,7 @@ defmodule Ryker.Work.SubmissionBuilder do
       }
       |> maybe_put_repository_knowledge(session.repository_ref)
 
-    {context, eligible} = context |> Map.merge(metadata) |> fit_optional_observations()
+    {context, eligible} = context |> Map.merge(metadata) |> fit_optional_notes()
     context_bytes = context |> CanonicalJSON.encode!() |> byte_size()
 
     if context_bytes <= @maximum_context_bytes,

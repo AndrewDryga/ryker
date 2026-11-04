@@ -14,6 +14,50 @@ defmodule Ryker.Records.OutcomesTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  test "older outcome examples leave room for the current work briefing" do
+    # A production event-wait resumption blocked before submitting its 1.8 KB
+    # input: 68 KB of optional older outcomes crowded its required context out.
+    conversation = "slack:TOUTCOME:CBUDGET"
+
+    for index <- 1..6 do
+      prior = claim_episode!("budget-prior-#{index}", "Earlier investigation", conversation)
+
+      for evidence <- 1..12 do
+        assert {:ok, _record} =
+                 Records.create(Records.token(prior.turn), "fact-#{evidence}", "evidence", %{
+                   "claim_id" => "prior-fact-#{evidence}",
+                   "observation" => String.duplicate("Observed fact. ", 200),
+                   "source_name" => "Recorded source",
+                   "source_type" => "monitoring"
+                 })
+      end
+
+      complete!(prior, "Earlier investigation finished.")
+    end
+
+    text = String.duplicate("CURRENT_REQUEST ", 4_000)
+    reader = claim_episode!("budget-reader", text, conversation)
+    offered = Outcomes.recall(reader.episode)
+    assert length(offered) == 6
+
+    assert {:ok, %{submission: submission, ledger: ledger}} =
+             Ryker.Work.SubmissionBuilder.prepare(reader)
+
+    context = submission["context"]
+    assert [current] = context["inputs"]["items"]
+    assert current["content"]["text"] == text
+    assert current["current"]
+    assert byte_size(Ryker.CanonicalJSON.encode!(context)) <= 160 * 1_024
+    assert length(context["related_outcomes"]) in 1..5
+
+    assert ledger["related_outcomes"] == %{
+             "eligible" => 6,
+             "included" => length(context["related_outcomes"])
+           }
+
+    assert Outcomes.recall(reader.episode) == offered
+  end
+
   # Retained history reached the 15-second transaction deadline before Work
   # could submit: all 24 candidate transcripts were reauthorized to return six.
   test "older outcomes beyond the selected six do not expand source custody work" do
