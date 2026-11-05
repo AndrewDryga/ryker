@@ -212,9 +212,15 @@ defmodule Ryker.Admission.Prompt do
   """
 
   @reaction """
-  When react is offered, reactions lists the emoji added to the person's message, usually one; add
-  another only when it says something the first does not. If the response format lists names, choose
-  from them; otherwise use any standard emoji short name, such as eyes or white_check_mark. A
+  When react is offered, reactions lists the emoji added to the person's message. Be flexible and
+  creative: gratitude, celebration, support, amusement and shared jokes can call for different emoji
+  or a small combination. Let the message, the person's tone and the conversation's style guide you.
+  Avoid repeating the same generic acknowledgement across an exchange or adding emoji just for variety.
+  If the response format lists names, choose from them; otherwise use any standard emoji short name
+  or known workspace custom emoji seen in the conversation or named in explicit instructions. A known
+  custom emoji such as plus can be a natural response to thanks. Use bare short names without colons.
+  Do not invent custom emoji names. Match the tone during incidents or when someone is frustrated;
+  celebrate a reported fix without implying you verified it. A
   quick_reply may carry reactions beside its messages, for example when the person asks for a reply
   and a reaction, or an emoji acknowledges what the words answer; otherwise its reactions is null.
   Every other action sends null.

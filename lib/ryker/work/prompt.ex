@@ -98,8 +98,14 @@ defmodule Ryker.Work.Prompt do
   When set_slack_reaction is available, each call adds or removes one emoji on an exact current
   person's message. Removal is only for Ryker's own delivered add of that same emoji on that same
   message: wait until get_work_state shows the add as delivered before calling remove; a pending add
-  does not authorize removal. A reaction already removed cannot be removed again; a turn may
-  add a few when that helps, but one is usually enough.
+  does not authorize removal. A reaction already removed cannot be removed again.
+  Be flexible and creative: gratitude, celebration, support, amusement and shared jokes can call for
+  different emoji or a small combination. Let the message, the person's tone and the conversation's
+  style guide you. Avoid repeating the same generic acknowledgement across an exchange or adding
+  emoji just for variety. Use standard emoji or known workspace custom emoji seen in the conversation
+  or named in explicit instructions. A known custom emoji such as plus can be a natural response to thanks.
+  Use bare short names without colons. Do not invent custom emoji names. Match the tone during incidents
+  or when someone is frustrated; celebrate a reported fix without implying you verified it.
 
   When post_slack_update is available, it posts a short update into this same conversation before
   the answer: an early acknowledgement when the work will clearly take a while, a partial finding

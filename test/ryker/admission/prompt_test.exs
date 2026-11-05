@@ -527,6 +527,23 @@ defmodule Ryker.Admission.PromptTest do
       refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
     end
 
+    # Three consecutive acknowledgements (an offer to fix a problem, thanks,
+    # and "Fixed") all got a thumbs-up. Routing could choose other emoji, but
+    # its instructions never encouraged a response that suited each moment.
+    test "reactions match the moment and may use known custom emoji" do
+      instructions =
+        Prompt.build(lean_context!())["instructions"] |> String.replace(~r/\s+/, " ")
+
+      assert instructions =~ "Be flexible and creative"
+      assert instructions =~ "gratitude, celebration, support, amusement"
+      assert instructions =~ "a small combination"
+      assert instructions =~ "known workspace custom emoji"
+      assert instructions =~ "plus can be a natural response to thanks"
+      assert instructions =~ "Use bare short names without colons"
+      assert instructions =~ "Do not invent custom emoji names"
+      assert instructions =~ "Match the tone during incidents"
+    end
+
     test "reads who said what and when, and keeps the provenance only in the snapshot" do
       context = lean_context!()
       document = Context.for_model(context)

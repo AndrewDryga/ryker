@@ -653,18 +653,24 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "A status question grants no new permission"
   end
 
-  # Andrew, 2026-09-26: the Work model should be able to add some emoji, not
-  # only one. A reaction for every point the answer makes is noise on the
-  # person's message, so the prompt asks for restraint; a count would be a
-  # quota to fill (2026-08-16: the reply word limit and its checker went).
-  test "a few reactions are allowed when they help, and one is usually enough" do
+  # Routing acknowledged an offer to fix a problem, thanks, and "Fixed" with
+  # the same thumbs-up. Work needs the same expressive reaction guidance so
+  # starting a tool-backed turn does not lose that conversational flexibility.
+  test "reactions can be expressive and use known custom emoji while removal keeps its authority" do
     instructions = normalized_instructions()
 
     assert instructions =~ "When set_slack_reaction is available, each call adds or removes"
     assert instructions =~ "wait until get_work_state shows the add as delivered"
     assert instructions =~ "a pending add does not authorize removal"
 
-    assert instructions =~ "a turn may add a few when that helps, but one is usually enough"
+    assert instructions =~ "Be flexible and creative"
+    assert instructions =~ "gratitude, celebration, support, amusement"
+    assert instructions =~ "a small combination"
+    assert instructions =~ "known workspace custom emoji"
+    assert instructions =~ "plus can be a natural response to thanks"
+    assert instructions =~ "Use bare short names without colons"
+    assert instructions =~ "Do not invent custom emoji names"
+    assert instructions =~ "Match the tone during incidents"
     refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?|emoji|reactions?)\b/i
   end
 
