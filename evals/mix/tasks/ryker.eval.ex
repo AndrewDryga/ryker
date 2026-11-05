@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Ryker.Eval do
   Exports or executes the versioned model-world scenarios.
 
       mix ryker.eval world-pack
+      mix ryker.eval reactions --results /absolute/reactions.json
       mix ryker.eval world --results /absolute/shard-2.json --shard 2/4
       mix ryker.eval world-shards --shards 4
       mix ryker.eval world-merge --results /absolute/world-results.json \\
@@ -50,7 +51,8 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Coop.Client
   alias Ryker.CoopFleet.Server, as: FleetServer
   alias Ryker.Evals.{CoopRunner, ImprovementReplay, Job, RoutingReplay, WorldCase, WorldCassette}
-  alias Ryker.Evals.{PrivateFile, SessionCleanup}
+  alias Ryker.Evals.{Evidence, PrivateFile, SessionCleanup}
+  alias Ryker.Evals.ReactionConversation
   alias Ryker.Evals.Runtime, as: EvalRuntime
   alias Ryker.Evals.{WeeklyReviewCase, WorldAdmissionCase, WorldCoverage, WorldDatabase}
   alias Ryker.Evals.{WorldJudgeCase, WorldReport, WorldRunner}
@@ -89,6 +91,30 @@ defmodule Mix.Tasks.Ryker.Eval do
     run_routing_replay(arguments)
   end
 
+  def run(["reactions" | arguments]) do
+    with {:ok, flags, []} <- parse_flags(arguments, results: :string),
+         :ok <- absolute_paths(flags[:results], flags[:results], :reactions_absolute_results),
+         path when is_binary(path) <- flags[:results],
+         {:ok, subject} <- Job.routing(),
+         {:ok, judge} <- Job.new(:judge, System.get_env("RYKER_EVAL_JUDGE_TARGET")),
+         {:ok, finch} <- start_finch(),
+         {:ok, client} <- eval_client(finch),
+         {:ok, report} <-
+           ReactionConversation.run([client: client, job: subject], client: client, job: judge),
+         :ok <- write_report(path, report) do
+      if not report.passed, do: Mix.raise("reaction conversation failed; report at #{path}")
+      Mix.shell().info("reaction conversation passed; report at #{path}")
+    else
+      {:error, :reactions_absolute_results} ->
+        Mix.raise(
+          "reactions requires an absolute --results path: mix ryker.eval reactions --results /absolute/reactions.json"
+        )
+
+      reason ->
+        Mix.raise("reaction conversation failed: #{inspect(reason)}")
+    end
+  end
+
   def run(["weekly-review" | arguments]) do
     with {:ok, flags, []} <- parse_flags(arguments, manifest: :string, results: :string),
          :ok <-
@@ -124,6 +150,7 @@ defmodule Mix.Tasks.Ryker.Eval do
         " | routing-replay --examples /absolute/routing-examples.jsonl" <>
         " --results /absolute/routing-replay.json [--limit N]" <>
         " [--concurrency N | --local-endpoint URL --local-model NAME]" <>
+        " | reactions --results /absolute/reactions.json" <>
         " | improvement-replay --runs /absolute/analysis-runs.jsonl" <>
         " --results /absolute/improvement-replay.json [--concurrency N]"
     )
@@ -310,8 +337,11 @@ defmodule Mix.Tasks.Ryker.Eval do
 
   defp answered!(_summary, _replay, _noun, _results), do: :ok
 
-  defp write_report(path, summary),
-    do: PrivateFile.write(path, Jason.encode!(summary, pretty: true))
+  defp write_report(path, summary) do
+    document = Evidence.json_value(summary)
+    bytes = Jason.encode!(document, pretty: true)
+    PrivateFile.write(path, bytes)
+  end
 
   defp run_world(arguments) do
     with {:ok, world} <- world_arguments(arguments),

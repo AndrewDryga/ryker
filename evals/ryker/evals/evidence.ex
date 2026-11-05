@@ -36,6 +36,24 @@ defmodule Ryker.Evals.Evidence do
     |> Map.new(fn {key, value} -> {Atom.to_string(key), printable(value)} end)
   end
 
+  @doc "Recursively converts report values to JSON, keeping tuple diagnostics readable."
+  @spec json_value(term()) :: term()
+  def json_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  def json_value(%Decimal{} = value), do: Decimal.to_string(value, :normal)
+
+  def json_value(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {to_string(key), json_value(item)} end)
+  end
+
+  def json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
+
+  def json_value(value) when is_tuple(value), do: inspect(value)
+
+  def json_value(value) when is_atom(value) and value not in [true, false, nil],
+    do: Atom.to_string(value)
+
+  def json_value(value), do: value
+
   defp printable(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   defp printable(value) when is_atom(value) and value not in [nil, true, false],

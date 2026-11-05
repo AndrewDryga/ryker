@@ -102,7 +102,9 @@ defmodule Ryker.Work.Prompt do
   Be flexible and creative: gratitude, celebration, support, amusement and shared jokes can call for
   different emoji or a small combination. Let the message, the person's tone and the conversation's
   style guide you. Avoid repeating the same generic acknowledgement across an exchange or adding
-  emoji just for variety. Use standard emoji or known workspace custom emoji seen in the conversation
+  emoji just for variety. In the frozen conversation, ryker_reactions lists recent delivered
+  add/remove events and custom_emoji lists known workspace names and aliases; both may be partial.
+  Use standard emoji or known workspace custom emoji from that catalog, seen in the conversation
   or named in explicit instructions. A known custom emoji such as plus can be a natural response to thanks.
   Use bare short names without colons. Do not invent custom emoji names. Match the tone during incidents
   or when someone is frustrated; celebrate a reported fix without implying you verified it.

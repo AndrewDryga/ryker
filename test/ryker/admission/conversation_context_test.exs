@@ -4,6 +4,7 @@ defmodule Ryker.Admission.ConversationContextTest do
   alias Ryker.Admission.{ConversationContext, ConversationSummaries}
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes
   alias Ryker.Episodes.Scope
@@ -92,6 +93,53 @@ defmodule Ryker.Admission.ConversationContextTest do
     texts = Enum.map(bundle["messages"], & &1["content"]["text"])
     assert texts == ["Earlier message"]
     assert manifest["cutoff"] == DateTime.to_iso8601(current.occurred_at)
+  end
+
+  # The offer to fix a problem, "thanks!" and "Fixed" each received 👍 in
+  # one exchange. Routing could not see its earlier reactions at all, so a
+  # request to avoid repeating them had no evidence to work from.
+  test "recent delivered reactions accompany their messages without later receipts" do
+    root = record!("I'll get it fixed", ts: "1789000000.000100")
+    thanks = record!("thanks!", ts: "1789000002.000100", thread_ref: root.source_item_ref)
+    routing_reaction!(root, "thumbsup", "1789000001.000100")
+    routing_reaction!(thanks, "plus", "1789000003.000100")
+    routing_reaction!(thanks, "tada", "1789000005.000100", position: 2)
+
+    current = record!("Fixed", ts: "1789000004.000100", thread_ref: root.source_item_ref)
+    %{bundle: bundle} = ConversationContext.capture(current)
+
+    assert Enum.map(bundle["messages"], & &1["ryker_reactions"]) == [
+             [%{"emoji" => "thumbsup", "action" => "add", "at" => "2026-09-10T00:26:41.000100Z"}],
+             [%{"emoji" => "plus", "action" => "add", "at" => "2026-09-10T00:26:43.000100Z"}]
+           ]
+  end
+
+  test "Work removals and routing adds retain their order and exclude undelivered intent" do
+    root = record!("I'll get it fixed", ts: "1789000000.000100")
+    routing_reaction!(root, "eyes", "1789000001.000100")
+    work_reaction!(root, "eyes", "remove", "1789000002.000100")
+    pending = work_reaction!(root, "tada", "add", "1789000003.000100")
+
+    Repo.update_all(from(action in PlatformAction, where: action.id == ^pending.id),
+      set: [
+        status: :pending,
+        delivered_at: nil,
+        external_receipt: nil,
+        external_receipt_fingerprint: nil
+      ]
+    )
+
+    current = record!("Fixed", ts: "1789000004.000100", thread_ref: root.source_item_ref)
+
+    %{bundle: bundle} = ConversationContext.capture(current)
+    assert [message] = bundle["messages"]
+
+    assert Enum.map(message["ryker_reactions"], &{&1["emoji"], &1["action"]}) ==
+             [{"eyes", "add"}, {"eyes", "remove"}]
+
+    # A reaction arriving after the capture cannot mutate this saved bundle.
+    work_reaction!(root, "plus", "add", "1789000005.000100")
+    assert Enum.map(message["ryker_reactions"], & &1["emoji"]) == ["eyes", "eyes"]
   end
 
   test "an ignored message and a previous Ryker answer are background without episode membership" do
@@ -538,16 +586,55 @@ defmodule Ryker.Admission.ConversationContextTest do
         delivered_at: slack_time(ts)
       ]
     )
+
+    claim
+  end
+
+  defp work_reaction!(entry, emoji, action, ts) do
+    # Keep the supporting Work reply after the historical input's cutoff.
+    claim = reply!("Done.", ts: "1789000999.000100")
+    id = Ecto.UUID.generate()
+    document = %{"action" => action, "emoji_name" => emoji}
+    receipt = %{"message_ref" => entry.source_item_ref}
+
+    Repo.insert!(%PlatformAction{
+      id: id,
+      episode_id: claim.episode.id,
+      turn_id: claim.turn.id,
+      action_ref: "platform-action:#{id}",
+      host_slot: "reaction:1",
+      tool: :set_slack_reaction,
+      kind: :reaction,
+      transport: "slack",
+      conversation_ref: entry.destination_conversation_ref,
+      thread_ref: entry.destination_thread_ref,
+      source_item_ref: entry.source_item_ref,
+      document: document,
+      intent_fingerprint: CanonicalJSON.digest(document),
+      status: :delivered,
+      attempt_count: 1,
+      external_receipt: receipt,
+      external_receipt_fingerprint: CanonicalJSON.digest(receipt),
+      delivered_at: slack_time(ts)
+    })
   end
 
   # A quick reply routing delivered in the thread of the message it answered.
   defp quick_reply!(entry, text, ts) do
+    routing_response!(entry, :message, %{"message" => text}, ts, [])
+  end
+
+  defp routing_reaction!(entry, emoji, ts, options \\ []) do
+    routing_response!(entry, :reaction, %{"emoji_name" => emoji}, ts, options)
+  end
+
+  defp routing_response!(entry, kind, document, ts, options) do
     id = Ecto.UUID.generate()
-    document = %{"message" => text}
+    position = Keyword.get(options, :position, 1)
 
     receipt = %{
       "conversation_ref" => entry.destination_conversation_ref,
-      "delivery_ref" => "ingress-message:#{entry.id}:1",
+      "delivery_ref" => "ingress-message:#{entry.id}:#{position}",
       "message_ref" => ts,
       "thread_ref" => entry.destination_thread_ref,
       "transport" => "slack"
@@ -556,10 +643,10 @@ defmodule Ryker.Admission.ConversationContextTest do
     Repo.insert!(%RoutingResponse{
       id: id,
       input_id: entry.id,
-      position: 1,
-      kind: :message,
+      position: position,
+      kind: kind,
       decision_ref: "decision:#{id}",
-      delivery_ref: "ingress-message:#{entry.id}:1",
+      delivery_ref: "ingress-message:#{entry.id}:#{position}",
       transport: "slack",
       conversation_ref: entry.destination_conversation_ref,
       thread_ref: entry.destination_thread_ref,

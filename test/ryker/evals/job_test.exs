@@ -46,7 +46,11 @@ defmodule Ryker.Evals.JobTest do
   end
 
   test "admission retains the exact selected lane target and canonical empty authority" do
-    for {kind, target} <- [world: "codex:selected/high@eval", baseline: "codex:other/low@eval"] do
+    for {kind, target} <- [
+          world: "codex:selected/high@eval",
+          baseline: "codex:other/low@eval",
+          routing: "codex:router/low@eval"
+        ] do
       {:ok, selected} = Job.new(kind, target)
       assert {:ok, admission} = Job.admission(selected)
       assert {:ok, ^admission} = Job.new(:admission, target)

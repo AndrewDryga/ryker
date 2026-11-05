@@ -19,6 +19,51 @@ defmodule Ryker.Admission.ContextTest do
   @now ~U[2026-08-27 12:00:00.000000Z]
   @current_thread "1787832000.000100"
 
+  test "a saved emoji vocabulary survives cache refresh without borrowing later workspace state" do
+    {:ok, catalog} =
+      Agent.start_link(fn -> %{"names" => ["plus"], "aliases" => %{}, "truncated" => false} end)
+
+    start_supervised!(
+      {Ryker.Slack.Names,
+       workspace: "TA6E21ABA08AF",
+       interval: 60_000,
+       fetch: fn _ref -> {:error, :unavailable} end,
+       emoji_fetch: fn -> {:ok, Agent.get(catalog, & &1)} end}
+    )
+
+    assert GenServer.call(Ryker.Slack.Names, :refresh) == :ok
+    at = DateTime.utc_now(:microsecond)
+
+    options = [
+      now: at,
+      continuation_window: 1800,
+      history_window: 30 * 24 * 60 * 60,
+      candidate_limit: 8
+    ]
+
+    entry = record_input!(occurred_at: at)
+    assert {:ok, context} = Admission.context(Inbox.ref(entry), options)
+    assert Context.for_model(context)["conversation_context"]["custom_emoji"]["names"] == ["plus"]
+    saved = Context.snapshot(context)
+
+    Agent.update(catalog, &%{&1 | "names" => ["party"]})
+    expired = System.monotonic_time(:millisecond) - 1
+    :sys.replace_state(Ryker.Slack.Names, &%{&1 | emoji_refresh_at: expired})
+    assert GenServer.call(Ryker.Slack.Names, :refresh) == :ok
+
+    assert Ryker.Slack.Names.custom_emoji("TA6E21ABA08AF", DateTime.utc_now(:microsecond))[
+             "names"
+           ] == ["party"]
+
+    assert {:ok, fresh} = Admission.context(Inbox.ref(entry), options)
+    refute Map.has_key?(Context.for_model(fresh)["conversation_context"], "custom_emoji")
+    assert {:ok, restored} = Context.restore(saved, context.input, entry, %{})
+
+    assert Context.for_model(restored)["conversation_context"]["custom_emoji"]["names"] == [
+             "plus"
+           ]
+  end
+
   test "new admission snapshots replace instructions while restored requests keep their saved layers" do
     scope = {:channel, "TA6E21ABA08AF", "C456"}
     assert {:ok, _} = Instructions.save(:global, "Use plain language.", 0, "operator:test")

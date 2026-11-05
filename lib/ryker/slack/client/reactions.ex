@@ -6,6 +6,18 @@ defmodule Ryker.Slack.Client.Reactions do
   asked for; Slack reports it as an error and the delivery treats it as done.
   """
   alias Ryker.Slack.Client.{Fields, Transport}
+  alias Ryker.Slack.EmojiCatalog
+
+  @doc "Lists the workspace's custom emoji names and aliases, with no image URLs."
+  def list_emoji(client) do
+    with {:ok, response} <- Transport.request(client, :get, "/emoji.list", %{}),
+         {:ok, body} <- Transport.response(response) do
+      case body do
+        %{"emoji" => %{} = emoji} -> {:ok, EmojiCatalog.document(emoji)}
+        _invalid -> {:error, {:slack_protocol_error, :emoji}}
+      end
+    end
+  end
 
   def add_reaction(client, channel, message_ref, emoji_name) do
     with :ok <- Fields.text(channel),

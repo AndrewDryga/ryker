@@ -18,13 +18,16 @@ defmodule Ryker.Admission.ConversationContext do
   alias Ryker.CanonicalJSON
   alias Ryker.ConversationRef
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.Repo
+  alias Ryker.Slack
 
   @default_limit 20
   @minimum_limit 10
   @message_bytes 1_024
   @provider_pages 3
+  @reaction_limit 60
 
   @typedoc """
   The frozen bundle and its manifest, and `previous_answer`: the latest of
@@ -48,6 +51,9 @@ defmodule Ryker.Admission.ConversationContext do
 
     {messages, read_status} = fill(retained, entry, kind, limit, reader)
     root = root_message(entry, kind, messages)
+    reactions = recent_reactions(entry, messages, root)
+    messages = Enum.map(messages, &with_reactions(&1, reactions))
+    root = with_reactions(root, reactions)
 
     bundle = %{
       "current" => message_document(entry, :current),
@@ -56,11 +62,67 @@ defmodule Ryker.Admission.ConversationContext do
       "thread_summary" => nil
     }
 
+    bundle = Maps.put_present(bundle, "custom_emoji", custom_emoji(entry))
+
     %{
       bundle: bundle,
       manifest: manifest(entry, kind, limit, messages, root, read_status),
       previous_answer: previous_answer(messages, answers)
     }
+  end
+
+  defp custom_emoji(%Ingress.Inbox.Entry{source_kind: "slack"} = entry),
+    do: Slack.Names.custom_emoji(entry.source_ref, entry.occurred_at)
+
+  defp custom_emoji(_entry), do: nil
+
+  # Read our own receipts, never Slack's current reaction totals: Slack cannot
+  # say whether a reaction it shows now existed before this input's cutoff.
+  # Keep recent add/remove events, not an assertion of complete current state.
+  defp recent_reactions(_entry, [], nil), do: %{}
+
+  defp recent_reactions(entry, messages, root) do
+    message_refs =
+      (messages ++ List.wrap(root))
+      |> Enum.map(& &1["source_message_ref"])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    routing =
+      Repo.all(
+        ConversationContext.Query.delivered_routing_reactions(
+          entry,
+          message_refs,
+          @reaction_limit
+        )
+      )
+
+    work =
+      Repo.all(
+        ConversationContext.Query.delivered_work_reactions(entry, message_refs, @reaction_limit)
+      )
+
+    (routing ++ work)
+    |> Enum.sort_by(&{DateTime.to_unix(&1.at, :microsecond), &1.id}, :desc)
+    |> Enum.take(@reaction_limit)
+    |> Enum.reverse()
+    |> Enum.group_by(& &1.message_ref, fn receipt ->
+      %{
+        "emoji" => receipt.document["emoji_name"],
+        "action" => Map.get(receipt.document, "action", "add"),
+        "at" => DateTime.to_iso8601(receipt.at)
+      }
+    end)
+  end
+
+  defp with_reactions(nil, _reactions), do: nil
+  defp with_reactions(%{"status" => "deduplicated"} = message, _reactions), do: message
+
+  defp with_reactions(message, reactions) do
+    case Map.get(reactions, message["source_message_ref"]) do
+      nil -> message
+      events -> Map.put(message, "ryker_reactions", events)
+    end
   end
 
   @doc "Merges the selected thread summary into a captured bundle and its manifest."

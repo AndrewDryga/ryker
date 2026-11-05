@@ -46,6 +46,8 @@ defmodule Ryker.Slack.API do
 
   # --- reactions ------------------------------------------------------------
 
+  @callback list_emoji(term()) :: {:ok, map()} | {:error, term()}
+
   @callback add_reaction(term(), String.t(), String.t(), String.t()) ::
               :ok | {:error, term()}
   @callback remove_reaction(term(), String.t(), String.t(), String.t()) ::
@@ -99,6 +101,7 @@ defmodule Ryker.Slack.API do
   @callback open_view(term(), String.t(), map()) :: :ok | {:error, term()}
 
   @optional_callbacks find_message: 5,
+                      list_emoji: 1,
                       post_ephemeral: 5,
                       update_message: 5,
                       read_messages: 4,

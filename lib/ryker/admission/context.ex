@@ -178,6 +178,7 @@ defmodule Ryker.Admission.Context do
       "at" => Candidate.model_time(message["occurred_at"]),
       "text" => message |> get_in(["content", "text"]) |> Candidate.model_text()
     }
+    |> Maps.put_present("ryker_reactions", message["ryker_reactions"])
   end
 
   defp model_message(_message), do: nil

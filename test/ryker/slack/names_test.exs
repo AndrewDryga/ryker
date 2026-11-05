@@ -12,6 +12,56 @@ defmodule Ryker.Slack.NamesTest do
     def reconcile_absent(_workspace_ref, _channels, _snapshot_started_at), do: {:ok, 0}
   end
 
+  test "custom emoji are cached for their workspace and never supplied to an earlier input" do
+    parent = self()
+
+    catalog = %{
+      "names" => ["plus"],
+      "aliases" => %{"plus" => "heavy_plus_sign"},
+      "truncated" => false
+    }
+
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       interval: 60_000,
+       fetch: fn _ref -> {:error, :unavailable} end,
+       emoji_fetch: fn ->
+         send(parent, :emoji_fetched)
+         {:ok, catalog}
+       end}
+    )
+
+    earlier = DateTime.utc_now(:microsecond)
+    assert Names.custom_emoji("T123", earlier) == nil
+    assert GenServer.call(Names, :refresh) == :ok
+    assert_received :emoji_fetched
+    assert Names.custom_emoji("T123", earlier) == nil
+    assert Names.custom_emoji("T999", DateTime.utc_now(:microsecond)) == nil
+
+    assert %{"names" => ["plus"], "aliases" => %{"plus" => "heavy_plus_sign"}} =
+             Names.custom_emoji("T123", DateTime.utc_now(:microsecond))
+
+    assert GenServer.call(Names, :refresh) == :ok
+    refute_received :emoji_fetched
+  end
+
+  test "a missing emoji scope leaves ordinary name lookup usable" do
+    start_supervised!(
+      {Names,
+       workspace: "T123",
+       interval: 60_000,
+       fetch: fn _ref -> {:ok, "Colleague"} end,
+       emoji_fetch: fn -> {:error, {:slack_api_error, "missing_scope"}} end}
+    )
+
+    assert GenServer.call(Names, :refresh) == :ok
+    assert Names.custom_emoji("T123", DateTime.utc_now(:microsecond)) == nil
+    assert Names.name("T123", "U123") == "Slack user"
+    assert GenServer.call(Names, :refresh) == :ok
+    assert Names.name("T123", "U123") == "@Colleague"
+  end
+
   test "message links use only the origin recorded for their exact workspace" do
     # A multi-workspace operator's source links opened the default workspace
     # and a Slack error page instead of the recorded message (2026-10-26).

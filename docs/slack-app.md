@@ -39,6 +39,9 @@ explicitly selected incident audiences. Lightweight acknowledgements use `reacti
 `reactions:read` plus the `reaction_added` and `reaction_removed` events let Ryker understand
 feedback on its own messages in later conversation turns. Reaction events never start work or
 authorize an action by themselves.
+Custom emoji discovery uses `emoji:read` to cache the workspace's emoji names and aliases.
+After adding this scope, reinstall the app to enable discovery. Without it, standard reactions
+and the other Slack capabilities continue to work; Ryker does not guess custom emoji names.
 Channel-resource discovery uses `bookmarks:read` to list the configured channel's bookmarks before
 reading an exact authorized Slack file or canvas. Existing installations must be reinstalled after
 adding this scope; otherwise Slack returns `missing_scope` and the bookmark capability remains

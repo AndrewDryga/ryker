@@ -5,6 +5,42 @@ defmodule Ryker.Slack.ClientTest do
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.Users
 
+  test "custom emoji discovery keeps names and aliases without image URLs" do
+    {:ok, requester} =
+      FakeRequester.start([
+        slack(%{
+          "emoji" => %{
+            "plus" => "alias:heavy_plus_sign",
+            "party" => "https://emoji.example/party.png",
+            "bad name" => "https://emoji.example/bad.png"
+          }
+        })
+      ])
+
+    assert {:ok,
+            %{
+              "names" => ["party", "plus"],
+              "aliases" => %{"plus" => "heavy_plus_sign"},
+              "truncated" => false
+            }} =
+             Client.list_emoji(client(requester))
+
+    assert [{:get, "/emoji.list", %{}, []}] = FakeRequester.requests(requester)
+  end
+
+  test "custom emoji discovery preserves scope and rate-limit failures" do
+    {:ok, requester} =
+      FakeRequester.start([
+        {:ok, %{status: 200, headers: [], body: %{"ok" => false, "error" => "missing_scope"}}},
+        {:ok, %{status: 429, headers: [{"retry-after", "120"}], body: "rate limited"}},
+        slack(%{"emoji" => []})
+      ])
+
+    assert Client.list_emoji(client(requester)) == {:error, {:slack_api_error, "missing_scope"}}
+    assert {:error, {:delivery_rate_limited, 120, _}} = Client.list_emoji(client(requester))
+    assert Client.list_emoji(client(requester)) == {:error, {:slack_protocol_error, :emoji}}
+  end
+
   test "directory labels validate identity and preserve workspace rate limits" do
     {:ok, requester} =
       FakeRequester.start([

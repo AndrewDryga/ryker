@@ -1,8 +1,9 @@
 defmodule Ryker.Slack.Names do
   @moduledoc """
-  Workspace-scoped display cache: the names of Slack people, channels and the
-  workspace, for reading. Never an authorization source or a dependency of
-  rendering.
+  Workspace-scoped display cache: the names of Slack people, channels, the
+  workspace and custom emoji. Never an authorization source or a dependency
+  of rendering. Custom emoji refresh in the background every fifteen minutes;
+  a model context reads only the catalog observed before its input's cutoff.
 
   A page asks while it is drawn and gets what is known now, or a kind word
   when nothing is ("Slack user", "Slack channel"). Slack is then asked in
@@ -57,6 +58,19 @@ defmodule Ryker.Slack.Names do
   end
 
   def name(_, _), do: "Slack reference"
+
+  @doc "Known custom emoji for this workspace, only when observed before the input's cutoff."
+  @spec custom_emoji(String.t(), DateTime.t()) :: map() | nil
+  def custom_emoji(workspace, %DateTime{} = cutoff) when is_binary(workspace) do
+    case cached({:emoji, workspace}) do
+      [{_key, catalog, observed_at}] ->
+        if DateTime.compare(observed_at, cutoff) != :gt,
+          do: Map.put(catalog, "observed_at", DateTime.to_iso8601(observed_at))
+
+      [] ->
+        nil
+    end
+  end
 
   @doc """
   A Slack person the one way every page shows them: `name` is "@Name" once
@@ -219,6 +233,8 @@ defmodule Ryker.Slack.Names do
          %{
            workspace: workspace,
            fetch: fetch,
+           emoji_fetch: Keyword.get(options, :emoji_fetch),
+           emoji_refresh_at: now(),
            interval: interval,
            queue: :queue.new(),
            pending: MapSet.new(),
@@ -280,7 +296,33 @@ defmodule Ryker.Slack.Names do
   end
 
   defp refresh_one(state) do
-    if state.blocked_until > now(), do: state, else: fetch_next(state)
+    cond do
+      state.blocked_until > now() ->
+        state
+
+      is_function(state.emoji_fetch, 0) and state.emoji_refresh_at <= now() ->
+        refresh_emoji(state)
+
+      true ->
+        fetch_next(state)
+    end
+  end
+
+  defp refresh_emoji(state) do
+    result = fetch(fn _ref -> state.emoji_fetch.() end, :emoji)
+
+    case result do
+      {:ok, %{} = catalog} ->
+        :ets.insert(@table, {{:emoji, state.workspace}, catalog, DateTime.utc_now(:microsecond)})
+        %{state | emoji_refresh_at: now() + @ttl}
+
+      {:error, {:delivery_rate_limited, seconds, _}} when is_integer(seconds) ->
+        retry_at = now() + max(seconds * 1000, 60_000)
+        %{state | emoji_refresh_at: retry_at, blocked_until: retry_at}
+
+      _unavailable ->
+        %{state | emoji_refresh_at: now() + @ttl}
+    end
   end
 
   defp fetch_next(state) do

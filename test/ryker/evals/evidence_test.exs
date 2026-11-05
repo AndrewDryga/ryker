@@ -2,6 +2,25 @@ defmodule Ryker.Evals.EvidenceTest do
   use ExUnit.Case, async: true
   alias Ryker.Evals.Evidence
 
+  test "nested execution and cleanup diagnostics survive JSON report encoding" do
+    report = %{
+      choices: [%{result: %{reason: {:coop_error, :unavailable}}}],
+      quality: %{
+        cleanup_error: {:world_eval_cleanup_errors, {:close, :failed}, {:discard, :busy}},
+        accepted_decision: %{"overall_pass" => false}
+      }
+    }
+
+    printable = Evidence.json_value(report)
+    decoded = printable |> Jason.encode!() |> Jason.decode!()
+
+    assert get_in(decoded, ["choices", Access.at(0), "result", "reason"]) ==
+             "{:coop_error, :unavailable}"
+
+    assert decoded["quality"]["cleanup_error"] =~ "world_eval_cleanup_errors"
+    assert decoded["quality"]["accepted_decision"] == %{"overall_pass" => false}
+  end
+
   test "sanitized model-world evidence redacts nested authority and remains JSON-safe" do
     assert Evidence.sanitize(
              %{

@@ -257,6 +257,19 @@ make eval-trend
 
 Passing deterministic and model gates does not deploy the runtime.
 
+### Conversational reactions
+
+`MIX_ENV=test scripts/elixir-mix.sh ryker.eval reactions --results /absolute/reactions.json`
+replays the user-supplied three-message exchange in
+`testdata/admission/reactions/screenshot-exchange.json` through the current Admission prompt and
+schema on `RYKER_EVAL_ROUTING_TARGET`, then judges the whole exchange on
+`RYKER_EVAL_JUDGE_TARGET`. It needs the same `RYKER_EVAL_SOCKET` as routing replay. Earlier accepted
+choices become an inert simulated transcript for the next input; no Slack message or reaction is
+sent. The rubric assesses natural participation, repetition, fitting reactions and unsupported
+claims, without requiring a fixed emoji for each message. A failed choice, cleanup or judgment
+fails the command and preserves its private report. This is model-choice evidence, not live Slack
+delivery proof.
+
 ### Routing replay
 
 Most Work world scenarios route with a deterministic stand-in. The two routing-tagged scenarios

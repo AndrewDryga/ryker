@@ -544,6 +544,39 @@ defmodule Ryker.Admission.PromptTest do
       assert instructions =~ "Match the tone during incidents"
     end
 
+    test "the model reads frozen reactions beside their original message" do
+      context = lean_context!()
+      events = [%{"emoji" => "thumbsup", "action" => "add", "at" => "2026-08-27T11:59:01Z"}]
+
+      messages =
+        List.update_at(
+          context.conversation_context["messages"],
+          0,
+          &Map.put(&1, "ryker_reactions", events)
+        )
+
+      bundle = Map.put(context.conversation_context, "messages", messages)
+      model = Context.for_model(%{context | conversation_context: bundle})
+      assert [first, _reply] = model["conversation_context"]["messages"]
+      assert first["text"] == "Is checkout up?"
+      assert first["ryker_reactions"] == events
+    end
+
+    test "a workspace's longest legal emoji names cannot displace the mandatory routing prompt" do
+      emoji =
+        Map.new(1..256, fn index ->
+          {String.pad_leading(Integer.to_string(index), 80, "x"),
+           "alias:#{String.duplicate("y", 80)}"}
+        end)
+
+      catalog = Ryker.Slack.EmojiCatalog.document(emoji)
+      context = lean_context!()
+      bundle = Map.put(context.conversation_context, "custom_emoji", catalog)
+      request = Prompt.build(%{context | conversation_context: bundle})
+      assert byte_size(Prompt.render(request)) <= 65_536
+      assert request["context"]["conversation_context"]["custom_emoji"]["truncated"]
+    end
+
     test "reads who said what and when, and keeps the provenance only in the snapshot" do
       context = lean_context!()
       document = Context.for_model(context)

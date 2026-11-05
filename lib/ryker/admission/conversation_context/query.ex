@@ -179,6 +179,53 @@ defmodule Ryker.Admission.ConversationContext.Query do
     })
   end
 
+  @doc "Recent reaction receipts on the captured messages, before the triggering input."
+  def delivered_routing_reactions(entry, message_refs, limit) do
+    from(response in Delivery.RoutingResponse.Query.all(),
+      join: input in Ingress.Inbox.Entry,
+      as: :ingress_inbox_entries,
+      on: input.id == response.input_id,
+      where:
+        response.kind == :reaction and response.status == :delivered and
+          response.delivered_at < ^entry.occurred_at and
+          input.execution_mode == ^entry.execution_mode and
+          response.transport == ^entry.destination_transport and
+          response.conversation_ref == ^entry.destination_conversation_ref and
+          response.source_item_ref in ^message_refs,
+      order_by: [desc: response.delivered_at, desc: response.id],
+      limit: ^limit,
+      select: %{
+        at: response.delivered_at,
+        id: response.id,
+        document: response.document,
+        message_ref: response.source_item_ref
+      }
+    )
+  end
+
+  def delivered_work_reactions(entry, message_refs, limit) do
+    from(action in Delivery.PlatformAction.Query.all(),
+      join: episode in Episodes.Episode,
+      as: :episodes,
+      on: episode.id == action.episode_id,
+      where:
+        action.kind == :reaction and action.status == :delivered and
+          action.delivered_at < ^entry.occurred_at and
+          episode.execution_mode == ^entry.execution_mode and
+          action.transport == ^entry.destination_transport and
+          action.conversation_ref == ^entry.destination_conversation_ref and
+          action.source_item_ref in ^message_refs,
+      order_by: [desc: action.delivered_at, desc: action.id],
+      limit: ^limit,
+      select: %{
+        at: action.delivered_at,
+        id: action.id,
+        document: action.document,
+        message_ref: action.source_item_ref
+      }
+    )
+  end
+
   defp post_scope(queryable, entry, :thread_reply),
     do: from(post in queryable, where: post.thread_ref == ^entry.destination_thread_ref)
 

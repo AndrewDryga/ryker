@@ -1,7 +1,7 @@
 defmodule Ryker.Evals.WorldReport do
   @moduledoc false
   alias Ryker.CanonicalJSON
-  alias Ryker.Evals.PrivateFile
+  alias Ryker.Evals.{Evidence, PrivateFile}
 
   @required_fields ~w(deliveries episode_id failures lane quality record_history records repeat_index runtime scenario_id source_calls status turn_id)a
   @diagnostic_fields ~w(execution_error cleanup_error)a
@@ -21,7 +21,7 @@ defmodule Ryker.Evals.WorldReport do
         "generated_at" => timestamp(now),
         "kind" => @kind,
         "results" => results,
-        "summary" => json_value(options.summary),
+        "summary" => Evidence.json_value(options.summary),
         "version" => @version
       }
 
@@ -66,21 +66,21 @@ defmodule Ryker.Evals.WorldReport do
          report.repeat_index in 1..10 do
       {:ok,
        %{
-         "deliveries" => json_value(report.deliveries),
+         "deliveries" => Evidence.json_value(report.deliveries),
          "episode_id" => report.episode_id,
-         "failures" => json_value(report.failures),
+         "failures" => Evidence.json_value(report.failures),
          "lane" => Atom.to_string(report.lane),
-         "quality" => json_value(report.quality),
-         "record_history" => json_value(report.record_history),
-         "records" => json_value(report.records),
+         "quality" => Evidence.json_value(report.quality),
+         "record_history" => Evidence.json_value(report.record_history),
+         "records" => Evidence.json_value(report.records),
          "repeat_index" => report.repeat_index,
-         "runtime" => json_value(report.runtime),
+         "runtime" => Evidence.json_value(report.runtime),
          "scenario_id" => report.scenario_id,
-         "source_calls" => json_value(report.source_calls),
+         "source_calls" => Evidence.json_value(report.source_calls),
          "status" => Atom.to_string(report.status),
          "turn_id" => report.turn_id
        }
-       |> Map.merge(report |> Map.take(@diagnostic_fields) |> json_value())
+       |> Map.merge(report |> Map.take(@diagnostic_fields) |> Evidence.json_value())
        |> Map.merge(preserved_database(report))}
     else
       {:error, :report}
@@ -221,20 +221,4 @@ defmodule Ryker.Evals.WorldReport do
     |> Map.put(:microsecond, {microseconds, 6})
     |> DateTime.to_iso8601()
   end
-
-  defp json_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp json_value(%Decimal{} = value), do: Decimal.to_string(value, :normal)
-
-  defp json_value(value) when is_map(value) do
-    Map.new(value, fn {key, item} -> {to_string(key), json_value(item)} end)
-  end
-
-  defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
-
-  defp json_value(value) when is_tuple(value), do: inspect(value)
-
-  defp json_value(value) when is_atom(value) and value not in [true, false, nil],
-    do: Atom.to_string(value)
-
-  defp json_value(value), do: value
 end

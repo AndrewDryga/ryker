@@ -86,6 +86,9 @@ defmodule Ryker.Slack.Client do
   # --- reactions ------------------------------------------------------------
 
   @impl true
+  defdelegate list_emoji(client), to: Reactions
+
+  @impl true
   defdelegate add_reaction(client, channel, message_ref, emoji_name), to: Reactions
 
   @impl true

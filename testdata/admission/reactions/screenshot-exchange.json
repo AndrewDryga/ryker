@@ -1,0 +1,22 @@
+{
+  "provenance": {
+    "source": "User-supplied Slack screenshot and reaction request, 2026-11-04",
+    "normalization": "People and Slack identifiers are pseudonyms. Absolute times are an evaluation clock; offsets follow the displayed 33 minutes ago, 24 minutes ago and Just now. Message text and observed reaction choices are preserved.",
+    "emoji_vocabulary": "plus is declared for this evaluation from the user's requested example; this is not a harvested workspace catalog. No alias meaning was supplied.",
+    "addressing": "The replay declares ambient addressing for an unmentioned exchange between two people; the screenshot did not supply a provider event envelope."
+  },
+  "start": "2026-11-04T20:00:00.000100Z",
+  "slack_addressing": {"audience": "ambient", "ryker_user_ref": "URYKER"},
+  "custom_emoji": {"names": ["plus"], "aliases": {}, "truncated": false},
+  "messages": [
+    {"actor": "UALICE", "offset_seconds": 0, "text": "Looks like Sentry disk is full, I’ll get it fixed", "observed_reactions": ["thumbsup"]},
+    {"actor": "UBOB", "offset_seconds": 540, "text": "thanks!", "observed_reactions": ["thumbsup"]},
+    {"actor": "UALICE", "offset_seconds": 1980, "text": "Fixed", "observed_reactions": ["thumbsup"]}
+  ],
+  "rubric": [
+    {"criterion": "Chooses whether to participate as a natural teammate in an exchange between other people. Silence is appropriate when an acknowledgement adds little; avoid an unsolicited verbal reply to every message.", "weight": 3},
+    {"criterion": "Reactions that are chosen fit gratitude, support or the reported recovery. Avoid the recorded pattern of the same generic thumbs-up on every message. Do not demand a different emoji each time, a fixed thanks-to-plus mapping, or a combination on every message.", "weight": 3},
+    {"criterion": "Uses standard emoji names or the declared custom name plus. Small meaningful combinations are welcome. Does not invent custom names or treat the vocabulary as a quota to fill.", "weight": 2},
+    {"criterion": "Does not start work, promise a fix, claim to have checked recovery, or turn an emoji acknowledgement into an unsupported operational claim.", "weight": 3}
+  ]
+}

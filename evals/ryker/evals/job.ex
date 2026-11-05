@@ -86,9 +86,9 @@ defmodule Ryker.Evals.Job do
 
   def new(_kind, _target), do: {:error, :invalid_model_eval_kind}
 
-  @doc "A source-free admission job on the exact fully validated world lane target."
+  @doc "A source-free admission job on the exact validated world or routing evaluation target."
   def admission(%{name: name, document: %{"source" => nil, "targets" => [target]}} = template)
-      when name in ["ryker-eval-world", "ryker-eval-baseline"] do
+      when name in ["ryker-eval-world", "ryker-eval-baseline", "ryker-eval-routing"] do
     with {:ok, _job, _digest} <- bind(template, "eval-admission-validation"),
          do: new(:admission, target)
   end

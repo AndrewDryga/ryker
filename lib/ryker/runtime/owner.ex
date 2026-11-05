@@ -424,6 +424,7 @@ defmodule Ryker.Runtime.Owner do
        workspace: workspace,
        workspace_url: names.workspace_url,
        known: Map.get(names, :known, []),
+       emoji_fetch: fn -> Slack.Client.list_emoji(client) end,
        fetch: &Slack.Client.Users.directory_name(client, workspace, &1)}
     ]
 
