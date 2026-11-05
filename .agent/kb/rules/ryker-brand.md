@@ -1,9 +1,8 @@
 # Ryker identity and project naming
 
-Approved by Andrew on 2026-09-09 for the complete project rename and redesign. This is the
-durable repository rule; the rename/application rollout is still pending. The current task ID
-is `2026-09-09-redesign-conversation-lab-and-testing-pages`. Do not mistake these instructions
-or imported assets for proof that a deployed service/repository has already been renamed.
+Approved by Andrew on 2026-09-09 for the complete project rename and redesign, shipped on
+2026-09-13. This is the durable repository rule. `AGENTS.md` and `docs/operations.md` describe
+the few historical and externally owned identifiers that retain the previous spelling.
 
 ## Authoritative local sources
 
@@ -92,7 +91,7 @@ verify loading from a clean checkout/release with the brand source checkout unav
 runtime developer absolute paths, sibling checkout, external logo/font fetch or missing license.
 Keep brand references and asset libraries out of customer navigation/footers.
 
-Future work must check logo hashes/geometry, exact palette, surface selection, minimum size,
-clear space, font loading/licenses and rendered accessibility. Add an old-name audit that
+Changes must check logo hashes/geometry, exact palette, surface selection, minimum size,
+clear space, font loading/licenses and rendered accessibility. `test/ryker/rename_audit_test.exs`
 enumerates justified historical/protocol occurrences rather than hiding whole directories.
 Review web, Slack/GitHub identity, docs, CLI and release outputs, not just the page being edited.

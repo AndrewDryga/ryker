@@ -28,7 +28,8 @@ Umbrella-only art, tokens and profile resources linked from the unchanged refere
 are not vendored or used by the app. Their relative references describe the original source
 repository; consult the source if those separate umbrella resources are actually needed.
 
-The files are imported for the redesign handoff; application/release asset wiring is pending.
-Package needed files from this repository at implementation time. Do not load developer-local
-paths, external font CDNs or the sibling brand checkout at runtime. Do not expose internal brand
-guides in customer navigation or assume an import proves the deployed UI uses the brand.
+The application packages its required artwork and fonts in `priv/static/brand/`; the public
+site keeps its copies in `site/assets/`. `test/ryker/control_plane/brand_assets_test.exs` and
+`test/ryker/public_site_brand_test.exs` check those bytes against the source manifest. Do not load
+developer-local paths, external font CDNs or the sibling brand checkout at runtime. Keep internal
+brand guides out of customer navigation. Deployment status comes from `scripts/status.sh`.

@@ -186,6 +186,7 @@ shellcheck:
 watchdog-check:
 	scripts/watchdog_test.sh
 	python3 -B scripts/storage_maintenance_test.py
+	python3 -B scripts/storage_pressure_acceptance_test.py
 	python3 -B scripts/worker_pool_test.py
 
 launch-agent-check:

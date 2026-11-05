@@ -782,7 +782,6 @@
 .tool-run-body { margin:0 0 12px; padding:4px 0 0; border:0; background:transparent; }
 .tool-run-body .action-card > :first-child:not(.case-card-heading) { margin-top:0; }
 @media (max-width:640px) { .tool-run-line { column-gap:10px; } .tool-run-line > .tool-run-badge { grid-row:1; } .tool-run-text { grid-column:1 / 3; } .tool-run-warning, .tool-run-error, .tool-run-approval { grid-column:1 / -1; } }
-.action-symbol { color:var(--secondary); font-size:18px; }
 .action-duration { font-size:12px; color:var(--secondary); font-variant-numeric:tabular-nums; }
 .action-description { color:var(--secondary); font-size:14px; line-height:20px; margin:8px 0 12px; }
 .action-state { font-size:12px; text-transform:capitalize; }
@@ -1552,7 +1551,6 @@
 .context-notes { display:grid; gap:12px; list-style:none; margin:0; padding:0; max-width:none; min-width:0; }
 .context-note { min-width:0; padding:0; border:0; overflow-wrap:anywhere; }
 .prompt-source-body .context-note-text { margin:0; color:var(--ryker-text); font-size:14px; line-height:22px; }
-.context-note-meta { margin:2px 0 0; font-size:12px; line-height:18px; color:var(--secondary); }
 .learned-topic-summary { max-width:80ch; font-size:14px; line-height:23px; }
 .learned-topic-summary > :first-child { margin-top:0; }
 .learned-topic-summary > :last-child { margin-bottom:0; }
@@ -2128,9 +2126,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .memory-details[open] > summary { color:var(--ryker-text); }
 .ryker-app .memory-details p { margin:6px 0 0; font-size:13px; line-height:18px; }
 .memory-details code { overflow-wrap:anywhere; }
-.memory-evidence ul { display:grid; gap:8px; margin:8px 0 0; padding-left:18px; }
-.ryker-app .memory-evidence li { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
-.memory-evidence li a { margin-left:8px; font-size:13px; color:var(--ryker-text-secondary); white-space:nowrap; }
 /* The relearn picker is a section of a topic's page like any other: no
    panel, no coloured edge, never collapsed. */
 .knowledge-rebuild { max-width:1040px; overflow-wrap:anywhere; }
@@ -2165,7 +2160,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .settings-page .ui-button { min-height:36px; padding:7px 14px; border-radius:8px; font-size:13px; line-height:20px; }
 /* A form, list of people or block of text under a section title gets the
    same breathing room a list's first row has. */
-.settings-page .section-head + :is(.settings-form, .settings-editor, .settings-people-form, .settings-disclosure, .copy-block, .settings-lede, .settings-state-line, .settings-problem) { margin-top:16px; }
+.settings-page .section-head + :is(.settings-form, .settings-editor, .settings-people-form, .settings-disclosure, .copy-block, .settings-lede, .settings-problem) { margin-top:16px; }
 .settings-lede a, .settings-notice a { color:var(--ryker-text); text-decoration:underline; text-decoration-color:var(--ryker-stroke-strong); text-underline-offset:3px; }
 .settings-lede code, .settings-problem code { font-size:13px; }
 
@@ -2175,7 +2170,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-connection .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]) { color:var(--ryker-text); }
 .settings-connection-body > p { max-width:720px; margin:2px 0 0 13px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-connection-action { display:flex; flex:none; gap:8px; }
-.settings-state-line { margin:0 0 8px; }
 
 
 .secret-reveal { max-width:720px; margin:0 0 16px; padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 7%, transparent); }
@@ -2299,23 +2293,20 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-section > .settings-editor { max-width:720px; margin:20px 0 0; }
 .settings-conflict { padding:14px 16px; border:1px solid color-mix(in srgb, var(--ryker-warning) 45%, transparent); border-radius:8px; background:color-mix(in srgb, var(--ryker-warning) 6%, transparent); }
 .settings-conflict h3 { margin:0 0 6px; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
-.settings-row-details, .settings-disclosure { max-width:720px; margin:8px 0 0; }
+.settings-disclosure { max-width:720px; margin:8px 0 0; }
 /* The GitHub App card: where GitHub sends events, then, below a rule, the
    credentials and their form. */
 .github-app-card .copy-block + .settings-lede { margin-top:8px; }
 .github-app-card .settings-disclosure + .settings-lede { margin-top:12px; }
 .ryker-app .github-app-card .github-credentials-lede { max-width:none; margin:24px 0 16px; padding-top:20px; border-top:1px solid var(--ryker-stroke); }
-.settings-row-details > summary, .settings-disclosure > summary { width:fit-content; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
-.settings-disclosure > summary { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
+.settings-disclosure > summary { width:fit-content; font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); cursor:pointer; }
 .settings-disclosure[open] > summary { margin-bottom:12px; }
 .settings-disclosure > p { margin:0 0 8px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-page .settings-disclosure + .settings-lede { margin-top:12px; }
-.settings-row-details dl, .settings-conflict dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 16px; margin:8px 0 12px; font-size:13px; line-height:18px; }
-.settings-row-details dl > div, .settings-conflict dl > div { display:contents; }
-.settings-row-details dt, .settings-conflict dt { color:var(--ryker-text-secondary); }
-.settings-row-details dd, .settings-conflict dd { min-width:0; margin:0; color:var(--ryker-text); overflow-wrap:anywhere; }
-.settings-row-details code { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text); }
-.settings-row-details > p { margin:8px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.settings-conflict dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 16px; margin:8px 0 12px; font-size:13px; line-height:18px; }
+.settings-conflict dl > div { display:contents; }
+.settings-conflict dt { color:var(--ryker-text-secondary); }
+.settings-conflict dd { min-width:0; margin:0; color:var(--ryker-text); overflow-wrap:anywhere; }
 .ryker-app .settings-address { display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .settings-address code { font:12px/18px var(--ryker-font-mono); color:var(--ryker-text); overflow-wrap:anywhere; }
 
@@ -2400,11 +2391,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .schedule-runs .entity-name time { font-variant-numeric:tabular-nums; }
 .schedule-details { max-width:720px; margin:32px 0 0; }
 .schedule-next-at { display:block; font-size:13px; color:var(--ryker-text-secondary); }
-@media (max-width:800px) {
-  /* Row controls wrap under the text at the left edge, so the menu opens rightwards. */
-  .entity-actions .schedule-menu-items { right:auto; left:0; }
-}
-
 /* Model call cards (2026-09-24): the decision as a label/value list, then how
    the call ran: model, tokens, cost and checks, and a bar of where its time
    went. The bar is SVG so its proportions need no inline style. */
@@ -2769,7 +2755,6 @@ html:has(.kit-modal) { overflow:hidden; }
 .activity-page .new-activity:hover { background:var(--ryker-hover-bg); }
 .activity-page .new-activity .ui-icon { width:13px; height:13px; }
 .activity-section, .incident-rooms-view, .incident-room-view, .usage-page { max-width:1040px; min-width:0; }
-.incident-room-details { max-width:720px; margin:32px 0 0; }
 /* The window and the work included scope every figure, so they come first. */
 .usage-page > .kit-toolbar + .kit-counts { margin-top:16px; }
 .usage-charts { display:grid; grid-template-columns:minmax(0, 2fr) minmax(260px, 1fr); gap:0 40px; }
@@ -2974,8 +2959,6 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 /* "Open the timeline" stays one phrase beside a lede that wraps. */
 .incident-room-view .section-actions > a { white-space:nowrap; }
 /* A record's words keep their line breaks; a long one shows three lines until opened. */
-.incident-room-records .entity-row { align-items:start; }
-.incident-room-records .entity-text { white-space:pre-line; }
 .incident-room-long .entity-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
 .incident-room-long:has(.incident-room-more[open]) .entity-text { display:block; -webkit-line-clamp:unset; overflow:visible; }
 .incident-room-more { margin:4px 0 0; }
@@ -2985,8 +2968,6 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .incident-room-more > summary:hover { text-decoration:underline; text-underline-offset:3px; }
 .incident-room-more > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:4px; }
 .incident-room-more[open] .incident-room-show, .incident-room-more:not([open]) .incident-room-less { display:none; }
-.ryker-app .incident-room-details .kit-facts { margin:4px 0 8px; }
-.ryker-app .incident-room-details .kit-facts code { font:13px/20px var(--ryker-font-mono); color:var(--ryker-text); overflow-wrap:anywhere; }
 @media (max-width:1000px) {
   .ryker-app .kit-facts.incident-room-facts { grid-template-columns:minmax(120px, max-content) minmax(0, 1fr); max-width:720px; }
   .ryker-app .incident-room-facts > div:nth-child(even) > dt { padding-left:0; }

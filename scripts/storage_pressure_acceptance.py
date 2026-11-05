@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Exercise sustained cache pressure in a disposable 768 MiB daemon.
 
-Uses the already-installed worker-daemon image, no registry or model credentials.
+Uses an explicit local Docker-in-Docker image, no registry or model credentials.
 The disposable daemon has no network and no persistent or host-mounted volumes.
 """
+import argparse
 import io
 import json
 import os
@@ -17,10 +18,22 @@ from storage_maintenance import inspect_builder, plan
 
 
 def main():
-    context = subprocess.check_output(["docker", "context", "show"], text=True).strip()
-    docker = ["docker", "--context", context]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image", required=True, help="local Docker-in-Docker image (never pulled)")
+    arguments = parser.parse_args()
+    # Freeze the CLI's selected engine for creation, builds and final cleanup.
+    context = os.environ.get("DOCKER_CONTEXT")
+    host = os.environ.get("DOCKER_HOST") if not context else None
+    if host:
+        docker = ["docker", "--host", host]
+    else:
+        context = context or subprocess.check_output(["docker", "context", "show"], text=True).strip()
+        docker = ["docker", "--context", context]
+    # Resolve local bytes before starting; no running installation is needed.
+    image = subprocess.check_output(
+        docker + ["image", "inspect", "--format", "{{.Id}}", arguments.image], text=True).strip()
     name = "ryker-storage-acceptance-" + uuid.uuid4().hex[:12]
-    image = subprocess.check_output(docker + ["inspect", "--format", "{{.Image}}", "ryker-ryker-coop-docker-1"], text=True).strip()
+
     def run(args, data=None, timeout=45):
         with tempfile.TemporaryFile() as output:
             proc = subprocess.run(args, input=data, stdout=output, stderr=subprocess.STDOUT, timeout=timeout)
@@ -32,7 +45,7 @@ def main():
     nested = docker + ["exec", name, "docker"]
     records = []
     try:
-        run(docker + ["run", "--detach", "--name", name, "--network", "none", "--privileged",
+        run(docker + ["run", "--pull=never", "--detach", "--name", name, "--network", "none", "--privileged",
                       "--memory", "1g", "--memory-swap", "1g", "--tmpfs", "/var/lib/docker:rw,size=768m",
                       "--tmpfs", "/tmp:rw,size=128m", "--env", "DOCKER_TLS_CERTDIR=", image,
                       "dockerd", "--host=unix:///var/run/docker.sock", "--storage-driver=vfs",

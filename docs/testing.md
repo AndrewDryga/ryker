@@ -147,10 +147,27 @@ that deal the files hold on CI too), the host replay, and the retention simulati
 the newest push to `main` saved. `test/ryker/ci_workflow_test.exs` fails when a part of `make check`
 has no job.
 
+## Docker cache pressure acceptance
+
+The deterministic storage and acceptance-wrapper tests run in `make watchdog-check`.
+To exercise repeated real builds, choose a locally installed Docker-in-Docker image:
+
+```bash
+python3 -B scripts/storage_pressure_acceptance.py --image docker:28.2.2-dind-alpine3.21
+```
+
+The command inherits Docker's selected context or `DOCKER_HOST`. It resolves the local image
+before starting and never pulls one; a missing image fails before creating a container. It starts
+one privileged disposable daemon with no network, host mounts or persistent volumes, using
+768 MiB of temporary Docker storage and a 1 GiB memory limit. Sixteen builds exercise the cache
+budget, then the command removes its daemon and prints the measurements. Failures also attempt
+that cleanup. It needs no running Ryker installation and does not operate on its containers.
+This proves cache convergence, not retained-session recovery or model behavior.
+
 ## Model evaluation
 
 The evaluation runner is a Mix task. It, the `Ryker.Evals` modules and the local Unix-socket Coop
-client they drive live in `evals/`, which compiles only in development and test; the release
+client they drive live in `evals/`, which compiles only in test; the release
 check refuses an archive that carries any of them. The scenario corpus, with each scenario's exact
 tool catalog, can be compiled without credentials:
 

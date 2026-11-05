@@ -12,6 +12,44 @@ defmodule Ryker.ControlPlane.ProviderMessageTest do
   alias Ryker.ControlPlane.ProviderMessage
 
   @terraform "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+  @lifecycles "testdata/slack/terraform-deployment-lifecycles.json"
+              |> File.read!()
+              |> Jason.decode!()
+
+  # Ten routine runs and three controls were retained on 2026-10-29. Their
+  # presentation must keep a no-change finish, an approval wait, a failure and
+  # an applied deployment distinguishable. This is no claim about model routing.
+  test "retained deployment lifecycles keep their exact state and destination" do
+    [created, finished] = @lifecycles["templates"]
+
+    for run <- @lifecycles["runs"],
+        {template, at, state} <- [
+          {created, run["created_at"], "Created"},
+          {finished, run["finished_at"], "Planned and Finished"}
+        ] do
+      content =
+        update_in(template, ["attachments"], fn [identity, status] ->
+          [Map.put(identity, "ts", run["created_at"]), Map.put(status, "ts", at)]
+        end)
+
+      assert %{provider: :terraform} = card = ProviderMessage.recognize("slack", content)
+      assert card.state == state
+      assert hd(card.links).href == hd(content["attachments"])["title_link"]
+    end
+
+    states =
+      for content <- @lifecycles["controls"] do
+        card = ProviderMessage.recognize("slack", content)
+        assert hd(card.links).href == hd(content["attachments"])["title_link"]
+        {card.state, card.tone}
+      end
+
+    assert states == [
+             {"Planned - Needs Confirmation", :confirmation},
+             {"Errored", :failure},
+             {"Applied", :applied}
+           ]
+  end
 
   test "a harvested HCP Terraform notification is recognized with its run, state and facts" do
     content = Map.take(@terraform, ["text", "attachments", "subtype", "bot_id"])
