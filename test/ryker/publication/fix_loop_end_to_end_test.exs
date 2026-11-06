@@ -194,9 +194,9 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert {:ok, {:delivered, :message, fix_delivery_ref}} = deliver_once(adapters)
 
     assert_receive {:slack_posted, "C456", _, provisional, ^fix_delivery_ref, _}
-    assert Jason.encode!(provisional) =~ "The change is prepared locally."
-
-    assert Jason.encode!(provisional) =~ "The pull request is not yet updated."
+    assert Jason.encode!(provisional) =~ "task card"
+    refute Jason.encode!(provisional) =~ "prepared locally"
+    refute Jason.encode!(provisional) =~ "not yet updated"
     refute Jason.encode!(provisional) =~ "Fixed the failing parser test and committed the change."
 
     # The fixed commit is reviewed by the ordinary path and becomes the draft.

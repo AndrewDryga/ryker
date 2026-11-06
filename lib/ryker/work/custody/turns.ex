@@ -1119,8 +1119,10 @@ defmodule Ryker.Work.Custody.Turns do
 
   # The candidate and validation verdict remain exact historical inputs. The
   # first delivery is host-owned: local completion precedes asynchronous review
-  # and publication, so it cannot promise a remote change. A replay uses the
-  # delivery frozen at acceptance, even after that publication later finishes.
+  # and publication, so it cannot promise a remote change. Publication updates
+  # the task card, while this frozen reply remains beside it: avoid a temporary
+  # "not yet published" claim that becomes false seconds later. A replay uses
+  # the delivery frozen at acceptance, even after publication later finishes.
   defp publication_delivery_result(_episode, _session, %Turn{result_ref: ref} = turn, result)
        when is_binary(ref),
        do: %{result | delivery_document: turn.delivery_document}
@@ -1133,7 +1135,7 @@ defmodule Ryker.Work.Custody.Turns do
        ) do
     if Publication.Custody.task_review_pending?(episode, session, turn) do
       message =
-        "The change is prepared locally. The pull request is not yet updated. I'm checking publication and will report the published revision or the blocker."
+        "I’ve prepared the change for review and publication. The task card shows publication status and checks."
 
       %{result | delivery_document: Map.put(result.delivery_document, "message", message)}
     else

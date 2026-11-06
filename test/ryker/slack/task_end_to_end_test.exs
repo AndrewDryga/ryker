@@ -664,7 +664,9 @@ defmodule Ryker.Slack.TaskEndToEndTest do
               _}
            ] = GitHubRequester.requests(github)
 
-    assert reply_body =~ "The change is prepared locally. The pull request is not yet updated."
+    assert reply_body =~ "task card"
+    refute reply_body =~ "prepared locally"
+    refute reply_body =~ "not yet updated"
     refute reply_body =~ "Covered the nil retry state and updated the published review branch."
     refute_post_containing("Covered the nil retry state")
 

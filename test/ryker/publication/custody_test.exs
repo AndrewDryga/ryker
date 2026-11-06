@@ -1274,14 +1274,18 @@ defmodule Ryker.Publication.CustodyTest do
     end
   end
 
-  # A retained correction was called fixed with only deployment remaining, but
-  # review refused publication and the remote draft never received the patch.
-  test "a local task completion cannot claim that its unpublished correction is delivered" do
+  # A task's draft opened 24 seconds after its completion reply, leaving
+  # "not yet updated" below a card that already linked the published change.
+  # The reply must also avoid claiming publication before its receipt exists.
+  test "task completion stays accurate before and after its draft is published" do
     %{claim: claim} = task_episode!("publication-truth")
     correction = corrected_candidate!(claim, "publication-truth", "one")
 
-    assert correction.turn.delivery_document["message"] =~ "prepared locally"
-    assert correction.turn.delivery_document["message"] =~ "not yet updated"
+    message = correction.turn.delivery_document["message"]
+    refute message =~ "prepared locally"
+    refute message =~ "not yet updated"
+    assert message =~ "task card"
+    refute message =~ "correction is committed"
     assert correction.turn.candidate =~ "correction is committed"
 
     published = publish_task_publication!(correction.claim, "publication-truth", "one")
@@ -1289,6 +1293,7 @@ defmodule Ryker.Publication.CustodyTest do
     assert repeated.turn.delivery_document == correction.turn.delivery_document
     assert repeated.turn.delivery_fingerprint == correction.turn.delivery_fingerprint
     assert published.status == :published
+    assert published.publication_receipt["pull_request_url"] != nil
   end
 
   test "a publication refusal explains the concrete policy blocker in its text" do
@@ -1688,7 +1693,8 @@ defmodule Ryker.Publication.CustodyTest do
     assert authorized.status == :publish_pending
 
     correction = corrected_candidate!(first, "in-flight", "two")
-    assert correction.turn.delivery_document["message"] =~ "not yet updated"
+    assert correction.turn.delivery_document["message"] =~ "task card"
+    refute correction.turn.delivery_document["message"] =~ "not yet updated"
 
     assert [held] = Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
     assert held.id == authorized.id
