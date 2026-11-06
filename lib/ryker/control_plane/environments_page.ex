@@ -98,15 +98,14 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       )
 
     ~H"""
-    <Kit.form_card :if={@found} label={if @ref, do: "Edit environment", else: "Add an environment"}>
-      <.live_component
-        module={EnvironmentEditor}
-        id={"environment-editor-" <> (@ref || "new")}
-        ref={@ref}
-        view={@view}
-        commands={@commands}
-      />
-    </Kit.form_card>
+    <.live_component
+      :if={@found}
+      module={EnvironmentEditor}
+      id={"environment-editor-" <> (@ref || "new")}
+      ref={@ref}
+      view={@view}
+      commands={@commands}
+    />
     <Kit.remove_card
       :if={@environment}
       id="remove-environment"

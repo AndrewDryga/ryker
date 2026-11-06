@@ -2588,16 +2588,14 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    into the content"). One card, as wide as a readable form, holds the form;
    its groups of fields are parted by hairlines and its actions sit under the
    last one. The page's title says what it adds or edits. */
-.kit-form-card, .kit-form-card ~ .kit-remove-card { max-width:760px; }
+.kit-form-card, .environment-editor, .kit-form-card ~ .kit-remove-card, .environment-editor ~ .kit-remove-card { max-width:760px; }
 .kit-form-card .settings-form, .kit-form-card .settings-editor > form { gap:24px; }
 .kit-form-card :is(.kit-form-section, .settings-group) + :is(.kit-form-section, .settings-group) { padding-top:24px; border-top:1px solid var(--ryker-stroke); }
 .kit-form-section { display:grid; gap:20px; min-width:0; }
-/* Connection checks are a compact appendix to the saved environment. Successful
+/* Connection checks sit in their own card after the saved environment. Successful
    rows say the result once; only a problem earns an explanation and repair link. */
-.environment-access { margin-top:24px; padding-top:20px; border-top:1px solid var(--ryker-stroke); min-width:0; }
 .environment-access-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; }
 .ryker-app .environment-access h3 { margin:0; font-size:14px; line-height:20px; font-weight:600; }
-.ryker-app .environment-access-heading .ui-button { min-height:44px; font-size:13px; padding:8px 12px; }
 .ryker-app .environment-access-note { margin:8px 0 0; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
 .environment-access-results { list-style:none; padding:0; margin:8px 0 0; }
 .environment-access-row { display:grid; grid-template-columns:minmax(0,1fr) max-content; align-items:baseline; gap:4px 16px; padding:10px 0; border-bottom:1px solid var(--ryker-stroke); font-size:13px; line-height:20px; }

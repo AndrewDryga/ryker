@@ -393,182 +393,189 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
     ~H"""
     <div id={@id} class="environment-editor">
-      <form
-        id={"#{@id}-form"}
-        class="settings-form"
-        phx-change="change"
-        phx-submit="save"
-        phx-target={@myself}
-        data-dirty={to_string(@dirty)}
-        data-draft={"environment:" <> (@ref || "new")}
-        data-revision={@expected_revision}
-        data-baseline={FormDraft.digest(@baseline)}
-        autocomplete="off"
-      >
-        <div class="kit-form-section">
-          <div class="settings-field">
-            <label for={"#{@id}-name"}>Name</label>
-            <input
-              id={"#{@id}-name"}
-              type="text"
-              name="environment[display_name]"
-              value={@draft.display_name}
-              maxlength="80"
-              placeholder="Production"
-              required
-            />
-          </div>
-          <div class="settings-field">
-            <label for={"#{@id}-description"}>Description</label>
-            <p class="settings-help" id={"#{@id}-description-help"}>
-              Optional. What work in this environment is for.
-            </p>
-            <input
-              id={"#{@id}-description"}
-              type="text"
-              name="environment[description]"
-              value={@draft.description}
-              maxlength="500"
-              aria-describedby={"#{@id}-description-help"}
-            />
-          </div>
-        </div>
-        <div class="kit-form-section">
-          <fieldset class="settings-field" aria-describedby={"#{@id}-repositories-help"}>
-            <legend>Repositories</legend>
-            <p class="settings-help" id={"#{@id}-repositories-help"}>
-              Work here can read every repository you choose. A task changes one that is read and
-              write: the default, unless it picks another. The default is always read and write.
-            </p>
-            <input type="hidden" name="environment[repositories][]" value="" />
-            <div :if={length(@choices) > 1} class="environment-repositories-choose">
-              <button
-                type="button"
-                class="ui-button quiet"
-                phx-click="choose-all"
-                phx-target={@myself}
-                disabled={Enum.all?(@choices, & &1.chosen)}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                class="ui-button quiet"
-                phx-click="choose-none"
-                phx-target={@myself}
-                disabled={not Enum.any?(@choices, & &1.chosen)}
-              >
-                Select none
-              </button>
+      <Kit.form_card label={if @ref, do: "Edit environment", else: "Add an environment"}>
+        <form
+          id={"#{@id}-form"}
+          class="settings-form"
+          phx-change="change"
+          phx-submit="save"
+          phx-target={@myself}
+          data-dirty={to_string(@dirty)}
+          data-draft={"environment:" <> (@ref || "new")}
+          data-revision={@expected_revision}
+          data-baseline={FormDraft.digest(@baseline)}
+          autocomplete="off"
+        >
+          <div class="kit-form-section">
+            <div class="settings-field">
+              <label for={"#{@id}-name"}>Name</label>
+              <input
+                id={"#{@id}-name"}
+                type="text"
+                name="environment[display_name]"
+                value={@draft.display_name}
+                maxlength="80"
+                placeholder="Production"
+                required
+              />
             </div>
-            <div :if={@choices != []} class="environment-repositories">
-              <div class="environment-repositories-head" aria-hidden="true">
-                <span>Repository</span>
-                <span>Access</span>
-                <span>Default</span>
-              </div>
-              <div
-                :for={choice <- @choices}
-                class="environment-repository"
-                data-repository={choice.ref}
-                data-chosen={to_string(choice.chosen)}
-              >
-                <span class="environment-repository-name">
-                  <input
-                    type="checkbox"
-                    id={"#{@id}-repository-#{choice.ref}"}
-                    name="environment[repositories][]"
-                    value={choice.ref}
-                    checked={choice.chosen}
-                  />
-                  <label for={"#{@id}-repository-#{choice.ref}"}>{choice.name}</label>
-                </span>
-                <span class="environment-repository-access">
-                  <select
-                    :if={choice.chosen}
-                    id={"#{@id}-access-#{choice.ref}"}
-                    name={"environment[access][#{choice.ref}]"}
-                    aria-label={"What work may do in #{choice.name}"}
-                    disabled={choice.default}
-                  >
-                    <option value="read_write" selected={choice.access == :read_write}>
-                      Read and write
-                    </option>
-                    <option value="read_only" selected={choice.access == :read_only}>
-                      Read only
-                    </option>
-                  </select>
-                  <input
-                    :if={choice.default}
-                    type="hidden"
-                    name={"environment[access][#{choice.ref}]"}
-                    value="read_write"
-                  />
-                </span>
-                <span class="environment-repository-default">
-                  <input
-                    :if={choice.chosen}
-                    type="radio"
-                    id={"#{@id}-default-#{choice.ref}"}
-                    name="environment[default_repository]"
-                    value={choice.ref}
-                    checked={choice.default}
-                    aria-label={"Make #{choice.name} the default"}
-                  />
-                </span>
-              </div>
+            <div class="settings-field">
+              <label for={"#{@id}-description"}>Description</label>
+              <p class="settings-help" id={"#{@id}-description-help"}>
+                Optional. What work in this environment is for.
+              </p>
+              <input
+                id={"#{@id}-description"}
+                type="text"
+                name="environment[description]"
+                value={@draft.description}
+                maxlength="500"
+                aria-describedby={"#{@id}-description-help"}
+              />
             </div>
-            <p :if={@choices == []} class="settings-help">
-              No repositories are added yet.
-              <.link navigate="/repositories/new">Add repositories</.link>
-              first, or save without any: Ryker then works here without code.
+          </div>
+          <div class="kit-form-section">
+            <fieldset class="settings-field" aria-describedby={"#{@id}-repositories-help"}>
+              <legend>Repositories</legend>
+              <p class="settings-help" id={"#{@id}-repositories-help"}>
+                Work here can read every repository you choose. A task changes one that is read and
+                write: the default, unless it picks another. The default is always read and write.
+              </p>
+              <input type="hidden" name="environment[repositories][]" value="" />
+              <div :if={length(@choices) > 1} class="environment-repositories-choose">
+                <button
+                  type="button"
+                  class="ui-button quiet"
+                  phx-click="choose-all"
+                  phx-target={@myself}
+                  disabled={Enum.all?(@choices, & &1.chosen)}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  class="ui-button quiet"
+                  phx-click="choose-none"
+                  phx-target={@myself}
+                  disabled={not Enum.any?(@choices, & &1.chosen)}
+                >
+                  Select none
+                </button>
+              </div>
+              <div :if={@choices != []} class="environment-repositories">
+                <div class="environment-repositories-head" aria-hidden="true">
+                  <span>Repository</span>
+                  <span>Access</span>
+                  <span>Default</span>
+                </div>
+                <div
+                  :for={choice <- @choices}
+                  class="environment-repository"
+                  data-repository={choice.ref}
+                  data-chosen={to_string(choice.chosen)}
+                >
+                  <span class="environment-repository-name">
+                    <input
+                      type="checkbox"
+                      id={"#{@id}-repository-#{choice.ref}"}
+                      name="environment[repositories][]"
+                      value={choice.ref}
+                      checked={choice.chosen}
+                    />
+                    <label for={"#{@id}-repository-#{choice.ref}"}>{choice.name}</label>
+                  </span>
+                  <span class="environment-repository-access">
+                    <select
+                      :if={choice.chosen}
+                      id={"#{@id}-access-#{choice.ref}"}
+                      name={"environment[access][#{choice.ref}]"}
+                      aria-label={"What work may do in #{choice.name}"}
+                      disabled={choice.default}
+                    >
+                      <option value="read_write" selected={choice.access == :read_write}>
+                        Read and write
+                      </option>
+                      <option value="read_only" selected={choice.access == :read_only}>
+                        Read only
+                      </option>
+                    </select>
+                    <input
+                      :if={choice.default}
+                      type="hidden"
+                      name={"environment[access][#{choice.ref}]"}
+                      value="read_write"
+                    />
+                  </span>
+                  <span class="environment-repository-default">
+                    <input
+                      :if={choice.chosen}
+                      type="radio"
+                      id={"#{@id}-default-#{choice.ref}"}
+                      name="environment[default_repository]"
+                      value={choice.ref}
+                      checked={choice.default}
+                      aria-label={"Make #{choice.name} the default"}
+                    />
+                  </span>
+                </div>
+              </div>
+              <p :if={@choices == []} class="settings-help">
+                No repositories are added yet.
+                <.link navigate="/repositories/new">Add repositories</.link>
+                first, or save without any: Ryker then works here without code.
+              </p>
+            </fieldset>
+          </div>
+          <div class="kit-form-section settings-field">
+            <label for={"#{@id}-emisar"}>Emisar account</label>
+            <p class="settings-help" id={"#{@id}-emisar-help"}>
+              Work here sends the actions it wants to run to this account, where a person approves them.
             </p>
-          </fieldset>
-        </div>
-        <div class="kit-form-section settings-field">
-          <label for={"#{@id}-emisar"}>Emisar account</label>
-          <p class="settings-help" id={"#{@id}-emisar-help"}>
-            Work here sends the actions it wants to run to this account, where a person approves them.
-          </p>
-          <select
-            id={"#{@id}-emisar"}
-            name="environment[emisar_connection_ref]"
-            aria-describedby={"#{@id}-emisar-help"}
-          >
-            <option value="" selected={is_nil(@draft.emisar_connection_ref)}>None</option>
-            <option
-              :for={account <- @accounts}
-              value={account.ref}
-              selected={account.ref == @draft.emisar_connection_ref}
+            <select
+              id={"#{@id}-emisar"}
+              name="environment[emisar_connection_ref]"
+              aria-describedby={"#{@id}-emisar-help"}
             >
-              {account.display_name}
-            </option>
-          </select>
-        </div>
-        <div class="kit-form-section settings-field settings-field-boolean">
-          <input type="hidden" name="environment[is_default]" value="false" />
-          <input
-            type="checkbox"
-            id={"#{@id}-default"}
-            name="environment[is_default]"
-            value="true"
-            checked={@draft.is_default}
-            aria-describedby={"#{@id}-default-help"}
+              <option value="" selected={is_nil(@draft.emisar_connection_ref)}>None</option>
+              <option
+                :for={account <- @accounts}
+                value={account.ref}
+                selected={account.ref == @draft.emisar_connection_ref}
+              >
+                {account.display_name}
+              </option>
+            </select>
+          </div>
+          <div class="kit-form-section settings-field settings-field-boolean">
+            <input type="hidden" name="environment[is_default]" value="false" />
+            <input
+              type="checkbox"
+              id={"#{@id}-default"}
+              name="environment[is_default]"
+              value="true"
+              checked={@draft.is_default}
+              aria-describedby={"#{@id}-default-help"}
+            />
+            <label for={"#{@id}-default"}>Default environment</label>
+            <p class="settings-help" id={"#{@id}-default-help"}>
+              Chat and every conversation without its own environment work here.
+            </p>
+          </div>
+          <Components.form_feedback
+            :if={@error}
+            message={@error}
+            tone={:error}
+            class="settings-error"
           />
-          <label for={"#{@id}-default"}>Default environment</label>
-          <p class="settings-help" id={"#{@id}-default-help"}>
-            Chat and every conversation without its own environment work here.
-          </p>
-        </div>
-        <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
-        <div class="settings-actions">
-          <button type="submit" class="ui-button primary" phx-disable-with="Saving…">
-            {if is_nil(@ref), do: "Add environment", else: "Save changes"}
-          </button>
-          <.link patch="/environments" class="ui-button secondary">Cancel</.link>
-        </div>
-      </form>
-      <section :if={@ref} class="environment-access" aria-label="Diagnostic access">
+          <div class="settings-actions">
+            <button type="submit" class="ui-button primary" phx-disable-with="Saving…">
+              {if is_nil(@ref), do: "Add environment", else: "Save changes"}
+            </button>
+            <.link patch="/environments" class="ui-button secondary">Cancel</.link>
+          </div>
+        </form>
+      </Kit.form_card>
+      <Kit.section_card :if={@ref} class="environment-access" label="Diagnostic access">
         <div class="environment-access-heading">
           <h3>Diagnostic access</h3>
           <button
@@ -625,7 +632,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
             To retry with updated access, <.link navigate="/conversations">start a new conversation</.link>.
           </p>
         </details>
-      </section>
+      </Kit.section_card>
     </div>
     """
   end

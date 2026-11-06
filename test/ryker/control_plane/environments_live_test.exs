@@ -133,6 +133,24 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert [{"1 matching", nil} | _channels] = counts(html)
   end
 
+  # The shipped check shared the form's island and overrode the standard button
+  # size, making a separate saved-settings action look like part of editing (2026-11-06).
+  test "diagnostic access has its own island after the environment form" do
+    installation!()
+    environment!("ops", "Operations", [])
+    {:ok, view, _html} = open("/environments/ops/edit")
+
+    assert has_element?(view, ".environment-editor > .kit-form-card form.settings-form")
+
+    assert has_element?(
+             view,
+             ".environment-editor > .kit-form-card + .kit-card.environment-access[aria-label='Diagnostic access']"
+           )
+
+    assert has_element?(view, ".environment-access button.ui-button.secondary", "Check access")
+    refute has_element?(view, ".kit-form-card .environment-access")
+  end
+
   test "an environment can check its saved diagnostic access without changing settings" do
     installation!()
     environment!("ops", "Operations", [])
@@ -369,7 +387,8 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
 
     assert has_element?(view, "main h1", "Add an environment")
     assert has_element?(view, "nav.kit-back a[href='/environments']", "All environments")
-    assert has_element?(view, ".kit-form-card #environment-editor-new form")
+    assert has_element?(view, "#environment-editor-new > .kit-form-card form")
+    refute has_element?(view, ".environment-access")
 
     for part <- [".entity-list", ".kit-counts", ".kit-toolbar", ".page-action"],
         do: refute(has_element?(view, part))
@@ -388,7 +407,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
       )
 
     assert has_element?(view, "main h1", "Edit Staging")
-    assert has_element?(view, ".kit-form-card #environment-editor-staging form")
+    assert has_element?(view, "#environment-editor-staging > .kit-form-card form")
     refute has_element?(view, ".entity-list")
 
     view
