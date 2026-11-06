@@ -322,7 +322,8 @@ defmodule Ryker.GitHub.Router do
     else
       {:error, :actor_not_authorized} ->
         Ingress.InboundHTTP.respond(conn, 200, %{
-          "reason" => "repository_write_access_required",
+          "reason" =>
+            "repository_#{Confirmations.required_repository_role(payload)}_access_required",
           "status" => "ignored"
         })
 

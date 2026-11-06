@@ -425,6 +425,8 @@ defmodule Ryker.GitHub.RendererTest do
     assert rendered =~ "Ryker offer — response_detail"
     assert rendered =~ "Ryker offer — Lead with risk."
     assert rendered =~ "Ryker offer — Review each submitted pull request review."
+    assert rendered =~ "Anyone with Maintain or Admin access to this repository can confirm."
+    refute rendered =~ "configured GitHub actor"
     assert rendered =~ "/ryker confirm record:task_offer:"
     assert rendered =~ "/ryker confirm record:schedule_offer:"
     assert rendered =~ "/ryker confirm record:memory_offer:"

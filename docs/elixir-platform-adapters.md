@@ -228,7 +228,8 @@ checks succeed.
 
 Open engineering-task, schedule, automation, memory, preference, guidance, and standing-assignment
 offers include an exact command such as `/ryker confirm record:task_offer:...`. Only someone with
-write access to the repository may submit it, and the host consumes it before generic model admission. Confirmation
+current Maintain or Admin access to the repository may submit it, without a saved actor entry.
+The host consumes it before generic model admission. Confirmation
 reloads the referenced record, its settled delivery receipt, and its source episode; the current
 repository discussion must match that original conversation and thread. The webhook body identity is
 the confirmation receipt, so replay is idempotent. Incident-task and publication offers deliberately

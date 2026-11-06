@@ -365,7 +365,8 @@ an evidence-backed incident fix as described above. Rules are read-only unless t
 grants task starts for the named repository and instructions. That grant permits one code task per
 matching event; pull requests follow the repository setting, and merge and deployment need their
 own authorization. Confirmation requires a configured full workspace operator in Slack (on
-GitHub, `/ryker confirm` from someone with write access to the repository). That operator may make an explicit behavior setup request in
+GitHub, `/ryker confirm` from anyone with current Maintain or Admin access to the repository;
+no saved GitHub actor list is required). That operator may make an explicit behavior setup request in
 any channel where Ryker is invited, even if ordinary mentions and proactive triage are disabled
 there. This exception admits only the typed setup turn; it does not turn the channel into a summon
 channel. Preferences resolve in operator, channel, repository, then workspace order. A rule matches

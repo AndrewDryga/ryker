@@ -189,8 +189,9 @@ and destination are derived from the active episode. The model chooses only the 
 cursor, result limit, search text, kind, and state.
 
 An open confirmable offer is rendered with `/ryker confirm <record-ref>`. The Router recognizes
-that exact syntax only on a newly created, authenticated issue comment and consumes it before model
-admission. The sender's write access was checked on arrival; it rechecks the exact current
+that exact syntax only on a newly created, authenticated issue or inline review comment and consumes
+it before model admission. The sender's current Maintain or Admin access was checked on arrival;
+it rechecks the exact current
 discussion, original settled delivery receipt, offer kind, and repository contributor policy, then
 calls the same durable confirmation service used by Slack and direct conversations. Duplicate webhook delivery or a repeated command returns
 the existing resource. Cross-thread, stale, malformed, incident-task, and publication commands fail
@@ -208,7 +209,10 @@ These are durable settings, edited in the control plane rather than a configurat
   GitHub binding: installation ID, repository ID and the Ryker actor ID. For every webhook that
   would start or continue work, a comment, review, issue or pull request, Ryker asks GitHub for the
   sender's effective repository permission; `write` and `admin` may request work, while `read`,
-  `none` and failed checks do not.
+  `none` and failed checks do not. Newly created `/ryker confirm <offer-ref>` comments require
+  current Maintain or Admin access instead, including custom roles with effective Maintain/Admin
+  permissions. Any such repository member can confirm without a saved actor entry. The host checks
+  this role before applying the command; repeating a confirmation remains idempotent.
 - GitHub's private key and webhook secret are entered once through guided setup and kept in encrypted
   credential custody. The verified App identity is saved with the connection; runtime assembly never
   consults environment fallbacks. With a missing, unreadable or unusable credential it leaves GitHub

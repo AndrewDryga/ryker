@@ -19,6 +19,29 @@ defmodule Ryker.GitHub.ConfirmationsTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @digest String.duplicate("b", 64)
 
+  test "only newly created confirmation comments require maintain access" do
+    for body <- ["/ryker confirm record:task_offer:abc", "  /ryker confirm invalid ref  "] do
+      assert Confirmations.required_repository_role(%{
+               "action" => "created",
+               "comment" => %{"body" => body}
+             }) == :maintain
+    end
+
+    for payload <- [
+          %{"action" => "created", "comment" => %{"body" => "@ryker please fix this"}},
+          %{
+            "action" => "edited",
+            "comment" => %{"body" => "/ryker confirm record:task_offer:abc"}
+          },
+          %{
+            "action" => "submitted",
+            "review" => %{"body" => "/ryker confirm record:task_offer:abc"}
+          }
+        ] do
+      assert Confirmations.required_repository_role(payload) == :write
+    end
+  end
+
   # A real offer delivered beneath an inline review said to reply in that
   # discussion, but only top-level conversation commands were recognized.
   test "an inline offer can be confirmed in the same review thread" do

@@ -992,7 +992,9 @@ defmodule Ryker.Runtime.Assembly do
     clients = Map.new(prepared, fn {name, item} -> {name, item.access_http} end)
 
     fn binding, payload ->
-      GitHub.RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name))
+      GitHub.RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name),
+        minimum_role: GitHub.Confirmations.required_repository_role(payload)
+      )
     end
   end
 

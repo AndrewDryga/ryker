@@ -170,6 +170,28 @@ defmodule Ryker.GitHub.RouterTest do
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
   end
 
+  test "denied confirmations name Maintain access and never reach the inbox" do
+    body =
+      payload()
+      |> put_in(["comment", "body"], "/ryker confirm record:task_offer:abc")
+      |> Jason.encode!()
+
+    denied =
+      request(body,
+        delivery_ref: "delivery-writer-confirmation",
+        repository_access: fn _binding, _payload -> {:error, :actor_not_authorized} end
+      )
+
+    assert denied.status == 200
+
+    assert Jason.decode!(denied.resp_body) == %{
+             "reason" => "repository_maintain_access_required",
+             "status" => "ignored"
+           }
+
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+  end
+
   # A user replied "Make a new PR to fix that" to Ryker's completed inline
   # review. No mention meant the request was silently ignored (2026-11-06).
   test "a verified reply to Ryker's review is a request after its review has finished" do

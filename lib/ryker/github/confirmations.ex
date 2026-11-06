@@ -28,6 +28,15 @@ defmodule Ryker.GitHub.Confirmations do
 
   @type options :: %{repositories: %{String.t() => %{name: String.t(), digest: String.t()}}}
 
+  @doc "The current repository role needed for a newly created comment command."
+  @spec required_repository_role(map()) :: :maintain | :write
+  def required_repository_role(%{"action" => "created", "comment" => %{"body" => body}})
+      when is_binary(body) do
+    if command_body(body) == :not_confirmation, do: :write, else: :maintain
+  end
+
+  def required_repository_role(_payload), do: :write
+
   @spec options!(keyword() | map()) :: options()
   def options!(options) do
     options = exact_options!(options)
@@ -87,6 +96,12 @@ defmodule Ryker.GitHub.Confirmations do
          event_kind: :message
        })
        when event_name in ["issue_comment", "pull_request_review_comment"] and is_binary(body) do
+    command_body(body)
+  end
+
+  defp command(%Ingress.Input{}), do: :not_confirmation
+
+  defp command_body(body) do
     body = String.trim(body)
 
     case Regex.run(@command, body, capture: :all_but_first) do
@@ -94,8 +109,6 @@ defmodule Ryker.GitHub.Confirmations do
       nil -> if String.starts_with?(body, @command_prefix), do: :invalid, else: :not_confirmation
     end
   end
-
-  defp command(%Ingress.Input{}), do: :not_confirmation
 
   defp apply_record(input, record_ref, repositories) do
     with {:ok, record, episode, turn} <- offer(record_ref),

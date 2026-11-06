@@ -178,7 +178,7 @@ defmodule Ryker.GitHub.Renderer do
     do: {:error, {:invalid_github_render, :record}}
 
   defp confirmation(ref) do
-    "\n\nTo confirm this offer, reply in this discussion with:\n\n`/ryker confirm #{escape(ref)}`\n\nOnly a configured GitHub actor can confirm it. Replaying the command is safe."
+    "\n\nTo confirm this offer, reply in this discussion with:\n\n`/ryker confirm #{escape(ref)}`\n\nAnyone with Maintain or Admin access to this repository can confirm. Repeating the command is safe."
   end
 
   defp escape(value) when is_binary(value) do
