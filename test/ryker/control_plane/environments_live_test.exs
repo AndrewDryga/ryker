@@ -133,6 +133,19 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert [{"1 matching", nil} | _channels] = counts(html)
   end
 
+  test "an environment can check its saved diagnostic access without changing settings" do
+    installation!()
+    environment!("ops", "Operations", [])
+    {:ok, view, _html} = open("/environments/ops/edit")
+    revision = Settings.fetch!().installation.revision
+    assert has_element?(view, "button[phx-click=check-access]", "Check diagnostic access")
+    view |> element("button[phx-click=check-access]") |> render_click()
+    html = render_async(view)
+    assert html =~ "No Emisar account"
+    assert html =~ "No repositories"
+    assert Settings.fetch!().installation.revision == revision
+  end
+
   defp counts(html) do
     html
     |> LazyHTML.from_document()

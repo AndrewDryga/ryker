@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   """
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, Environments, FormDraft, SettingsView}
+  alias Ryker.IntegrationSetup
   alias Ryker.Settings
 
   @impl true
@@ -54,6 +55,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       draft: baseline || blank(view),
       dirty: false,
       error: nil,
+      diagnostics: nil,
       expected_revision: view.revision
     )
   end
@@ -101,6 +103,20 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   def handle_event("save", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> save()}
 
+  def handle_event(
+        "check-access",
+        _params,
+        %{assigns: %{dirty: false, ref: ref, diagnostics: diagnostics}} = socket
+      )
+      when is_binary(ref) and diagnostics != :loading do
+    {:noreply,
+     socket
+     |> assign(:diagnostics, :loading)
+     |> start_async(:diagnostic_access, fn -> IntegrationSetup.check_environment(ref) end)}
+  end
+
+  def handle_event("check-access", _params, socket), do: {:noreply, socket}
+
   # A draft the browser kept while this page was away (`FormDraft`), given
   # back only to a form with no draft of its own. The reply says whether
   # anything came back, so the browser drops a draft that reads the same as
@@ -126,6 +142,20 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   def handle_event("choose-none", _params, socket),
     do: {:noreply, socket |> choose([]) |> assign(:error, nil)}
+
+  @impl true
+  def handle_async(:diagnostic_access, {:ok, {:ok, result}}, socket) do
+    diagnostics =
+      if result.environment_ref == socket.assigns.ref and
+           result.revision == socket.assigns.view.revision,
+         do: result,
+         else: :changed
+
+    {:noreply, assign(socket, :diagnostics, diagnostics)}
+  end
+
+  def handle_async(:diagnostic_access, _failure, socket),
+    do: {:noreply, assign(socket, :diagnostics, :unavailable)}
 
   # A draft begun before this environment changed keeps the revision it
   # began from. What it began from is not known here, so no refresh lets it
@@ -527,6 +557,43 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
           <.link patch="/environments" class="ui-button secondary">Cancel</.link>
         </div>
       </form>
+      <section :if={@ref} class="kit-form-section" aria-label="Diagnostic access">
+        <h3>Diagnostic access</h3>
+        <p class="settings-help">
+          Check the saved environment before relying on it for alerts. This reads GitHub's repository list and Emisar's tool catalog.
+        </p>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click="check-access"
+          phx-target={@myself}
+          disabled={@dirty or @diagnostics == :loading}
+        >
+          {if @diagnostics == :loading, do: "Checking access…", else: "Check diagnostic access"}
+        </button>
+        <p :if={@dirty} class="settings-help">Save your changes before checking access.</p>
+        <p :if={@diagnostics == :changed} role="status">
+          Settings changed during the check. Check the saved environment again.
+        </p>
+        <p :if={@diagnostics == :unavailable} role="status">
+          Diagnostic access could not be checked. Try again.
+        </p>
+        <div :if={is_map(@diagnostics)} role="status">
+          <p :if={@diagnostics.repositories == []}>
+            No repositories are selected. Source code is not connected here.
+          </p>
+          <p :for={repository <- @diagnostics.repositories}>
+            <strong>{repository.name}:</strong> {repository.detail}
+          </p>
+          <p><strong>Emisar:</strong> {@diagnostics.emisar.detail}</p>
+          <p>{@diagnostics.next_step}</p>
+          <p>
+            <.link navigate="/integrations/github">GitHub connection</.link>
+            · <.link navigate="/integrations/emisar">Emisar connection</.link>
+            · <.link navigate="/conversations">New conversation</.link>
+          </p>
+        </div>
+      </section>
     </div>
     """
   end

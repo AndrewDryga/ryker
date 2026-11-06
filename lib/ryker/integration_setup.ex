@@ -19,6 +19,17 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.Slack
   require Logger
 
+  @doc """
+  Checks a saved environment's repository discovery and fresh Emisar tool access without changing it.
+  Returns `{:ok, diagnostics}` with the saved revision and each connection's status, or
+  `{:error, :environment_not_found}` when it no longer exists. Settings read failures
+  are returned unchanged; provider failures appear as unavailable statuses in the result.
+  """
+  @spec check_environment(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate check_environment(ref, options \\ []),
+    to: Ryker.IntegrationSetup.Diagnostics,
+    as: :check
+
   @minimum_signing_secret_bytes 32
   # 200 people a page: room for a workspace of ten thousand.
   @slack_member_pages 50

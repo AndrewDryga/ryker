@@ -393,6 +393,14 @@ repository. The Repositories page says which environments each repository is in,
 the Emisar page says which environments use each account and counts, with a link
 here, the environments that have none.
 
+An environment's editor offers **Check diagnostic access** for its saved settings.
+The read-only check lists whether its repositories remain visible to the GitHub App and
+whether its saved Emisar key can fetch a fresh tool catalog. It reports missing, paused,
+or unavailable access before alerts depend on it, without claiming that every file or log
+is readable. Emisar still checks target permissions on each action. Unsaved changes must
+be saved before checking; a result for an older settings revision is discarded. After an
+access change, start new work in the chosen environment; existing frozen jobs keep their authority.
+
 ## Global and channel instructions
 
 `/instructions` has one installation-wide field, "For every conversation". Below it

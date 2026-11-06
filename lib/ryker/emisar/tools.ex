@@ -72,6 +72,16 @@ defmodule Ryker.Emisar.Tools do
 
   def catalog(_pin), do: {:error, :not_configured}
 
+  @doc "Checks the saved key against a fresh tool list, without stale-catalog fallback or executing an action."
+  @spec probe(pin()) :: {:ok, catalog()} | {:error, failure()}
+  def probe(%{connection_ref: ref, rpc_url: url}) when is_binary(ref) and is_binary(url) do
+    with {:ok, key} <- key(ref),
+         {:ok, client} <- client(url, key, @catalog_budget_ms),
+         do: bounded_read(client, key)
+  end
+
+  def probe(_pin), do: {:error, :not_configured}
+
   defp cached_catalog(cache_key, client, key) do
     answer =
       case ToolCache.get(cache_key) do

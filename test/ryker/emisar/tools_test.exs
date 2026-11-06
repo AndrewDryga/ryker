@@ -92,6 +92,8 @@ defmodule Ryker.Emisar.ToolsTest do
     drain_requests()
 
     assert Tools.catalog(pin) == {:ok, catalog}
+    # Setup must not call that historical fallback a fresh access check.
+    assert Tools.probe(pin) == {:error, :unavailable}
   end
 
   test "a call reaches Emisar with the environment's key and returns Emisar's answer unchanged" do
