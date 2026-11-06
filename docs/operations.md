@@ -32,6 +32,13 @@ worker policy files, generated worker JSON, or Ryker-side repository checkouts. 
 `ryker-coop-config` volume carries only enrollment state and the controller CA; model workspaces
 remain in the worker's private state volume.
 
+Optional models reuse an image whose build-input label matches its pinned recipe and
+model arguments. A missing, unqualified or changed image requires a fresh storage check
+before its build; low or unknown headroom leaves that optional model untouched. Runtime
+settings alone do not rebuild its weights. Model startup failures are reported separately
+from the already verified controller release. The first deployment using these labels
+qualifies existing unlabelled images with a guarded build.
+
 ## Install
 
 Requirements are Docker, Docker Compose v2, OpenSSL, curl and tar. From a checkout of this

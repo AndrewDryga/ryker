@@ -56,7 +56,7 @@ git init -q --initial-branch=main "$repo"
 git -C "$repo" config user.email deploy-test@example.invalid
 git -C "$repo" config user.name "deploy test"
 cp "$root/scripts/deploy.sh" "$root/scripts/compose.sh" "$root/scripts/compose-lifecycle.sh" \
-  "$root/scripts/elixir-release-version.sh" "$root/scripts/elixir-live-acceptance.sh" "$repo/scripts/"
+  "$root/scripts/elixir-release-version.sh" "$root/scripts/elixir-live-acceptance.sh" "$root/scripts/model_services.py" "$repo/scripts/"
 printf 'name: ryker\n' >"$repo/compose.yml"
 cat >"$repo/scripts/storage_maintenance.py" <<'PY'
 import os, pathlib, sys
@@ -77,7 +77,18 @@ old_version="0.1.0-g$(printf 'a%.0s' $(seq 1 40))"
 # files the cases rewrite, and every answer carries the version the fake
 # Docker "started".
 fake="$work/fake"
-mkdir -p "$fake" "$work/bin"
+mkdir -p "$fake" "$work/bin" "$fake/model-context"
+printf 'FROM example@sha256:abc\n' >"$fake/model-context/Dockerfile"
+python3 -B - "$fake" "$root" <<'PYMODELS'
+import importlib.util, json, pathlib, sys
+fake, root = map(pathlib.Path, sys.argv[1:])
+spec = importlib.util.spec_from_file_location("model_services", root / "scripts/model_services.py")
+models = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(models)
+service = {"image": "model:test", "build": {"context": str(fake / "model-context"), "dockerfile": "Dockerfile"}}
+(fake / "model.identity").write_text(models.fingerprint(service))
+(fake / "model.config").write_text(json.dumps({"services": {name: service for name in ["whisper", "whisper-detect", "embeddings"]}}))
+PYMODELS
 cat >"$work/server.py" <<'PY'
 import http.server, os, socket, sys
 
@@ -215,6 +226,11 @@ case " $* " in
   *"Ryker.Acceptance.Live.run_from_env!()"*)
     printf '%s\n' "$*" >>"$fake/live.calls"
     [[ -f $fake/live.fail ]] && { echo "fake: no reply in the test channel" >&2; exit 1; }
+    ;;
+  *" config --format json "*) cat "$fake/model.config" ;;
+  *" image inspect model:test "*) cat "$fake/model.identity" ;;
+  *" up --detach --no-build --no-deps --wait "*)
+    [[ -f $fake/models.fail ]] && { echo "fake: whisper did not become healthy" >&2; exit 1; }
     ;;
   *" config --services "*)
     printf '%s\n' database volume-init ryker ryker-coop-docker ryker-coop whisper whisper-detect embeddings
@@ -383,11 +399,14 @@ check "the deploy says how long it took" "done in " "$out"
 calls=$(cat "$fake/calls")
 up_line=$(grep -n 'up --detach --no-build --wait' <<<"$calls" | head -n 1 | cut -d: -f1)
 check "the container is replaced with --no-deps ryker only" "--no-deps ryker" "$calls"
-models_line=$(grep -n 'up --detach --build --wait whisper whisper-detect embeddings$' <<<"$calls" | head -n 1 | cut -d: -f1)
+# Two cold optional-model builds coincided with container-engine failure.
+# A controller deploy must not implicitly rebuild models through `up`.
+refute "controller deployment never starts an implicit model build" "up --detach --build --wait whisper" "$calls"
+models_line=$(grep -n 'up --detach --no-build --no-deps --wait --wait-timeout 180 whisper$' <<<"$calls" | head -n 1 | cut -d: -f1)
 if [[ -n $models_line && -n $up_line && $up_line -lt $models_line ]]; then
-  printf 'ok   the models beside Ryker are built and started after the release is verified\n'
+  printf 'ok   the qualified models start without implicit builds after the release is verified\n'
 else
-  printf 'FAIL the models beside Ryker are built and started after the release is verified\n     calls:\n%s\n' "$calls"
+  printf 'FAIL the qualified models start without implicit builds after the release is verified\n     calls:\n%s\n' "$calls"
   failures=$((failures + 1))
 fi
 check "the build carries the commit version" \
@@ -428,7 +447,7 @@ touch "$fake/models.fail"
 out=$(run)
 check "a model that does not start leaves the deploy done" "exit=0" "$out"
 check "a model that does not start is said" \
-  "not every model beside it started, so Ryker works with less until they do" "$out"
+  "optional model updates or readiness were not fully verified; the controller release stays pinned" "$out"
 check "the release stays pinned when a model does not start" "RYKER_VERSION=$version" "$(cat "$state/compose.env")"
 
 # ---------------------------------------------------------------------------

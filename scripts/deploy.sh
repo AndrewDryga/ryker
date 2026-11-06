@@ -222,16 +222,9 @@ pin_release "$version" "$image"
 say "pinned RYKER_VERSION=$version and RYKER_IMAGE=$image in $env_file"
 
 # --- the models beside it ------------------------------------------------------
-models=()
-while IFS= read -r model; do
-  models+=("$model")
-done < <(model_services "${compose[@]}")
 models_note=
-if ((${#models[@]} > 0)); then
-  say "building and starting the models beside it: ${models[*]}"
-  if ! "${compose[@]}" up --detach --build --wait "${models[@]}"; then
-    models_note="not every model beside it started, so Ryker works with less until they do (scripts/compose.sh logs ${models[*]})"
-  fi
+if ! python3 "$worktree/scripts/model_services.py" --env-file "$env_file" --compose-file "$worktree/compose.yml"; then
+  models_note="optional model updates or readiness were not fully verified; the controller release stays pinned (scripts/compose.sh logs)"
 fi
 
 # Every deploy leaves a 240 MB image behind, and a host that filled up once

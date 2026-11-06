@@ -194,6 +194,7 @@ launch-agent-check:
 
 model-download-check:
 	scripts/model-download_test.sh
+	python3 -B scripts/model_services_test.py
 
 deploy-check:
 	scripts/deploy_test.sh
