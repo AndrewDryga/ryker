@@ -334,6 +334,101 @@ defmodule Ryker.GitHub.RouterTest do
     assert claim.publication.id == publication.id
   end
 
+  # Native review requests carried no mention and were silently ignored. Treat the
+  # selected bot as the target, while retaining the sender's repository authority.
+  test "a review request addressed to Ryker starts once without a textual mention" do
+    body = Jason.encode!(review_request_payload())
+    first = request(body, delivery_ref: "native-review", event_name: "pull_request")
+    duplicate = request(body, delivery_ref: "native-review", event_name: "pull_request")
+
+    assert first.status == 202
+    assert Jason.decode!(duplicate.resp_body)["status"] == "duplicate"
+    assert {:ok, entry} = Inbox.fetch(Jason.decode!(first.resp_body)["input_ref"])
+    assert entry.destination_thread_ref == "github:github-main:pull:42"
+    assert entry.engagement_receipt == %{"reason" => "review_request"}
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 1
+  end
+
+  test "review requests for another reviewer or a team and removals start no work" do
+    base = review_request_payload()
+
+    for {payload, name} <- [
+          {put_in(base, ["requested_reviewer", "id"], 100), "other-bot"},
+          {put_in(base, ["requested_reviewer", "type"], "User"), "person"},
+          {base |> Map.delete("requested_reviewer") |> Map.put("requested_team", %{"id" => 99}),
+           "team"},
+          {Map.put(base, "action", "review_request_removed"), "removed"}
+        ] do
+      response =
+        request(Jason.encode!(payload), delivery_ref: name, event_name: "pull_request")
+
+      assert response.status == 200
+    end
+
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+  end
+
+  test "an explicit review request requires write access even on an engaged pull request" do
+    payload = review_request_payload()
+    body = Jason.encode!(payload)
+    deny = fn _binding, _payload -> {:error, :actor_not_authorized} end
+
+    denied =
+      request(body,
+        delivery_ref: "review-denied",
+        event_name: "pull_request",
+        repository_access: deny
+      )
+
+    assert Jason.decode!(denied.resp_body)["reason"] == "repository_write_access_required"
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+
+    assert request(body, delivery_ref: "review-authorized", event_name: "pull_request").status ==
+             202
+
+    denied_again =
+      request(Jason.encode!(put_in(payload, ["sender", "id"], 666)),
+        delivery_ref: "engaged-review-denied",
+        event_name: "pull_request",
+        repository_access: deny
+      )
+
+    assert Jason.decode!(denied_again.resp_body)["reason"] == "repository_write_access_required"
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 1
+  end
+
+  test "a tracked publication cannot swallow an explicit authorized review request" do
+    %{publication: publication} =
+      PublicationFixture.published!("native-review-publication",
+        github_repository: "octo/example",
+        pull_request_number: 42
+      )
+
+    payload =
+      review_request_payload()
+      |> put_in(["pull_request", "head"], %{"sha" => publication.commit_sha})
+
+    denied =
+      request(Jason.encode!(payload),
+        delivery_ref: "tracked-review-denied",
+        event_name: "pull_request",
+        repository_access: fn _binding, _payload -> {:error, :actor_not_authorized} end
+      )
+
+    assert Jason.decode!(denied.resp_body)["reason"] == "repository_write_access_required"
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+
+    accepted =
+      request(Jason.encode!(payload),
+        delivery_ref: "tracked-review-authorized",
+        event_name: "pull_request"
+      )
+
+    assert accepted.status == 202
+    assert {:ok, entry} = Inbox.fetch(Jason.decode!(accepted.resp_body)["input_ref"])
+    assert entry.engagement_receipt == %{"reason" => "review_request"}
+  end
+
   test "issue and unmatched pull request lifecycle events enter generic ingress with stable identity" do
     issue = %{
       "action" => "opened",
@@ -1189,6 +1284,20 @@ defmodule Ryker.GitHub.RouterTest do
       "repository" => %{"full_name" => "octo/example", "id" => 99},
       "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
     }
+  end
+
+  defp review_request_payload do
+    payload()
+    |> Map.drop(["comment", "issue"])
+    |> Map.put("action", "review_requested")
+    |> Map.put("requested_reviewer", %{"id" => 99, "login" => "ryker-test[bot]", "type" => "Bot"})
+    |> Map.put("pull_request", %{
+      "body" => "Please inspect this change.",
+      "id" => 4_200,
+      "number" => 42,
+      "title" => "Change awaiting review",
+      "updated_at" => "2026-08-28T12:00:00Z"
+    })
   end
 
   defp review_payload do

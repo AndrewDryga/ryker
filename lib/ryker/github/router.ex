@@ -209,6 +209,7 @@ defmodule Ryker.GitHub.Router do
   defp admit_event(conn, binding, delivery_ref, event_ref, event_name, payload, options)
        when event_name in @lifecycle_events do
     with :ok <- Binding.authorize_payload(binding, payload),
+         false <- Engagement.review_requested?(event_name, payload, binding),
          {:ok, outcome} <-
            Publication.Followups.nudge_github_event(
              binding.repository_full_name,
@@ -227,6 +228,19 @@ defmodule Ryker.GitHub.Router do
         outcome
       )
     else
+      # An explicit ask must reach fresh sender authorization and admission,
+      # even when this PR already has a publication lifecycle to watch.
+      true ->
+        admit_generic_event(
+          conn,
+          binding,
+          delivery_ref,
+          event_ref,
+          event_name,
+          payload,
+          options
+        )
+
       {:error, {:invalid_github_input, field}} ->
         refused(conn, field)
 
@@ -343,7 +357,8 @@ defmodule Ryker.GitHub.Router do
          binding,
          options
        )
-       when reason in [:mention, :continuation] and event_name not in @conversation_events,
+       when reason in [:mention, :continuation, :review_request] and
+              event_name not in @conversation_events,
        do: options.repository_access.(binding, payload)
 
   defp authorize_engagement(_reason, _input, _binding, _options), do: :ok

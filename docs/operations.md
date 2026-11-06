@@ -90,6 +90,28 @@ an SSH tunnel's local port. It must be HTTPS or a loopback HTTP address.
 
 ## Setup and connection states
 
+### Asking for a GitHub review
+
+On a connected repository, mention the installed App's slug in a pull request
+comment, followed by the request. Use the App shown under **Integrations › GitHub**;
+different installations can use different Apps. The product name alone is not
+necessarily its GitHub handle. Mention autocomplete is not required to send the
+comment. The sender needs write or admin access to the repository.
+
+Ryker also accepts a signed `pull_request` / `review_requested` webhook addressed
+to its configured bot identity, with the same sender authorization. Requests for
+another reviewer or a team do not start a review on an idle pull request.
+
+GitHub controls which identities appear in its native reviewer and mention
+pickers. Its [GraphQL review API](https://docs.github.com/en/graphql/reference/pulls#requestreviewsbylogininput)
+has a `botLogins` input, but an API response without an actual requested reviewer
+does not prove that a bot was selected. GitHub's separate
+[agent apps](https://docs.github.com/en/copilot/concepts/agent-capabilities/about-agents/agent-apps)
+feature requires agent features enabled for the App. Installing an ordinary App
+and successfully posting a review do not prove native picker eligibility.
+
+### Connecting an installation
+
 Open the sign-in link the installer prints. It signs you in and opens setup (`/setup`), which
 leads through six required steps, one at a time:
 

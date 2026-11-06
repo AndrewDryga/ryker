@@ -10,22 +10,49 @@ defmodule Ryker.GitHub.Engagement do
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
   @doc """
-  Why Ryker takes this input, or `:metadata` when it does not. A `:mention` or a
-  `:continuation` is someone asking, so the router needs their write access; a
-  `:revision` is an edit of the exact item Ryker already took, and a
+  Why Ryker takes this input, or `:metadata` when it does not. A `:mention`,
+  `:review_request` or `:continuation` is someone asking, so the router needs
+  their write access; a `:revision` is an edit of the exact item Ryker already took, and a
   `:standing_rule` is an event an operator chose to have handled.
   """
   @spec reason(Ingress.Input.t(), Binding.t(), String.t() | nil) ::
-          {:yes, :revision | :continuation | :standing_rule | :mention} | :metadata
-  def reason(%Ingress.Input{} = input, %Binding{}, bot_login) do
+          {:yes, :review_request | :revision | :continuation | :standing_rule | :mention}
+          | :metadata
+  def reason(%Ingress.Input{} = input, %Binding{} = binding, bot_login) do
     cond do
-      engaged_input?(input) -> {:yes, :revision}
-      continuation?(input) -> {:yes, :continuation}
-      Behaviors.standing_match?(input) -> {:yes, :standing_rule}
-      mentioned?(input, bot_login) -> {:yes, :mention}
-      true -> :metadata
+      review_requested?(input.content["event_name"], input.content["payload"], binding) ->
+        {:yes, :review_request}
+
+      engaged_input?(input) ->
+        {:yes, :revision}
+
+      continuation?(input) ->
+        {:yes, :continuation}
+
+      Behaviors.standing_match?(input) ->
+        {:yes, :standing_rule}
+
+      mentioned?(input, bot_login) ->
+        {:yes, :mention}
+
+      true ->
+        :metadata
     end
   end
+
+  @doc "Whether this event explicitly requests a review from the configured bot."
+  @spec review_requested?(String.t(), map(), Binding.t()) :: boolean()
+  def review_requested?(
+        "pull_request",
+        %{
+          "action" => "review_requested",
+          "requested_reviewer" => %{"id" => id, "type" => "Bot"}
+        },
+        %Binding{ryker_actor_id: id}
+      ),
+      do: true
+
+  def review_requested?(_event_name, _payload, _binding), do: false
 
   # An edit, deletion, or redelivery of an item Ryker already accepted must
   # reach the same durable input lineage even before Admission has opened an
