@@ -8,6 +8,7 @@ defmodule Ryker.Records.TaskOffers do
   """
   alias Ryker.Crypto
   alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
@@ -89,7 +90,7 @@ defmodule Ryker.Records.TaskOffers do
              payload["repository"]
            ),
          true <- TaskInstruction.same_source?(entry, candidate) and actor == candidate_actor,
-         :ok <- reauthorize_proactive(actor, entry, payload["repository"], placement, authorize),
+         :ok <- reauthorize_placement(actor, entry, payload["repository"], placement, authorize),
          {:ok, record} <- fetch_or_create_task(current, payload, offer_ref) do
       attributes = %{
         actor_ref: actor,
@@ -122,24 +123,38 @@ defmodule Ryker.Records.TaskOffers do
   defp requester(entry, _actor, assignment) when is_binary(assignment), do: {:assignment, entry}
   defp requester(entry, _actor, _assignment), do: entry
 
-  # Only this callback is a local policy read; explicit-member authorization
-  # may call Slack and remains outside the transaction.
-  defp reauthorize_proactive(
+  # These callbacks only read local policy. Fresh member permission checks
+  # may call a provider and remain outside the transaction.
+  defp reauthorize_placement(
          "system:proactive:" <> _channel,
          entry,
          repository,
          expected,
          authorize
        ) do
-    with {:ok, placement} <- authorize.({:proactive, entry}, repository),
+    same_placement({:proactive, entry}, repository, expected, authorize)
+  end
+
+  defp reauthorize_placement(
+         _actor,
+         %Ingress.Inbox.Entry{source_kind: "github"} = entry,
+         repository,
+         expected,
+         authorize
+       ) do
+    same_placement({:policy, entry}, repository, expected, authorize)
+  end
+
+  defp reauthorize_placement(_actor, _entry, _repository, _expected, _authorize), do: :ok
+
+  defp same_placement(requester, repository, expected, authorize) do
+    with {:ok, placement} <- authorize.(requester, repository),
          {:ok, ^expected} <- policy(placement) do
       :ok
     else
       _changed -> {:error, :task_instruction_not_authorized}
     end
   end
-
-  defp reauthorize_proactive(_actor, _entry, _repository, _expected, _authorize), do: :ok
 
   defp start_record(%Record{status: :open} = record, episode, attributes),
     do: create_episode(record, episode, attributes)

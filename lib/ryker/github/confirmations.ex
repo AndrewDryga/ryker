@@ -81,12 +81,12 @@ defmodule Ryker.GitHub.Confirmations do
 
   defp command(%Ingress.Input{
          content: %{
-           "event_name" => "issue_comment",
+           "event_name" => event_name,
            "payload" => %{"comment" => %{"body" => body}}
          },
          event_kind: :message
        })
-       when is_binary(body) do
+       when event_name in ["issue_comment", "pull_request_review_comment"] and is_binary(body) do
     body = String.trim(body)
 
     case Regex.run(@command, body, capture: :all_but_first) do

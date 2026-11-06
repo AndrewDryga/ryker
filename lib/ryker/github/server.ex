@@ -8,7 +8,16 @@ defmodule Ryker.GitHub.Server do
   alias Ryker.Secret
 
   @default_ip {127, 0, 0, 1}
-  @fields [:bindings, :bot_login, :confirmations, :ip, :port, :repository_access, :secret]
+  @fields [
+    :bindings,
+    :bot_login,
+    :confirmations,
+    :ip,
+    :port,
+    :repository_access,
+    :review_reply,
+    :secret
+  ]
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -33,6 +42,7 @@ defmodule Ryker.GitHub.Server do
       bindings: options.bindings,
       bot_login: options.bot_login,
       repository_access: options.repository_access,
+      review_reply: options.review_reply,
       secret: options.secret
     ]
 
@@ -49,6 +59,7 @@ defmodule Ryker.GitHub.Server do
           ip: :inet.ip_address(),
           port: pos_integer(),
           repository_access: (Binding.t(), map() -> :ok | {:error, term()}),
+          review_reply: (Binding.t(), map() -> {:ok, boolean()} | {:error, term()}),
           secret: Secret.t()
         }
   def options!(configuration) do
@@ -60,6 +71,8 @@ defmodule Ryker.GitHub.Server do
 
     repository_access =
       Map.get(configuration, :repository_access, &unconfigured_repository_access/2)
+
+    review_reply = review_reply!(configuration)
 
     confirmations =
       case Map.get(configuration, :confirmations) do
@@ -90,8 +103,17 @@ defmodule Ryker.GitHub.Server do
       ip: ip,
       port: port,
       repository_access: repository_access,
+      review_reply: review_reply,
       secret: secret
     }
+  end
+
+  defp review_reply!(configuration) do
+    checker = Map.get(configuration, :review_reply, &unconfigured_review_reply/2)
+
+    if is_function(checker, 2),
+      do: checker,
+      else: raise(ArgumentError, "GitHub review reply checker is invalid")
   end
 
   defp normalize_configuration!(configuration) do
@@ -131,4 +153,7 @@ defmodule Ryker.GitHub.Server do
 
   defp unconfigured_repository_access(_binding, _payload),
     do: {:error, {:github_repository_access_unavailable, :not_configured}}
+
+  defp unconfigured_review_reply(_binding, _payload),
+    do: {:error, {:github_review_reply_unavailable, :not_configured}}
 end

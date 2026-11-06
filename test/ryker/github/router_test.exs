@@ -170,6 +170,85 @@ defmodule Ryker.GitHub.RouterTest do
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
   end
 
+  # A user replied "Make a new PR to fix that" to Ryker's completed inline
+  # review. No mention meant the request was silently ignored (2026-11-06).
+  test "a verified reply to Ryker's review is a request after its review has finished" do
+    payload =
+      review_comment_payload()
+      |> put_in(["comment", "body"], "Make a new PR to fix that")
+      |> put_in(["comment", "in_reply_to_id"], 7_001)
+
+    response =
+      request(Jason.encode!(payload),
+        delivery_ref: "completed-review-reply",
+        event_name: "pull_request_review_comment",
+        review_reply: fn binding, ^payload ->
+          assert binding.ryker_actor_id == binding!().ryker_actor_id
+          {:ok, true}
+        end
+      )
+
+    assert response.status == 202
+    entry = Repo.one!(Inbox.Entry)
+    assert entry.engagement_receipt == %{"reason" => "reply"}
+  end
+
+  test "review replies keep unrelated comments quiet and refuse senders without write access" do
+    payload =
+      review_comment_payload()
+      |> put_in(["comment", "body"], "Make a new PR to fix that")
+      |> put_in(["comment", "in_reply_to_id"], 7_001)
+
+    response =
+      request(Jason.encode!(payload),
+        event_name: "pull_request_review_comment",
+        delivery_ref: "unrelated-review-reply",
+        review_reply: fn _, _ -> {:ok, false} end
+      )
+
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body)["reason"] == "no_request_or_rule"
+
+    denied =
+      request(Jason.encode!(put_in(payload["comment"]["id"], 7_003)),
+        event_name: "pull_request_review_comment",
+        delivery_ref: "unauthorized-review-reply",
+        repository_access: fn _, _ -> {:error, :actor_not_authorized} end,
+        review_reply: fn _, _ ->
+          flunk("An unauthorized sender must not trigger a parent read")
+        end
+      )
+
+    assert denied.status == 200
+    assert Jason.decode!(denied.resp_body)["reason"] == "repository_write_access_required"
+    assert Repo.aggregate(Inbox.Entry, :count) == 0
+  end
+
+  test "a failed review-parent lookup can retry the same delivery without losing the request" do
+    payload =
+      review_comment_payload()
+      |> put_in(["comment", "body"], "Make a new PR to fix that")
+      |> put_in(["comment", "in_reply_to_id"], 7_001)
+
+    options = [event_name: "pull_request_review_comment", delivery_ref: "retry-review-reply"]
+
+    failed =
+      request(
+        Jason.encode!(payload),
+        options ++
+          [review_reply: fn _, _ -> {:error, {:github_review_reply_unavailable, :timeout}} end]
+      )
+
+    assert failed.status == 503
+    assert Repo.aggregate(Inbox.Entry, :count) == 0
+
+    retried =
+      request(Jason.encode!(payload), options ++ [review_reply: fn _, _ -> {:ok, true} end])
+
+    assert retried.status == 202
+    assert Repo.one!(Inbox.Entry).engagement_receipt == %{"reason" => "reply"}
+  end
+
   test "a captured signed body cannot become new work under a rewritten delivery header" do
     body = Jason.encode!(payload())
 
@@ -1241,6 +1320,11 @@ defmodule Ryker.GitHub.RouterTest do
       repository_access: repository_access,
       secret: @sealed
     ]
+
+    router_options =
+      if checker = Keyword.get(options, :review_reply),
+        do: Keyword.put(router_options, :review_reply, checker),
+        else: router_options
 
     router_options =
       if confirmations,

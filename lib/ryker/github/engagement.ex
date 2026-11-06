@@ -11,14 +11,15 @@ defmodule Ryker.GitHub.Engagement do
 
   @doc """
   Why Ryker takes this input, or `:metadata` when it does not. A `:mention`,
-  `:review_request` or `:continuation` is someone asking, so the router needs
+  `:reply`, `:review_request` or `:continuation` is someone asking, so the router needs
   their write access; a `:revision` is an edit of the exact item Ryker already took, and a
   `:standing_rule` is an event an operator chose to have handled.
   """
-  @spec reason(Ingress.Input.t(), Binding.t(), String.t() | nil) ::
-          {:yes, :review_request | :revision | :continuation | :standing_rule | :mention}
+  @spec reason(Ingress.Input.t(), Binding.t(), String.t() | nil, function()) ::
+          {:yes, :review_request | :revision | :continuation | :standing_rule | :mention | :reply}
           | :metadata
-  def reason(%Ingress.Input{} = input, %Binding{} = binding, bot_login) do
+          | {:error, term()}
+  def reason(%Ingress.Input{} = input, %Binding{} = binding, bot_login, review_reply) do
     cond do
       review_requested?(input.content["event_name"], input.content["payload"], binding) ->
         {:yes, :review_request}
@@ -36,9 +37,29 @@ defmodule Ryker.GitHub.Engagement do
         {:yes, :mention}
 
       true ->
-        :metadata
+        addressed_reply(input, binding, review_reply)
     end
   end
+
+  defp addressed_reply(
+         %{
+           content: %{
+             "event_name" => "pull_request_review_comment",
+             "payload" => %{"action" => action, "comment" => %{"in_reply_to_id" => _id}} = payload
+           }
+         },
+         binding,
+         review_reply
+       )
+       when action in ["created", "edited"] do
+    case review_reply.(binding, payload) do
+      {:ok, true} -> {:yes, :reply}
+      {:ok, false} -> :metadata
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp addressed_reply(_input, _binding, _review_reply), do: :metadata
 
   @doc "Whether this event explicitly requests a review from the configured bot."
   @spec review_requested?(String.t(), map(), Binding.t()) :: boolean()

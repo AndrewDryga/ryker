@@ -19,6 +19,20 @@ defmodule Ryker.GitHub.ConfirmationsTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @digest String.duplicate("b", 64)
 
+  # A real offer delivered beneath an inline review said to reply in that
+  # discussion, but only top-level conversation commands were recognized.
+  test "an inline offer can be confirmed in the same review thread" do
+    thread = "github:github-main:pull:42:review-thread:7001"
+    fixture = delivered_offers!(thread)
+    input = input!("/ryker confirm #{fixture.task.ref}", 9_110, 42, 7001)
+
+    assert {:ok, %{"status" => "confirmed", "kind" => "task_offer"}} =
+             Confirmations.apply(input, options())
+
+    assert %Session{policy: "ryker-contributor", repository_ref: "ryker"} =
+             Repo.get_by!(Session, policy: "ryker-contributor")
+  end
+
   test "an authenticated exact-thread command confirms each offer at most once" do
     fixture = delivered_offers!()
     task_input = input!("/ryker confirm #{fixture.task.ref}", 9_101, 42)
@@ -205,7 +219,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
              {:error, :invalid_github_confirmation_options}
   end
 
-  defp delivered_offers! do
+  defp delivered_offers!(thread \\ "github:github-main:pull:42") do
     episode_id = Ecto.UUID.generate()
 
     assert {:ok, transition} =
@@ -214,7 +228,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
                  actor_ref: "github:user:github-user:7",
                  destination: %{
                    conversation_ref: "github:github-main:repository:99",
-                   thread_ref: "github:github-main:pull:42",
+                   thread_ref: thread,
                    transport: "github"
                  },
                  episode_id: episode_id,
@@ -405,7 +419,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
                accepted.turn.delivery_ref,
                "github",
                "github:github-main:repository:99",
-               "github:github-main:pull:42",
+               thread,
                "github:pull_request_review:9100"
              )
 
@@ -428,12 +442,13 @@ defmodule Ryker.GitHub.ConfirmationsTest do
     }
   end
 
-  defp input!(body, comment_id, issue_number) do
+  defp input!(body, comment_id, issue_number, review_root \\ nil) do
     assert {:ok, input} =
              Input.normalize(
                %{
                  delivery_ref: "delivery:#{comment_id}",
-                 event_name: "issue_comment",
+                 event_name:
+                   if(review_root, do: "pull_request_review_comment", else: "issue_comment"),
                  event_ref: "github-body:#{digest("event:#{comment_id}")}",
                  payload: %{
                    "action" => "created",
@@ -441,10 +456,12 @@ defmodule Ryker.GitHub.ConfirmationsTest do
                      "body" => body,
                      "created_at" => "2026-08-28T12:05:00Z",
                      "id" => comment_id,
+                     "in_reply_to_id" => review_root,
                      "updated_at" => "2026-08-28T12:05:00Z"
                    },
                    "installation" => %{"id" => 41},
                    "issue" => %{"number" => issue_number, "pull_request" => %{}},
+                   "pull_request" => %{"number" => issue_number},
                    "repository" => %{"full_name" => "octo/example", "id" => 99},
                    "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
                  }

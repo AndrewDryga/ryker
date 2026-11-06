@@ -101,6 +101,34 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert authorize.({:proactive, entry}, "ryker") == {:error, :task_instruction_not_authorized}
   end
 
+  # A production GitHub request reached Prepare a task three times, but the
+  # assembled authorizer only handled Slack and Chat (2026-11-06).
+  test "GitHub task requests reach a fresh repository permission check" do
+    settings = connected!()
+    assert {:ok, runtime} = Assembly.build(bootstrap(), settings)
+    authorize = runtime[:coop_worker_gateway].state_tools.task_authorizer
+
+    entry = %Ryker.Ingress.Inbox.Entry{
+      execution_mode: :live,
+      source_kind: "github",
+      source_ref: "ryker-app",
+      destination_transport: "github",
+      actor_kind: :user,
+      actor_ref: "github-user:7",
+      content: %{
+        "payload" => %{
+          "installation" => %{"id" => 1001},
+          "repository" => %{"id" => 2001, "full_name" => "ryker/ryker"},
+          "sender" => %{"id" => 7, "login" => "writer", "type" => "User"}
+        }
+      }
+    }
+
+    # No token service runs in this test: a fresh lookup must refuse safely,
+    # rather than silently using the earlier ingress permission check.
+    assert {:error, {:github_repository_access_unavailable, _reason}} = authorize.(entry, "ryker")
+  end
+
   # mac-server, 2026-10-01: a setup page reached at the address Compose published, not the
   # container's own port, rendered and never went live. The console accepts that address only
   # if it is told it.

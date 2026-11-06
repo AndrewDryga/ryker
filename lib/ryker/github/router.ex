@@ -27,6 +27,11 @@ defmodule Ryker.GitHub.Router do
     repository_access =
       Keyword.get(options, :repository_access, &unconfigured_repository_access/2)
 
+    review_reply = Keyword.get(options, :review_reply, &unconfigured_review_reply/2)
+
+    unless is_function(review_reply, 2),
+      do: raise(ArgumentError, "GitHub review reply checker is invalid")
+
     secret = Keyword.fetch!(options, :secret)
 
     validate_options!(bindings, bot_login, repository_access, secret)
@@ -46,6 +51,7 @@ defmodule Ryker.GitHub.Router do
         |> Enum.map(& &1.max_body_bytes)
         |> Enum.max(fn -> Binding.default_max_body_bytes() end),
       repository_access: repository_access,
+      review_reply: review_reply,
       secret: secret
     }
   end
@@ -387,7 +393,8 @@ defmodule Ryker.GitHub.Router do
   end
 
   defp record_or_subscribe(conn, input, binding, :unmatched, options) do
-    with {:yes, reason} <- Engagement.reason(input, binding, options.bot_login),
+    with {:yes, reason} <-
+           Engagement.reason(input, binding, options.bot_login, options.review_reply),
          :ok <- authorize_engagement(reason, input, binding, options) do
       case Ingress.Inbox.record(input,
              engagement_receipt: %{"reason" => Atom.to_string(reason)},
@@ -493,4 +500,7 @@ defmodule Ryker.GitHub.Router do
 
   defp unconfigured_repository_access(_binding, _payload),
     do: {:error, {:github_repository_access_unavailable, :not_configured}}
+
+  defp unconfigured_review_reply(_binding, _payload),
+    do: {:error, {:github_review_reply_unavailable, :not_configured}}
 end

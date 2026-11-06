@@ -868,8 +868,10 @@ defmodule Ryker.Runtime.Assembly do
         {binding.name, github_binding(binding, api_url, defaults, settings.repositories, entry)}
       end)
 
+    task_policies = task_entries(settings, repositories, environments)
+
     confirmations =
-      case task_entries(settings, repositories, environments) do
+      case task_policies do
         policies when map_size(policies) == 0 ->
           nil
 
@@ -916,6 +918,19 @@ defmodule Ryker.Runtime.Assembly do
 
     %{
       bindings: prepared,
+      task_access: %{
+        configuration: GitHub.TaskAccess.authority_configuration(settings),
+        repository_access: repository_access(prepared),
+        bindings:
+          Map.new(prepared, fn {name, item} ->
+            {name,
+             %{
+               binding: item.trusted_binding,
+               repository: item.repository_alias,
+               policy: Map.get(task_policies, item.repository_alias)
+             }}
+          end)
+      },
       capability_tools: GitHub.CapabilityTools.options!(capability_binding),
       delivery_binding: delivery_binding,
       receive_timeout_ms: defaults.receive_timeout_ms,
@@ -941,6 +956,7 @@ defmodule Ryker.Runtime.Assembly do
           ip: bootstrap.github_listener.ip,
           port: bootstrap.github_listener.port,
           repository_access: repository_access(prepared),
+          review_reply: review_reply(prepared),
           secret: Secret.new(webhook_secret)
         },
         tokens: %{
@@ -977,6 +993,14 @@ defmodule Ryker.Runtime.Assembly do
 
     fn binding, payload ->
       GitHub.RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name))
+    end
+  end
+
+  defp review_reply(prepared) do
+    clients = Map.new(prepared, fn {name, item} -> {name, item.client.http} end)
+
+    fn binding, payload ->
+      GitHub.ReviewReply.check(binding, payload, Map.fetch!(clients, binding.name))
     end
   end
 
@@ -1576,12 +1600,16 @@ defmodule Ryker.Runtime.Assembly do
       token: Secret.new(Bootstrap.secret!(:state_tools))
     }
     |> Map.put(:answer_authorizer, answer_authorizer(slack, control_plane))
-    |> Map.put(:task_authorizer, task_authorizer(slack, control_plane, authority_configuration))
+    |> Map.put(
+      :task_authorizer,
+      task_authorizer(slack, github, control_plane, authority_configuration)
+    )
     |> add_platform_capability_tools(slack, github, control_plane)
   end
 
-  defp task_authorizer(slack, control_plane, authority_configuration) do
+  defp task_authorizer(slack, github, control_plane, authority_configuration) do
     chat = control_plane && ControlPlane.Server.options!(control_plane).chat
+    github_options = github && github.task_access
 
     slack_options =
       if slack do
@@ -1614,6 +1642,14 @@ defmodule Ryker.Runtime.Assembly do
       %Ingress.Inbox.Entry{source_kind: "slack"} = entry, repository
       when not is_nil(slack_options) ->
         Slack.TaskAccess.authorize(entry, repository, slack_options)
+
+      %Ingress.Inbox.Entry{source_kind: "github"} = entry, repository
+      when not is_nil(github_options) ->
+        GitHub.TaskAccess.authorize(entry, repository, github_options)
+
+      {:policy, %Ingress.Inbox.Entry{source_kind: "github"} = entry}, repository
+      when not is_nil(github_options) ->
+        GitHub.TaskAccess.policy(entry, repository, github_options)
 
       %Ingress.Inbox.Entry{
         source_kind: "control_plane",

@@ -1,6 +1,7 @@
 defmodule Ryker.StateTools.TaskStartTest do
   use Ryker.DataCase, async: false
   alias Ryker.Fixtures.{Corrections, TaskOffer}
+  alias Ryker.GitHub
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCard, TaskCardProjection}
   alias Ryker.StateTools.FixedTools
@@ -31,6 +32,114 @@ defmodule Ryker.StateTools.TaskStartTest do
     assert repeated["record_ref"] == result["record_ref"]
     assert Repo.aggregate(TaskCard, :count) == 1
     assert Repo.aggregate(Session, :count) == 2
+  end
+
+  # GitHub task preparation was first refused outright in production. A fresh
+  # permission lookup must also not revive settings revoked while it waits.
+  for phase <- [:during_permission_lookup, :before_settings_fence] do
+    @phase phase
+    test "GitHub authority revoked #{@phase} cannot start a task" do
+      actor = "control-plane:local"
+      {:ok, settings} = Ryker.Settings.initialize(actor)
+
+      {:ok, settings} =
+        Ryker.Settings.save_github(
+          %{enabled: true, app_id: 12_345, app_slug: "ryker-test"},
+          settings.installation.revision,
+          actor
+        )
+
+      {:ok, binding} =
+        GitHub.Binding.new(
+          name: "widget",
+          repository_full_name: "acme/widget",
+          repository_id: 99,
+          installation_id: 41,
+          ryker_actor_id: 4321
+        )
+
+      text = "Make a new PR to fix that"
+
+      payload = %{
+        "action" => "created",
+        "installation" => %{"id" => 41},
+        "repository" => %{"id" => 99, "full_name" => "acme/widget"},
+        "sender" => %{"id" => 7, "login" => "writer", "type" => "User"},
+        "pull_request" => %{"number" => 42},
+        "comment" => %{
+          "id" => 7002,
+          "in_reply_to_id" => 7001,
+          "body" => text,
+          "created_at" => "2026-11-06T02:22:09Z",
+          "updated_at" => "2026-11-06T02:22:09Z"
+        }
+      }
+
+      {:ok, input} =
+        GitHub.Input.normalize(
+          %{
+            delivery_ref: "task-authority-fence",
+            event_ref: "task-authority-fence",
+            event_name: "pull_request_review_comment",
+            payload: payload
+          },
+          binding
+        )
+
+      source = Corrections.correction!(input: input, text: text)
+
+      arguments =
+        TaskOffer.payload(%{
+          "prompt" => text,
+          "instruction_ref" => source.arguments["source_event_ref"]
+        })
+        |> Map.put("start", true)
+
+      request = %{binding: source.binding, arguments: arguments}
+      {:ok, policy} = authorize(nil, nil)
+
+      options = %{
+        configuration: GitHub.TaskAccess.authority_configuration(settings),
+        bindings: %{"widget" => %{binding: binding, repository: "ryker", policy: policy}},
+        repository_access: fn _, _ ->
+          {:ok, _} =
+            Ryker.Settings.save_github(
+              %{enabled: false},
+              Ryker.Settings.fetch!().installation.revision,
+              actor
+            )
+
+          :ok
+        end
+      }
+
+      check = fn
+        {:policy, entry}, repository ->
+          assert Repo.in_transaction?()
+          GitHub.TaskAccess.policy(entry, repository, options)
+
+        entry, repository ->
+          if @phase == :during_permission_lookup do
+            GitHub.TaskAccess.authorize(entry, repository, options)
+          else
+            fresh = %{options | repository_access: fn _, _ -> :ok end}
+            assert GitHub.TaskAccess.authorize(entry, repository, fresh) == {:ok, policy}
+
+            {:ok, _} =
+              Ryker.Settings.save_github(
+                %{enabled: false},
+                Ryker.Settings.fetch!().installation.revision,
+                actor
+              )
+
+            {:ok, policy}
+          end
+      end
+
+      assert {:error, "task_instruction_not_authorized:" <> _detail} = call(request, check)
+      assert Repo.aggregate(Record, :count) == 0
+      assert Repo.aggregate(Session, :count) == 1
+    end
   end
 
   test "an authorized verification task keeps its purpose in the frozen task" do

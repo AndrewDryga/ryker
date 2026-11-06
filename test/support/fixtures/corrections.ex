@@ -40,7 +40,12 @@ defmodule Ryker.Fixtures.Corrections do
       workspace_ref: workspace
     }
 
-    {:ok, input} = Slack.Input.new(attributes)
+    input =
+      Keyword.get_lazy(options, :input, fn ->
+        {:ok, input} = Slack.Input.new(attributes)
+        input
+      end)
+
     {:ok, %{entry: entry}} = Ingress.Inbox.record(input)
 
     {:ok, decision} =
@@ -61,10 +66,10 @@ defmodule Ryker.Fixtures.Corrections do
         EpisodeFixtures.admit_input(%{
           actor_ref: entry.actor_ref,
           destination: %{
-            transport: "slack",
+            transport: input.destination.transport,
             conversation_ref:
               Keyword.get(options, :episode_conversation, entry.destination_conversation_ref),
-            thread_ref: entry.destination_thread_ref
+            thread_ref: input.destination.thread_ref
           },
           episode_id: id,
           episode_key: "correction:#{id}",
