@@ -753,7 +753,7 @@ defmodule Ryker.Records do
     with :ok <- guidance_result_authorized(turn, kind, prepared.payload),
          :ok <- validate_temporal(kind, prepared.continuation),
          :ok <- validate_relationships(episode.id, kind, prepared.payload, parallel_goal_limit),
-         :ok <- record_capacity(turn.id, operation_id),
+         :ok <- record_capacity(turn, operation_id, kind, prepared.payload),
          :ok <- supersede_prior_record(episode.id, kind, prepared.payload) do
       %{
         continuation: prepared.continuation,
@@ -827,6 +827,25 @@ defmodule Ryker.Records do
   # not one of the records the model may write in a turn: a large task that
   # had written its 64 could not complete (2026-10-04 review).
   @publication_offer "host:publication:ready"
+
+  # Evidence can fill a turn before its goals close. One terminal transition
+  # per existing goal must still be writable, or completion's open-goal check
+  # becomes impossible to satisfy. Repeated terminal updates keep the budget.
+  defp record_capacity(
+         %Work.Turn{} = turn,
+         operation_id,
+         "goal_state",
+         %{"goal_id" => goal_id, "state" => state}
+       )
+       when state in @terminal_goal_states do
+    case Enum.find(goals(turn.episode_id), &(&1["id"] == goal_id)) do
+      %{"state" => current} when current not in @terminal_goal_states -> :ok
+      _closed -> record_capacity(turn.id, operation_id)
+    end
+  end
+
+  defp record_capacity(%Work.Turn{id: turn_id}, operation_id, _kind, _payload),
+    do: record_capacity(turn_id, operation_id)
 
   defp record_capacity(_turn_id, @publication_offer), do: :ok
 

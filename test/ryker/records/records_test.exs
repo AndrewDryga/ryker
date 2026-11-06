@@ -5,6 +5,7 @@ defmodule Ryker.Records.RecordsTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
+  alias Ryker.Records.Record
   alias Ryker.Slack.Event
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.{Custody, Validator}
@@ -392,6 +393,67 @@ defmodule Ryker.Records.RecordsTest do
              })
   end
 
+  # A production health review filled all 64 slots, then could neither close its
+  # two goals nor satisfy completion validation. It spent all three corrections
+  # refusing the same valid goal updates and delivered no answer (2026-11-06).
+  for state <- ~w(completed excluded cancelled) do
+    @terminal_state state
+    test "a full record budget still lets existing goals become #{@terminal_state}" do
+      claim = claim!("close-at-capacity-#{@terminal_state}")
+      token = Records.token(claim.turn)
+
+      for id <- ~w(health-review report-findings) do
+        assert {:ok, _goal} = Records.create(token, "plan-#{id}", "goal", goal(id))
+      end
+
+      evidence = fill_evidence!(token, 62)
+      evidence_refs = evidence |> Enum.take(3) |> Enum.map(& &1.ref)
+      assert Repo.aggregate(Record.Query.by_turn_id(claim.turn.id), :count) == 64
+
+      assert Records.create(token, "unknown-goal", "goal_state", %{
+               "goal_id" => "unknown",
+               "state" => @terminal_state
+             }) == {:error, {:invalid_state_record, :goal_id}}
+
+      assert Records.create(token, "keep-working", "goal_state", %{
+               "goal_id" => "health-review",
+               "state" => "working"
+             }) == {:error, {:invalid_state_record, :record_limit}}
+
+      assert Records.create(token, "missing-evidence", "goal_state", %{
+               "evidence_refs" => ["record:evidence:" <> String.duplicate("f", 32)],
+               "goal_id" => "health-review",
+               "state" => @terminal_state
+             }) == {:error, {:invalid_state_record, :evidence_refs}}
+
+      for id <- ~w(health-review report-findings) do
+        # The refused production update had this shape, with three retained
+        # citations. Resource names and citations belong to this test's records.
+        payload = %{
+          "detail" =>
+            "Review established current readiness, backup freshness and the service failure.",
+          "evidence_refs" => evidence_refs,
+          "goal_id" => id,
+          "state" => @terminal_state
+        }
+
+        assert {:ok, closed} = Records.create(token, "close-#{id}", "goal_state", payload)
+        assert closed.payload == payload
+        assert {:ok, retried} = Records.create(token, "close-#{id}", "goal_state", payload)
+        assert retried.id == closed.id
+
+        assert Records.create(token, "repeat-close-#{id}", "goal_state", payload) ==
+                 {:error, {:invalid_state_record, :record_limit}}
+      end
+
+      assert Records.open_required_goals(claim.episode.id) == []
+      assert Repo.aggregate(Record.Query.by_turn_id(claim.turn.id), :count) == 66
+
+      assert Records.create(token, "new-goal", "goal", goal("another-check")) ==
+               {:error, {:invalid_state_record, :record_limit}}
+    end
+  end
+
   test "shadow turns can retain evidence but cannot create offers, waits, or authority" do
     claim = claim!("shadow-records", :shadow)
     token = Records.token(claim.turn)
@@ -588,7 +650,7 @@ defmodule Ryker.Records.RecordsTest do
              ~w(evidence coverage finding progress goal alert_assessment goal_state)
   end
 
-  test "required goals block completion until a durable terminal goal state exists" do
+  test "required goals block completion until a durable terminal state exists even at the record limit" do
     claim = claim!("required-goal")
     token = Records.token(claim.turn)
 
@@ -605,6 +667,8 @@ defmodule Ryker.Records.RecordsTest do
                "stage" => "implementation",
                "writable_repository" => nil
              })
+
+    fill_evidence!(token, 63)
 
     complete =
       Jason.encode!(%{
@@ -1099,6 +1163,21 @@ defmodule Ryker.Records.RecordsTest do
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     claim
+  end
+
+  defp fill_evidence!(token, count) do
+    Enum.map(1..count, fn index ->
+      assert {:ok, evidence} =
+               Records.create(token, "probe-#{index}", "evidence", %{
+                 "claim_id" => "service.health.#{index}",
+                 "observation" => "Probe #{index} returned 200.",
+                 "source_name" => "service probe",
+                 "source_type" => "monitoring",
+                 "target" => "service.production"
+               })
+
+      evidence
+    end)
   end
 
   defp task_payload, do: TaskOffer.payload()
