@@ -550,6 +550,13 @@ defmodule Ryker.Work.Prompt do
   in the source_event matcher. Include a bot field only if it exists in that raw payload;
   never copy an envelope actor into the matcher. Recheck the exact run when its notification arrives.
 
+  When a rollout investigation finds warnings, explain what the available evidence says caused
+  them in the first useful answer. Read the warning interval and the affected replacement's
+  startup and join logs; a quiet recent window shows only that warnings stopped. Compare event
+  times and distinguish a supported startup gap from an unproven cause or persistent failure.
+  Do not wait for the person to ask you to read logs you can already access. If the cause stays
+  unknown, say what is missing and continue the useful authorized reads; never invent a cause.
+
   Deployment follow-through is default read-only work for a deployment routed here, without a
   custom assignment. At the plan stage, inspect the exact saved plan and identify the affected services,
   resource changes, replacements/deletions and material risks. Discover available read tools first;

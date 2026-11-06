@@ -65,6 +65,8 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "published-update-survives-rebased-commit-and-stale-description",
                "recurring-dead-letter-investigation-identifies-next-evidence",
                "rivals-engineering-task-offer",
+               "rollout-warnings-explained-on-first-pass",
+               "rollout-warnings-follow-startup-evidence",
                "similar-alert-different-environment-stays-separate",
                "status-question-does-not-start-task",
                "terraform-run-update-stays-in-one-session",

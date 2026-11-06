@@ -154,7 +154,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 48
+    assert length(scenarios) == 50
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"
@@ -167,6 +167,32 @@ defmodule Ryker.Evals.WorldCaseTest do
     document = WorldCase.document(scenario)
     assert document["scenario"]["id"] == scenario.id
     assert document["tool_catalog_sha256"] == scenario.tool_catalog_digest
+  end
+
+  test "rollout diagnosis retains the warning, startup and join chronology" do
+    assert {:ok, scenario} = WorldCase.fetch("rollout-warnings-follow-startup-evidence")
+    assert scenario.provenance["kind"] == "production"
+
+    assert [%{"name" => "read_rollout_logs"}] =
+             Enum.map(WorldCase.fabricated_tools(scenario), &Map.take(&1, ["name"]))
+
+    observations =
+      scenario.world["tool_rules"]
+      |> hd()
+      |> get_in(["responses"])
+      |> hd()
+      |> get_in(["value", "observations"])
+
+    assert Enum.map(observations, & &1["claim"]) == [
+             "Cluster startup warning",
+             "First replacement startup",
+             "Second replacement startup"
+           ]
+
+    assert Enum.at(observations, 0)["observation"] =~ "18:51:26–57"
+    assert Enum.at(observations, 1)["observation"] =~ "18:52:05"
+    assert Enum.at(observations, 2)["observation"] =~ "18:56:32"
+    assert Enum.any?(scenario.expect["trajectory"], &(&1["tool"] == "read_rollout_logs"))
   end
 
   test "the missing-project scenario retains the actual review without invented discovery results" do

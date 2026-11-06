@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "id": "rollout-warnings-explained-on-first-pass",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode:harvested-rollout-warning-1"
+    ],
+    "captured_at": "2026-11-05T07:15:00Z"
+  },
+  "clock": {
+    "start": "2026-11-04T19:04:53Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:app:AROLLOUT",
+      "authority": "source_event",
+      "input_profile": {
+        "actor": {
+          "kind": "app",
+          "ref": "AROLLOUT"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:app:AROLLOUT",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1788019200.000100",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-11-04T19:04:53Z",
+      "payload": {
+        "attachments": [
+          {
+            "author_icon": "https://example.invalid/icon.png",
+            "author_name": "Sample operator",
+            "color": "5c4ee5",
+            "fallback": "Run run-captured-rollout",
+            "footer": "HCP Terraform",
+            "footer_icon": "https://example.invalid/icon.png",
+            "id": 1,
+            "pretext": "Run notification for <https://app.terraform.io/app/sample-team/service|sample-team/service>",
+            "text": "main aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (@sample-operator, gh run 123456789)",
+            "title": "Run run-captured-rollout",
+            "title_link": "https://app.terraform.io/app/sample-team/service/runs/run-captured-rollout",
+            "ts": 1793817817
+          },
+          {
+            "color": "1563ff",
+            "fallback": "Run run-captured-rollout - Run Applying",
+            "id": 2,
+            "title": "Run Applying",
+            "ts": 1793818211
+          }
+        ],
+        "blocks": [],
+        "bot_id": "BROLLOUT",
+        "files": [],
+        "slack_event_kind": "message",
+        "subtype": "bot_message",
+        "text": ""
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "scheduled_events": [],
+    "tool_rules": [
+      {
+        "id": "startup-logs",
+        "tool": "read_rollout_logs",
+        "match": {},
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-11-04T19:04:53Z",
+              "source_ref": "source:rollout:startup-logs",
+              "observations": [
+                {
+                  "claim": "Cluster startup warning",
+                  "observation": "Both old application nodes logged unable to connect to .103 at 18:51:26\u201357 during rollout. New .103 later passes readiness; cluster membership still requires recheck. Fleet has 16 connected runners and zero pending dispatch at 18:51:19."
+                },
+                {
+                  "claim": "First replacement startup",
+                  "observation": "replacement-a starts 18:52:05, reports migrations already up 18:52:08, connects old .101/.102 at 18:52:13 and starts HTTP at 18:52:18. It warns unable to connect to second replacement .104 at 18:55:16, 18:55:46 and 18:56:17. No later cluster/application WARNING/ERROR or Sent 5xx matches through 19:04:53; bounded read untruncated."
+                },
+                {
+                  "claim": "Second replacement startup",
+                  "observation": "replacement-b .104 application starts 18:56:25, migrations already up 18:56:27, connects .101 and replacement-a .103 at 18:56:32 and starts HTTP at 18:56:35. No cluster/application WARNING/ERROR or Sent 5xx matches in its startup journal through 19:04:53; bounded read untruncated. Earlier .104 warnings occurred before its application process started, and successful connection afterward establishes startup timing rather than persistent cluster failure."
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-11-04T19:04:53Z",
+              "source_ref": "source:rollout:startup-logs",
+              "observations": [
+                {
+                  "claim": "Cluster startup warning",
+                  "observation": "Both old application nodes logged unable to connect to .103 at 18:51:26\u201357 during rollout. New .103 later passes readiness; cluster membership still requires recheck. Fleet has 16 connected runners and zero pending dispatch at 18:51:19."
+                },
+                {
+                  "claim": "First replacement startup",
+                  "observation": "replacement-a starts 18:52:05, reports migrations already up 18:52:08, connects old .101/.102 at 18:52:13 and starts HTTP at 18:52:18. It warns unable to connect to second replacement .104 at 18:55:16, 18:55:46 and 18:56:17. No later cluster/application WARNING/ERROR or Sent 5xx matches through 19:04:53; bounded read untruncated."
+                },
+                {
+                  "claim": "Second replacement startup",
+                  "observation": "replacement-b .104 application starts 18:56:25, migrations already up 18:56:27, connects .101 and replacement-a .103 at 18:56:32 and starts HTTP at 18:56:35. No cluster/application WARNING/ERROR or Sent 5xx matches in its startup journal through 19:04:53; bounded read untruncated. Earlier .104 warnings occurred before its application process started, and successful connection afterward establishes startup timing rather than persistent cluster failure."
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-11-04T19:04:53Z",
+              "source_ref": "source:rollout:startup-logs",
+              "observations": [
+                {
+                  "claim": "Cluster startup warning",
+                  "observation": "Both old application nodes logged unable to connect to .103 at 18:51:26\u201357 during rollout. New .103 later passes readiness; cluster membership still requires recheck. Fleet has 16 connected runners and zero pending dispatch at 18:51:19."
+                },
+                {
+                  "claim": "First replacement startup",
+                  "observation": "replacement-a starts 18:52:05, reports migrations already up 18:52:08, connects old .101/.102 at 18:52:13 and starts HTTP at 18:52:18. It warns unable to connect to second replacement .104 at 18:55:16, 18:55:46 and 18:56:17. No later cluster/application WARNING/ERROR or Sent 5xx matches through 19:04:53; bounded read untruncated."
+                },
+                {
+                  "claim": "Second replacement startup",
+                  "observation": "replacement-b .104 application starts 18:56:25, migrations already up 18:56:27, connects .101 and replacement-a .103 at 18:56:32 and starts HTTP at 18:56:35. No cluster/application WARNING/ERROR or Sent 5xx matches in its startup journal through 19:04:53; bounded read untruncated. Earlier .104 warnings occurred before its application process started, and successful connection afterward establishes startup timing rather than persistent cluster failure."
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-11-04T19:04:53Z",
+              "source_ref": "source:rollout:startup-logs",
+              "observations": [
+                {
+                  "claim": "Cluster startup warning",
+                  "observation": "Both old application nodes logged unable to connect to .103 at 18:51:26\u201357 during rollout. New .103 later passes readiness; cluster membership still requires recheck. Fleet has 16 connected runners and zero pending dispatch at 18:51:19."
+                },
+                {
+                  "claim": "First replacement startup",
+                  "observation": "replacement-a starts 18:52:05, reports migrations already up 18:52:08, connects old .101/.102 at 18:52:13 and starts HTTP at 18:52:18. It warns unable to connect to second replacement .104 at 18:55:16, 18:55:46 and 18:56:17. No later cluster/application WARNING/ERROR or Sent 5xx matches through 19:04:53; bounded read untruncated."
+                },
+                {
+                  "claim": "Second replacement startup",
+                  "observation": "replacement-b .104 application starts 18:56:25, migrations already up 18:56:27, connects .101 and replacement-a .103 at 18:56:32 and starts HTTP at 18:56:35. No cluster/application WARNING/ERROR or Sent 5xx matches in its startup journal through 19:04:53; bounded read untruncated. Earlier .104 warnings occurred before its application process started, and successful connection afterward establishes startup timing rather than persistent cluster failure."
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      }
+    ],
+    "trajectory": [
+      {
+        "kind": "required_tool_call",
+        "tool": "read_rollout_logs",
+        "arguments": {}
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "In the first answer to this automated rollout notification, explains the observed connection warnings from the recorded startup and successful-join sequence, without needing a human to ask for log analysis.",
+        "weight": 3
+      },
+      {
+        "criterion": "Names relevant timestamps and distinguishes the historical cause from current health. Does not treat a quiet recent window alone as the cause.",
+        "weight": 3
+      },
+      {
+        "criterion": "Keeps the conclusion within the recorded log window; does not claim zero downtime, no future failures, or authenticated sign-in verification.",
+        "weight": 2
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "rollout-diagnosis",
+    "harvested",
+    "first-pass-investigation"
+  ]
+}

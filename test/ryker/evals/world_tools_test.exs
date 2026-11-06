@@ -3,6 +3,21 @@ defmodule Ryker.Evals.WorldToolsTest do
   alias Ryker.Evals.{WorldCase, WorldCassette, WorldTools}
   alias Ryker.StateTools.{Router, Tools}
 
+  test "the harvested rollout replay exposes its logs through the real state-tool router" do
+    assert {:ok, scenario} = WorldCase.fetch("rollout-warnings-follow-startup-evidence")
+    assert {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    assert {:ok, prepared} =
+             WorldTools.prepare(
+               %{capabilities: [:event_waits, :publication, :schedules]},
+               scenario,
+               cassette
+             )
+
+    assert %{additional_tools: [%{"name" => "read_rollout_logs"}]} =
+             Router.init(Map.to_list(prepared.state_tools))
+  end
+
   test "task-start evaluation authority is limited to its declared human and captured repository" do
     assert {:ok, scenario} = WorldCase.fetch("rivals-engineering-task-offer")
     [actor | others] = scenario.actors
