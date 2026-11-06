@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   LiveView returns to the list once a save lands.
   """
   use Phoenix.LiveComponent
-  alias Ryker.ControlPlane.{Components, Environments, FormDraft, SettingsView}
+  alias Ryker.ControlPlane.{Components, Environments, FormDraft, Kit, SettingsView}
   alias Ryker.IntegrationSetup
   alias Ryker.Settings
 
@@ -568,44 +568,92 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
           <.link patch="/environments" class="ui-button secondary">Cancel</.link>
         </div>
       </form>
-      <section :if={@ref} class="kit-form-section" aria-label="Diagnostic access">
-        <h3>Diagnostic access</h3>
-        <p class="settings-help">
-          Check the saved environment before relying on it for alerts. This reads GitHub's repository list and Emisar's tool catalog.
+      <section :if={@ref} class="environment-access" aria-label="Diagnostic access">
+        <div class="environment-access-heading">
+          <h3>Diagnostic access</h3>
+          <button
+            type="button"
+            class="ui-button secondary"
+            phx-click="check-access"
+            phx-target={@myself}
+            disabled={@dirty or @diagnostics == :loading}
+          >
+            {if @diagnostics == :loading, do: "Checking…", else: "Check access"}
+          </button>
+        </div>
+        <p :if={is_nil(@diagnostics) and not @dirty} class="environment-access-note">
+          Check the connections saved for this environment.
         </p>
-        <button
-          type="button"
-          class="ui-button secondary"
-          phx-click="check-access"
-          phx-target={@myself}
-          disabled={@dirty or @diagnostics == :loading}
-        >
-          {if @diagnostics == :loading, do: "Checking access…", else: "Check diagnostic access"}
-        </button>
-        <p :if={@dirty} class="settings-help">Save your changes before checking access.</p>
-        <p :if={@diagnostics == :changed} role="status">
+        <p :if={@dirty} class="environment-access-note">Save your changes before checking access.</p>
+        <p :if={@diagnostics == :changed} class="environment-access-note" role="status">
           Settings changed during the check. Check the saved environment again.
         </p>
-        <p :if={@diagnostics == :unavailable} role="status">
+        <p :if={@diagnostics == :unavailable} class="environment-access-note" role="status">
           Diagnostic access could not be checked. Try again.
         </p>
         <div :if={is_map(@diagnostics)} role="status">
-          <p :if={@diagnostics.repositories == []}>
-            No repositories are selected. Source code is not connected here.
-          </p>
-          <p :for={repository <- @diagnostics.repositories}>
-            <strong>{repository.name}:</strong> {repository.detail}
-          </p>
-          <p><strong>Emisar:</strong> {@diagnostics.emisar.detail}</p>
-          <p>{@diagnostics.next_step}</p>
-          <p>
-            <.link navigate="/integrations/github">GitHub connection</.link>
-            · <.link navigate="/integrations/emisar">Emisar connection</.link>
-            · <.link navigate="/conversations">New conversation</.link>
-          </p>
+          <ul class="environment-access-results" aria-label="Access check results">
+            <li :if={@diagnostics.repositories == []} class="environment-access-row">
+              <span class="environment-access-name">Repositories</span>
+              <Kit.state word="None selected" />
+            </li>
+            <.access_row
+              :for={repository <- @diagnostics.repositories}
+              name={repository.name}
+              result={repository}
+              success="Listed"
+              repair="/integrations/github"
+              repair_label="Check GitHub connection"
+            />
+            <.access_row
+              name="Emisar"
+              result={@diagnostics.emisar}
+              success="Connected"
+              repair="/integrations/emisar"
+              repair_label="Check Emisar connection"
+            />
+          </ul>
         </div>
+        <details class="environment-access-about">
+          <summary>About this check</summary>
+          <p>
+            Checks GitHub's repository list and Emisar's tool catalog. File and resource permissions
+            are checked when work uses them.
+          </p>
+          <p>
+            New work uses the saved environment. Earlier work keeps its original access and evidence.
+            To retry with updated access, <.link navigate="/conversations">start a new conversation</.link>.
+          </p>
+        </details>
       </section>
     </div>
     """
   end
+
+  attr(:name, :string, required: true)
+  attr(:result, :map, required: true)
+  attr(:success, :string, required: true)
+  attr(:repair, :string, required: true)
+  attr(:repair_label, :string, required: true)
+
+  defp access_row(assigns) do
+    assigns = assign(assigns, :available, assigns.result.status == :available)
+
+    ~H"""
+    <li class="environment-access-row">
+      <span class="environment-access-name">{@name}</span>
+      <Kit.state
+        tone={if @available, do: :on, else: :warn}
+        word={access_word(@result.status, @success)}
+      />
+      <p :if={not @available} class="environment-access-detail">
+        {@result.detail} <.link navigate={@repair}>{@repair_label}</.link>
+      </p>
+    </li>
+    """
+  end
+
+  defp access_word(:available, success), do: success
+  defp access_word(:missing, _success), do: "Not connected"
+  defp access_word(:unavailable, _success), do: "Unavailable"
 end

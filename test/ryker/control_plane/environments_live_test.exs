@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Plug.Conn.Query
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.ControlPlane.{Actions, Endpoint, EnvironmentEditor, Projection, SettingsView}
   alias Ryker.Credentials
   alias Ryker.Settings
 
@@ -138,12 +138,53 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     environment!("ops", "Operations", [])
     {:ok, view, _html} = open("/environments/ops/edit")
     revision = Settings.fetch!().installation.revision
-    assert has_element?(view, "button[phx-click=check-access]", "Check diagnostic access")
+    assert has_element?(view, "button[phx-click=check-access]", "Check access")
     view |> element("button[phx-click=check-access]") |> render_click()
     html = render_async(view)
     assert html =~ "No Emisar account"
-    assert html =~ "No repositories"
+    assert html =~ "None selected"
     assert Settings.fetch!().installation.revision == revision
+  end
+
+  # The first shipped panel repeated a paragraph for every successful connection,
+  # pushing the result and its actions beyond a screen (2026-11-06 feedback).
+  test "successful access checks show scannable results and explain their limits once" do
+    installation!()
+    snapshot = environment!("ops", "Operations", ~w(api docs))
+
+    diagnostics = %{
+      environment_ref: "ops",
+      revision: snapshot.installation.revision,
+      repositories:
+        Enum.map(
+          ~w(acme/api acme/docs),
+          &%{name: &1, status: :available, detail: "Listed by the connected GitHub App."}
+        ),
+      emisar: %{status: :available, detail: "Emisar's tool catalog was reached."},
+      next_step: "Earlier work keeps its original access and evidence."
+    }
+
+    html =
+      render_component(EnvironmentEditor,
+        id: "environment-editor",
+        ref: "ops",
+        view: SettingsView.view(snapshot),
+        diagnostics: diagnostics
+      )
+
+    document = LazyHTML.from_document(html)
+    results = LazyHTML.query(document, "[aria-label='Access check results']")
+    assert text(results) == "acme/api Listed acme/docs Listed Emisar Connected"
+    refute text(results) =~ "Listed by"
+    refute text(results) =~ "Earlier work"
+
+    assert LazyHTML.query(document, ".environment-access details:not([open]) summary") |> text() ==
+             "About this check"
+
+    assert LazyHTML.query(document, ".environment-access details") |> text() =~
+             "File and resource permissions"
+
+    assert LazyHTML.query(results, "a") |> Enum.empty?()
   end
 
   # The deployed console erased a completed access check on its next background
@@ -163,7 +204,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     send(view.pid, :reload_page)
 
     assert render(view) =~ "No Emisar account"
-    assert has_element?(view, "button[phx-click=check-access]", "Check diagnostic access")
+    assert has_element?(view, "button[phx-click=check-access]", "Check access")
     assert Settings.fetch!().installation.revision == revision
   end
 
