@@ -49,6 +49,13 @@ defmodule Ryker.Publication.Custody do
 
   @doc "Queue a confirmed task's ordinary checks inside accepted Work-result custody."
   def ensure_task_review_in_transaction(
+        _episode,
+        %Work.Session{workspace_task: %{"purpose" => "verification"}},
+        _turn
+      ),
+      do: :ok
+
+  def ensure_task_review_in_transaction(
         %Episodes.Episode{} = episode,
         %Work.Session{workspace_task: %{"offer_ref" => task_ref}, repository_ref: repository} =
           session,

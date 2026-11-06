@@ -196,6 +196,12 @@ defmodule Ryker.Work.TaskStages do
   end
 
   defp draft_pr(
+         %{session: %Session{workspace_task: %{"purpose" => "verification"}}, publication: nil},
+         _stale?
+       ),
+       do: row("draft_pr", "skipped", detail: "verification only")
+
+  defp draft_pr(
          %{publication: %Publication.Publication{status: status} = publication} = facts,
          stale?
        )
@@ -306,6 +312,12 @@ defmodule Ryker.Work.TaskStages do
       else: row("draft_pr", "pending")
   end
 
+  defp ci(
+         %{session: %Session{workspace_task: %{"purpose" => "verification"}}, publication: nil},
+         _stale?
+       ),
+       do: row("ci", "skipped", detail: "verification only")
+
   defp ci(%{publication: %Publication.Publication{status: status}} = facts, stale?)
        when status in @published_statuses do
     checks = checks_detail(facts.followup)
@@ -344,6 +356,13 @@ defmodule Ryker.Work.TaskStages do
 
   defp ci_state(%Publication.Followup{}, checks, url),
     do: row("ci", "running", detail: checks, url: url)
+
+  defp review_and_merge(
+         %{session: %Session{workspace_task: %{"purpose" => "verification"}}, publication: nil},
+         _ci,
+         _stale?
+       ),
+       do: row("review_and_merge", "skipped", detail: "verification only")
 
   defp review_and_merge(
          %{followup: %Publication.Followup{pr_state: :merged}} = facts,

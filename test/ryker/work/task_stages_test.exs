@@ -8,6 +8,38 @@ defmodule Ryker.Work.TaskStagesTest do
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
 
+  test "completed verification has no publication stages left to wait for" do
+    # Verification used to be forced to commit after 31 passing tests. Removing
+    # that host refusal must also stop its card promising a PR, CI and merge.
+    stages =
+      TaskStages.build(
+        facts(
+          episode: %Episode{state: :complete, owner_kind: :turn},
+          session: %Session{
+            coop_session_id: "session-verify",
+            workspace_task: %{"purpose" => "verification"}
+          },
+          turn: %Turn{status: :settled, coop_turn_id: "turn-verify"},
+          plan:
+            plan([
+              goal("choose", "planning", "completed"),
+              goal("run-checks", "implementation", "completed"),
+              goal("review-results", "self_review", "completed")
+            ])
+        )
+      )
+
+    assert Enum.map(stages, & &1["stage"]) == @stages
+
+    assert Enum.map(stages, & &1["state"]) ==
+             ~w(completed completed completed completed skipped skipped skipped)
+
+    for stage <- Enum.take(stages, -3) do
+      assert stage["detail"] == "verification only"
+      refute stage["your_turn"]
+    end
+  end
+
   test "all seven stages persist through waiting, failure, stop, skip and unknown" do
     # The old card was a tail of four progress notes plus one flat goal list:
     # a wait or a stop erased where the task stood. Every lifecycle state must

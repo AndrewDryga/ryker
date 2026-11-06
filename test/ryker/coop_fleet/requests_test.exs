@@ -63,6 +63,21 @@ defmodule Ryker.CoopFleet.RequestsTest do
     assert map_size(prepare) == 1
   end
 
+  test "task purpose stays in Ryker custody rather than widening the worker task contract" do
+    task = %{
+      "offer_ref" => "offer:verify",
+      "purpose" => "verification",
+      "prompt" => "Run the checks."
+    }
+
+    intent = %{"coop_session_id" => "session-verify", "expected_revision" => 1, "task" => task}
+
+    assert {:ok, %{"body" => %{"task" => sent}}} =
+             Requests.encode("ensure_workspace", intent, %{generation: 1})
+
+    assert sent == Map.delete(task, "purpose")
+  end
+
   # A red review said only "gate failed" (emisar, 2026-09-28). Andrew: "Ryker
   # should get full access to errors, warnings and all other output to work,
   # like any llm model would, it's a sandbox!!" Coop serves a review gate's

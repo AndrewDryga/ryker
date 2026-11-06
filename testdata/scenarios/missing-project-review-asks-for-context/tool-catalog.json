@@ -58,7 +58,7 @@
                 "type": "string"
               },
               "subject": {
-                "description": "A short, specific title for this observation, usually 2–6 words: Application readiness, Database backups, or VM CPU. Distinguish what each observation measures; do not repeat a broad episode title. Keep dates, times, URLs, and run identifiers out of the title.",
+                "description": "A short, specific title for this observation, usually 2\u20136 words: Application readiness, Database backups, or VM CPU. Distinguish what each observation measures; do not repeat a broad episode title. Keep dates, times, URLs, and run identifiers out of the title.",
                 "maxLength": 120,
                 "minLength": 1,
                 "type": "string"
@@ -169,8 +169,8 @@
                       "type": "string"
                     },
                     "value": {
-                      "maximum": 1.0e15,
-                      "minimum": -1.0e15,
+                      "maximum": 1000000000000000.0,
+                      "minimum": -1000000000000000.0,
                       "type": "number"
                     },
                     "x": {
@@ -181,8 +181,8 @@
                           "type": "string"
                         },
                         {
-                          "maximum": 1.0e15,
-                          "minimum": -1.0e15,
+                          "maximum": 1000000000000000.0,
+                          "minimum": -1000000000000000.0,
                           "type": "number"
                         }
                       ]
@@ -195,8 +195,8 @@
                           "type": "string"
                         },
                         {
-                          "maximum": 1.0e15,
-                          "minimum": -1.0e15,
+                          "maximum": 1000000000000000.0,
+                          "minimum": -1000000000000000.0,
                           "type": "number"
                         }
                       ]
@@ -1087,6 +1087,14 @@
                 "description": "The task brief. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs.",
                 "maxLength": 12000,
                 "minLength": 1,
+                "type": "string"
+              },
+              "purpose": {
+                "description": "Engineering task purpose. Use verification for an explicitly requested test, audit or review with no source changes: it uses a separate task workspace and the project test services, finishes on evidence without a commit, and never creates a publication candidate. Omitted means implementation, which requires committed changes. This does not expand repository or tool authority.",
+                "enum": [
+                  "implementation",
+                  "verification"
+                ],
                 "type": "string"
               },
               "repository": {

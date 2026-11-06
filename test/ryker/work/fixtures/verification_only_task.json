@@ -1,0 +1,15 @@
+{
+  "provenance": "Harvested 2026-11-05: the requested verification passed 31 tests; unchanged-tree completion was rejected twice. Tenant references and source revision are pseudonymized; record references are omitted.",
+  "request": "<@URYKER> Start a disposable verification task in repository sample-agent in environment default, using current main. Execute a real database-backed check: show PGHOST, resolve that hostname, and run pg_isready against it; then run scripts/elixir-test.sh test/ryker/coop_fleet/job_authority_test.exs --seed 0. Use the declared Compose PostgreSQL service at PGHOST=episode-db; do not substitute a private PostgreSQL server. Make no source changes, commits, PRs, publication, deployments or settings changes. Report the exact command, database host and ExUnit result. This is an authorized test request: execute it, rather than only proposing a plan.",
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "ExUnit ran on sample/agent revision `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`: **31 tests, 0 failures**, seed 0, 2.3 seconds, exit 0.\n```sh\nPGHOST=episode-db scripts/elixir-test.sh test/ryker/coop_fleet/job_authority_test.exs --seed 0\n```\n`episode-db` resolved to `172.18.0.2`; `pg_isready -h episode-db` reported accepting connections. No tracked-source or settings changes, commits, publication or deployments occurred, and no substitute PostgreSQL was used.\n\nAutomatic completion review requires a commit, conflicting with your explicit no-commit instruction. I\u2019m waiting for further instructions to resolve that conflict.",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [],
+      "state": "waiting_for_event"
+    },
+    "title": "Verify Ryker job authority tests"
+  }
+}

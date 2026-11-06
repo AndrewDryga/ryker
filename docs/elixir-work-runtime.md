@@ -143,6 +143,11 @@ tools own durable records. The generic Delivery module owns external message cus
   tree beyond `admitted_source_tree`; review-only work may finish unchanged. Publication keeps its
   own Ryker-owned branch rule, so a selected human branch or pull request cannot become a push
   target merely because it was checked out.
+- A requested test, audit or review that must leave source unchanged starts an engineering
+  task with purpose `verification`. It uses the same isolated project runtime and test services,
+  but completes on its check evidence with no source changes or new commits and creates no
+  publication candidate. Purpose `implementation` retains committed-change and publication checks.
+  Purpose belongs to Ryker's frozen task custody; it grants no new repository or tool access.
 - A frozen submission never changes under one operation key, even after a process crash or deploy.
 - Only a confirmed failure that produced no remote resource may spend a create or submit generation.
 - Only `session_cleanup_error`, while the exact candidate still awaits validation, may spend a

@@ -1026,6 +1026,66 @@ defmodule Ryker.Work.ExecutorTest do
     assert get_in(settled.delivery_document, ["outcome", "record_refs"]) == []
   end
 
+  test "verification uses task custody and finishes unchanged without publication" do
+    # The recorded request ran 31 tests, then two host corrections demanded a
+    # commit forbidden by its instruction. The task must finish on its evidence.
+    fixture = Jason.decode!(File.read!("test/ryker/work/fixtures/verification_only_task.json"))
+
+    final =
+      fixture["candidate"]
+      |> Map.update!("message", &(String.split(&1, "\n\nAutomatic completion") |> hd()))
+      |> put_in(["outcome", "state"], "complete")
+      |> Jason.encode!()
+
+    claim = claim_episode!("verification-task")
+
+    task = %{
+      "offer_ref" => "record:task_offer:verification",
+      "purpose" => "verification",
+      "title" => "Verify tests",
+      "prompt" => fixture["request"]
+    }
+
+    claim = %{claim | session: task_session!(claim.session, "ryker", task)}
+
+    {:ok, fake} =
+      FakeAPI.start_link([final],
+        workspace_task: %{
+          "offer_ref" => task["offer_ref"],
+          "id" => "task:verify",
+          "queue_id" => "queue:verify",
+          "task_id" => "task:verify",
+          "draft_sha256" => String.duplicate("d", 64)
+        },
+        changes: []
+      )
+
+    remote = FakeAPI.state(fake).session
+    source = remote["source"]
+
+    changes =
+      workspace_changes(
+        base_commit: remote["base_commit"],
+        fork_head: source["selected_commit"],
+        fork_tree: source["admitted_tree"],
+        admitted_source_tree: source["admitted_tree"]
+      )
+
+    Agent.update(fake, &%{&1 | changes: [changes]})
+
+    assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}}} =
+             Executor.run(claim, options(fake))
+
+    refute Repo.exists?(
+             from(record in Record,
+               where:
+                 record.episode_id == ^claim.episode.id and record.kind == "publication_offer"
+             )
+           )
+
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).continuation == %{"kind" => "complete"}
+  end
+
   # The offer needed the final message as its description, so writable work
   # that finished without one (`delivery: none`) could never be finalized, and
   # the failure read as a Coop protocol error (2026-10-04 review).

@@ -163,6 +163,28 @@ defmodule Ryker.Work.Validator do
   defp guidance_violations(violations, final, context),
     do: Work.GuidanceRequirements.violations(context.guidance_requirements, final) ++ violations
 
+  defp workspace_violations(violations, %{state: :complete}, %{
+         workspace: %{"purpose" => "verification"} = workspace
+       }) do
+    dirty =
+      Enum.sum(
+        Enum.map(~w(staged_count unstaged_count untracked_count conflict_count), &workspace[&1])
+      )
+
+    changed_tree =
+      is_binary(workspace["admitted_source_tree"]) and
+        workspace["fork_tree"] != workspace["admitted_source_tree"]
+
+    source_commit = Map.get(workspace, "admitted_source_commit", workspace["base_commit"])
+
+    if dirty == 0 and workspace["fork_head"] == source_commit and not changed_tree,
+      do: violations,
+      else: [
+        "Do not complete verification with source changes or new commits. Preserve the requested no-change scope and remove only changes this verification created; do not commit them."
+        | violations
+      ]
+  end
+
   defp workspace_violations(violations, %{state: :complete}, %{workspace: workspace})
        when is_map(workspace) do
     violations
@@ -944,7 +966,12 @@ defmodule Ryker.Work.Validator do
     fields =
       ~w(admitted_source_tree base_commit committed_count conflict_count fork_head fork_tree goal_ids repository staged_count unstaged_count untracked_count)
 
-    with true <- Maps.exact_keys?(workspace, fields),
+    with true <- Maps.exact_keys?(workspace, fields, ["purpose", "admitted_source_commit"]),
+         true <-
+           Map.get(workspace, "purpose", "implementation") in ~w(implementation verification),
+         true <-
+           is_nil(workspace["admitted_source_commit"]) or
+             Reference.valid?(workspace["admitted_source_commit"], 256),
          true <-
            Enum.all?(~w(base_commit fork_head fork_tree), &Reference.valid?(workspace[&1], 256)),
          true <-

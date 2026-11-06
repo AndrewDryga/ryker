@@ -165,7 +165,9 @@ defmodule Ryker.Records.TaskOffers do
          status: :open,
          payload: %{"kind" => "engineering", "repository" => ^repository}
        } = record} ->
-        {:ok, record}
+        if same_task_purpose?(record.payload, payload),
+          do: {:ok, record},
+          else: {:error, :task_offer_purpose_mismatch}
 
       _ ->
         {:error, :task_instruction_not_authorized}
@@ -190,7 +192,9 @@ defmodule Ryker.Records.TaskOffers do
            )
          ) do
       {:ok, record} when is_nil(offer_ref) or record.ref == offer_ref ->
-        {:ok, record}
+        if same_task_purpose?(record.payload, payload),
+          do: {:ok, record},
+          else: {:error, :task_offer_purpose_mismatch}
 
       {:ok, _another_task} ->
         {:error, :task_instruction_not_authorized}
@@ -198,6 +202,11 @@ defmodule Ryker.Records.TaskOffers do
       {:error, :not_found} ->
         requested_task(binding, payload, offer_ref)
     end
+  end
+
+  defp same_task_purpose?(saved, requested) do
+    Map.get(saved, "purpose", "implementation") ==
+      Map.get(requested, "purpose", "implementation")
   end
 
   @spec confirm(keyword() | map()) :: {:ok, confirmation()} | {:error, term()}
@@ -337,6 +346,7 @@ defmodule Ryker.Records.TaskOffers do
       "success_checks" => payload["success_checks"],
       "title" => payload["title"]
     }
+    |> Maps.put_present("purpose", payload["purpose"])
   end
 
   # The offer carries the worker's exact selector; confirmation re-validates it

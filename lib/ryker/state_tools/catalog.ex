@@ -300,6 +300,11 @@ defmodule Ryker.StateTools.Catalog do
             "For start=true, the exact source_event_id of the current human instruction or current input triggering the authorized assignment or proactive channel fix. For a pending proposal, its source instruction or exact open task_offer ref."
           ),
         "kind" => enum(~w(engineering incident)),
+        "purpose" =>
+          describe(
+            enum(~w(implementation verification)),
+            "Engineering task purpose. Use verification for an explicitly requested test, audit or review with no source changes: it uses a separate task workspace and the project test services, finishes on evidence without a commit, and never creates a publication candidate. Omitted means implementation, which requires committed changes. This does not expand repository or tool authority."
+          ),
         "offer_ref" =>
           describe(
             JSONSchema.nullable(reference(256)),

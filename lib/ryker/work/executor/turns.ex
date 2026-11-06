@@ -435,6 +435,8 @@ defmodule Ryker.Work.Executor.Turns do
   defp ensure_checkpoint_publication_offer(_claim, _checkpoint),
     do: {:error, {:coop_protocol_error, :workspace_checkpoint}}
 
+  defp maybe_create_publication_offer(%{"purpose" => "verification"}, _turn, _result), do: :ok
+
   defp maybe_create_publication_offer(_task, _turn, %{continuation: %{"kind" => "wait"}}), do: :ok
 
   # A turn that left the workspace as the published draft's turn left it has

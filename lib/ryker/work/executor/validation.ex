@@ -414,7 +414,20 @@ defmodule Ryker.Work.Executor.Validation do
                  settings.api.get_changes(settings.client, claim.session.coop_session_id)
                end),
              {:ok, prepared} <- prepare_workspace_changes(changes, goals) do
-          {:ok, prepared}
+          purpose = get_in(claim.session.workspace_task || %{}, ["purpose"]) || "implementation"
+
+          source_commit =
+            get_in(claim.turn.submission || %{}, [
+              "context",
+              "workspace",
+              "source",
+              "selected_commit"
+            ]) || changes["base_commit"]
+
+          {:ok,
+           prepared
+           |> Map.put("purpose", purpose)
+           |> Map.put("admitted_source_commit", source_commit)}
         else
           false -> {:error, {:invalid_work_executor, :workspace_changes_api}}
           {:error, reason} -> {:error, reason}

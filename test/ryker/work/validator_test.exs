@@ -188,6 +188,66 @@ defmodule Ryker.Work.ValidatorTest do
              )
   end
 
+  # A no-commit verification passed 31 tests, but two completion rejections
+  # made it ask the person to resolve a conflict the host had invented.
+  test "verification completes on its evidence without committing a source change" do
+    fixture = Jason.decode!(File.read!("test/ryker/work/fixtures/verification_only_task.json"))
+
+    final =
+      fixture["candidate"]
+      |> Map.update!("message", &(String.split(&1, "\n\nAutomatic completion") |> hd()))
+      |> put_in(["outcome", "state"], "complete")
+      |> Jason.encode!()
+
+    workspace =
+      workspace_changes(
+        committed: 0,
+        fork_tree: "tree-source",
+        admitted_source_tree: "tree-source"
+      )
+      |> Map.put("purpose", "verification")
+      |> Map.put("admitted_source_commit", "fork")
+
+    assert {:accept, accepted} = Validator.validate(final, context(workspace: workspace), @now)
+    assert accepted.final.state == :complete
+  end
+
+  test "verification cannot complete with changed source or new commits" do
+    for changes <- [workspace_changes(committed: 1), workspace_changes(staged: 1)] do
+      workspace = Map.put(changes, "purpose", "verification")
+
+      assert {:reject, violations} =
+               Validator.validate(
+                 candidate(empty_outcome(), "Checked."),
+                 context(workspace: workspace),
+                 @now
+               )
+
+      assert Enum.any?(violations, &String.contains?(&1, "verification"))
+    end
+  end
+
+  test "verification of a selected branch preserves its inherited commits without adding one" do
+    workspace =
+      workspace_changes(
+        committed: 1,
+        fork_tree: "tree-source",
+        admitted_source_tree: "tree-source"
+      )
+      |> Map.put("purpose", "verification")
+      |> Map.put("admitted_source_commit", "fork")
+
+    final = candidate(empty_outcome(), "The selected branch passed its checks.")
+    assert {:accept, _accepted} = Validator.validate(final, context(workspace: workspace), @now)
+
+    assert {:reject, _violations} =
+             Validator.validate(
+               final,
+               context(workspace: Map.put(workspace, "fork_head", "new-commit")),
+               @now
+             )
+  end
+
   test "generated artifacts are refused when the bound platform cannot deliver bytes" do
     candidate =
       candidate(

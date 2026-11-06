@@ -57,7 +57,9 @@ defmodule Ryker.CoopFleet.Requests do
      request(
        "POST",
        session_path(payload) <> "/workspace",
-       Map.take(payload, ~w(expected_revision task))
+       payload
+       |> Map.take(~w(expected_revision task))
+       |> Map.update!("task", &Map.delete(&1, "purpose"))
      )}
   end
 

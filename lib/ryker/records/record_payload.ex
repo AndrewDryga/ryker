@@ -55,6 +55,7 @@ defmodule Ryker.Records.RecordPayload do
              ~w(authority_limits instruction_ref kind prompt repository repository_source source_refs success_checks title)
            ),
          :ok <- enum(payload["kind"], ~w(engineering incident), :kind),
+         :ok <- task_purpose(payload),
          :ok <- text(payload["title"], 120, :title),
          # The brief with its checks, limits and sources appended; the whole
          # record's own byte bound is what holds it in.
@@ -70,11 +71,19 @@ defmodule Ryker.Records.RecordPayload do
   defp task_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
 
   defp task_fields(payload, fields) do
-    if Maps.exact_keys?(payload, fields, ["assignment_ref"]) and
+    if Maps.exact_keys?(payload, fields, ["assignment_ref", "purpose"]) and
          (is_nil(payload["assignment_ref"]) or Reference.valid?(payload["assignment_ref"])),
        do: :ok,
        else: {:error, {:invalid_state_record, :fields}}
   end
+
+  defp task_purpose(%{"kind" => "engineering", "purpose" => purpose}),
+    do: enum(purpose, ~w(implementation verification), :purpose)
+
+  defp task_purpose(%{"purpose" => _purpose}),
+    do: {:error, {:invalid_state_record, :purpose}}
+
+  defp task_purpose(_payload), do: :ok
 
   defp task_repository_source(_repository, nil), do: :ok
 

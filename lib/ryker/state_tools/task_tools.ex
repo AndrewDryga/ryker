@@ -27,6 +27,7 @@ defmodule Ryker.StateTools.TaskTools do
           "title" => arguments["title"]
         }
         |> Maps.put_present("assignment_ref", arguments["assignment_ref"])
+        |> Maps.put_present("purpose", arguments["purpose"])
 
       if arguments["start"] == true do
         Records.TaskOffers.start(

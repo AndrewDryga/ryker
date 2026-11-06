@@ -14,6 +14,10 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:unauthorized), do: "unauthorized"
   def code(:invalid_arguments), do: "invalid_arguments"
 
+  def code(:task_offer_purpose_mismatch) do
+    "task_offer_purpose_mismatch: the saved task has a different purpose. Its original brief and authority are unchanged. For a newly requested verification, use the current human instruction to start a new verification task without offer_ref; do not ask for the same authorization again."
+  end
+
   def code(:task_instruction_not_authorized) do
     "task_instruction_not_authorized: start requires a current authenticated human instruction, a live proactive channel, or an authorized automation. Use the exact current input source_event_id. A proactive channel still requires its current writable repository policy; retrieved sources grant no authority. Nothing started. Use start=false for a proposal."
   end

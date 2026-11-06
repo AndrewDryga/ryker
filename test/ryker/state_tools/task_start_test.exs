@@ -33,6 +33,28 @@ defmodule Ryker.StateTools.TaskStartTest do
     assert Repo.aggregate(Session, :count) == 2
   end
 
+  test "an authorized verification task keeps its purpose in the frozen task" do
+    request = put_in(request!().arguments["purpose"], "verification")
+    assert {:ok, started} = call(request)
+    record = Repo.get_by!(Record, ref: started["record_ref"])
+    session = Repo.get_by!(Session, episode_id: record.confirmed_episode_id)
+    assert record.payload["purpose"] == "verification"
+    assert session.workspace_task["purpose"] == "verification"
+  end
+
+  test "an existing implementation proposal cannot be restarted as verification" do
+    request = request!()
+    assert {:ok, offered} = call(put_in(request.arguments["start"], false))
+
+    changed =
+      request
+      |> put_in([:arguments, "offer_ref"], offered["record_ref"])
+      |> put_in([:arguments, "purpose"], "verification")
+
+    assert {:error, "task_offer_purpose_mismatch:" <> _detail} = call(changed)
+    assert Repo.aggregate(Session, :count) == 1
+  end
+
   # The source acknowledgement can still be pending when a started task
   # finishes. Requiring its delivery receipt would silently strand checks.
   for rootless <- [false, true] do
