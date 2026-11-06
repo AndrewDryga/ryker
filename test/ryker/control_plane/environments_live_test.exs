@@ -146,6 +146,41 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert Settings.fetch!().installation.revision == revision
   end
 
+  # The deployed console erased a completed access check on its next background
+  # refresh, before the operator could read the result (2026-11-06 live check).
+  test "diagnostic results survive a refresh of the same saved settings" do
+    installation!()
+    environment!("ops", "Operations", [])
+    {:ok, view, _html} = open("/environments/ops/edit")
+    revision = Settings.fetch!().installation.revision
+    view |> element("button[phx-click=check-access]") |> render_click()
+    assert render_async(view) =~ "No Emisar account"
+
+    # Connection metadata can redraw the parent without changing the saved environment.
+    {:ok, _credential} =
+      Credentials.put(:slack_app, "page-refresh", "unused-test-connection", @actor)
+
+    send(view.pid, :reload_page)
+
+    assert render(view) =~ "No Emisar account"
+    assert has_element?(view, "button[phx-click=check-access]", "Check diagnostic access")
+    assert Settings.fetch!().installation.revision == revision
+  end
+
+  test "changed saved settings replace a completed diagnostic result with a request to check again" do
+    installation!()
+    environment!("ops", "Operations", [])
+    {:ok, view, _html} = open("/environments/ops/edit")
+    view |> element("button[phx-click=check-access]") |> render_click()
+    assert render_async(view) =~ "No Emisar account"
+
+    environment!("ops", "Operations", ~w(api))
+    send(view.pid, :reload_page)
+
+    assert has_element?(view, "[role=status]", "Check the saved environment again")
+    refute render(view) =~ "No Emisar account"
+  end
+
   defp counts(html) do
     html
     |> LazyHTML.from_document()

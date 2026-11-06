@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   @impl true
   def update(assigns, socket) do
-    socket = assign(socket, assigns)
+    socket = socket |> assign(assigns) |> keep_diagnostics()
 
     cond do
       not Map.has_key?(socket.assigns, :draft) ->
@@ -46,6 +46,18 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     end
   end
 
+  # Worker and connection metadata redraw this component without changing its
+  # saved settings. Keep completed checks readable and in-flight checks single;
+  # a settings revision change explicitly invalidates a completed result.
+  defp keep_diagnostics(%{assigns: %{diagnostics: %{} = result}} = socket) do
+    if result.environment_ref == socket.assigns.ref and
+         result.revision == socket.assigns.view.revision,
+       do: socket,
+       else: assign(socket, :diagnostics, :changed)
+  end
+
+  defp keep_diagnostics(socket), do: assign_new(socket, :diagnostics, fn -> nil end)
+
   defp reset(socket) do
     %{view: view, ref: ref} = socket.assigns
     baseline = saved(view, ref)
@@ -55,7 +67,6 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       draft: baseline || blank(view),
       dirty: false,
       error: nil,
-      diagnostics: nil,
       expected_revision: view.revision
     )
   end
