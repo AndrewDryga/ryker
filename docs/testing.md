@@ -214,6 +214,12 @@ make eval-world
 candidate and baseline matrix three times against the same deterministic worlds and enforces the
 configured aggregate, per-case, paired-regression, hard-invariant, execution, and cleanup limits.
 
+Scheduled `wait_wakeup` events are bounded checkpoints, not permission to invent a timer.
+After settled completion, or when the settled turn retains an active source watch with neither
+a poll time nor a deadline, remaining checkpoints are recorded as skipped without another model
+turn. An untimed watch stays open; skipping never satisfies a required continuation or other
+hard expectation. Timer wakeups still require the exact active subscription and its due window.
+
 Both run through `scripts/elixir-world-eval.sh`, which splits the plan into shards that run at
 once. The full matrix runs every scenario three times in the candidate and baseline lanes, 198
 observations for the 33 scenarios of 2026-10-07, at about 93 seconds each; when it was 186, one VM

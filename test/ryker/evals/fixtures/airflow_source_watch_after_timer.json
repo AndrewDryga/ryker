@@ -1,0 +1,284 @@
+{
+  "provenance": {
+    "kind": "model_world",
+    "report_sha256": "da5812925f915c2c41f5bf774555a8490611df3f5104602862ffb1f0bcdcaefb",
+    "lane": "baseline",
+    "repeat_index": 2,
+    "capture_scope": "Recorded state writes and final candidates only; the report does not retain source-call attribution per turn."
+  },
+  "turns": [
+    {
+      "candidate": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "message": "Airflow’s backend is healthy in the available GCP observation, but it reports revision `bd561fcf`, so I can’t yet confirm `756bb648` from [the applied run](https://app.terraform.io/app/SME-Tenant/tenant-infra/runs/run-sBbtTAxOfCwLmMSH). Monitoring history is still incomplete. I’ll recheck in 30 minutes and report here.",
+        "outcome": {
+          "artifact_refs": [],
+          "record_refs": [
+            "record:evidence:d4d1ce29811096217d8dfd72f3634655",
+            "record:event_wait:706818004b322bdcea455b40db50dfff",
+            "record:finding:0ee84541b511c31a6ed9759211551e0a"
+          ],
+          "state": "waiting_for_event"
+        },
+        "title": "Airflow post-apply verification"
+      },
+      "input_clock": {
+        "adjustment": "causal_rebase",
+        "applied_occurred_at": "2026-11-05T17:51:44.034669Z",
+        "mode": "simulated",
+        "scenario_occurred_at": "2026-08-27T19:58:10Z",
+        "source_occurred_at": "2026-08-27T19:58:10Z"
+      },
+      "records": [
+        {
+          "kind": "goal",
+          "payload": {
+            "authority": "read_only",
+            "completion_contract": "Establish the observed Airflow revision, backend health and whether monitoring covers the requested observation window.",
+            "id": "airflow_snapshot",
+            "kind": "check",
+            "parent_goal_id": null,
+            "prerequisite_goal_ids": [],
+            "read_only_repositories": [],
+            "requested_outcome": "Verify Airflow deployment snapshot",
+            "required": true,
+            "stage": "self_review",
+            "writable_repository": null
+          },
+          "ref": "record:goal:59e31e472fbd34b2194cb7b3ae7cf7b3"
+        },
+        {
+          "kind": "goal",
+          "payload": {
+            "authority": "read_only",
+            "completion_contract": "After the bounded observation window, verify Airflow deployment revision, backend health and monitoring history and report the result in this conversation.",
+            "id": "airflow_window",
+            "kind": "check",
+            "parent_goal_id": null,
+            "prerequisite_goal_ids": [],
+            "read_only_repositories": [],
+            "requested_outcome": "Verify Airflow after the observation window",
+            "required": true,
+            "stage": "self_review",
+            "writable_repository": null
+          },
+          "ref": "record:goal:ca7607e44a4d3c490703fd7bc1fc58b6"
+        },
+        {
+          "kind": "evidence",
+          "payload": {
+            "claim": "Airflow deployment health",
+            "claim_id": "citation:e6f836aa14a9f5cecdd6eff16f40efe3",
+            "confidence": null,
+            "dimensions": {},
+            "freshness": null,
+            "health_effect": null,
+            "observation": "Production Airflow is reported running revision bd561fcf63f9e1db8fc65232db0e4c899b11237e; backend healthy. Observation window is incomplete and monitoring reports insufficient_history. These observations do not verify requested revision 756bb648.",
+            "observed_at": "2026-08-27T20:31:57Z",
+            "relation": "supports",
+            "scope_note": null,
+            "source_id": "run:run_524bb513e01025e2722d95b2de2130d8",
+            "source_name": "run:run_524bb513e01025e2722d95b2de2130d8",
+            "source_type": "other",
+            "supersedes": [],
+            "target": "Airflow deployment health"
+          },
+          "ref": "record:evidence:d4d1ce29811096217d8dfd72f3634655"
+        },
+        {
+          "kind": "goal_state",
+          "payload": {
+            "detail": "Snapshot established; requested revision not confirmed and history incomplete.",
+            "evidence_refs": [
+              "record:evidence:d4d1ce29811096217d8dfd72f3634655"
+            ],
+            "goal_id": "airflow_snapshot",
+            "state": "completed"
+          },
+          "ref": "record:goal_state:80c0b8f833105cbf38f81a007b4f52f7"
+        },
+        {
+          "kind": "event_wait",
+          "payload": {
+            "deadline_at": "2026-11-05T18:39:37Z",
+            "event_matcher": {
+              "at": "2026-11-05T18:24:37Z",
+              "on_timeout": "Read Airflow deployment, backend health and monitoring and report any remaining verification gap.",
+              "type": "at"
+            },
+            "kind": "at",
+            "verification": "Recheck production Airflow for Terraform run run-sBbtTAxOfCwLmMSH and requested revision 756bb64853ef5554ac81770c164f4e3aae99c6b7 after 30 minutes from the initial observation in this replay. Initial source observation at 2026-08-27T20:31:57Z reports running revision bd561fcf63f9e1db8fc65232db0e4c899b11237e, healthy backend, incomplete observation_window and insufficient_history. Require completed observation window, compare revision and backend health, inspect monitoring for errors and report in this conversation. Preserve original source chronology; elapsed receipt time does not prove health."
+          },
+          "ref": "record:event_wait:706818004b322bdcea455b40db50dfff"
+        },
+        {
+          "kind": "goal_state",
+          "payload": {
+            "detail": "Observation history is incomplete; bounded follow-up will recheck deployment revision and health.",
+            "evidence_refs": [
+              "record:evidence:d4d1ce29811096217d8dfd72f3634655"
+            ],
+            "goal_id": "airflow_window",
+            "state": "waiting"
+          },
+          "ref": "record:goal_state:14aea5dec25345de021abab696abe9a1"
+        },
+        {
+          "kind": "finding",
+          "payload": {
+            "cause_evidence": [
+              "record:evidence:d4d1ce29811096217d8dfd72f3634655"
+            ],
+            "reason": "Monitoring has insufficient history; revision relationship and sustained health remain unresolved.",
+            "scope": "Production Airflow verification for run-sBbtTAxOfCwLmMSH",
+            "status": "unexplained",
+            "what": "Requested Airflow revision 756bb648 is not established by current deployment evidence: observed running revision is bd561fcf63f9e1db8fc65232db0e4c899b11237e. Backend is healthy but the observation window is incomplete."
+          },
+          "ref": "record:finding:0ee84541b511c31a6ed9759211551e0a"
+        }
+      ]
+    },
+    {
+      "candidate": {
+        "decision_reason": null,
+        "delivery": "reply",
+        "message": "After the observation window for [run-sBbtTAxOfCwLmMSH](https://app.terraform.io/app/SME-Tenant/tenant-infra/runs/run-sBbtTAxOfCwLmMSH) (`756bb648`), GCP reports Airflow’s backend healthy and `airflow-0b68` running application revision `bd561fcf` at 21:01 UTC on August 27. That application revision alone doesn’t confirm or contradict the infrastructure revision. Scheduler and task health remain unknown because monitoring has no Airflow application logs or task metrics; the verified result is backend health only.",
+        "outcome": {
+          "artifact_refs": [],
+          "record_refs": [
+            "record:evidence:49f9f0393e224c7f6b1e75ecceda526d",
+            "record:evidence:413c32c5642bed05a2a1fc8a2fd36ae7",
+            "record:evidence:b1014b81bb3e6447ba2870b34e4598b0",
+            "record:finding:5b07267a1bedab24976ede9a20a3b73e",
+            "record:goal_state:59d4daac9a67ff09833506b09fdf3bb3",
+            "record:event_wait:0884834654463ac8a9bd1cc29c5e6113"
+          ],
+          "state": "waiting_for_event"
+        },
+        "title": null
+      },
+      "input_clock": {
+        "adjustment": "persisted_wait_due_at",
+        "applied_occurred_at": "2026-11-05T18:24:37.000000Z",
+        "mode": "simulated",
+        "scenario_occurred_at": "2026-08-27T20:28:13Z",
+        "source_occurred_at": null
+      },
+      "records": [
+        {
+          "kind": "evidence",
+          "payload": {
+            "claim": "Airflow running revision",
+            "claim_id": "citation:f0ed4bd99b7edb2e6c01469eb72bda78",
+            "confidence": null,
+            "dimensions": {},
+            "freshness": null,
+            "health_effect": null,
+            "observation": "Production Airflow instance airflow-0b68 is running revision bd561fcf63f9e1db8fc65232db0e4c899b11237e. This does not establish that infrastructure revision 756bb648 is the application revision.",
+            "observed_at": "2026-08-27T21:01:35Z",
+            "relation": "supports",
+            "scope_note": null,
+            "source_id": "emisar:op_5SAK36XR8ZPQ713CWP58NMKY6Q",
+            "source_name": "emisar:op_5SAK36XR8ZPQ713CWP58NMKY6Q",
+            "source_type": "other",
+            "supersedes": [],
+            "target": "Airflow running revision"
+          },
+          "ref": "record:evidence:49f9f0393e224c7f6b1e75ecceda526d"
+        },
+        {
+          "kind": "evidence",
+          "payload": {
+            "claim": "Airflow backend health",
+            "claim_id": "citation:2b6e0368c01093bfcf504f8b20085ba7",
+            "confidence": null,
+            "dimensions": {},
+            "freshness": null,
+            "health_effect": null,
+            "observation": "Airflow backend airflow-0b68:8080 is healthy at the post-window observation.",
+            "observed_at": "2026-08-27T21:00:50Z",
+            "relation": "supports",
+            "scope_note": null,
+            "source_id": "emisar:op_06XB2KMTNTW6X1RBJAS8FBD20E",
+            "source_name": "emisar:op_06XB2KMTNTW6X1RBJAS8FBD20E",
+            "source_type": "other",
+            "supersedes": [],
+            "target": "Airflow backend health"
+          },
+          "ref": "record:evidence:413c32c5642bed05a2a1fc8a2fd36ae7"
+        },
+        {
+          "kind": "evidence",
+          "payload": {
+            "claim": "Airflow telemetry coverage",
+            "claim_id": "citation:1dfb9331b9aec7a8336cd49bfa68bd9b",
+            "confidence": null,
+            "dimensions": {},
+            "freshness": null,
+            "health_effect": null,
+            "observation": "Monitoring reports source_unavailable with no available series: no authorized Airflow application-log, scheduler or task metric population in VictoriaLogs or VictoriaMetrics. This is an evidence availability gap, not zero errors or proof of application health.",
+            "observed_at": "2026-08-27T21:04:15Z",
+            "relation": "supports",
+            "scope_note": null,
+            "source_id": "run:run_5579729ffd553777415561c95237b76d:telemetry-gap",
+            "source_name": "run:run_5579729ffd553777415561c95237b76d:telemetry-gap",
+            "source_type": "other",
+            "supersedes": [
+              "record:evidence:d4d1ce29811096217d8dfd72f3634655"
+            ],
+            "target": "Airflow telemetry coverage"
+          },
+          "ref": "record:evidence:b1014b81bb3e6447ba2870b34e4598b0"
+        },
+        {
+          "kind": "finding",
+          "payload": {
+            "cause_evidence": [
+              "record:evidence:49f9f0393e224c7f6b1e75ecceda526d",
+              "record:evidence:413c32c5642bed05a2a1fc8a2fd36ae7",
+              "record:evidence:b1014b81bb3e6447ba2870b34e4598b0"
+            ],
+            "reason": "Monitoring has no authorized application logs, scheduler or task metrics. Deployment and backend reads establish runtime identity and load-balancer health only; they do not map infrastructure revision 756bb648 to the application revision or establish functional health. Functional telemetry and revision mapping would close the remaining gaps.",
+            "scope": "Production Airflow post-window verification for run-sBbtTAxOfCwLmMSH / 756bb648",
+            "status": "unexplained",
+            "what": "Post-window GCP observations show airflow-0b68 running application revision bd561fcf63f9e1db8fc65232db0e4c899b11237e with a healthy backend. Scheduler and task execution health cannot be established."
+          },
+          "ref": "record:finding:5b07267a1bedab24976ede9a20a3b73e"
+        },
+        {
+          "kind": "goal_state",
+          "payload": {
+            "detail": "Bounded follow-up performed. Running application revision and healthy backend observed; functional verification cannot finish because monitoring has no authorized Airflow application logs, scheduler or task metrics, and infrastructure-to-application revision mapping is unavailable from the provided reads.",
+            "evidence_refs": [
+              "record:evidence:49f9f0393e224c7f6b1e75ecceda526d",
+              "record:evidence:413c32c5642bed05a2a1fc8a2fd36ae7",
+              "record:evidence:b1014b81bb3e6447ba2870b34e4598b0"
+            ],
+            "goal_id": "airflow_window",
+            "state": "blocked"
+          },
+          "ref": "record:goal_state:59d4daac9a67ff09833506b09fdf3bb3"
+        },
+        {
+          "kind": "event_wait",
+          "payload": {
+            "deadline_at": null,
+            "event_matcher": {
+              "match": {
+                "revision": "756bb648"
+              },
+              "on_timeout": null,
+              "poll_after": null,
+              "source_kind": "slack",
+              "type": "source_event"
+            },
+            "kind": "source_event",
+            "verification": "Continue Airflow verification when further evidence or instructions for revision 756bb648 arrive. Bounded follow-up is already performed; do not repeat its timer. Missing evidence is Airflow scheduler/task health and infrastructure-to-application revision mapping. Current backend healthy, application revision bd561fcf; do not treat absent telemetry as a service failure."
+          },
+          "ref": "record:event_wait:0884834654463ac8a9bd1cc29c5e6113"
+        }
+      ]
+    }
+  ]
+}

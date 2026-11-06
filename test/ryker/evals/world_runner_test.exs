@@ -377,6 +377,72 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert [%{status: :active}] = Repo.all(EventSubscription)
   end
 
+  test "a human's read-only diagnosis may ask for the missing access without gaining action authority" do
+    # Three of 300 observations were rejected for human clarification questions the host permits;
+    # this exact candidate preserved the unknown cause and asked for the missing diagnostic reads.
+    captured =
+      "test/ryker/evals/fixtures/read_only_diagnostic_access_question.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    {:ok, scenario} = WorldCase.fetch(captured["scenario_id"])
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    before_execute = fn claim, _scenario ->
+      for call <- captured["source_calls"] do
+        expected =
+          if call["outcome"] == "unmatched",
+            do: {:error, call["result"]["error"]},
+            else: {:ok, call["result"]}
+
+        assert WorldCassette.call(cassette, call["tool"], call["arguments"]) == expected
+      end
+
+      refs =
+        Enum.reduce(captured["records"], %{}, fn record, refs ->
+          assert {:ok, created} =
+                   Records.create(
+                     Records.token(claim.turn),
+                     record["ref"],
+                     record["kind"],
+                     replace_harvested_refs(record["payload"], refs)
+                   )
+
+          Map.put(refs, record["ref"], created.ref)
+        end)
+
+      candidate = replace_harvested_refs(captured["candidate"], refs)
+
+      assert {:ok, %{"accepted" => true}} =
+               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
+
+      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
+      :ok
+    end
+
+    result =
+      WorldRunner.run(
+        scenario,
+        routing_options(fake) ++ [before_execute: before_execute, cassette: cassette]
+      )
+
+    report =
+      case result do
+        {:ok, report} -> report
+        {:error, {:world_eval_assertions, report}} -> report
+      end
+
+    assert report.failures == []
+    assert match?({:ok, _report}, result)
+    assert Repo.get!(Ryker.Episodes.Episode, report.episode_id).state == :waiting_for_input
+
+    assert [%{"kind" => "input_request"}] =
+             Enum.filter(report.records, &(&1["kind"] == "input_request"))
+
+    refute Enum.any?(report.records, &(&1["kind"] == "task_offer"))
+  end
+
   @state_scenarios [
     {"rivals-engineering-task-offer", "request_task"},
     {"material-rollout-choice-asks-once", "request_input"},
@@ -1072,7 +1138,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
     {:ok, source} = Agent.start_link(fn -> nil end)
-    replay = harvested_completion_replay(harvested, fake, cassette)
+    replay = harvested_wait_replay(harvested, fake, cassette, :silence)
 
     before_execute = fn claim, scenario ->
       if Agent.get(source, & &1) do
@@ -1145,7 +1211,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
     {:ok, cassette} = start_supervised({WorldCassette, scenario})
-    before_execute = harvested_completion_replay(harvested, fake, cassette)
+    before_execute = harvested_wait_replay(harvested, fake, cassette, :silence)
 
     assert {:ok, report} =
              WorldRunner.run(scenario,
@@ -1202,6 +1268,105 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     assert turn_id == completed.turn_id
     assert length(serialized["runtime"]["turns"]) == 2
+  end
+
+  test "a harvested source watch after bounded follow-up cannot spend an invented timer turn" do
+    # The full matrix rejected this accepted two-turn Airflow observation because its next
+    # replay checkpoint demanded a timer after the real follow-up had retained an untimed watch.
+    harvested =
+      "test/ryker/evals/fixtures/airflow_source_watch_after_timer.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
+    # This state-only capture proves timer custody; all hard invariants stay enabled.
+    scenario = %{scenario | expect: Map.put(scenario.expect, "trajectory", [])}
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    result =
+      WorldRunner.run(
+        scenario,
+        routing_options(fake) ++
+          [
+            before_execute: harvested_wait_replay(harvested, fake, cassette, :captured),
+            cassette: cassette
+          ]
+      )
+
+    report =
+      case result do
+        {:ok, report} -> report
+        {:error, {:world_eval_assertions, report}} -> report
+      end
+
+    refute Map.has_key?(report, :execution_error), inspect(Map.get(report, :execution_error))
+    assert report.failures == []
+    assert match?({:ok, _}, result)
+    assert [first, followup] = report.runtime.turns
+    assert first.session_id == followup.session_id
+    assert followup.candidate["outcome"]["state"] == "waiting_for_event"
+    assert followup.candidate["message"] == List.last(harvested["turns"])["candidate"]["message"]
+    assert FakeWorkCoopAPI.state(fake).submit_count == 2
+    assert [%{state: :waiting_for_event}] = Repo.all(Ryker.Episodes.Episode)
+
+    assert [%{status: :active, poll_after: nil, deadline_at: nil}] =
+             Repo.all(EventSubscription.Query.active())
+
+    assert [%{reason: "untimed_source_wait", scenario_index: 3}] =
+             report.runtime.skipped_checkpoints
+  end
+
+  test "an untimed initial source watch cannot satisfy required bounded continuation" do
+    harvested =
+      "test/ryker/evals/fixtures/airflow_source_watch_after_timer.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    watch =
+      harvested["turns"]
+      |> List.last()
+      |> Map.fetch!("records")
+      |> Enum.find(&(&1["kind"] == "event_wait"))
+      |> Map.fetch!("payload")
+
+    {:ok, scenario} = WorldCase.fetch("airflow-verification-arms-wait")
+    [first | later] = scenario.host_replay["model_events"]
+
+    calls =
+      Enum.map(first["calls"], fn
+        %{"tool" => "wait_for"} = call ->
+          Map.put(call, "arguments", %{
+            "deadline" => nil,
+            "on_timeout" => nil,
+            "trigger" => Map.delete(watch["event_matcher"], "on_timeout"),
+            "verification" => watch["verification"]
+          })
+
+        call ->
+          call
+      end)
+
+    scenario = %{
+      scenario
+      | host_replay: %{"model_events" => [Map.put(first, "calls", calls) | later]}
+    }
+
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
+    {:ok, replay} = WorldHostReplay.before_execute(scenario, fake, cassette: cassette)
+
+    assert {:error, {:world_eval_assertions, report}} =
+             WorldRunner.run(
+               scenario,
+               routing_options(fake) ++ [before_execute: replay, cassette: cassette]
+             )
+
+    assert Enum.any?(report.failures, &(&1["kind"] == "same_session_continuation"))
+    refute Map.has_key?(report, :execution_error)
+    assert [_initial] = report.runtime.turns
+    assert Enum.all?(report.runtime.skipped_checkpoints, &(&1.reason == "untimed_source_wait"))
+    assert FakeWorkCoopAPI.state(fake).submit_count == 1
   end
 
   test "skipped checkpoints cannot satisfy a required first wait or same-session continuation" do
@@ -1344,15 +1509,26 @@ defmodule Ryker.Evals.WorldRunnerTest do
     }
   end
 
-  defp harvested_completion_replay(harvested, fake, cassette) do
+  defp harvested_wait_replay(harvested, fake, cassette, initial_reply) do
     {:ok, counter} = Agent.start_link(fn -> {0, %{}} end)
-    deadline = DateTime.utc_now() |> DateTime.add(1_200, :second) |> DateTime.to_iso8601()
+    first = hd(harvested["turns"])
+    wait = Enum.find(first["records"], &(&1["kind"] == "event_wait"))
+    {:ok, captured_input, 0} = DateTime.from_iso8601(first["input_clock"]["applied_occurred_at"])
+    {:ok, captured_deadline, 0} = DateTime.from_iso8601(wait["payload"]["deadline_at"])
+
+    deadline =
+      DateTime.utc_now()
+      |> DateTime.add(
+        DateTime.diff(captured_deadline, captured_input, :microsecond),
+        :microsecond
+      )
+      |> DateTime.to_iso8601()
 
     fn claim, _scenario ->
       {index, refs} = Agent.get(counter, & &1)
       captured = Enum.fetch!(harvested["turns"], index)
 
-      for call <- captured["source_calls"] do
+      for call <- captured["source_calls"] || [] do
         assert {:ok, result} = WorldCassette.call(cassette, call["tool"], call["arguments"])
         assert result == call["result"]
       end
@@ -1377,7 +1553,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
       candidate = replace_harvested_refs(captured["candidate"], refs)
 
       candidate =
-        if index == 0 do
+        if index == 0 and initial_reply == :silence do
           candidate
           |> Map.put("delivery", "none")
           |> Map.put("message", nil)
@@ -1398,6 +1574,38 @@ defmodule Ryker.Evals.WorldRunnerTest do
     end
   end
 
+  defp harvested_record_payload(
+         %{
+           "kind" => "event_wait",
+           "payload" => %{"kind" => "source_event", "deadline_at" => nil} = payload
+         },
+         refs,
+         _deadline
+       ),
+       do: replace_harvested_refs(payload, refs)
+
+  defp harvested_record_payload(
+         %{"kind" => "event_wait", "payload" => %{"kind" => "at"} = payload},
+         refs,
+         deadline
+       ) do
+    {:ok, captured_at, 0} = DateTime.from_iso8601(payload["event_matcher"]["at"])
+    {:ok, captured_deadline, 0} = DateTime.from_iso8601(payload["deadline_at"])
+    {:ok, current_deadline, 0} = DateTime.from_iso8601(deadline)
+
+    current_at =
+      DateTime.add(
+        current_deadline,
+        DateTime.diff(captured_at, captured_deadline, :microsecond),
+        :microsecond
+      )
+
+    payload
+    |> replace_harvested_refs(refs)
+    |> Map.put("deadline_at", deadline)
+    |> put_in(["event_matcher", "at"], DateTime.to_iso8601(current_at))
+  end
+
   defp harvested_record_payload(%{"kind" => "event_wait", "payload" => payload}, refs, deadline),
     do: payload |> replace_harvested_refs(refs) |> Map.put("deadline_at", deadline)
 
@@ -1405,7 +1613,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
   # recording carries none. The harness supplies the stage this read-only
   # verification work belongs to; every other field stays exactly as captured.
   defp harvested_record_payload(%{"kind" => "goal", "payload" => payload}, refs, _deadline),
-    do: payload |> replace_harvested_refs(refs) |> Map.put("stage", "implementation")
+    do: payload |> replace_harvested_refs(refs) |> Map.put_new("stage", "implementation")
 
   defp harvested_record_payload(%{"payload" => payload}, refs, _deadline),
     do: replace_harvested_refs(payload, refs)
@@ -2743,50 +2951,97 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert report.records |> Enum.map(& &1["kind"]) |> Enum.sort() == ["evidence", "task_offer"]
   end
 
-  test "actor authority rejects a durable state action outside the fabricated world" do
+  for {label, scenario_id, actor_ref} <- [
+        {"scheduled review", "va1-health-review-repairs-and-finishes",
+         "schedule:system:schedule"},
+        {"human read-only review", "confirmed-failure-with-unknown-cause-stays-unexplained",
+         "slack:user:U-operator"}
+      ] do
+    @authority_scenario scenario_id
+    @authority_actor actor_ref
+    test "#{label} cannot authorize a task offer" do
+      {:ok, scenario} = WorldCase.fetch(@authority_scenario)
+
+      scenario = %{
+        scenario
+        | events: Enum.filter(scenario.events, &(&1["kind"] == "input")),
+          expect: %{"hard" => [], "quality_rubric" => [], "trajectory" => []}
+      }
+
+      {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+      before_execute = fn claim, _scenario ->
+        {record_ref, state, message} = record_state_tool!("request_task", claim)
+        candidate = final_candidate(state, message, [record_ref])
+
+        assert {:ok, %{"accepted" => true}} =
+                 Tools.call(
+                   "validate_final",
+                   %{"candidate" => Jason.decode!(candidate)},
+                   binding_options(claim)
+                 )
+
+        FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
+        :ok
+      end
+
+      assert {:error, {:world_eval_assertions, report}} =
+               WorldRunner.run(scenario,
+                 api: FakeWorkCoopAPI,
+                 before_execute: before_execute,
+                 client: fake,
+                 id_generator: fn -> "world-unauthorized-action" end,
+                 policy: "world-eval-read-only",
+                 policy_digest: @policy_digest,
+                 state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+                 state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
+                 worker_ref: "world-eval-worker"
+               )
+
+      assert [failure] = report.failures
+      assert failure["kind"] == "unauthorized_state_record"
+      assert failure["actor_ref"] == @authority_actor
+      assert failure["authority"] == "read_only"
+      assert failure["record_kind"] == "task_offer"
+    end
+  end
+
+  test "a read-only automation cannot gain a clarification addressee from a saved question" do
+    captured =
+      "test/ryker/evals/fixtures/read_only_diagnostic_access_question.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    question = Enum.find(captured["records"], &(&1["kind"] == "input_request"))
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
-
-    scenario = %{
-      scenario
-      | events: Enum.filter(scenario.events, &(&1["kind"] == "input")),
-        expect: %{"hard" => [], "quality_rubric" => [], "trajectory" => []}
-    }
-
+    scenario = %{scenario | expect: %{"hard" => [], "quality_rubric" => [], "trajectory" => []}}
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
 
     before_execute = fn claim, _scenario ->
-      {record_ref, state, message} = record_state_tool!("request_task", claim)
-      candidate = final_candidate(state, message, [record_ref])
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding_options(claim)
+      refute Episodes.Origins.person_participated?(claim.episode.id)
+      # Deliberately bypass the tool's no_addressee guard: the oracle must still reject
+      # a wrongly persisted question, rather than treating any state write as permission.
+      assert {:ok, record} =
+               Records.create(
+                 Records.token(claim.turn),
+                 question["ref"],
+                 "input_request",
+                 question["payload"]
                )
 
-      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
+      candidate = put_in(captured["candidate"], ["outcome", "record_refs"], [record.ref])
+
+      assert {:ok, %{"accepted" => true}} =
+               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
+
+      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
       :ok
     end
 
     assert {:error, {:world_eval_assertions, report}} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               before_execute: before_execute,
-               client: fake,
-               id_generator: fn -> "world-unauthorized-action" end,
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
-               worker_ref: "world-eval-worker"
-             )
+             WorldRunner.run(scenario, routing_options(fake) ++ [before_execute: before_execute])
 
-    assert [failure] = report.failures
-    assert failure["kind"] == "unauthorized_state_record"
-    assert failure["actor_ref"] == "schedule:system:schedule"
-    assert failure["authority"] == "read_only"
-    assert failure["record_kind"] == "task_offer"
+    assert [%{"record_kind" => "input_request", "authority" => "read_only"}] = report.failures
   end
 
   defp cross_created_job(fake) do

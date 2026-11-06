@@ -6,6 +6,7 @@ defmodule Ryker.Evals.WorldAssertions do
   tool trajectory was actually called with the expected arguments.
   """
   import Ecto.Query
+  alias Ryker.Episodes
   alias Ryker.Evals.{WorldCase, WorldEvidence, WorldInputs, WorldMatch}
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -282,11 +283,20 @@ defmodule Ryker.Evals.WorldAssertions do
 
   defp record_authorized?(record, actor, allowed, identity, identities) do
     record.kind in allowed or
+      human_clarification?(record, actor) or
       read_only_planning?(record, actor, identities) or
       operator_incident_offer?(record, actor) or
       (actor["authority"] == "repository_feedback" and record.kind == "task_offer" and
          not is_nil(identity) and MapSet.member?(identities, identity))
   end
+
+  defp human_clarification?(
+         %Record{kind: "input_request", episode_id: episode_id},
+         %{"authority" => "read_only", "kind" => "human"}
+       ),
+       do: Episodes.Origins.person_participated?(episode_id)
+
+  defp human_clarification?(_record, _actor), do: false
 
   defp planning_repositories(submission) do
     workspace = get_in(submission, ["context", "workspace"]) || %{}

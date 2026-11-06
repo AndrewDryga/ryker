@@ -1,0 +1,629 @@
+{
+  "provenance": {
+    "kind": "model_world",
+    "report_sha256": "da5812925f915c2c41f5bf774555a8490611df3f5104602862ffb1f0bcdcaefb",
+    "lane": "candidate",
+    "repeat_index": 3
+  },
+  "scenario_id": "confirmed-failure-with-unknown-cause-stays-unexplained",
+  "records": [
+    {
+      "kind": "goal",
+      "payload": {
+        "authority": "read_only",
+        "completion_contract": "Establish VA1 service inventory, observed health and deployment failures from current available reads.",
+        "id": "va1-health",
+        "kind": "check",
+        "parent_goal_id": null,
+        "prerequisite_goal_ids": [],
+        "read_only_repositories": [],
+        "requested_outcome": "Assess VA1 infrastructure health",
+        "required": true,
+        "stage": "planning",
+        "writable_repository": null
+      },
+      "ref": "record:goal:295f5cf73befd215662c6d98e66d3f27",
+      "status": "open"
+    },
+    {
+      "kind": "goal",
+      "payload": {
+        "authority": "read_only",
+        "completion_contract": "Investigate confirmed VA1 failures and establish their cause or the precise evidence needed to distinguish causes.",
+        "id": "va1-diagnosis",
+        "kind": "check",
+        "parent_goal_id": null,
+        "prerequisite_goal_ids": [],
+        "read_only_repositories": [],
+        "requested_outcome": "Explain confirmed failures",
+        "required": true,
+        "stage": "planning",
+        "writable_repository": null
+      },
+      "ref": "record:goal:852260dfc3fb2d4249bbaf5fa83cd037",
+      "status": "open"
+    },
+    {
+      "kind": "goal_state",
+      "payload": {
+        "detail": null,
+        "goal_id": "va1-health",
+        "state": "working"
+      },
+      "ref": "record:goal_state:60e5e834a5d20d91a93dd70c30758505",
+      "status": "open"
+    },
+    {
+      "kind": "goal_state",
+      "payload": {
+        "detail": null,
+        "goal_id": "va1-diagnosis",
+        "state": "working"
+      },
+      "ref": "record:goal_state:f6df9e4c4a92f6ae9d23fd79dc73a217",
+      "status": "open"
+    },
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "Ingress failure rates",
+        "claim_id": "citation:da03dc49b6cee2b007ab826ddc84519a",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "10-minute ingress window: Arena 94.2% 5xx of 41,200 requests; Ladder 0.375% of 88,310; tenantapp, website, auth, payments and data-api 0% 5xx. This measures ingress responses only.",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "source:va1:ingress-5xx:20261015T2020Z",
+        "source_name": "source:va1:ingress-5xx:20261015T2020Z",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "Ingress failure rates"
+      },
+      "ref": "record:evidence:54ca5e8ed311902c32226eb9d6791c11",
+      "status": "open"
+    },
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "Arena allocation health",
+        "claim_id": "citation:6da78c2afe590fe019a69d8c183fa09d",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "Arena has 1/1 desired allocations running, no failed tasks or restarts in the last hour. This does not establish application health or explain 5xx.",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "source:va1:nomad-arena:20261015T2020Z",
+        "source_name": "source:va1:nomad-arena:20261015T2020Z",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "Arena allocation health"
+      },
+      "ref": "record:evidence:ce79e7b93cf2c8ad120ae9e34a3ef52e",
+      "status": "open"
+    },
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "Active failure alerts",
+        "claim_id": "citation:b69ea787a5817fda9ac16bb6c0b6d772",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "ArenaIngress5xxHigh firing since October 3; DuelDeadLetterRate firing since October 15 with 78 dead-letter arrivals in the last hour. Underlying causes not shown.",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "source:va1:alerts:20261015T2020Z",
+        "source_name": "source:va1:alerts:20261015T2020Z",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "Active failure alerts"
+      },
+      "ref": "record:evidence:a8d3d2bd869d8c9a706771f18da23bfb",
+      "status": "open"
+    },
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "Node availability",
+        "claim_id": "citation:6b39f22b2ef638e6614516d7ef2127c8",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "VA1 has 5/5 Nomad clients ready and eligible, none draining; 3/3 Cassandra nodes up/normal.",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "source:va1:nomad-nodes:20261015T2020Z",
+        "source_name": "source:va1:nomad-nodes:20261015T2020Z",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "Node availability"
+      },
+      "ref": "record:evidence:72eec437a0ae920a60d722268f870abd",
+      "status": "open"
+    },
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "Database availability and backups",
+        "claim_id": "citation:0b998e0a75d0956455620eef936b025e",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "9/9 monitored PostgreSQL targets up and 3/3 Cassandra nodes normal. Reported successful differential backup ages 9.2–18.2 hours, full backups 4.4–4.8 days; no restore verification.",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "source:va1:databases:20261015T2020Z",
+        "source_name": "source:va1:databases:20261015T2020Z",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "Database availability and backups"
+      },
+      "ref": "record:evidence:7f92490b82aabbee75cd39a867263581",
+      "status": "open"
+    },
+    {
+      "kind": "evidence",
+      "payload": {
+        "claim": "Recent deployments",
+        "claim_id": "citation:c69d89401a7caf328da85490b118062a",
+        "confidence": null,
+        "dimensions": {},
+        "freshness": null,
+        "health_effect": null,
+        "observation": "Arena deployment successful October 1 09:12 UTC; tenantapp successful October 14 16:40 UTC. Deployment success alone does not establish current application health.",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "relation": "supports",
+        "scope_note": null,
+        "source_id": "source:va1:nomad-deployments:20261015T2020Z",
+        "source_name": "source:va1:nomad-deployments:20261015T2020Z",
+        "source_type": "other",
+        "supersedes": [],
+        "target": "Recent deployments"
+      },
+      "ref": "record:evidence:83b9606a154a7d5faf874beb4a6eaa65",
+      "status": "open"
+    },
+    {
+      "kind": "finding",
+      "payload": {
+        "cause_evidence": [
+          "record:evidence:54ca5e8ed311902c32226eb9d6791c11",
+          "record:evidence:ce79e7b93cf2c8ad120ae9e34a3ef52e",
+          "record:evidence:a8d3d2bd869d8c9a706771f18da23bfb",
+          "record:evidence:83b9606a154a7d5faf874beb4a6eaa65"
+        ],
+        "reason": "94.2% Arena ingress 5xx and 78 Duel dead-letter arrivals/hour confirm failures. Running allocations and successful deployments do not explain them. Queries for application logs, traces and dead-letter samples did not return diagnostic evidence; exact producing/consuming errors and request/message traces are needed. Service ownership mapping was unavailable; findings are attributed only to returned VA1 labels.",
+        "scope": "VA1",
+        "status": "unexplained",
+        "what": "Arena has severe ingress failures despite its allocation running; Duel has ongoing dead-letter arrivals."
+      },
+      "ref": "record:finding:05d44678f52e27caac541b6cbd09d65b",
+      "status": "open"
+    },
+    {
+      "kind": "goal_state",
+      "payload": {
+        "detail": "Established VA1 reported health with application failures separated from available nodes/databases. Product ownership mapping unavailable.",
+        "evidence_refs": [
+          "record:evidence:54ca5e8ed311902c32226eb9d6791c11",
+          "record:evidence:ce79e7b93cf2c8ad120ae9e34a3ef52e",
+          "record:evidence:a8d3d2bd869d8c9a706771f18da23bfb",
+          "record:evidence:72eec437a0ae920a60d722268f870abd",
+          "record:evidence:7f92490b82aabbee75cd39a867263581",
+          "record:evidence:83b9606a154a7d5faf874beb4a6eaa65"
+        ],
+        "goal_id": "va1-health",
+        "state": "completed"
+      },
+      "ref": "record:goal_state:8bd885f67a4b089ca960bd1bde32cc0d",
+      "status": "open"
+    },
+    {
+      "kind": "goal_state",
+      "payload": {
+        "detail": "Available reads establish symptoms but do not expose application logs, failing request traces or Duel message samples. Alternate monitoring queries and allocation reads did not establish underlying causes.",
+        "evidence_refs": [
+          "record:evidence:54ca5e8ed311902c32226eb9d6791c11",
+          "record:evidence:ce79e7b93cf2c8ad120ae9e34a3ef52e",
+          "record:evidence:a8d3d2bd869d8c9a706771f18da23bfb"
+        ],
+        "goal_id": "va1-diagnosis",
+        "state": "blocked"
+      },
+      "ref": "record:goal_state:624ff65daf61c77c41bfd35406af084c",
+      "status": "open"
+    },
+    {
+      "kind": "input_request",
+      "payload": {
+        "choices": [],
+        "question": "Arena 94.2% ingress 5xx and Duel dead-letter arrivals are confirmed. Monitoring and allocation reads did not expose diagnostic logs, traces or message samples; no dedicated log-read capability is connected.\n\n1. Can you provide access to Arena’s application/error logs and Duel’s consumer/dead-letter logs, or share a failing request trace and a dead-letter message error?"
+      },
+      "ref": "record:input_request:96e7c64bc72c9fadfe1e05671f1e6792",
+      "status": "open"
+    }
+  ],
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "VA1 has a serious application problem: at Oct 15, 20:20 UTC, ingress monitoring showed Arena returning 5xx on 94.2% of requests, despite its allocation running without restarts. The alert feed also reported 78 Duel dead-letter arrivals in the last hour. Their causes remain unexplained; the available reads did not expose diagnostic logs or traces.\n\nThe underlying infrastructure looks available: Nomad reports 5/5 clients ready, Cassandra 3/3 normal, and PostgreSQL monitoring 9/9 targets up. Backup monitoring reports successful backups, though restores weren’t verified. Other measured services had 0% ingress 5xx except Ladder at 0.375%.\n\nCan you provide access to Arena’s error logs and Duel’s consumer/dead-letter logs, or share a failing request trace and a dead-letter message error?",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:evidence:54ca5e8ed311902c32226eb9d6791c11",
+        "record:evidence:ce79e7b93cf2c8ad120ae9e34a3ef52e",
+        "record:evidence:a8d3d2bd869d8c9a706771f18da23bfb",
+        "record:evidence:72eec437a0ae920a60d722268f870abd",
+        "record:evidence:7f92490b82aabbee75cd39a867263581",
+        "record:evidence:83b9606a154a7d5faf874beb4a6eaa65",
+        "record:finding:05d44678f52e27caac541b6cbd09d65b",
+        "record:input_request:96e7c64bc72c9fadfe1e05671f1e6792"
+      ],
+      "state": "waiting_for_input"
+    },
+    "title": "VA1 infrastructure health"
+  },
+  "source_calls": [
+    {
+      "arguments": {
+        "environment": "VA1"
+      },
+      "arguments_sha256": "1718d93f5411959039037691b7eefbc3e83e03034b9200fec008f2aa3714feaa",
+      "outcome": "result",
+      "result": {
+        "deployments": [
+          {
+            "finished_at": "2026-10-01T09:12:00Z",
+            "job": "arena",
+            "status": "successful"
+          },
+          {
+            "finished_at": "2026-10-14T16:40:00Z",
+            "job": "tenantapp",
+            "status": "successful"
+          }
+        ],
+        "observed_at": "2026-10-15T20:20:00Z",
+        "source_ref": "source:va1:nomad-deployments:20261015T2020Z"
+      },
+      "tool": "nomad.deployments"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "VA1 infrastructure health summary; inventory and ownership labels, active alerts, node capacity and service error rates"
+      },
+      "arguments_sha256": "131204f6002460b8c170a8916379c11b11810f7a4a1775976bfc03eb4ac49d85",
+      "outcome": "result",
+      "result": {
+        "alerts": [
+          {
+            "name": "ArenaIngress5xxHigh",
+            "since": "2026-10-03T11:04:00Z",
+            "state": "firing"
+          },
+          {
+            "detail": "78 dead-letter arrivals over the last hour",
+            "name": "DuelDeadLetterRate",
+            "since": "2026-10-15T06:42:00Z",
+            "state": "firing"
+          }
+        ],
+        "observed_at": "2026-10-15T20:20:00Z",
+        "source_ref": "source:va1:alerts:20261015T2020Z"
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "service": "arena"
+      },
+      "arguments_sha256": "e9181bea48f49e23d8f745563d329a7ccc4059f10734bc0ad8083934e9173160",
+      "outcome": "result",
+      "result": {
+        "desired_allocations": 1,
+        "failed_tasks_last_hour": 0,
+        "observed_at": "2026-10-15T20:20:00Z",
+        "running_allocations": 1,
+        "service": "arena",
+        "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+        "task_restarts_last_hour": 0
+      },
+      "tool": "nomad.service_health"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "service": "tenantapp"
+      },
+      "arguments_sha256": "1ce3b6b2c83a75c02b8a1a9d648e18446a205b0b162a35f0908fda05175f82c2",
+      "outcome": "unmatched",
+      "result": {
+        "error": {
+          "code": "unmatched_fabricated_tool_call"
+        }
+      },
+      "tool": "nomad.service_health"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "Inventory and intended service ownership for VA1, including arena and duel; node and resource health"
+      },
+      "arguments_sha256": "1ecbd7a4c626617a3f357e12a307eec050dbb3aa16c4dd36e015ee42a9db2801",
+      "outcome": "result",
+      "result": {
+        "cassandra_nodes": {
+          "total": 3,
+          "up_normal": 3
+        },
+        "nomad_clients": {
+          "draining": 0,
+          "eligible": 5,
+          "ready": 5,
+          "total": 5
+        },
+        "observed_at": "2026-10-15T20:20:00Z",
+        "source_ref": "source:va1:nomad-nodes:20261015T2020Z"
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "VA1 intended configuration and product ownership: arena, tenantapp, duel; intentionally parked services; backups latest success and age"
+      },
+      "arguments_sha256": "4ce27fd6cac4840bb93ca1235ab7ae6f8d5ecc96902a15d2b9220e93dd343ff4",
+      "outcome": "result",
+      "result": {
+        "cassandra_nodes": {
+          "total": 3,
+          "up_normal": 3
+        },
+        "observed_at": "2026-10-15T20:20:00Z",
+        "postgres_backups": {
+          "differential_success_age_hours": [
+            9.2,
+            18.2
+          ],
+          "full_success_age_days": [
+            4.4,
+            4.8
+          ],
+          "note": "monitoring reports, not restore verification"
+        },
+        "postgres_targets": {
+          "monitored": 9,
+          "pg_up": 9
+        },
+        "source_ref": "source:va1:databases:20261015T2020Z"
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "Arena ingress 5xx rate, request volume and upstream/backend errors over last hour; Duel dead-letter failures bounded sample message IDs, retry exhaustion and cause"
+      },
+      "arguments_sha256": "e9bfa1fc997f8cced4cacaa4c21d2b640f294cb2eb9a078b3266dad508b135b7",
+      "outcome": "result",
+      "result": {
+        "measures": "HTTP responses at the ingress, not every application function",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "services": [
+          {
+            "5xx_ratio": 0.942,
+            "requests": 41200,
+            "service": "arena"
+          },
+          {
+            "5xx_ratio": 0.00375,
+            "requests": 88310,
+            "service": "ladder"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 120400,
+            "service": "tenantapp"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 30120,
+            "service": "website"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 51800,
+            "service": "auth"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 9020,
+            "service": "payments"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 64500,
+            "service": "data-api"
+          }
+        ],
+        "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+        "window": "10m"
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "arena failure diagnosis: ingress upstream errors, application logs and traces for sampled failing requests; cause of HTTP 5xx"
+      },
+      "arguments_sha256": "f64bd81d5c1379ce04ec0d0dba0796c6661d28edbda19040f3d7e3e1ed7ed4e9",
+      "outcome": "result",
+      "result": {
+        "measures": "HTTP responses at the ingress, not every application function",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "services": [
+          {
+            "5xx_ratio": 0.942,
+            "requests": 41200,
+            "service": "arena"
+          },
+          {
+            "5xx_ratio": 0.00375,
+            "requests": 88310,
+            "service": "ladder"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 120400,
+            "service": "tenantapp"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 30120,
+            "service": "website"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 51800,
+            "service": "auth"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 9020,
+            "service": "payments"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 64500,
+            "service": "data-api"
+          }
+        ],
+        "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+        "window": "10m"
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "duel dead-letter queue message sample, retry exhaustion, producing and consuming service logs and trace IDs"
+      },
+      "arguments_sha256": "91037b8fa4963afa6eed732991adc724cad3e843e21f63bf6c327fdb4d04b77b",
+      "outcome": "unmatched",
+      "result": {
+        "error": {
+          "code": "unmatched_fabricated_tool_call"
+        }
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "VA1 service ownership mapping and deployed intended configuration inventory"
+      },
+      "arguments_sha256": "bc7c04c6eef289412d3459d937a566fecfd6ad7d3f254d9940589228a0907156",
+      "outcome": "unmatched",
+      "result": {
+        "error": {
+          "code": "unmatched_fabricated_tool_call"
+        }
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "duel DLQ rate and retry metrics"
+      },
+      "arguments_sha256": "867b87af577895c346a45c19000ad82413e326f3eee6bda3db54c6d75c982fb3",
+      "outcome": "unmatched",
+      "result": {
+        "error": {
+          "code": "unmatched_fabricated_tool_call"
+        }
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "query": "arena application error logs root cause"
+      },
+      "arguments_sha256": "35c74e4890f31723508faee61ed468c82b2821f041f8761339262f59999652e6",
+      "outcome": "result",
+      "result": {
+        "measures": "HTTP responses at the ingress, not every application function",
+        "observed_at": "2026-10-15T20:20:00Z",
+        "services": [
+          {
+            "5xx_ratio": 0.942,
+            "requests": 41200,
+            "service": "arena"
+          },
+          {
+            "5xx_ratio": 0.00375,
+            "requests": 88310,
+            "service": "ladder"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 120400,
+            "service": "tenantapp"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 30120,
+            "service": "website"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 51800,
+            "service": "auth"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 9020,
+            "service": "payments"
+          },
+          {
+            "5xx_ratio": 0.0,
+            "requests": 64500,
+            "service": "data-api"
+          }
+        ],
+        "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+        "window": "10m"
+      },
+      "tool": "monitoring.query"
+    },
+    {
+      "arguments": {
+        "environment": "VA1",
+        "service": "duel"
+      },
+      "arguments_sha256": "87345e895fa6c11df61907486a1fd8be882ce737df091df821858659ad819e31",
+      "outcome": "unmatched",
+      "result": {
+        "error": {
+          "code": "unmatched_fabricated_tool_call"
+        }
+      },
+      "tool": "nomad.service_health"
+    }
+  ]
+}

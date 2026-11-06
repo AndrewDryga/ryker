@@ -33,15 +33,16 @@ defmodule Ryker.Evals.WorldDriver do
     |> Enum.reduce_while({:ok, [], nil, []}, fn {input, index},
                                                 {:ok, executions, episode_id, skipped} ->
       episode_id = if input["new_episode"] == true, do: nil, else: episode_id
+      skip_reason = skipped_wait_checkpoint(input, executions)
 
       result =
-        if completed_wait_checkpoint?(input, executions) do
+        if skip_reason do
           {:skip,
            %{
              after_turn_id: hd(executions).turn.id,
              episode_id: episode_id,
              kind: input["kind"],
-             reason: "episode_complete",
+             reason: skip_reason,
              scenario_index: index,
              scenario_occurred_at: input["occurred_at"]
            }}
@@ -78,16 +79,46 @@ defmodule Ryker.Evals.WorldDriver do
     end
   end
 
-  defp completed_wait_checkpoint?(%{"kind" => "wait_wakeup"}, [execution | _]) do
-    # Checkpoints offer bounded continuation; they cannot require the model to
-    # create another wait after an accepted result has actually settled delivery.
-    match?(
-      %Episode{state: :complete, owner_kind: nil, owner_ref: nil, queued_input_refs: []},
-      Repo.get(Episode, execution.episode.id)
-    ) and match?(%Turn{status: :settled}, Repo.get(Turn, execution.turn.id))
+  defp skipped_wait_checkpoint(%{"kind" => "wait_wakeup"}, [execution | _]) do
+    # A checkpoint offers a bounded wakeup, not permission to invent a timer after
+    # completion or after accepted follow-up has retained an untimed source watch.
+    case {Repo.get(Turn, execution.turn.id), Repo.get(Episode, execution.episode.id)} do
+      {%Turn{status: :settled},
+       %Episode{state: :complete, owner_kind: nil, owner_ref: nil, queued_input_refs: []}} ->
+        "episode_complete"
+
+      {%Turn{status: :settled},
+       %Episode{state: :waiting_for_event, owner_kind: :event, queued_input_refs: []} = episode} ->
+        if untimed_source_wait?(episode), do: "untimed_source_wait"
+
+      _unsettled ->
+        nil
+    end
   end
 
-  defp completed_wait_checkpoint?(_input, _executions), do: false
+  defp skipped_wait_checkpoint(_input, _executions), do: nil
+
+  defp untimed_source_wait?(episode) do
+    with %Record{
+           payload: %{
+             "kind" => "source_event",
+             "deadline_at" => nil,
+             "event_matcher" => %{"type" => "source_event", "poll_after" => nil}
+           }
+         } = record <-
+           Repo.get_by(Record,
+             episode_id: episode.id,
+             ref: episode.owner_ref,
+             kind: "event_wait",
+             status: :open
+           ),
+         %EventSubscription{status: :active, poll_after: nil, deadline_at: nil} <-
+           Repo.get_by(EventSubscription, episode_id: episode.id, record_id: record.id) do
+      true
+    else
+      _not_an_active_untimed_source_wait -> false
+    end
+  end
 
   # A replay hook may write recorded model tool results before Executor runs.
   # Initialize empty disclosure custody first, as native submit normally does;
