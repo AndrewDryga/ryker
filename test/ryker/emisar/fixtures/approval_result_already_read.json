@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "run": {
+    "status": "success",
+    "stdout": "[('scheduler-old.c.example-project.internal', ' INFO - ::group::Log message source details\\n*** No logs found in GCS; ti=%s <TaskInstance: data_export.export_rows scheduled__2026-11-07T01:00:00+00:00 [success]>\\n*** Could not read served logs: HTTPConnectionPool(host=\\'scheduler-old.c.example-project.internal\\', port=8793): Max retries exceeded with url: /log/dag_id=data_export/run_id=scheduled__2026-11-07T01:00:00+00:00/task_id=export_rows/attempt=50.log (Caused by NameResolutionError(\"<urllib3.connection.HTTPConnection object at 0x111111111111>: Failed to resolve \\'scheduler-old.c.example-project.internal\\' ([Errno -2] Name or service not known)\"))\\n INFO - ::endgroup::\\n')]\n",
+    "duration_ms": 1274,
+    "exit_code": 0,
+    "finished_at": "2026-11-09T19:31:45.555843Z",
+    "operation_id": "op-observed-diagnostic",
+    "created_at": "2026-11-09T19:30:45.853807Z",
+    "pack_ref": "airflow@0.1.10/sha256:be2b6b6c53de502215eed5ee21d1d788fce41d06f4a16dc5c47bd868dadbbf82",
+    "action_id": "airflow.task_log",
+    "run_id": "run-observed-diagnostic",
+    "runner_ref": "diagnostic-runner",
+    "emitted_stdout_bytes": 695,
+    "review": {
+      "command": {
+        "text": "/bin/bash /etc/emisar/packs/airflow/scripts/airflow_api.sh task-log data_export scheduled__2026-11-07T01:00:00+00:00 export_rows 50 -1 true",
+        "truncated": false,
+        "kind": "executed"
+      },
+      "reason": "Read the failed dataset export attempt preceding its successful retry to explain the extended compute runtime.",
+      "status": "approved",
+      "request_id": "apr-observed-diagnostic",
+      "approved_count": 1,
+      "decisions": [
+        {
+          "actor": "Operator One",
+          "decision": "approve",
+          "decided_at": "2026-11-09T19:31:44.064300Z"
+        }
+      ],
+      "required_approvals": 1,
+      "argument_count": 4
+    },
+    "run_url": "https://emisar.example/app/acme/runs/run-observed-diagnostic",
+    "truncated_stdout": false
+  }
+}

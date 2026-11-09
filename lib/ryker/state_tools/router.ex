@@ -152,7 +152,7 @@ defmodule Ryker.StateTools.Router do
        ) do
     called_at = DateTime.utc_now()
     answer = answer_tool(name, arguments, options)
-    CallLog.record(options.binding, name, arguments, logged(answer), called_at)
+    CallLog.record(options.binding, name, arguments, answer, called_at)
 
     case answer do
       {:emisar, result} -> rpc_result(conn, id, result)
@@ -250,14 +250,6 @@ defmodule Ryker.StateTools.Router do
         call_emisar(name, arguments, options)
     end
   end
-
-  # Emisar's answer goes back as Emisar gave it; its refusal is a failed call
-  # on the timeline like any other.
-  defp logged({:emisar, %{"isError" => true} = result}),
-    do: {:error, result["structuredContent"] || "emisar_error"}
-
-  defp logged({:emisar, result}), do: {:ok, result}
-  defp logged(answer), do: answer
 
   # Emisar's tools for a session whose environment has Emisar: exactly those
   # Emisar lists for the environment's key, after Ryker's own, never one that

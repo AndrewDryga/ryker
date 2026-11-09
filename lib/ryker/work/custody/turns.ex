@@ -14,6 +14,7 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
+  alias Ryker.Emisar
   alias Ryker.Episodes
   alias Ryker.Knowledge
   alias Ryker.Publication
@@ -1071,10 +1072,15 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <- exact_episode(episode, episode_id),
          {:ok, session, turn} <- fetch_and_lock_turn_after_episode(episode_id, turn_ref),
          {:ok, result} <- accepted_intent_result(turn),
+         consumed_refs = Emisar.Approvals.consume_observed_in_transaction(episode, session, turn),
+         continuation_episode = %{
+           episode
+           | queued_input_refs: episode.queued_input_refs -- consumed_refs
+         },
          result = publication_delivery_result(episode, session, turn, result),
          {:continue, command, attributes} <-
            prepare_result_acceptance(
-             episode,
+             continuation_episode,
              turn,
              lease_ref,
              candidate_sha256,
@@ -1090,6 +1096,7 @@ defmodule Ryker.Work.Custody.Turns do
              session,
              turn.submission
            ),
+         command = %{command | consumed_input_refs: consumed_refs},
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          :ok <-
            Records.answer_elapsed_waits_in_transaction(

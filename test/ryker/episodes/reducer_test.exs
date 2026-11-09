@@ -653,6 +653,57 @@ defmodule Ryker.Episodes.ReducerTest do
   end
 
   describe "result and delivery custody" do
+    test "consuming a read notification preserves every later input and its order" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+
+      notification =
+        EpisodeFixtures.admit_input(%{
+          native_input_id: "emisar:finished",
+          payload: %{"kind" => "emisar_approval_terminal"}
+        })
+
+      assert {:ok, notified} = Reducer.decide(admitted.episode, notification)
+
+      followup =
+        EpisodeFixtures.admit_input(%{
+          native_input_id: "slack:followup",
+          payload: %{"text" => "Check the other day too."}
+        })
+
+      assert {:ok, queued} = Reducer.decide(notified.episode, followup)
+      ref = Command.dedupe_key(notification)
+      result = EpisodeFixtures.accept_result(%{consumed_input_refs: [ref]})
+      assert {:ok, accepted} = Reducer.decide(queued.episode, result)
+      assert accepted.episode.queued_input_refs == [Command.dedupe_key(followup)]
+
+      assert accepted.episode.queued_input_order_keys ==
+               tl(queued.episode.queued_input_order_keys)
+
+      assert Command.document(result)["consumed_input_refs"] == [ref]
+
+      assert Reducer.decide(accepted.episode, EpisodeFixtures.confirm_delivery()) ==
+               {:error, :queued_inputs_require_next_turn}
+
+      assert {:ok, resumed} =
+               Reducer.decide(
+                 accepted.episode,
+                 EpisodeFixtures.confirm_delivery(%{next_turn_ref: "turn-followup"})
+               )
+
+      assert resumed.episode.active_input_refs == [Command.dedupe_key(followup)]
+    end
+
+    test "an answer cannot consume an input that is not queued" do
+      assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+      result = EpisodeFixtures.accept_result(%{consumed_input_refs: ["admit_input:unknown"]})
+      assert Reducer.decide(admitted.episode, result) == {:error, :consumed_input_not_queued}
+
+      refute Map.has_key?(
+               Command.document(EpisodeFixtures.accept_result()),
+               "consumed_input_refs"
+             )
+    end
+
     test "a visible result stays working under delivery ownership until Slack confirms it" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
       assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())

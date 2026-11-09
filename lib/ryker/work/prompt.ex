@@ -632,6 +632,16 @@ defmodule Ryker.Work.Prompt do
   changed nothing and returned no ref: change the fields its error names before calling again, and
   never send the same arguments twice.
 
+  For historical investigations, identify the relevant time interval and exact resource before
+  paging. Prefer supported absolute timestamps and resource identifiers over broad recent-history
+  scans. If a filter fails because the resource was deleted, inspect the tool's supported historical
+  lookup and alternate evidence sources. Do not repeat the failed filter or silently treat a current
+  resource list as historical coverage. After each page, check whether it advances the specific
+  unanswered question; change the query or source when it does not. Exhaustive pagination is useful
+  only when the requested outcome needs complete coverage. If the available tools cannot retrieve
+  the necessary history, preserve the supported findings, state the exact evidence gap, and request
+  only the missing access or capability needed to resolve it.
+
   Completion is an evidence decision. Keep a finite account of the requested outcomes and the
   checks needed to establish them. Every material unknown is unfinished work while an authorized
   tool action can resolve it: choose that action and continue. Try an available alternate source,

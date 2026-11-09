@@ -188,6 +188,7 @@ defmodule Ryker.Episodes.Reducer do
 
   defp decide_existing(%Episode{} = episode, %AcceptResult{} = command) do
     with :ok <- current_turn(episode, command.expected_turn_ref),
+         {:ok, episode} <- consume_queued_inputs(episode, command.consumed_input_refs),
          :ok <- queued_delivery_wait(episode, command),
          :ok <- valid_requested_wait(command),
          :ok <- next_turn_if_queued(episode, command.delivery, command.next_turn_ref) do
@@ -246,6 +247,25 @@ defmodule Ryker.Episodes.Reducer do
          :ok <- queued_delivery_turn(episode, command),
          :ok <- queued_delivery_wait(episode, command) do
       valid_requested_wait(command)
+    end
+  end
+
+  # The accepted answer owns the receipt; the original input event and frozen
+  # submission stay intact. Every unrelated queued input retains its ordering.
+  defp consume_queued_inputs(episode, refs) do
+    if Enum.all?(refs, &(&1 in episode.queued_input_refs)) do
+      remaining =
+        Enum.zip(episode.queued_input_refs, episode.queued_input_order_keys)
+        |> Enum.reject(fn {ref, _order} -> ref in refs end)
+
+      {:ok,
+       %{
+         episode
+         | queued_input_refs: Enum.map(remaining, &elem(&1, 0)),
+           queued_input_order_keys: Enum.map(remaining, &elem(&1, 1))
+       }}
+    else
+      {:error, :consumed_input_not_queued}
     end
   end
 

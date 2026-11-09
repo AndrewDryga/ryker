@@ -88,6 +88,42 @@ defmodule Ryker.Emisar.Client do
 
   def cancel_run(_client, _run_id, _reason), do: {:error, {:invalid_emisar_client, :client}}
 
+  @doc "Validates the same bounded run receipt for the monitor and the Work proxy."
+  @spec run_state(map(), String.t()) :: {:ok, RunState.t()} | {:error, term()}
+  def run_state(%{"ok" => true, "run" => %{} = run}, origin) do
+    with :ok <- reference(run["run_id"], 200, :run_id),
+         :ok <- reference(run["operation_id"], 200, :operation_id),
+         :ok <- reference(run["action_id"], 200, :action_id),
+         :ok <- reference(run["pack_ref"], @maximum_reference_bytes, :pack_ref),
+         :ok <- reference(run["runner_ref"], @maximum_reference_bytes, :runner_ref),
+         true <- RunState.valid_status?(run["status"]),
+         {:ok, run_url} <- optional_same_origin_url(run["run_url"], origin),
+         {:ok, error_message} <- optional_text(run["error_message"], @maximum_error_bytes),
+         {:ok, review} <- review(run["review"]) do
+      {:ok,
+       %RunState{
+         action_id: run["action_id"],
+         error_message: error_message,
+         operation_id: run["operation_id"],
+         pack_ref: run["pack_ref"],
+         review: review,
+         run_id: run["run_id"],
+         run_url: run_url,
+         runner_ref: run["runner_ref"],
+         status: run["status"]
+       }}
+    else
+      false -> {:error, {:emisar_protocol_error, :status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def run_state(%{"error" => %{"code" => code, "message" => message}, "ok" => false}, _origin)
+      when is_binary(code) and is_binary(message),
+      do: {:error, {:emisar_tool_error, code, bounded(message, @maximum_error_bytes)}}
+
+  def run_state(_structured, _origin), do: {:error, {:emisar_protocol_error, :run}}
+
   # Emisar answers a wait at once for a finished run, or when the run changes,
   # or after the wait.
   defp request_document(run_id, wait_seconds) do
@@ -165,40 +201,6 @@ defmodule Ryker.Emisar.Client do
     do: {:error, {:emisar_http_error, status, bounded(inspect(body), @maximum_error_bytes)}}
 
   defp response_document(_response), do: {:error, {:emisar_protocol_error, :response}}
-
-  defp run_state(%{"ok" => true, "run" => %{} = run}, origin) do
-    with :ok <- reference(run["run_id"], 200, :run_id),
-         :ok <- reference(run["operation_id"], 200, :operation_id),
-         :ok <- reference(run["action_id"], 200, :action_id),
-         :ok <- reference(run["pack_ref"], @maximum_reference_bytes, :pack_ref),
-         :ok <- reference(run["runner_ref"], @maximum_reference_bytes, :runner_ref),
-         true <- RunState.valid_status?(run["status"]),
-         {:ok, run_url} <- optional_same_origin_url(run["run_url"], origin),
-         {:ok, error_message} <- optional_text(run["error_message"], @maximum_error_bytes),
-         {:ok, review} <- review(run["review"]) do
-      {:ok,
-       %RunState{
-         action_id: run["action_id"],
-         error_message: error_message,
-         operation_id: run["operation_id"],
-         pack_ref: run["pack_ref"],
-         review: review,
-         run_id: run["run_id"],
-         run_url: run_url,
-         runner_ref: run["runner_ref"],
-         status: run["status"]
-       }}
-    else
-      false -> {:error, {:emisar_protocol_error, :status}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp run_state(%{"error" => %{"code" => code, "message" => message}, "ok" => false}, _origin)
-       when is_binary(code) and is_binary(message),
-       do: {:error, {:emisar_tool_error, code, bounded(message, @maximum_error_bytes)}}
-
-  defp run_state(_structured, _origin), do: {:error, {:emisar_protocol_error, :run}}
 
   # The review receipt is Emisar's, so a shape this host cannot validate is a
   # protocol error rather than a card rendered from a document nobody checked.

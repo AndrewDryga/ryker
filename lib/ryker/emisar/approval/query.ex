@@ -16,6 +16,12 @@ defmodule Ryker.Emisar.Approval.Query do
   def by_record_id(queryable \\ all(), record_id),
     do: where(queryable, [episode_emisar_approvals: a], a.record_id == ^record_id)
 
+  def by_episode_id(queryable \\ all(), episode_id),
+    do: where(queryable, [episode_emisar_approvals: a], a.episode_id == ^episode_id)
+
+  def by_run_id(queryable \\ all(), run_id),
+    do: where(queryable, [episode_emisar_approvals: a], a.run_id == ^run_id)
+
   @doc """
   The approvals turn `turn_id` asked for, in the order its reply named their
   records (`record_refs`), and any it did not name after them in the order it

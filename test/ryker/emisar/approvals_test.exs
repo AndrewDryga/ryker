@@ -70,6 +70,175 @@ defmodule Ryker.Emisar.ApprovalsTest do
     end
   end
 
+  defmodule ObservedResultRequester do
+    def request(_client, :post, "/mcp", %{"method" => "tools/call", "id" => id}, _headers) do
+      run = Ryker.Config.get_env(:observed_approval_run)
+      result = %{"ok" => true, "run" => run}
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "id" => id,
+           "jsonrpc" => "2.0",
+           "result" => %{
+             "isError" => false,
+             "structuredContent" => result,
+             "content" => [%{"type" => "text", "text" => Jason.encode!(result)}]
+           }
+         }
+       }}
+    end
+
+    def request(client, method, path, body, headers),
+      do: Ryker.TestSupport.EmisarMCP.request(client, method, path, body, headers)
+  end
+
+  for timing <- [:before_monitor, :after_monitor] do
+    @timing timing
+    test "an already read approval result does not create another turn #{@timing}" do
+      # 2026-11-09: this diagnostic result was already read and reported, but
+      # its queued notification ran the model again for 51 seconds and $0.56.
+      %{claim: claim, record: record, run: run, state: state} = diagnostic_claim!()
+      if @timing == :after_monitor, do: settle!("observed-diagnostic", record, state)
+
+      monitor_claim =
+        if @timing == :before_monitor do
+          assert {:ok, monitor_claim} =
+                   Approvals.claim_next(@connection_ref, "in-flight-monitor", 60)
+
+          monitor_claim
+        end
+
+      read_diagnostic!(claim, run)
+      digest = stage_diagnostic_answer!(claim)
+      assert {:ok, accepted} = accept_diagnostic_answer(claim, digest)
+      assert accepted.episode.queued_input_refs == []
+      assert accepted.episode.owner_kind == :delivery
+      assert Approvals.claim_next(@connection_ref, "late-monitor", 60) == {:ok, nil}
+      approval = Inspectors.emisar_approval(@connection_ref, record.payload["request_id"])
+      assert approval.remote_status == "success"
+      assert approval.review == run["review"]
+      assert approval.status == if(@timing == :before_monitor, do: :closed, else: :resumed)
+
+      if monitor_claim do
+        assert Approvals.observe(
+                 @connection_ref,
+                 record.payload["request_id"],
+                 monitor_claim.lease_ref,
+                 state,
+                 5
+               ) ==
+                 {:error, :emisar_approval_lease_lost}
+
+        assert Inspectors.episode(claim.episode.key).queued_input_refs == []
+      end
+
+      [receipt] = Ryker.StateTools.CallLog.list_for_episode(claim.episode.id)
+      refute Map.has_key?(receipt.emisar_run, "stdout")
+      assert receipt.emisar_run["review"] == run["review"]
+    end
+  end
+
+  for {label, changed} <- [
+        {"unfinished", %{"status" => "running"}},
+        {"paged", %{"next" => "opaque-next-page"}},
+        {"truncated", %{"truncated_stdout" => true}},
+        {"another operation", %{"operation_id" => "op-another"}},
+        {"another pack", %{"pack_ref" => "airflow@other/sha256:other"}},
+        {"another runner", %{"runner_ref" => "another-runner"}},
+        {"untrusted URL", %{"run_url" => "https://another.example/runs/observed"}},
+        {"unreadable review", %{"review" => %{}}}
+      ] do
+    @label label
+    @changed changed
+    test "a #{@label} diagnostic receipt keeps its terminal notification queued" do
+      %{claim: claim, record: record, run: run, state: state} = diagnostic_claim!()
+      episode = settle!("observed-diagnostic", record, state)
+      read_diagnostic!(claim, Map.merge(run, @changed))
+      digest = stage_diagnostic_answer!(claim)
+      assert {:ok, accepted} = accept_diagnostic_answer(claim, digest)
+      assert accepted.episode.queued_input_refs == episode.queued_input_refs
+      assert length(accepted.episode.queued_input_refs) == 1
+    end
+  end
+
+  test "a result read after the frozen answer cannot acknowledge its notification" do
+    %{claim: claim, record: record, run: run, state: state} = diagnostic_claim!()
+    episode = settle!("observed-diagnostic", record, state)
+    digest = stage_diagnostic_answer!(claim)
+    read_diagnostic!(claim, run)
+    assert {:ok, accepted} = accept_diagnostic_answer(claim, digest)
+    assert accepted.episode.queued_input_refs == episode.queued_input_refs
+  end
+
+  test "a rejected answer leaves the observed approval available to its monitor" do
+    %{claim: claim, record: record, run: run} = diagnostic_claim!()
+    read_diagnostic!(claim, run)
+    digest = stage_diagnostic_answer!(claim)
+
+    assert accept_diagnostic_answer(claim, String.duplicate("f", 64)) ==
+             {:error, {:work_candidate_conflict, digest}}
+
+    approval = Inspectors.emisar_approval(@connection_ref, record.payload["request_id"])
+    assert approval.status == :monitoring
+
+    assert {:ok, %{approval: %{id: id}}} =
+             Approvals.claim_next(@connection_ref, "monitor-after-refusal", 60)
+
+    assert id == approval.id
+  end
+
+  test "acknowledging a diagnostic leaves its unanswered human question waiting after delivery" do
+    %{claim: claim, record: record, run: run, state: state} = diagnostic_claim!()
+    settle!("observed-diagnostic", record, state)
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "scheduler-history", "input_request", %{
+               "choices" => [],
+               "question" => "Can you grant access to the retained scheduler logs?"
+             })
+
+    read_diagnostic!(claim, run)
+
+    continuation = %{
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => question.ref,
+      "deadline_at" => nil
+    }
+
+    digest = stage_diagnostic_answer!(claim, continuation)
+    assert {:ok, accepted} = accept_diagnostic_answer(claim, digest)
+    assert {:ok, delivery} = Custody.claim_next("deliver-diagnostic", 60, :delivery)
+    assert delivery.turn.id == accepted.turn.id
+    episode = delivery.episode
+
+    assert {:ok, receipt} =
+             Ryker.Work.DeliveryReceipt.new(
+               accepted.turn.delivery_ref,
+               episode.destination_transport,
+               episode.destination_conversation_ref,
+               episode.destination_thread_ref,
+               "1787832000.000300"
+             )
+
+    assert {:ok, delivered} =
+             Custody.confirm_delivery(
+               episode.id,
+               episode.key,
+               delivery.turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+
+    assert {delivered.episode.state, delivered.episode.owner_ref} ==
+             {:waiting_for_input, question.ref}
+
+    assert delivered.episode.queued_input_refs == []
+    assert Repo.get!(Record, question.id).status == :open
+  end
+
   # The Timeline and Failures redraw when an approval watch is registered or
   # observed. Until 2026-10-08 no test held a watch to announcing itself.
   test "an approval watch registered and observed reaches the pages that show it" do
@@ -947,7 +1116,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   # The approval `record` (request `apr-<suffix>`) succeeds, which resumes its
   # task; the resumed episode.
-  defp settle!(suffix, record) do
+  defp settle!(suffix, record, state \\ nil) do
     request_id = record.payload["request_id"]
 
     lease_ref =
@@ -963,7 +1132,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
                @connection_ref,
                request_id,
                lease_ref,
-               run_state(suffix, "success"),
+               state || run_state(suffix, "success"),
                5
              )
 
@@ -999,6 +1168,141 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   # The approval as its turn records it, before the delivered result starts
   # the episode's wait for it.
+  # The retained terminal response, with identities pseudonymized. No tool or
+  # model is contacted; the real proxy, candidate acceptance and monitor run.
+  defp diagnostic_claim! do
+    fixture =
+      Path.join(__DIR__, "fixtures/approval_result_already_read.json")
+      |> File.read!()
+      |> Jason.decode!()
+
+    run = fixture["run"]
+    identity = Map.take(run, ~w(action_id pack_ref runner_ref))
+    %{claim: claim} = context = registered!("observed-diagnostic", identity)
+    assert {:ok, state} = Ryker.Emisar.Client.run_state(fixture, claim.session.emisar_rpc_url)
+
+    assert {:ok, submission} =
+             Ryker.Work.Submission.new(
+               %{},
+               "Investigate the compute increase.",
+               %{"type" => "object"},
+               "work-final-live-v3"
+             )
+
+    assert {:ok, _frozen} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, _bound} =
+             Custody.bind_session(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.session.create_generation,
+               "coop-observed-diagnostic"
+             )
+
+    assert {:ok, _bound} =
+             Custody.bind_turn(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               claim.session.generation,
+               claim.turn.submit_generation,
+               "turn-observed-diagnostic"
+             )
+
+    Map.merge(context, %{run: run, state: state})
+  end
+
+  defp read_diagnostic!(claim, run) do
+    Ryker.Config.put_override(:emisar_requester, ObservedResultRequester)
+    Ryker.Config.put_override(:observed_approval_run, run)
+
+    options =
+      Ryker.StateTools.Router.init(
+        cursor_secret: Ryker.Secret.new("host-owned-memory-cursor-secret"),
+        binding: %{
+          episode: claim.episode,
+          session: claim.session,
+          turn: claim.turn,
+          state_token: Records.token(claim.turn)
+        }
+      )
+
+    request = %{
+      "id" => 1,
+      "jsonrpc" => "2.0",
+      "method" => "tools/call",
+      "params" => %{
+        "name" => "wait_for_run",
+        "arguments" => %{"run_id" => "run-observed-diagnostic", "timeout" => "0"}
+      }
+    }
+
+    conn =
+      Plug.Test.conn(:post, "/mcp", Jason.encode!(request))
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Ryker.StateTools.Router.call(options)
+
+    assert Jason.decode!(conn.resp_body)["result"]["structuredContent"]["run"] == run
+  end
+
+  defp stage_diagnostic_answer!(claim, continuation \\ %{"kind" => "complete"}) do
+    candidate = ~s({"delivery":"reply","message":"The old task logs could not be retrieved."})
+    digest = Ryker.Crypto.sha256_hex(candidate)
+
+    assert {:ok, _staged} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               digest,
+               1
+             )
+
+    assert {:ok, result} =
+             Ryker.Work.Result.new(
+               :reply,
+               %{"message" => "The old task logs could not be retrieved."},
+               nil,
+               continuation
+             )
+
+    assert {:ok, _prepared} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               digest,
+               1,
+               :accept,
+               result
+             )
+
+    digest
+  end
+
+  defp accept_diagnostic_answer(claim, digest) do
+    Custody.accept_result(
+      claim.episode.id,
+      claim.episode.key,
+      claim.turn.turn_ref,
+      claim.lease_ref,
+      digest,
+      1,
+      "validation-observed-diagnostic"
+    )
+  end
+
   defp registered_approval!(suffix) do
     registered!(suffix)
     "apr-#{suffix}"

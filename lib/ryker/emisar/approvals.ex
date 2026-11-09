@@ -20,8 +20,102 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.StateTools
   alias Ryker.UTCDateTime
   alias Ryker.Work
+
+  @doc "Settles approvals whose exact terminal output this accepted turn already read."
+  @spec consume_observed_in_transaction(Episodes.Episode.t(), Work.Session.t(), Work.Turn.t()) ::
+          [String.t()]
+  def consume_observed_in_transaction(_episode, _session, %Work.Turn{result_ref: ref})
+      when not is_nil(ref), do: []
+
+  def consume_observed_in_transaction(_episode, %Work.Session{emisar_connection_ref: nil}, _turn),
+    do: []
+
+  def consume_observed_in_transaction(
+        %Episodes.Episode{} = episode,
+        %Work.Session{} = session,
+        %Work.Turn{} = turn
+      ) do
+    true = Repo.in_transaction?()
+
+    turn.id
+    |> StateTools.CallLog.observed_emisar_runs(
+      turn.candidate_attempt,
+      session.emisar_connection_ref
+    )
+    |> Enum.flat_map(fn run ->
+      approval =
+        Approval.Query.by_episode_id(episode.id)
+        |> Approval.Query.by_connection(session.emisar_connection_ref)
+        |> Approval.Query.by_run_id(run["run_id"])
+        |> Repo.peek()
+
+      state =
+        struct!(
+          RunState,
+          Map.new(
+            [
+              :action_id,
+              :operation_id,
+              :pack_ref,
+              :run_id,
+              :runner_ref,
+              :status,
+              :run_url,
+              :review,
+              :error_message
+            ],
+            fn key -> {key, run[Atom.to_string(key)]} end
+          )
+        )
+
+      if approval && exact_run(approval, state) == :ok &&
+           (approval.status in [:monitoring, :blocked] or
+              (approval.status == :resumed and approval.remote_status == state.status)) do
+        consume_observed(episode, approval, state)
+      else
+        []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp consume_observed(episode, approval, state) do
+    now = Repo.now!()
+    {:ok, record} = fetch_and_lock_record(approval.record_id)
+    {:ok, approval} = fetch_and_lock_approval(approval.id)
+
+    if record.status == :open do
+      {:ok, answered} = Repo.update(Records.Record.Changeset.answer(record, now))
+      Records.broadcast_record_updated(answered)
+
+      update!(approval, %{
+        status: :closed,
+        closed_at: now,
+        closed_reason: :wait_ended,
+        remote_status: state.status,
+        run_url: state.run_url,
+        terminal_at: now,
+        remote_error: state.error_message,
+        review: state.review,
+        review_digest: Review.digest(state.review),
+        last_observed_at: now,
+        failure_count: 0,
+        last_error: nil,
+        last_error_code: nil,
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil,
+        next_attempt_at: nil
+      })
+    end
+
+    {:ok, input} = terminal_input(episode, approval, state, now)
+    ref = episode |> admit_command(input, approval) |> Episodes.Command.dedupe_key()
+    if ref in episode.queued_input_refs, do: [ref], else: []
+  end
 
   @spec ensure_registered_in_transaction(Records.Record.t()) :: :ok | {:error, term()}
   def ensure_registered_in_transaction(%Records.Record{kind: kind})

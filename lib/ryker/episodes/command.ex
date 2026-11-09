@@ -101,9 +101,16 @@ defmodule Ryker.Episodes.Command do
       :result_ref
     ]
     defstruct @enforce_keys ++
-                [decision_reason: nil, delivery_ref: nil, next_turn_ref: nil, next_wait: nil]
+                [
+                  decision_reason: nil,
+                  delivery_ref: nil,
+                  next_turn_ref: nil,
+                  next_wait: nil,
+                  consumed_input_refs: []
+                ]
 
     @type t :: %__MODULE__{
+            consumed_input_refs: [String.t()],
             decision_reason: String.t() | nil,
             delivery: :reply | :none,
             delivery_ref: String.t() | nil,
@@ -330,6 +337,11 @@ defmodule Ryker.Episodes.Command do
       "result_ref" => command.result_ref
     }
 
+    document =
+      if command.consumed_input_refs == [],
+        do: document,
+        else: Map.put(document, "consumed_input_refs", command.consumed_input_refs)
+
     if command.next_wait,
       do: Map.put(document, "next_wait", wait_document(command.next_wait)),
       else: document
@@ -498,6 +510,9 @@ defmodule Ryker.Episodes.Command do
       {reference?(command.episode_key), :episode_key},
       {reference?(command.expected_turn_ref), :expected_turn_ref},
       {reference?(command.result_ref), :result_ref},
+      {is_list(command.consumed_input_refs) and length(command.consumed_input_refs) <= 1_000 and
+         Enum.uniq(command.consumed_input_refs) == command.consumed_input_refs and
+         Enum.all?(command.consumed_input_refs, &reference?/1), :consumed_input_refs},
       {command.delivery in [:reply, :none], :delivery},
       {valid_delivery_ref?(command), :delivery_ref},
       {valid_decision_reason?(command), :decision_reason},
