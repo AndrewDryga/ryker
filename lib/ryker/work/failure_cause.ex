@@ -36,6 +36,7 @@ defmodule Ryker.Work.FailureCause do
   # turns that way in 40 minutes on 2026-10-17 while the host's network was failing, and every
   # message read again later was answered.
   @unexpected_failure "ACP request was rejected: Internal error"
+  @missing_rollout ~r/\AACP request was rejected: Internal error: no rollout found for thread id [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
 
   # A repository whose submodule comes from a repository Ryker was never given,
   # as the saved term names both: the task's own or a read-only one from its
@@ -294,6 +295,19 @@ defmodule Ryker.Work.FailureCause do
   end
 
   def transient?(_detail), do: false
+
+  @doc "A terminal pre-send failure proving that the provider conversation cannot be resumed."
+  @spec provider_context_lost?(term()) :: boolean()
+  def provider_context_lost?(%{
+        "state" => "failed",
+        "send_state" => "none",
+        "error_code" => "acp_protocol_error",
+        "error_detail" => detail
+      })
+      when is_binary(detail),
+      do: Regex.match?(@missing_rollout, detail)
+
+  def provider_context_lost?(_turn), do: false
 
   # The checkpoint guard's refusal, as the dispatcher records it: a blocked turn
   # carries the code before the term, a deferred one the term alone.

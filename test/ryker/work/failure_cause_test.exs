@@ -5,6 +5,43 @@ defmodule Ryker.Work.FailureCauseTest do
   alias Ryker.ErrorDetail
   alias Ryker.Work.FailureCause
 
+  # A sent provider failure was followed by eight pre-send failures loading its
+  # lost transcript. Only the latter proves that a new conversation is needed.
+  test "only exact pre-send transcript loss authorizes provider conversation recovery" do
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    missing = fixture["missing_rollout"]
+    assert FailureCause.provider_context_lost?(missing)
+    refute FailureCause.provider_context_lost?(fixture["first_sent_failure"])
+
+    for send_state <- ["sent", "unknown", nil] do
+      refute FailureCause.provider_context_lost?(Map.put(missing, "send_state", send_state))
+    end
+
+    refute FailureCause.provider_context_lost?(Map.delete(missing, "send_state"))
+    refute FailureCause.provider_context_lost?(Map.put(missing, "state", "running"))
+
+    refute FailureCause.provider_context_lost?(
+             Map.put(missing, "error_code", "acp_process_error")
+           )
+
+    for detail <- [
+          "ACP request was rejected: Internal error",
+          "quoted: " <> missing["error_detail"],
+          missing["error_detail"] <> " (another error)",
+          String.replace(
+            missing["error_detail"],
+            "01a00000-0000-7000-8000-000000000001",
+            "not-a-thread-id"
+          )
+        ] do
+      refute FailureCause.provider_context_lost?(Map.put(missing, "error_detail", detail))
+    end
+
+    refute FailureCause.provider_context_lost?(nil)
+  end
+
   # A missing test dependency must name the project file to fix instead of
   # leaving a stopped task with the generic "could not confirm why" message.
   test "a project setup refusal tells the operator which declaration needs fixing" do

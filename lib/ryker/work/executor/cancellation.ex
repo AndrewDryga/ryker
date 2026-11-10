@@ -12,7 +12,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   """
   alias Ryker.Coop
   alias Ryker.Work.Cancellation, as: WorkCancellation
-  alias Ryker.Work.{Custody, OperationKeys, StateBinding}
+  alias Ryker.Work.{Custody, FailureCause, OperationKeys, StateBinding}
   alias Ryker.Work.Custody.Cancellation, as: CancellationCustody
   alias Ryker.Work.Executor.{Remote, Turns}
   alias Ryker.Work.Executor.States
@@ -488,14 +488,30 @@ defmodule Ryker.Work.Executor.Cancellation do
     end
   end
 
-  defp reusable_transfer_session?(%{"action" => "transfer"}, %{"state" => state}),
-    do: state == "open"
+  defp reusable_transfer_session?(
+         %{
+           session: %{workspace_task: nil},
+           turn: %{cancellation_intent: %{"action" => "transfer"}}
+         },
+         %{"state" => "open"},
+         {:terminal, _key, remote_turn}
+       ),
+       do: not FailureCause.provider_context_lost?(remote_turn)
 
-  defp reusable_transfer_session?(_intent, _session), do: false
+  # A coding task may hold unfinished changes from an earlier sent turn. Its
+  # missing transcript is not authority to abandon that workspace generation.
+  defp reusable_transfer_session?(
+         %{turn: %{cancellation_intent: %{"action" => "transfer"}}},
+         %{"state" => "open"},
+         _proof
+       ),
+       do: true
+
+  defp reusable_transfer_session?(_intent, _session, _proof), do: false
 
   defp finish_cancellation_session(claim, proof, remote_session, settings) do
     cond do
-      reusable_transfer_session?(claim.turn.cancellation_intent, remote_session) ->
+      reusable_transfer_session?(claim, remote_session, proof) ->
         settle_cancellation_proof(claim, proof, remote_session, nil)
 
       remote_session["state"] in ~w(closed discarded) ->

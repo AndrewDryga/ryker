@@ -1,0 +1,14 @@
+{
+  "first_sent_failure": {
+    "state": "failed",
+    "send_state": "sent",
+    "error_code": "acp_protocol_error",
+    "error_detail": "provider service unavailable: Codex encountered an internal error."
+  },
+  "missing_rollout": {
+    "state": "failed",
+    "send_state": "none",
+    "error_code": "acp_protocol_error",
+    "error_detail": "ACP request was rejected: Internal error: no rollout found for thread id 01a00000-0000-7000-8000-000000000001"
+  }
+}

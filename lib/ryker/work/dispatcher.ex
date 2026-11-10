@@ -169,6 +169,25 @@ defmodule Ryker.Work.Dispatcher do
       else: rerun(claim, reason)
   end
 
+  # Eight retries kept loading a missing provider transcript for a live diagnostic
+  # request. Its pre-send failure needs a fresh conversation, not outage backoff.
+  # Cancellation proves the old turn terminal and closes its poisoned session;
+  # the next turn then rotates and reconstructs the complete host briefing.
+  defp execution_failure(
+         %{turn: %{status: :pending}, session: %{workspace_task: nil}} = claim,
+         {:work_provider_context_lost, code, detail} = reason,
+         settings
+       ) do
+    runs = Custody.reruns(claim.turn.turn_ref)
+
+    if runs < length(@provider_waits),
+      do: rerun(claim, reason, runs + 1),
+      else: stop_or_defer(claim, {:work_turn_terminal, "failed", code, detail}, settings)
+  end
+
+  defp execution_failure(claim, {:work_provider_context_lost, code, detail}, settings),
+    do: execution_failure(claim, {:work_turn_terminal, "failed", code, detail}, settings)
+
   # A provider HTTP 429 stopped a task on 2026-10-28. A quota can reset long
   # after the ordinary outage budget: keep custody and cap the delay, not the
   # number of fresh runs. A person's cancellation still takes precedence.

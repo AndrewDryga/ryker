@@ -522,6 +522,64 @@ defmodule Ryker.Work.DispatcherTest do
     assert %{"action" => "transfer", "new_turn_ref" => ^fifth} = turn.cancellation_intent
   end
 
+  test "a missing provider transcript starts its recovery without outage backoff" do
+    command = create_episode!("missing-provider-context")
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    missing = fixture["missing_rollout"]
+    reason = {:work_provider_context_lost, missing["error_code"], missing["error_detail"]}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    assert turn.cancellation_intent["action"] == "transfer"
+    assert turn.next_attempt_at == nil
+  end
+
+  test "conversation recovery cannot reset the existing rerun budget" do
+    command =
+      create_episode!("missing-provider-context-limit", "turn:rerun:8:#{Ecto.UUID.generate()}")
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    missing = fixture["missing_rollout"]
+    reason = {:work_provider_context_lost, missing["error_code"], missing["error_detail"]}
+    stopped = {:work_turn_terminal, "failed", missing["error_code"], missing["error_detail"]}
+
+    assert {:ok, {:deferred, {:work_stop_pending, ^stopped}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.cancellation_intent["action"] == "block"
+  end
+
+  test "lost coding conversations require workspace recovery before another session starts" do
+    command = create_episode!("missing-coding-context")
+    session = Ryker.Repo.get_by!(Ryker.Work.Session, episode_id: command.episode_id)
+
+    session
+    |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => "record:task_offer:unfinished"})
+    |> Ryker.Repo.update!()
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    missing = fixture["missing_rollout"]
+    reason = {:work_provider_context_lost, missing["error_code"], missing["error_detail"]}
+    stopped = {:work_turn_terminal, "failed", missing["error_code"], missing["error_detail"]}
+
+    assert {:ok, {:deferred, {:work_stop_pending, ^stopped}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.cancellation_intent["action"] == "block"
+  end
+
   # The ninth run asks a person: by then the provider has been out for about an hour.
   test "a task the provider keeps refusing asks a person after about an hour" do
     reason = {:work_turn_terminal, "failed", "acp_protocol_error", @at_capacity}
@@ -601,7 +659,7 @@ defmodule Ryker.Work.DispatcherTest do
 
   # Coop can report a turn a person stopped the way it reports one a worker restart interrupted,
   # so the re-run above must never replace a person's Stop.
-  for failure <- [:cancelled, :limited] do
+  for failure <- [:cancelled, :limited, :context_lost] do
     test "a person's stop survives the worker reporting #{failure}" do
       command = create_episode!("stopped-not-rerun")
 
@@ -613,6 +671,14 @@ defmodule Ryker.Work.DispatcherTest do
           :limited ->
             {:work_provider_limited, DateTime.utc_now(), "rate_limited",
              "provider rate limited the turn: exceeded retry limit, last status: 429 Too Many Requests"}
+
+          :context_lost ->
+            fixture =
+              File.read!("test/ryker/work/fixtures/missing_provider_conversation.json")
+              |> Jason.decode!()
+
+            missing = fixture["missing_rollout"]
+            {:work_provider_context_lost, missing["error_code"], missing["error_detail"]}
         end
 
       before_return = fn claim ->

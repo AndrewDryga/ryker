@@ -218,6 +218,9 @@ defmodule Ryker.Work.Executor.Turns do
     detail = turn["error_detail"]
 
     cond do
+      FailureCause.provider_context_lost?(turn) ->
+        {:work_provider_context_lost, code, detail}
+
       FailureCause.rate_limited?(code, detail) ->
         {:work_provider_limited, finished_at(turn) || created_at, code, detail}
 

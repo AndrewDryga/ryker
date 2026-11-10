@@ -4616,6 +4616,197 @@ defmodule Ryker.Work.ExecutorTest do
 
   # OpenAI's model was "at capacity" on 2026-10-13. A turn Coop failed for that says when it
   # failed, so the dispatcher can run it again once its wait from then is over.
+  # Eight retries reloaded one missing provider transcript and left a production
+  # diagnostic request unanswered. The earlier sent failure stays historical;
+  # only the later pre-send missing-transcript proof permits retiring its session.
+  test "a missing provider conversation is recovered instead of waiting for an outage" do
+    work = bound_turn!("missing-provider-conversation")
+    {:ok, fake} = fake_for(work, [])
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    missing = fixture["missing_rollout"]
+
+    FakeAPI.seed_turn(
+      fake,
+      work.session.coop_session_id,
+      work.turn.coop_turn_id,
+      "failed",
+      missing
+    )
+
+    assert Executor.run(work, options(fake)) ==
+             {:error,
+              {:work_provider_context_lost, missing["error_code"], missing["error_detail"]}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+    assert Repo.reload!(work.turn).submission == work.turn.submission
+  end
+
+  test "a poisoned provider session closes before its replacement receives the full briefing" do
+    work = bound_turn!("replace-missing-provider-conversation")
+    {:ok, fake} = fake_for(work, [reply("The replacement completed the investigation.")])
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    missing = fixture["missing_rollout"]
+
+    FakeAPI.seed_turn(
+      fake,
+      work.session.coop_session_id,
+      work.turn.coop_turn_id,
+      "failed",
+      missing
+    )
+
+    assert {:ok, _} =
+             Custody.request_rerun(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.turn.id,
+               work.lease_ref
+             )
+
+    assert {:ok, stopping} = Custody.claim_next("missing-conversation-stop", 60, :work)
+    assert {:ok, %{status: :transferred}} = Executor.run(stopping, options(fake))
+    stopped = Repo.reload!(work.turn)
+    assert stopped.cancellation_receipt["session_state"] == "closed"
+    assert stopped.cancellation_receipt["close_operation_ref"] != nil
+    assert stopped.submission == work.turn.submission
+
+    assert {:ok, replacement} = Custody.claim_next("missing-conversation-replacement", 60, :work)
+    assert {:ok, %{status: :accepted}} = Executor.run(replacement, options(fake))
+    renewed = Repo.reload!(replacement.turn)
+    session = Repo.get!(Session, renewed.session_id)
+    assert session.generation == work.session.generation + 1
+    assert session.coop_session_id != work.session.coop_session_id
+    assert renewed.submission["context"]["mode"] == "full"
+    assert Repo.reload!(work.turn).submission == work.turn.submission
+  end
+
+  for kind <- [:sent_failure, :sent_missing, :unknown_send] do
+    test "a #{kind} failure keeps its existing transfer conversation" do
+      fixture =
+        File.read!("test/ryker/work/fixtures/missing_provider_conversation.json")
+        |> Jason.decode!()
+
+      native =
+        case unquote(kind) do
+          :sent_failure -> fixture["first_sent_failure"]
+          :sent_missing -> Map.put(fixture["missing_rollout"], "send_state", "sent")
+          :unknown_send -> Map.delete(fixture["missing_rollout"], "send_state")
+        end
+
+      work = bound_turn!("keep-provider-conversation-#{unquote(kind)}")
+      {:ok, fake} = fake_for(work, [])
+
+      FakeAPI.seed_turn(
+        fake,
+        work.session.coop_session_id,
+        work.turn.coop_turn_id,
+        "failed",
+        native
+      )
+
+      assert {:ok, _} =
+               Custody.request_rerun(
+                 work.episode.id,
+                 work.episode.key,
+                 work.turn.turn_ref,
+                 work.turn.id,
+                 work.lease_ref
+               )
+
+      assert {:ok, stopping} = Custody.claim_next("keep-provider-conversation-stop", 60, :work)
+      assert {:ok, %{status: :transferred}} = Executor.run(stopping, options(fake))
+      stopped = Repo.reload!(work.turn)
+      assert stopped.cancellation_receipt["session_state"] == "open"
+      assert stopped.cancellation_receipt["close_operation_ref"] == nil
+    end
+  end
+
+  test "a missing transcript cannot abandon a coding workspace during transfer" do
+    work = bound_turn!("keep-writable-provider-conversation")
+
+    workspace_task = %{
+      "authority_limits" => [],
+      "offer_ref" => "record:task_offer:keep-writable-provider-conversation",
+      "prompt" => "Preserve the unfinished parser changes.",
+      "source_refs" => [],
+      "success_checks" => ["focused tests pass"],
+      "title" => "Preserve unfinished work"
+    }
+
+    work = %{work | session: task_session!(work.session, "ryker", workspace_task)}
+    {:ok, fake} = fake_for(work, [])
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    FakeAPI.seed_turn(
+      fake,
+      work.session.coop_session_id,
+      work.turn.coop_turn_id,
+      "failed",
+      fixture["missing_rollout"]
+    )
+
+    assert {:ok, _} =
+             Custody.request_rerun(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.turn.id,
+               work.lease_ref
+             )
+
+    assert {:ok, stopping} = Custody.claim_next("keep-writable-provider-stop", 60, :work)
+    assert {:ok, %{status: :transferred}} = Executor.run(stopping, options(fake))
+    assert Repo.reload!(work.turn).cancellation_receipt["session_state"] == "open"
+  end
+
+  test "unresolved closure retains ownership of a lost provider conversation" do
+    work = bound_turn!("missing-provider-close-refused")
+    {:ok, fake} = fake_for(work, [])
+
+    fixture =
+      File.read!("test/ryker/work/fixtures/missing_provider_conversation.json") |> Jason.decode!()
+
+    FakeAPI.seed_turn(
+      fake,
+      work.session.coop_session_id,
+      work.turn.coop_turn_id,
+      "failed",
+      fixture["missing_rollout"]
+    )
+
+    assert {:ok, _} =
+             Custody.request_rerun(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.turn.id,
+               work.lease_ref
+             )
+
+    assert {:ok, stopping} = Custody.claim_next("missing-provider-close-stop", 60, :work)
+
+    settings =
+      protocol_options(fake, %{
+        close_session: fn _fallback ->
+          {:error, {:coop_error, 409, "session_cleanup_error", "Session cleanup is unresolved"}}
+        end
+      })
+
+    assert {:error, _reason} = Executor.run(stopping, settings)
+    assert Repo.reload!(work.episode).owner_ref == work.turn.turn_ref
+    assert Repo.reload!(work.turn).status == :cancel_pending
+    assert Repo.reload!(work.turn).cancellation_receipt == nil
+  end
+
   test "a turn the provider couldn't serve says when it failed" do
     work = bound_turn!("provider-outage")
     {:ok, fake} = fake_for(work, [])
