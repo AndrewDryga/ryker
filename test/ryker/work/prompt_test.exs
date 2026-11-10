@@ -2,6 +2,18 @@ defmodule Ryker.Work.PromptTest do
   use ExUnit.Case, async: true
   alias Ryker.Work.{Final, Prompt}
 
+  test "historical diagnostics correlate resource evidence before requesting another archive" do
+    # A recovered investigation read 3,620 log entries, then asked for archived
+    # console logs while retained memory showed a sharp rise near the failure.
+    # Earlier hourly aggregates were treated as if the metrics lead were closed.
+    instructions = normalized_instructions()
+    assert instructions =~ "Revisit earlier coarse measurements at the resolution of the failure"
+    assert instructions =~ "memory pressure, CPU, I/O, queues and task concurrency"
+    assert instructions =~ "A missing log or deleted machine does not exhaust retained telemetry"
+    assert instructions =~ "Do not make a speculative archive request the next required step"
+    refute instructions =~ "A missing fact that a person can supply is a next question"
+  end
+
   test "the working model owns completion but respects human waits without repeated replies" do
     instructions = normalized_instructions()
     assert instructions =~ "Keep a finite account of the requested outcomes"
