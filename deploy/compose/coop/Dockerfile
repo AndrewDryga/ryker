@@ -1,8 +1,8 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
 FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
 
-ARG COOP_VERSION=v12.1.0-174-g70e1ded2
-ARG COOP_REVISION=70e1ded26ad16f4a35de127f78c885fed04b1850
+ARG COOP_VERSION=v13.2.0-7-g90aecb01
+ARG COOP_REVISION=90aecb01ff5d295e5f7f47d0096c6cf738474aa5
 
 # Only the pinned commit, and each download tried again: on 2026-10-17 the tenant host's network
 # broke off a clone of Coop's whole history twice, after 397 s and 36 s, and its worker stayed on
