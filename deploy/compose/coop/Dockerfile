@@ -1,5 +1,5 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
-FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS build
 
 ARG COOP_VERSION=v13.2.0-7-g90aecb01
 ARG COOP_REVISION=90aecb01ff5d295e5f7f47d0096c6cf738474aa5
