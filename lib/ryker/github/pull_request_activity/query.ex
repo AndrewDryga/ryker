@@ -5,7 +5,7 @@ defmodule Ryker.GitHub.PullRequestActivity.Query do
   alias Ryker.Publication
   alias Ryker.Work
 
-  def active_publications(repository) do
+  def active_publications(repository, now) do
     pending =
       from(l in Publication.LifecycleEvent,
         as: :lifecycle_event,
@@ -33,15 +33,17 @@ defmodule Ryker.GitHub.PullRequestActivity.Query do
       distinct: true,
       select: p.pull_request_number
     )
-    |> having_active_work(pending)
+    |> having_active_work(pending, now)
   end
 
-  defp having_active_work(queryable, pending) do
+  defp having_active_work(queryable, pending, now) do
     where(
       queryable,
       [publication: p, episode: e, turn: t],
       (e.state == :working and (is_nil(t.id) or t.status != :blocked)) or
-        p.status in [:review_pending, :publish_pending] or exists(subquery(pending))
+        (p.status in [:review_pending, :publish_pending] and
+           (is_nil(p.last_error_code) or p.lease_expires_at > ^now)) or
+        exists(subquery(pending))
     )
   end
 end

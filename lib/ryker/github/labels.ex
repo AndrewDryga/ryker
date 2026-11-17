@@ -9,7 +9,12 @@ defmodule Ryker.GitHub.Labels do
         Repo.all(CommentActivity.Query.active_threads(name, binding.repository_id))
 
     requested = Enum.flat_map(threads, &pull_number(&1, name))
-    owned = Repo.all(PullRequestActivity.Query.active_publications(binding.repository_full_name))
+
+    owned =
+      Repo.all(
+        PullRequestActivity.Query.active_publications(binding.repository_full_name, Repo.now!())
+      )
+
     MapSet.new(requested ++ owned)
   end
 
