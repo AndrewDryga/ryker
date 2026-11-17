@@ -118,9 +118,11 @@ defmodule Ryker.Slack.TaskCardProjection do
         snapshot = snapshot(episode)
         {:ok, projection} = project(record, episode, card.ref, snapshot)
 
-        if public_sources?(card, record, episode, snapshot),
-          do: {:ok, public_errors(projection, snapshot)},
-          else: {:ok, neutral(projection)}
+        case public_sources(card, record, episode, snapshot) do
+          :public -> {:ok, public_errors(projection, snapshot)}
+          :withdrawn -> {:ok, neutral(projection)}
+          {:error, reason} -> {:error, reason}
+        end
 
       {:error, :not_found} ->
         {:error, :task_card_source_not_found}
@@ -288,7 +290,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     }
   end
 
-  defp public_sources?(card, record, episode, snapshot) do
+  defp public_sources(card, record, episode, snapshot) do
     with true <- record.confirmed_episode_id == episode.id,
          true <- same_destination?(card, episode),
          {:ok, source_episode, source_session} <- offer_owner(record),
@@ -308,9 +310,17 @@ defmodule Ryker.Slack.TaskCardProjection do
              session.repository_ref,
              session
            ) do
-      true
+      :public
     else
-      _ -> false
+      # A concurrent turn may hold the source session while this card refreshes.
+      # Keep the published card until the check can finish; only a withdrawn or
+      # mismatched source authorizes replacing its details with the neutral card.
+      {:error, reason}
+      when reason not in [:work_knowledge_context_stale, :task_card_source_not_found] ->
+        {:error, reason}
+
+      _ ->
+        :withdrawn
     end
   end
 

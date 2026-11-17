@@ -161,6 +161,17 @@ defmodule Ryker.Slack.TaskCardWorker do
   #
   # Slack asking Ryker to slow down is no failed refresh: the card waits as long
   # as Slack asked, 30 seconds when it named no time, and keeps its attempts.
+  defp settle(card, :work_derived_context_busy = reason, options) do
+    # Source-row contention is normal while work advances. It must neither
+    # erase the published card nor exhaust its refreshes and leave it stuck.
+    case TaskCards.defer(card.id, card.lease_ref, options.retry_base_seconds, reason,
+           counted: false
+         ) do
+      {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp settle(card, reason, options) do
     case Delivery.Retry.rate_limited(reason) do
       {:ok, seconds} ->
