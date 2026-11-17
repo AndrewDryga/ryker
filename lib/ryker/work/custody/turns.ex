@@ -1068,7 +1068,8 @@ defmodule Ryker.Work.Custody.Turns do
          validation_receipt,
          measurement
        ) do
-    with {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
+    with :ok <- lock_acceptance_conversation(episode_id),
+         {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id),
          {:ok, session, turn} <- fetch_and_lock_turn_after_episode(episode_id, turn_ref),
          {:ok, result} <- accepted_intent_result(turn),
@@ -1124,15 +1125,32 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  # The candidate and validation verdict remain exact historical inputs. The
-  # first delivery is host-owned: local completion precedes asynchronous review
-  # and publication, so it cannot promise a remote change. Publication updates
-  # the task card, while this frozen reply remains beside it: avoid a temporary
-  # "not yet published" claim that becomes false seconds later. A replay uses
-  # the delivery frozen at acceptance, even after publication later finishes.
+  defp lock_acceptance_conversation(episode_id) do
+    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      {:ok, episode} ->
+        episode
+        |> Publication.Completion.episode_destination()
+        |> Episodes.ConversationLock.lock()
+
+      {:error, :not_found} ->
+        :ok
+    end
+  end
+
+  # Local completion is an internal handoff. Publication returns its saved
+  # outcome as a new input; Work then writes the actual reply. The candidate
+  # and validation verdict remain exact, including across acceptance retries.
   defp publication_delivery_result(_episode, _session, %Turn{result_ref: ref} = turn, result)
-       when is_binary(ref),
-       do: %{result | delivery_document: turn.delivery_document}
+       when is_binary(ref) do
+    if is_nil(turn.delivery_ref) and result.delivery == :reply,
+      do: %{
+        result
+        | delivery: :none,
+          delivery_document: nil,
+          decision_reason: "publication_pending"
+      },
+      else: %{result | delivery_document: turn.delivery_document}
+  end
 
   defp publication_delivery_result(
          episode,
@@ -1140,14 +1158,14 @@ defmodule Ryker.Work.Custody.Turns do
          turn,
          %Result{delivery: :reply, continuation: %{"kind" => "complete"}} = result
        ) do
-    if Publication.Custody.task_review_pending?(episode, session, turn) do
-      message =
-        "I’ve prepared the change for review and publication. The task card shows publication status and checks."
-
-      %{result | delivery_document: Map.put(result.delivery_document, "message", message)}
-    else
-      result
-    end
+    if Publication.Custody.task_review_pending?(episode, session, turn),
+      do: %{
+        result
+        | delivery: :none,
+          delivery_document: nil,
+          decision_reason: "publication_pending"
+      },
+      else: result
   end
 
   defp publication_delivery_result(_episode, _session, _turn, result), do: result
@@ -1165,7 +1183,10 @@ defmodule Ryker.Work.Custody.Turns do
     now = Repo.now!()
     result_ref = "result:#{turn.id}"
     delivery_ref = if result.delivery == :reply, do: "delivery:#{turn.id}"
-    delivery_target = if result.delivery == :reply, do: Delivery.reply_target(episode, turn)
+
+    delivery_target =
+      if result.delivery == :reply or result.decision_reason == "publication_pending",
+        do: Delivery.reply_target(episode, turn)
 
     delivery_fingerprint =
       if result.delivery_document,

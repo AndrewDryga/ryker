@@ -201,15 +201,8 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert {:ok, delivery_claim} =
              PublicationCustody.claim_next("lab-task-unverified-delivery", 60)
 
-    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
-    assert {:ok, receipt} = Publisher.publish_message(request, nil)
-
     assert {:ok, %Publication{status: :publish_pending} = pending} =
-             PublicationCustody.confirm_delivery(
-               publication.ref,
-               delivery_claim.lease_ref,
-               receipt
-             )
+             PublicationCustody.settle_task_phase(publication.ref, delivery_claim.lease_ref)
 
     assert pending.approval_ref == "host:publication:draft:#{publication.id}"
 
@@ -346,20 +339,14 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert {:ok, review_delivery_claim} =
              PublicationCustody.claim_next("lab-task-review-delivery", 60)
 
-    assert {:ok, review_request} =
-             PublicationCustody.delivery_request(review_delivery_claim.publication)
-
-    assert {:ok, review_receipt} = Publisher.publish_message(review_request, nil)
-
     # The person who confirmed this task named the repository and the scope, so
     # the exact candidate their work produced opens as a draft on that same
     # grant. The operator-owned approval path stays proved on a standalone
     # publication offer, which carries no task grant, in the first test here.
     assert {:ok, %Publication{status: :publish_pending} = authorized} =
-             PublicationCustody.confirm_delivery(
+             PublicationCustody.settle_task_phase(
                readiness.publication.ref,
-               review_delivery_claim.lease_ref,
-               review_receipt
+               review_delivery_claim.lease_ref
              )
 
     assert authorized.approval_ref == "host:publication:draft:#{authorized.id}"
@@ -440,16 +427,10 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert {:ok, result_delivery_claim} =
              PublicationCustody.claim_next("lab-task-result-delivery", 60)
 
-    assert {:ok, result_request} =
-             PublicationCustody.delivery_request(result_delivery_claim.publication)
-
-    assert {:ok, result_receipt} = Publisher.publish_message(result_request, nil)
-
     assert {:ok, %Publication{status: :published}} =
-             PublicationCustody.confirm_delivery(
+             PublicationCustody.settle_task_phase(
                readiness.publication.ref,
-               result_delivery_claim.lease_ref,
-               result_receipt
+               result_delivery_claim.lease_ref
              )
 
     assert {:ok, published_conversation} = ConversationProjection.fetch(@conversation_id)
@@ -660,28 +641,34 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                "validation-receipt:#{message_ref}"
              )
 
-    assert {:ok, delivery_claim} =
-             Custody.claim_next("delivery:#{message_ref}", 60, :delivery)
+    if accepted.turn.delivery_ref do
+      assert {:ok, delivery_claim} =
+               Custody.claim_next("delivery:#{message_ref}", 60, :delivery)
 
-    assert {:ok, receipt} =
-             DeliveryReceipt.new(
-               accepted.turn.delivery_ref,
-               "control_plane",
-               conversation_ref(),
-               conversation_ref(),
-               message_ref
-             )
+      assert {:ok, receipt} =
+               DeliveryReceipt.new(
+                 accepted.turn.delivery_ref,
+                 "control_plane",
+                 conversation_ref(),
+                 conversation_ref(),
+                 message_ref
+               )
 
-    assert {:ok, settled} =
-             Custody.confirm_delivery(
-               claim.episode.id,
-               claim.episode.key,
-               claim.turn.turn_ref,
-               delivery_claim.lease_ref,
-               receipt
-             )
+      assert {:ok, settled} =
+               Custody.confirm_delivery(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 delivery_claim.lease_ref,
+                 receipt
+               )
 
-    settled
+      settled
+    else
+      assert accepted.turn.status == :settled
+      assert accepted.turn.delivery_document == nil
+      accepted
+    end
   end
 
   defp delivered_publication_offer! do

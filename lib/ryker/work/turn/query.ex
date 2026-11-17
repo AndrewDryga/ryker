@@ -3,6 +3,7 @@ defmodule Ryker.Work.Turn.Query do
   use Ryker, :query
   alias Ryker.ConversationRef
   alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Work.{Session, Turn}
 
   def all, do: from(turns in Turn, as: :episode_work_turns)
@@ -67,6 +68,24 @@ defmodule Ryker.Work.Turn.Query do
       queryable,
       [episode_work_turns: t],
       not is_nil(t.coop_turn_id) or not is_nil(t.candidate) or not is_nil(t.result_ref)
+    )
+  end
+
+  @doc "Latest accepted local candidate, including one completed during an older publish."
+  def latest_publication_candidate(queryable \\ all(), episode_id, repository) do
+    from([episode_work_turns: t] in queryable,
+      join: r in Records.Record,
+      as: :episode_records,
+      on: r.turn_id == t.id and r.episode_id == t.episode_id,
+      join: s in Session,
+      as: :episode_work_sessions,
+      on: s.id == t.session_id and s.episode_id == t.episode_id,
+      where: t.episode_id == ^episode_id and s.repository_ref == ^repository,
+      where: not is_nil(t.result_ref) and t.continuation == ^%{"kind" => "complete"},
+      where: r.kind == "publication_offer" and r.operation_id == "host:publication:ready",
+      order_by: [desc: t.accepted_at, desc: t.id],
+      limit: 1,
+      select: {t, s}
     )
   end
 

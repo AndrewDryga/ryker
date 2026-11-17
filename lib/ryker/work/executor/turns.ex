@@ -451,7 +451,7 @@ defmodule Ryker.Work.Executor.Turns do
          turn,
          %{continuation: %{"kind" => "complete"}} = result
        ) do
-    if Publication.Custody.unchanged_since_published?(turn),
+    if Publication.Custody.unchanged_since_requested?(turn),
       do: :ok,
       else: create_publication_offer(task, turn, result)
   end

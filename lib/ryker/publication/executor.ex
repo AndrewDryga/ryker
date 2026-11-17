@@ -10,7 +10,7 @@ defmodule Ryker.Publication.Executor do
   alias Ryker.CoopFleet
   alias Ryker.Delivery
   alias Ryker.LeasedCall
-  alias Ryker.Publication.{Custody, FixLoop, GateOutput, Request}
+  alias Ryker.Publication.{Completion, Custody, FixLoop, GateOutput, Request}
   alias Ryker.Slack
   alias Ryker.Work
 
@@ -83,6 +83,17 @@ defmodule Ryker.Publication.Executor do
   defp review_phase(_stored), do: :reviewed
 
   defp deliver(claim, settings) do
+    if Completion.task?(claim.publication) do
+      with {:ok, stored} <-
+             settings.custody.settle_task_phase(claim.publication.ref, claim.lease_ref) do
+        {:ok, %{phase: :delivered, publication: stored}}
+      end
+    else
+      deliver_message(claim, settings)
+    end
+  end
+
+  defp deliver_message(claim, settings) do
     with {:ok, request} <- settings.custody.delivery_request(claim.publication),
          {:ok, receipt} <- deliver_request(claim, request, settings),
          {:ok, stored} <-
@@ -343,6 +354,7 @@ defmodule Ryker.Publication.Executor do
         settings.custody,
         [
           confirm_delivery: 3,
+          settle_task_phase: 2,
           delivery_request: 1,
           advance_review_generation: 3,
           freeze_review_revision: 3,

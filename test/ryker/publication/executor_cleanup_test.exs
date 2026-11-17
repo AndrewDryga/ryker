@@ -22,6 +22,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     def renew_poll(_, _, _), do: unavailable()
     def renew_delivery(_, _, _), do: unavailable()
     def confirm_delivery(_, _, _), do: {:error, :not_used}
+    def settle_task_phase(_, _), do: {:error, :not_used}
     def delivery_request(_), do: {:error, :not_used}
     def advance_review_generation(_, _, _), do: {:error, :not_used}
     def freeze_review_revision(_, _, _), do: {:error, :not_used}
@@ -52,6 +53,7 @@ defmodule Ryker.Publication.ExecutorCleanupTest do
     def renew_poll(_, _, _), do: raise_after_result()
     defdelegate renew_delivery(ref, lease, seconds), to: RaisingCustody
     defdelegate confirm_delivery(ref, lease, receipt), to: RaisingCustody
+    defdelegate settle_task_phase(ref, lease), to: RaisingCustody
     defdelegate delivery_request(event), to: RaisingCustody
     defdelegate advance_review_generation(ref, lease, generation), to: RaisingCustody
     defdelegate freeze_review_revision(ref, lease, revision), to: RaisingCustody

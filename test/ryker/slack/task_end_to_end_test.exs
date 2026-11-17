@@ -7,6 +7,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.{Auth, Binding, Router}
@@ -387,7 +388,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       |> put_in([:session, "policy_digest"], @write_policy_digest)
     end)
 
-    assert {:ok, %{status: :accepted, turn: %{status: :delivery_pending}} = task_accepted} =
+    assert {:ok, %{status: :accepted, turn: %{status: :settled}} = task_accepted} =
              Executor.run(task_claim, executor_options(task_api))
 
     # Confirmed coding tasks stalled behind another readiness permission click.
@@ -429,16 +430,8 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert [same_review] = Repo.all(from(p in Publication, where: p.record_id == ^ready_offer.id))
     assert same_review.id == automatic_review.id
 
-    assert {:ok, {:delivered, :message, _task_delivery_ref}} = deliver_once(adapters)
-
-    assert_receive {
-      :slack_posted,
-      "C456",
-      "1788268000.000100",
-      _task_result_document,
-      _task_delivery_ref,
-      "1788268001.000202"
-    }
+    assert deliver_once(adapters) == {:ok, :idle}
+    assert task_accepted.turn.delivery_document == nil
 
     Repo.update_all(from(saved in TaskCard, where: saved.id == ^card.id),
       set: [card_checked_at: nil]
@@ -545,6 +538,9 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert request["pull_request_number"] == 0
     refute Map.has_key?(request, "patch")
 
+    PublicationFixture.answer_publication!(writable_task_reply())
+    assert {:ok, {:delivered, :message, _published_reply}} = deliver_once(adapters)
+
     response =
       github_review_post(
         published.pull_request_number,
@@ -633,7 +629,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert {:ok, correction_execution} =
              Executor.run(correction_claim, executor_options(correction_api))
 
-    assert correction_execution.turn.status == :delivery_pending
+    assert correction_execution.turn.status == :settled
     assert correction_execution.turn.session_id == task_session.id
     assert Repo.aggregate(from(s in Session, where: s.execution_kind == :work), :count, :id) == 2
 
@@ -646,36 +642,9 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert current_review["content"]["content"]["payload"]["comment"]["body"] ==
              "Please cover the nil retry state before merge."
 
-    # The correction is answered where the review asked for it, in the review
-    # comment's own thread on GitHub, not in the task's Slack thread (Andrew,
-    # 2026-09-28).
-    {:ok, github} =
-      GitHubRequester.start([
-        {:ok, %{body: [], headers: [], status: 200}},
-        {:ok, %{body: %{"id" => 9_300}, headers: [], status: 201}}
-      ])
-
-    assert {:ok, {:delivered, :message, final_delivery_ref}} =
-             deliver_once(adapters_with_github!(slack_api, github))
-
-    assert [
-             {:get, "/repos/acme/ryker/pulls/91/comments?per_page=100&page=1", nil, _},
-             {:post, "/repos/acme/ryker/pulls/91/comments/9000/replies", %{"body" => reply_body},
-              _}
-           ] = GitHubRequester.requests(github)
-
-    assert reply_body =~ "task card"
-    refute reply_body =~ "prepared locally"
-    refute reply_body =~ "not yet updated"
-    refute reply_body =~ "Covered the nil retry state and updated the published review branch."
+    assert deliver_once(adapters) == {:ok, :idle}
+    assert correction_execution.turn.delivery_document == nil
     refute_post_containing("Covered the nil retry state")
-
-    assert %Turn{status: :settled, external_receipt: final_receipt} =
-             Repo.get!(Turn, correction_execution.turn.id)
-
-    assert final_receipt["transport"] == "github"
-    assert final_receipt["thread_ref"] == "github:task-e2e:pull:91:review-thread:9000"
-    assert final_receipt["delivery_ref"] == final_delivery_ref
 
     # A completed correction must not mint another Publication and replace the
     # existing PR link with a fresh Create draft PR control. It re-arms the
@@ -705,6 +674,38 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     updated = Repo.get!(Publication, publication.id)
     assert updated.status == :published
     assert updated.pull_request_url == "https://github.com/acme/ryker/pull/91"
+
+    # The correction is answered where the review asked for it, in the review
+    # comment's own thread on GitHub, not in the task's Slack thread (Andrew,
+    # 2026-09-28).
+    final_answer = PublicationFixture.answer_publication!(review_feedback_reply())
+
+    {:ok, github} =
+      GitHubRequester.start([
+        {:ok, %{body: [], headers: [], status: 200}},
+        {:ok, %{body: %{"id" => 9_300}, headers: [], status: 201}}
+      ])
+
+    assert {:ok, {:delivered, :message, final_delivery_ref}} =
+             deliver_once(adapters_with_github!(slack_api, github))
+
+    assert [
+             {:get, "/repos/acme/ryker/pulls/91/comments?per_page=100&page=1", nil, _},
+             {:post, "/repos/acme/ryker/pulls/91/comments/9000/replies", %{"body" => reply_body},
+              _}
+           ] = GitHubRequester.requests(github)
+
+    assert reply_body =~ "Covered the nil retry state and updated the published review branch."
+    refute reply_body =~ "task card"
+    refute reply_body =~ "prepared the change"
+    refute_post_containing("Covered the nil retry state")
+
+    assert %Turn{status: :settled, external_receipt: final_receipt} =
+             Repo.get!(Turn, final_answer.turn.id)
+
+    assert final_receipt["transport"] == "github"
+    assert final_receipt["thread_ref"] == "github:task-e2e:pull:91:review-thread:9000"
+    assert final_receipt["delivery_ref"] == final_delivery_ref
 
     assert [_first_review, corrected_review] =
              Agent.get(publication_coop, & &1.review_calls)

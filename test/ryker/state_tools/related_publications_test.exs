@@ -44,6 +44,7 @@ defmodule Ryker.StateTools.RelatedPublicationsTest do
     change!(published.publication,
       body: "PRIVATE-publication-body",
       review_patch: "PRIVATE-patch",
+      last_error_code: "coop_error",
       last_error_detail: "PRIVATE-error"
     )
 

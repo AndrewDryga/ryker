@@ -2,6 +2,43 @@ defmodule Ryker.ControlPlane.SourceTextTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.SourceText
 
+  test "a publication result reads only its saved status and receipt" do
+    event = %{
+      "kind" => "publication_result",
+      "status" => "published",
+      "published_revision" => %{
+        "commit_sha" => String.duplicate("6", 40),
+        "pull_request_url" => "https://github.com/acme/ryker/pull/91"
+      },
+      "error_code" => nil
+    }
+
+    preview = SourceText.event_preview(event)
+    assert preview.actor == "Publication result"
+    assert preview.text =~ "Publication: published"
+    assert preview.text =~ event["published_revision"]["commit_sha"]
+    assert preview.text =~ event["published_revision"]["pull_request_url"]
+    assert SourceText.from_content(event) == preview.text
+
+    blocked = %{
+      event
+      | "status" => "not_published",
+        "published_revision" => %{},
+        "error_code" => "publication_branch_changed"
+    }
+
+    assert SourceText.event_preview(blocked).text ==
+             "Publication: not published\nReason: publication_branch_changed"
+
+    assert SourceText.event_preview(event) == preview
+
+    assert SourceText.event_preview(%{
+             "kind" => "publication_result",
+             "status" => [],
+             "published_revision" => "invalid"
+           }).text == "Publication: unknown"
+  end
+
   test "timer wrapper and direct payload have the same recorded intent" do
     input =
       "testdata/control_plane/timer-due.json"

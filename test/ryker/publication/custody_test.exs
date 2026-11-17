@@ -1274,26 +1274,52 @@ defmodule Ryker.Publication.CustodyTest do
     end
   end
 
-  # A task's draft opened 24 seconds after its completion reply, leaving
-  # "not yet updated" below a card that already linked the published change.
-  # The reply must also avoid claiming publication before its receipt exists.
-  test "task completion stays accurate before and after its draft is published" do
+  # A real PR follow-up received a canned completion at its original head;
+  # no new commit had reached GitHub. Local completion must keep its exact
+  # candidate without posting a success or replacing it with host prose.
+  test "task completion waits for publication without replacing the model answer" do
     %{claim: claim} = task_episode!("publication-truth")
-    correction = corrected_candidate!(claim, "publication-truth", "one")
+    %{claim: work, sha256: sha256} = staged_candidate!(claim, "publication-truth", "one", [])
 
-    message = correction.turn.delivery_document["message"]
-    refute message =~ "prepared locally"
-    refute message =~ "not yet updated"
-    assert message =~ "task card"
-    refute message =~ "correction is committed"
-    assert correction.turn.candidate =~ "correction is committed"
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               sha256,
+               1,
+               "validation:#{work.turn.id}"
+             )
 
-    published = publish_task_publication!(correction.claim, "publication-truth", "one")
-    assert {:ok, repeated} = reaccept!(correction)
-    assert repeated.turn.delivery_document == correction.turn.delivery_document
-    assert repeated.turn.delivery_fingerprint == correction.turn.delivery_fingerprint
+    assert accepted.turn.status == :settled
+    assert accepted.turn.delivery_ref == nil
+    assert accepted.turn.delivery_document == nil
+    assert accepted.turn.candidate_sha256 == sha256
+    assert accepted.turn.candidate =~ "correction is committed"
+    assert Custody.claim_next("premature-completion", 60, :delivery) == {:ok, nil}
+    assert Repo.get_by!(Publication, episode_id: work.episode.id).status == :review_pending
+
+    published = publish_task_publication!(work, "publication-truth", "one", report: false)
     assert published.status == :published
-    assert published.publication_receipt["pull_request_url"] != nil
+    assert published.review_delivery_receipt == nil
+    assert published.published_delivery_receipt == nil
+    assert published.publication_receipt["commit_sha"] == String.duplicate("6", 40)
+    assert {:ok, final_turn} = Custody.claim_next("actual-publication-reply", 60, :work)
+    assert final_turn.episode.id == work.episode.id
+    assert final_turn.turn.turn_ref =~ "publication-result:"
+    assert Custody.claim_next("no-canned-published-reply", 60, :delivery) == {:ok, nil}
+
+    before = Repo.get!(Episodes.Episode, work.episode.id).next_sequence
+
+    assert Repo.transaction(fn ->
+             Ryker.Publication.Completion.resume_in_transaction(published, Repo.now!())
+           end) == {:ok, :ok}
+
+    assert Repo.get!(Episodes.Episode, work.episode.id).next_sequence == before
+    assert {:ok, repeated} = reaccept!(%{claim: work, sha256: sha256})
+    assert repeated.turn.candidate == accepted.turn.candidate
+    assert repeated.turn.delivery_document == nil
   end
 
   test "a publication refusal explains the concrete policy blocker in its text" do
@@ -1306,6 +1332,36 @@ defmodule Ryker.Publication.CustodyTest do
     assert request.document["message"] =~ "not published"
     assert request.document["message"] =~ ".github/workflows/check.yml"
     assert request.document["message"] =~ "runs on project runners"
+  end
+
+  # The task claimed its changes were prepared while the PR still had its old
+  # head. A stopped publisher must return evidence to Work, not send success or
+  # silently keep the original request waiting forever.
+  test "a publication conflict returns the failure to Work without a completion reply" do
+    %{claim: claim} = task_episode!("publication-conflict-result")
+    %{claim: work} = corrected_candidate!(claim, "publication-conflict-result", "one")
+    assert {:ok, publishing} = PublicationCustody.claim_next("conflict-result", 60)
+    code = "publication_branch_changed"
+    detail = "The published branch no longer has the expected head."
+
+    assert {:ok, failed} =
+             PublicationCustody.defer(
+               publishing.publication.ref,
+               publishing.lease_ref,
+               30,
+               code,
+               detail
+             )
+
+    assert failed.publication_receipt == nil
+    assert PublicationCustody.claim_next("no-conflicting-push", 60) == {:ok, nil}
+    assert Custody.claim_next("no-false-success", 60, :delivery) == {:ok, nil}
+    assert {:ok, outcome} = Custody.claim_next("explain-conflict", 60, :work)
+    assert outcome.episode.id == work.episode.id
+    assert outcome.turn.turn_ref =~ "publication-result:"
+    state = Ryker.Publication.ModelState.snapshot(work.episode.id, "ryker")
+    assert state["latest_failure"] == %{"code" => code, "detail" => detail}
+    assert state["published_revision"] == nil
   end
 
   test "a policy finding displays change-controlled filenames as literals" do
@@ -1488,7 +1544,7 @@ defmodule Ryker.Publication.CustodyTest do
       publish_task_publication!(first, suffix, "one")
 
       %{turn: turn} = staged_candidate!(first, suffix, "answer", checkpoint: checkpoint)
-      assert PublicationCustody.unchanged_since_published?(turn) == unchanged?, suffix
+      assert PublicationCustody.unchanged_since_requested?(turn) == unchanged?, suffix
     end
   end
 
@@ -1578,7 +1634,7 @@ defmodule Ryker.Publication.CustodyTest do
       set: [pr_state: :stale]
     )
 
-    %{claim: _second} = corrected_candidate!(first, "moved-head", "two")
+    correction = corrected_candidate!(first, "moved-head", "two")
 
     assert [untouched] =
              Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
@@ -1588,6 +1644,11 @@ defmodule Ryker.Publication.CustodyTest do
     assert untouched.expected_remote_head_sha == observed
     assert untouched.review_generation == stale.review_generation
     assert untouched.review_request_ref == stale.review_request_ref
+
+    assert {:ok, outcome} = Custody.claim_next("explain-moved-head", 60, :work)
+    assert outcome.turn.turn_ref =~ correction.turn.id
+    assert outcome.turn.turn_ref =~ "not_published"
+    assert Custody.claim_next("no-moved-head-success", 60, :delivery) == {:ok, nil}
 
     # The retained operator control is still the route through a moved head.
     assert {:ok, %{publication: recovered}} =
@@ -1618,6 +1679,46 @@ defmodule Ryker.Publication.CustodyTest do
     assert still_discarded.status == :discarded
     assert still_discarded.review_generation == discarded.review_generation
     assert still_discarded.recovery_generation == discarded.recovery_generation
+  end
+
+  # Returning a moved-head failure compared the reporting workspace against
+  # the older published candidate, then suppressed the report and rejected it
+  # again. One blocked correction could spend unbounded turns without a reply.
+  test "an unchanged blocked-candidate report has nothing new to publish" do
+    %{claim: claim} = task_episode!("blocked-report")
+    %{claim: first} = corrected_candidate!(claim, "blocked-report", "one", checkpoint: "1")
+    published = publish_task_publication!(first, "blocked-report", "one")
+
+    published
+    |> Publication.Changeset.update(%{expected_remote_head_sha: String.duplicate("d", 40)})
+    |> Repo.update!()
+
+    corrected_candidate!(first, "blocked-report", "two", checkpoint: "2")
+
+    %{claim: report, turn: turn, sha256: sha} =
+      staged_candidate!(first, "blocked-report", "report",
+        resume: true,
+        checkpoint: "2",
+        publication: false
+      )
+
+    assert PublicationCustody.unchanged_since_requested?(turn),
+           "the outcome report must compare with the rejected candidate it reports"
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               report.episode.id,
+               report.episode.key,
+               turn.turn_ref,
+               report.lease_ref,
+               sha,
+               1,
+               "validation:#{turn.id}"
+             )
+
+    assert accepted.turn.status == :delivery_pending
+    assert accepted.turn.delivery_document["message"] == "The report correction is committed."
+    assert Repo.get!(Publication, published.id).review_generation == published.review_generation
   end
 
   # Ryker ends a publication whose worker session closed, because that review
@@ -1693,14 +1794,354 @@ defmodule Ryker.Publication.CustodyTest do
     assert authorized.status == :publish_pending
 
     correction = corrected_candidate!(first, "in-flight", "two")
-    assert correction.turn.delivery_document["message"] =~ "task card"
-    refute correction.turn.delivery_document["message"] =~ "not yet updated"
+    assert correction.turn.delivery_document == nil
 
     assert [held] = Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
     assert held.id == authorized.id
     assert held.status == :publish_pending
     assert held.review_generation == authorized.review_generation
     assert held.approval_ref == authorized.approval_ref
+
+    assert {:ok, publishing} = PublicationCustody.claim_next("publish:in-flight", 60)
+
+    receipt = %{
+      "branch_ref" => "refs/heads/ryker/#{held.id}",
+      "candidate_tree" => held.review_document["candidate_tree"],
+      "commit_sha" => String.duplicate("6", 40),
+      "pull_request_number" => 91,
+      "pull_request_url" => "https://github.com/acme/ryker/pull/91",
+      "repository" => "ryker"
+    }
+
+    assert {:ok, _stored} =
+             PublicationCustody.store_publication(held.ref, publishing.lease_ref, receipt)
+
+    assert {:ok, finishing} = PublicationCustody.claim_next("finish:in-flight", 60)
+    assert {:ok, rearmed} = PublicationCustody.settle_task_phase(held.ref, finishing.lease_ref)
+
+    assert rearmed.status == :review_pending,
+           "the newer accepted correction must not be abandoned after the older push finishes"
+
+    assert rearmed.review_request_ref == "task-readiness:#{correction.turn.id}"
+    assert rearmed.pull_request_number == 91
+    assert rearmed.review_generation == held.review_generation + 1
+    assert Custody.claim_next("no-premature-final", 60, :work) == {:ok, nil}
+  end
+
+  test "overlapping corrections keep replies to distinct review threads" do
+    %{claim: claim} = task_episode!("two-thread")
+    %{claim: first} = corrected_candidate!(claim, "two-thread", "one", checkpoint: "1")
+
+    target = %{
+      "transport" => "github",
+      "conversation_ref" => "github:task-e2e:pull:91",
+      "thread_ref" => "github:task-e2e:pull:91:review-thread:9000"
+    }
+
+    Repo.get!(Turn, first.turn.id)
+    |> Ecto.Changeset.change(delivery_target: target)
+    |> Repo.update!()
+
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    authorized = review_task_publication!(publication, first, "two-thread", "one")
+    assert authorized.status == :publish_pending
+
+    correction = corrected_candidate!(first, "two-thread", "two", checkpoint: "2")
+    assert correction.turn.delivery_document == nil
+
+    Repo.get!(Turn, correction.turn.id)
+    |> Ecto.Changeset.change(
+      delivery_target: %{target | "thread_ref" => "github:task-e2e:pull:91:review-thread:9001"}
+    )
+    |> Repo.update!()
+
+    assert [held] = Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+    assert held.id == authorized.id
+    assert held.status == :publish_pending
+    assert held.review_generation == authorized.review_generation
+    assert held.approval_ref == authorized.approval_ref
+
+    assert {:ok, publishing} = PublicationCustody.claim_next("publish:two-thread", 60)
+
+    receipt = %{
+      "branch_ref" => "refs/heads/ryker/#{held.id}",
+      "candidate_tree" => held.review_document["candidate_tree"],
+      "commit_sha" => String.duplicate("6", 40),
+      "pull_request_number" => 91,
+      "pull_request_url" => "https://github.com/acme/ryker/pull/91",
+      "repository" => "ryker"
+    }
+
+    assert {:ok, _stored} =
+             PublicationCustody.store_publication(held.ref, publishing.lease_ref, receipt)
+
+    assert {:ok, finishing} = PublicationCustody.claim_next("finish:two-thread", 60)
+    assert {:ok, rearmed} = PublicationCustody.settle_task_phase(held.ref, finishing.lease_ref)
+
+    assert rearmed.status == :review_pending,
+           "the newer accepted correction must not be abandoned after the older push finishes"
+
+    assert rearmed.review_request_ref == "task-readiness:#{correction.turn.id}"
+    assert rearmed.pull_request_number == 91
+    assert rearmed.review_generation == held.review_generation + 1
+
+    assert {:ok, %{turn: outcome_turn} = outcome} =
+             Custody.claim_next("reply-first-thread", 60, :work)
+
+    assert outcome_turn.turn_ref =~ first.turn.id
+    assert Ryker.Work.Custody.Delivery.reply_target(outcome.episode, outcome_turn) == target
+
+    %{turn: reporting} =
+      staged_candidate!(first, "two-thread", "report",
+        resume: true,
+        claim: outcome,
+        checkpoint: "2",
+        publication: false
+      )
+
+    assert PublicationCustody.unchanged_since_requested?(reporting),
+           "reporting an earlier push must not republish the newer accepted workspace"
+  end
+
+  for outcome <- [:published, :closed] do
+    @publication_outcome outcome
+    test "every review thread gets the #{outcome} outcome when three corrections overlap" do
+      %{claim: claim} = task_episode!("three-thread")
+      %{claim: first} = corrected_candidate!(claim, "three-thread", "one", checkpoint: "1")
+
+      target = %{
+        "transport" => "github",
+        "conversation_ref" => "github:task-e2e:pull:91",
+        "thread_ref" => "github:task-e2e:pull:91:review-thread:9000"
+      }
+
+      Repo.get!(Turn, first.turn.id)
+      |> Ecto.Changeset.change(delivery_target: target)
+      |> Repo.update!()
+
+      publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+      authorized = review_task_publication!(publication, first, "three-thread", "one")
+      assert authorized.status == :publish_pending
+
+      # Two later completions arrived during a push. Only the latest candidate
+      # was rearmed, which silently discarded the middle review thread's reply.
+      middle = corrected_candidate!(first, "three-thread", "middle", checkpoint: "2")
+
+      middle_target = %{target | "thread_ref" => "github:task-e2e:pull:91:review-thread:9002"}
+
+      Repo.get!(Turn, middle.turn.id)
+      |> Ecto.Changeset.change(delivery_target: middle_target)
+      |> Repo.update!()
+
+      correction = corrected_candidate!(first, "three-thread", "two", checkpoint: "3")
+      assert correction.turn.delivery_document == nil
+
+      Repo.get!(Turn, correction.turn.id)
+      |> Ecto.Changeset.change(
+        delivery_target: %{target | "thread_ref" => "github:task-e2e:pull:91:review-thread:9001"}
+      )
+      |> Repo.update!()
+
+      assert [held] = Repo.all(from(p in Publication, where: p.episode_id == ^claim.episode.id))
+      assert held.id == authorized.id
+      assert held.status == :publish_pending
+      assert held.review_generation == authorized.review_generation
+      assert held.approval_ref == authorized.approval_ref
+
+      assert {:ok, publishing} = PublicationCustody.claim_next("publish:three-thread", 60)
+
+      receipt = %{
+        "branch_ref" => "refs/heads/ryker/#{held.id}",
+        "candidate_tree" => held.review_document["candidate_tree"],
+        "commit_sha" => String.duplicate("6", 40),
+        "pull_request_number" => 91,
+        "pull_request_url" => "https://github.com/acme/ryker/pull/91",
+        "repository" => "ryker"
+      }
+
+      assert {:ok, _stored} =
+               PublicationCustody.store_publication(held.ref, publishing.lease_ref, receipt)
+
+      assert {:ok, finishing} = PublicationCustody.claim_next("finish:three-thread", 60)
+      assert {:ok, rearmed} = PublicationCustody.settle_task_phase(held.ref, finishing.lease_ref)
+
+      assert rearmed.status == :review_pending,
+             "the newer accepted correction must not be abandoned after the older push finishes"
+
+      assert rearmed.review_request_ref == "task-readiness:#{correction.turn.id}"
+      assert rearmed.pull_request_number == 91
+      assert rearmed.review_generation == held.review_generation + 1
+
+      assert {:ok, %{turn: outcome_turn} = outcome} =
+               Custody.claim_next("reply-first-thread", 60, :work)
+
+      assert outcome_turn.turn_ref =~ first.turn.id
+      assert Ryker.Work.Custody.Delivery.reply_target(outcome.episode, outcome_turn) == target
+
+      corrected_candidate!(first, "three-thread", "first-report",
+        resume: true,
+        claim: outcome,
+        checkpoint: "3",
+        publication: false
+      )
+
+      case @publication_outcome do
+        :published ->
+          publish_task_publication!(correction.claim, "three-thread", "latest")
+
+        :closed ->
+          assert {:ok, reviewing} = PublicationCustody.claim_next("closed:latest", 60)
+
+          assert {:ok, _} =
+                   PublicationCustody.discard_unreviewable(
+                     rearmed.ref,
+                     reviewing.lease_ref,
+                     :review_session_closed
+                   )
+
+          event =
+            Repo.one(
+              from(e in Ryker.Episodes.Event,
+                where: e.episode_id == ^claim.episode.id and e.kind == :input_admitted,
+                order_by: [desc: e.sequence],
+                limit: 1
+              )
+            )
+
+          assert get_in(event.payload, ["payload", "content", "discarded_reason"]) ==
+                   "review_session_closed"
+
+          corrected_candidate!(correction.claim, "three-thread", "latest-report",
+            resume: true,
+            checkpoint: "3",
+            publication: false
+          )
+      end
+
+      # This is the normal durable dispatcher path, including after a restart.
+      assert PublicationCustody.claim_next("reply-middle-thread", 60) == {:ok, nil}
+
+      assert {:ok, %{turn: middle_reply} = pending} =
+               Custody.claim_next("middle-outcome", 60, :work)
+
+      assert Ryker.Work.Custody.Delivery.reply_target(pending.episode, middle_reply) ==
+               middle_target
+
+      %{turn: reporting} =
+        corrected_candidate!(correction.claim, "three-thread", "middle-report",
+          resume: true,
+          claim: pending,
+          checkpoint: "3",
+          publication: false
+        )
+
+      assert PublicationCustody.unchanged_since_requested?(reporting)
+    end
+  end
+
+  test "queued review threads receive conflict outcomes from an older publish" do
+    # An older push failing must not strand replies to corrections accepted
+    # while it ran; all three destinations need the saved failure evidence.
+    suffix = "queued-conflict"
+    %{claim: claim} = task_episode!(suffix)
+    %{claim: first} = corrected_candidate!(claim, suffix, "first", checkpoint: "1")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    review_task_publication!(publication, first, suffix, "first")
+    assert {:ok, publishing} = PublicationCustody.claim_next("fail:#{suffix}", 60)
+    middle = corrected_candidate!(first, suffix, "middle", checkpoint: "2")
+    latest = corrected_candidate!(first, suffix, "latest", checkpoint: "3")
+
+    for {turn, thread} <- [{first.turn, "9000"}, {middle.turn, "9001"}, {latest.turn, "9002"}] do
+      turn
+      |> Ecto.Changeset.change(
+        delivery_target: %{
+          "transport" => "github",
+          "conversation_ref" => "github:task-e2e:pull:91",
+          "thread_ref" => "github:task-e2e:pull:91:review-thread:#{thread}"
+        }
+      )
+      |> Repo.update!()
+    end
+
+    assert {:ok, _} =
+             PublicationCustody.defer(
+               publication.ref,
+               publishing.lease_ref,
+               60,
+               "publication_branch_changed",
+               "The remote branch advanced."
+             )
+
+    for thread <- ["9000", "9001", "9002"] do
+      assert PublicationCustody.claim_next("resume:#{suffix}:#{thread}", 60) == {:ok, nil}
+
+      assert {:ok, %{turn: outcome_turn} = outcome} =
+               Custody.claim_next("reply:#{thread}", 60, :work)
+
+      target = Ryker.Work.Custody.Delivery.reply_target(outcome.episode, outcome_turn)
+      assert target["thread_ref"] == "github:task-e2e:pull:91:review-thread:#{thread}"
+      baseline = Ryker.Publication.Completion.report_source(outcome_turn)
+      assert baseline.id == latest.turn.id
+
+      corrected_candidate!(latest.claim, suffix, "report-#{thread}",
+        resume: true,
+        claim: outcome,
+        checkpoint: "3",
+        publication: false
+      )
+    end
+
+    assert PublicationCustody.claim_next("drained:#{suffix}", 60) == {:ok, nil}
+    assert Custody.claim_next("no-duplicate:#{suffix}", 60, :work) == {:ok, nil}
+  end
+
+  # An accepted correction already replaces the failed review's workspace.
+  # Starting the older fix first wasted a repair round on superseded evidence.
+  test "a newer accepted candidate supersedes an old refusal before a repair starts" do
+    %{claim: claim} = task_episode!("superseded-refusal")
+    %{claim: first} = corrected_candidate!(claim, "superseded-refusal", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+
+    ready =
+      review_task_publication!(publication, first, "superseded-refusal", "one",
+        gate: "failed",
+        reasons: ["gate_failed"],
+        settle: false
+      )
+
+    correction = corrected_candidate!(first, "superseded-refusal", "two")
+    assert {:ok, finishing} = PublicationCustody.claim_next("settle-old-refusal", 60)
+    assert {:ok, latest} = PublicationCustody.settle_task_phase(ready.ref, finishing.lease_ref)
+    assert latest.fix_rounds == 0, "superseded evidence must not start a repair"
+    assert latest.review_request_ref == "task-readiness:#{correction.turn.id}"
+    assert latest.status == :review_pending
+    assert Custody.claim_next("no-stale-repair", 60, :work) == {:ok, nil}
+  end
+
+  # Internal review settlement no longer delivers a card. An unposted task
+  # card must not prevent the reviewed candidate from reaching its PR.
+  test "an unposted task card cannot hold up an internal publication phase" do
+    %{claim: claim, task: task} = task_episode!("unposted-phase")
+    %{claim: first} = corrected_candidate!(claim, "unposted-phase", "one")
+    publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
+    review_task_publication!(publication, first, "unposted-phase", "one", settle: false)
+
+    Ryker.Slack.TaskCard.Changeset.insert(%{
+      id: Ecto.UUID.generate(),
+      ref: "card:unposted-phase",
+      record_id: task.id,
+      episode_id: claim.episode.id,
+      workspace_ref: "T123",
+      channel_ref: "C456",
+      attempt_count: 0
+    })
+    |> Repo.insert!()
+
+    assert {:ok, %{publication: phase}} =
+             PublicationCustody.claim_next("internal-without-card", 60)
+
+    assert phase.id == publication.id
+    assert phase.status == :review_ready
   end
 
   # One confirmed engineering task on its own episode: the task record settles
@@ -1740,26 +2181,32 @@ defmodule Ryker.Publication.CustodyTest do
                "validation:#{work.turn.id}"
              )
 
-    assert {:ok, delivery} =
-             Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
+    if accepted.turn.delivery_ref do
+      assert {:ok, delivery} =
+               Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
 
-    assert {:ok, receipt} =
-             DeliveryReceipt.new(
-               accepted.turn.delivery_ref,
-               "slack",
-               work.episode.destination_conversation_ref,
-               work.episode.destination_thread_ref,
-               "message:#{suffix}:#{label}:reply"
-             )
+      target = Ryker.Work.Custody.Delivery.reply_target(delivery.episode, delivery.turn)
 
-    assert {:ok, _settled} =
-             Custody.confirm_delivery(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               delivery.lease_ref,
-               receipt
-             )
+      assert {:ok, receipt} =
+               DeliveryReceipt.new(
+                 accepted.turn.delivery_ref,
+                 target["transport"],
+                 target["conversation_ref"],
+                 target["thread_ref"],
+                 "message:#{suffix}:#{label}:reply"
+               )
+
+      assert {:ok, _settled} =
+               Custody.confirm_delivery(
+                 work.episode.id,
+                 work.episode.key,
+                 work.turn.turn_ref,
+                 delivery.lease_ref,
+                 receipt
+               )
+    else
+      assert accepted.turn.status == :settled
+    end
 
     %{claim: work, sha256: candidate_sha256, turn: accepted.turn}
   end
@@ -1768,21 +2215,29 @@ defmodule Ryker.Publication.CustodyTest do
   # decides whether the turn has anything to offer: staged, validated and, with
   # `checkpoint:`, its workspace saved.
   defp staged_candidate!(claim, suffix, label, options) do
-    admit_followup!(claim, label)
-    assert {:ok, work} = Custody.claim_next("work:#{suffix}:#{label}", 60, :work)
+    unless options[:resume], do: admit_followup!(claim, label)
+
+    assert {:ok, work} =
+             if(options[:claim],
+               do: {:ok, options[:claim]},
+               else: Custody.claim_next("work:#{suffix}:#{label}", 60, :work)
+             )
+
     :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(work, [])
     work = bind_remote!(work)
 
-    assert {:ok, _offer} =
-             Records.create(
-               Records.token(work.turn),
-               "host:publication:ready",
-               "publication_offer",
-               %{
-                 "body" => "Corrected #{suffix} on the #{label} pass.",
-                 "title" => Keyword.get(options, :title, "Implement #{suffix}")
-               }
-             )
+    if Keyword.get(options, :publication, true) do
+      assert {:ok, _offer} =
+               Records.create(
+                 Records.token(work.turn),
+                 "host:publication:ready",
+                 "publication_offer",
+                 %{
+                   "body" => "Corrected #{suffix} on the #{label} pass.",
+                   "title" => Keyword.get(options, :title, "Implement #{suffix}")
+                 }
+               )
+    end
 
     final = %{
       "decision_reason" => nil,
@@ -1929,7 +2384,7 @@ defmodule Ryker.Publication.CustodyTest do
     )
   end
 
-  defp publish_task_publication!(claim, suffix, label) do
+  defp publish_task_publication!(claim, suffix, label, options \\ []) do
     publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
     authorized = review_task_publication!(publication, claim, suffix, label)
 
@@ -1955,24 +2410,12 @@ defmodule Ryker.Publication.CustodyTest do
     assert {:ok, result_claim} =
              PublicationCustody.claim_next("publication:#{suffix}:#{label}:result", 60)
 
-    assert {:ok, result_request} =
-             PublicationCustody.delivery_request(result_claim.publication)
-
-    assert {:ok, result_receipt} =
-             DeliveryReceipt.new(
-               result_request.ref,
-               result_request.transport,
-               result_request.conversation_ref,
-               result_request.thread_ref,
-               "message:#{suffix}:#{label}:published"
-             )
-
     assert {:ok, published} =
-             PublicationCustody.confirm_delivery(
-               publication.ref,
-               result_claim.lease_ref,
-               result_receipt
-             )
+             PublicationCustody.settle_task_phase(publication.ref, result_claim.lease_ref)
+
+    if Keyword.get(options, :report, true) do
+      corrected_candidate!(claim, suffix, "publication-report", resume: true, publication: false)
+    end
 
     published
   end
@@ -1994,12 +2437,17 @@ defmodule Ryker.Publication.CustodyTest do
       |> review_document()
       |> Map.merge(%{
         "gate" => gate,
-        "not_publishable_reasons" => if(publishable?, do: [], else: ["The checks did not pass."]),
+        "not_publishable_reasons" =>
+          Keyword.get(
+            options,
+            :reasons,
+            if(publishable?, do: [], else: ["The checks did not pass."])
+          ),
         "candidate_retained" => true,
         "publishable" => publishable?
       })
 
-    assert {:ok, _ready} =
+    assert {:ok, ready} =
              PublicationCustody.store_review(
                publication.ref,
                review_claim.lease_ref,
@@ -2008,28 +2456,17 @@ defmodule Ryker.Publication.CustodyTest do
                nil
              )
 
-    assert {:ok, delivery_claim} =
-             PublicationCustody.claim_next("publication:#{suffix}:#{label}:delivery", 60)
+    if Keyword.get(options, :settle, true) do
+      assert {:ok, delivery_claim} =
+               PublicationCustody.claim_next("publication:#{suffix}:#{label}:delivery", 60)
 
-    assert {:ok, request} = PublicationCustody.delivery_request(delivery_claim.publication)
+      assert {:ok, authorized} =
+               PublicationCustody.settle_task_phase(publication.ref, delivery_claim.lease_ref)
 
-    assert {:ok, receipt} =
-             DeliveryReceipt.new(
-               request.ref,
-               request.transport,
-               request.conversation_ref,
-               request.thread_ref,
-               "message:#{suffix}:#{label}:review"
-             )
-
-    assert {:ok, authorized} =
-             PublicationCustody.confirm_delivery(
-               publication.ref,
-               delivery_claim.lease_ref,
-               receipt
-             )
-
-    authorized
+      authorized
+    else
+      ready
+    end
   end
 
   defp task_reviewed_publication!(suffix, options) do
@@ -2346,7 +2783,8 @@ defmodule Ryker.Publication.CustodyTest do
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
                  destination: %{
-                   conversation_ref: "slack:TPUBLICATIONCUSTODY:C456",
+                   conversation_ref:
+                     "slack:T#{suffix |> digest() |> String.slice(0, 12) |> String.upcase()}:C456",
                    thread_ref: "thread:#{suffix}",
                    transport: "slack"
                  },

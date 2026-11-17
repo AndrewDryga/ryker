@@ -11,8 +11,7 @@ defmodule Ryker.Publication.FixLoop do
   `Ryker.Publication.Review.remedy/1` sorts every refusal. One the task's own
   work can fix — the repository's checks failed, the change conflicts with the
   latest base branch, or running the checks changed its files — goes back to
-  that work. The review is delivered as a short notice instead of a card that
-  asks for a reply, and in the same transaction the refusal is admitted into
+  that work. The refusal is admitted into
   the task's episode as a host-written input, which runs as a new turn in the
   same worker session. When that turn commits and finishes, the ordinary
   readiness path (`Custody.ensure_task_review_in_transaction/3`) reviews the new
@@ -23,7 +22,7 @@ defmodule Ryker.Publication.FixLoop do
   else waits for a person.
 
   Both loops are bounded per publication, three fix rounds and three re-checks,
-  and then the refusal is delivered as it always was. A round starts only for a
+  and then Work receives the outcome to explain in its own reply. A round starts only for a
   confirmed task's publication whose work is at rest: a refusal that lands
   while a person's own follow-up runs leaves it alone, because that turn's
   commit is reviewed afresh when it finishes.
@@ -31,7 +30,7 @@ defmodule Ryker.Publication.FixLoop do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Ingress
-  alias Ryker.Publication.{GateOutput, Publication, Review}
+  alias Ryker.Publication.{Completion, GateOutput, Publication, Review}
   alias Ryker.Repo
   alias Ryker.Wording
   alias Ryker.Work
@@ -162,31 +161,6 @@ defmodule Ryker.Publication.FixLoop do
   def progress(_publication, _episode), do: nil
 
   @doc """
-  Takes the task's conversation and episode locks before its publication's.
-
-  Work accepts a result under the episode lock and then re-arms the
-  publication, and admission locks the conversation before the episode. A
-  delivery that may start a round locks in that same order before it locks the
-  publication, so the two can never wait on each other.
-  """
-  @spec lock_task_in_transaction(String.t()) :: :ok | {:error, term()}
-  def lock_task_in_transaction(publication_ref) do
-    with {:ok, %Publication{status: :review_ready, episode_id: episode_id}} <-
-           Repo.fetch(Publication.Query.by_ref(publication_ref)),
-         {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
-      lock_task(episode)
-    else
-      _nothing_to_start -> :ok
-    end
-  end
-
-  defp lock_task(episode) do
-    with :ok <- Episodes.ConversationLock.lock(destination(episode)),
-         {:ok, _episode} <- Episodes.fetch_and_lock_current_in_transaction(episode.key),
-         do: :ok
-  end
-
-  @doc """
   Admits the refusal into the task's episode as a host-written input, which
   runs as the task's next turn in the same worker session. Call it after the
   round's fields are stored, inside the delivery's transaction.
@@ -200,7 +174,7 @@ defmodule Ryker.Publication.FixLoop do
            Ingress.Input.new(%{
              actor: %{kind: :system, ref: @source},
              content: content(publication),
-             destination: destination(episode),
+             destination: Completion.reply_destination(publication, episode),
              event_kind: :event,
              event_ref: identity,
              native_input_id: identity,
@@ -215,7 +189,7 @@ defmodule Ryker.Publication.FixLoop do
            Episodes.apply_batch_in_transaction([
              %Episodes.Command.AdmitInput{
                actor_ref: Ingress.Input.actor_ref(input),
-               destination: input.destination,
+               destination: Completion.episode_destination(episode),
                episode_id: episode.id,
                episode_key: episode.key,
                execution_mode: episode.execution_mode,
@@ -371,11 +345,4 @@ defmodule Ryker.Publication.FixLoop do
       Repo.peek(Episodes.Episode.Query.by_id(publication.episode_id))
     )
   end
-
-  defp destination(episode),
-    do: %{
-      conversation_ref: episode.destination_conversation_ref,
-      thread_ref: episode.destination_thread_ref,
-      transport: episode.destination_transport
-    }
 end

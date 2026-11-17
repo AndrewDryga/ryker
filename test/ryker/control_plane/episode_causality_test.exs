@@ -188,6 +188,61 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
     assert Enum.count(LazyHTML.query(second, "#request-#{turn.id}")) == 1
   end
 
+  test "a publication outcome remains visible as the cause of its report" do
+    # A model-written publication reply had no visible triggering input in the
+    # timeline, making the response look detached from the actual push receipt.
+    %{episode: episode, turn: turn} = started_work()
+    now = DateTime.add(@now, 30, :second)
+    destination = Ryker.Publication.Completion.episode_destination(episode)
+
+    {:ok, input} =
+      Ryker.Ingress.Input.new(%{
+        actor: %{kind: :system, ref: "publication-result"},
+        content: %{
+          "kind" => "publication_result",
+          "status" => "published",
+          "published_revision" => %{
+            "commit_sha" => String.duplicate("6", 40),
+            "pull_request_url" => "https://github.com/acme/ryker/pull/91"
+          }
+        },
+        destination: destination,
+        event_kind: :event,
+        event_ref: "publication-result:causality",
+        native_input_id: "publication-result:causality",
+        occurred_at: now,
+        occurred_at_source: :source,
+        revision: 1,
+        source: %{kind: "system", ref: "publication-result"},
+        source_capabilities: %{},
+        source_item_ref: nil
+      })
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 actor_ref: Ryker.Ingress.Input.actor_ref(input),
+                 destination: destination,
+                 episode_id: episode.id,
+                 episode_key: episode.key,
+                 native_input_id: input.native_input_id,
+                 occurred_at: now,
+                 payload: Ryker.Ingress.Input.document(input),
+                 turn_ref: "turn:publication-result:causality"
+               })
+             )
+
+    record_selection!(turn, [List.last(kernel_input_refs(episode))])
+    index = index_for(episode)
+    assert EpisodeCausality.describe(index, {:turn, turn.id}).inputs == [2]
+    assert EpisodeCausality.position(index, {:turn, turn.id}) == 2
+    document = episode |> rendered() |> LazyHTML.from_fragment()
+    chapter = LazyHTML.query(document, ".conversation-chapter[data-conversation-turn='2']")
+    assert LazyHTML.text(chapter) =~ "Publication result"
+    assert LazyHTML.text(chapter) =~ "https://github.com/acme/ryker/pull/91"
+    assert Enum.count(LazyHTML.query(chapter, "#request-#{turn.id}")) == 1
+  end
+
   test "an unrecorded input selection is not an empty selection" do
     # A turn frozen before the selection was captured has no recorded inputs.
     # Rendering that as "no inputs" would claim the model was given nothing,

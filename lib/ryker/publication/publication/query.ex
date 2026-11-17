@@ -182,7 +182,103 @@ defmodule Ryker.Publication.Publication.Query do
       )
 
     from(p in query,
-      where: p.status not in [:review_ready, :published_ready] or not exists(pending_card)
+      where:
+        p.status not in [:review_ready, :published_ready] or
+          like(p.review_request_ref, "task-readiness:%") or not exists(pending_card)
+    )
+  end
+
+  @doc "A suppressed task reply still owed after the latest candidate finished."
+  def pending_reply(queryable \\ all(), conflicts) do
+    reported = reported_reply()
+
+    queryable
+    |> with_reply_turns()
+    |> with_reportable_outcome(conflicts)
+    |> with_suppressed_reply()
+    |> where(not exists(reported))
+    |> order_by([pending_reply_turn: t], asc: t.accepted_at, asc: t.id)
+    |> limit(1)
+    |> select([episode_publications: p, pending_reply_turn: t], {p, t})
+  end
+
+  defp reported_reply do
+    from(o in Episodes.Origin,
+      where: o.episode_id == parent_as(:episode_publications).episode_id,
+      where: o.source_kind == "system" and o.source_ref == "publication-result",
+      where:
+        fragment(
+          "? LIKE ('publication-result:%:' || ?::text || ':%')",
+          o.native_input_id,
+          parent_as(:pending_reply_turn).id
+        ) or
+          (fragment(
+             "? LIKE ('publication-result:' || ?::text || ':g' || ?::text || ':%:' || ?)",
+             o.native_input_id,
+             parent_as(:episode_publications).id,
+             parent_as(:episode_publications).review_generation,
+             parent_as(:episode_publications).status
+           ) and
+             o.transport ==
+               fragment(
+                 "?::jsonb->>'transport'",
+                 parent_as(:pending_reply_turn).delivery_target
+               ) and
+             o.conversation_ref ==
+               fragment(
+                 "?::jsonb->>'conversation_ref'",
+                 parent_as(:pending_reply_turn).delivery_target
+               ) and
+             fragment(
+               "? IS NOT DISTINCT FROM (?::jsonb->>'thread_ref')",
+               o.thread_ref,
+               parent_as(:pending_reply_turn).delivery_target
+             )),
+      select: 1
+    )
+  end
+
+  defp with_reply_turns(queryable) do
+    from([episode_publications: p] in queryable,
+      join: e in Episodes.Episode,
+      as: :publication_episode,
+      on: e.id == p.episode_id,
+      join: source in Work.Turn,
+      as: :publication_source_turn,
+      on:
+        source.episode_id == p.episode_id and
+          p.review_request_ref == fragment("'task-readiness:' || ?::text", source.id),
+      join: t in Work.Turn,
+      as: :pending_reply_turn,
+      on: t.episode_id == p.episode_id,
+      join: r in Records.Record,
+      as: :pending_reply_offer,
+      on: r.turn_id == t.id and r.episode_id == t.episode_id,
+      join: s in Work.Session,
+      as: :pending_reply_session,
+      on: s.id == t.session_id and s.repository_ref == p.repository
+    )
+  end
+
+  defp with_reportable_outcome(queryable, conflicts) do
+    from([episode_publications: p] in queryable,
+      where: is_nil(p.lease_ref),
+      where:
+        p.status in [:published, :reviewed, :blocked] or
+          (p.status == :discarded and p.discarded_reason == :review_session_closed) or
+          (p.status in [:review_pending, :publish_pending] and
+             (p.last_error_code in ^conflicts or
+                (p.attempt_count >= 3 and not is_nil(p.last_error_code))))
+    )
+  end
+
+  defp with_suppressed_reply(queryable) do
+    from([publication_episode: e, pending_reply_turn: t, pending_reply_offer: r] in queryable,
+      where: e.state == :complete and is_nil(e.history_pruned_at),
+      where: t.status == :settled and is_nil(t.delivery_ref) and not is_nil(t.delivery_target),
+      where: not is_nil(t.result_ref) and t.continuation == ^%{"kind" => "complete"},
+      where: fragment("?::jsonb->'result'->>'delivery' = 'reply'", t.validation_intent),
+      where: r.kind == "publication_offer" and r.operation_id == "host:publication:ready"
     )
   end
 

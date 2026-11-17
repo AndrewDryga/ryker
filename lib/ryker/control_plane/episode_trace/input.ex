@@ -227,6 +227,23 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     }
   end
 
+  defp admitted_message(%{
+         payload: %{"payload" => %{"content" => %{"kind" => "publication_result"} = event}}
+       }) do
+    preview = SourceText.event_preview(event)
+
+    %{
+      boundary: true,
+      title: "Publication result",
+      actor: preview.actor,
+      person: nil,
+      text: bounded_text(preview.text),
+      available: true,
+      transport: "system",
+      source: nil
+    }
+  end
+
   defp admitted_message(_event), do: nil
 
   # A comment on the pull request, one on a line of a file, or a review.

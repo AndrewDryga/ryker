@@ -742,25 +742,29 @@ defmodule Ryker.Publication.FixLoopTest do
                "validation:#{work.turn.id}"
              )
 
-    assert {:ok, delivery} = Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
+    if accepted.turn.delivery_ref do
+      assert {:ok, delivery} = Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
 
-    assert {:ok, receipt} =
-             DeliveryReceipt.new(
-               accepted.turn.delivery_ref,
-               "slack",
-               work.episode.destination_conversation_ref,
-               work.episode.destination_thread_ref,
-               "message:#{suffix}:#{label}:reply"
-             )
+      assert {:ok, receipt} =
+               DeliveryReceipt.new(
+                 accepted.turn.delivery_ref,
+                 "slack",
+                 work.episode.destination_conversation_ref,
+                 work.episode.destination_thread_ref,
+                 "message:#{suffix}:#{label}:reply"
+               )
 
-    assert {:ok, _settled} =
-             Custody.confirm_delivery(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               delivery.lease_ref,
-               receipt
-             )
+      assert {:ok, _settled} =
+               Custody.confirm_delivery(
+                 work.episode.id,
+                 work.episode.key,
+                 work.turn.turn_ref,
+                 delivery.lease_ref,
+                 receipt
+               )
+    else
+      assert accepted.turn.status == :settled
+    end
   end
 
   defp admit_followup!(claim, label) do

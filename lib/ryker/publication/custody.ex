@@ -16,7 +16,7 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.GitHub
   alias Ryker.Lease
   alias Ryker.Maps
-  alias Ryker.Publication.{Card, ConflictReceipt, FixLoop, Followup, Followups}
+  alias Ryker.Publication.{Card, Completion, ConflictReceipt, FixLoop, Followup, Followups}
   alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
   alias Ryker.Records
   alias Ryker.Reference
@@ -48,10 +48,13 @@ defmodule Ryker.Publication.Custody do
   end
 
   @doc "Queue a confirmed task's ordinary checks inside accepted Work-result custody."
+  def ensure_task_review_in_transaction(episode, session, turn, settling_ref \\ nil)
+
   def ensure_task_review_in_transaction(
         _episode,
         %Work.Session{workspace_task: %{"purpose" => "verification"}},
-        _turn
+        _turn,
+        _settling_ref
       ),
       do: :ok
 
@@ -59,7 +62,8 @@ defmodule Ryker.Publication.Custody do
         %Episodes.Episode{} = episode,
         %Work.Session{workspace_task: %{"offer_ref" => task_ref}, repository_ref: repository} =
           session,
-        %Work.Turn{continuation: %{"kind" => "complete"}} = turn
+        %Work.Turn{continuation: %{"kind" => "complete"}} = turn,
+        settling_ref
       )
       when is_binary(repository) and is_binary(session.coop_session_id) do
     case fetch_confirmed_task_readiness(episode, turn, task_ref) do
@@ -89,7 +93,7 @@ defmodule Ryker.Publication.Custody do
             :ok
 
           {:ok, %Publication{} = publication} ->
-            rearm_task_review(publication, session, turn, repository, attributes)
+            rearm_task_review(publication, session, turn, repository, attributes, settling_ref)
         end
 
       {:error, :not_found} ->
@@ -97,7 +101,7 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
+  def ensure_task_review_in_transaction(_episode, _session, _turn, _settling_ref), do: :ok
 
   @doc "Whether this task turn's new local candidate lacks verified publication."
   @spec task_review_pending?(Episodes.Episode.t(), Work.Session.t(), Work.Turn.t()) :: boolean()
@@ -121,7 +125,7 @@ defmodule Ryker.Publication.Custody do
         true
 
       {:ok, publication} ->
-        not unchanged_since_published?(publication, turn)
+        not unchanged_since_requested?(publication, turn)
     end
   end
 
@@ -143,17 +147,18 @@ defmodule Ryker.Publication.Custody do
   # the operator's only routes back were "Review latest state" or retyping the
   # whole task. The review generation, not the row, is what is superseded — the
   # pull request, the branch and the review history all stay.
-  defp rearm_task_review(publication, session, turn, repository, attributes) do
+  defp rearm_task_review(publication, session, turn, repository, attributes, settling_ref) do
     cond do
       # Accepting one result twice is ordinary Work custody; the turn that armed
       # the current generation is named on the publication, so a replay is inert.
       publication.review_request_ref == attributes.request_ref ->
         :ok
 
-      unchanged_since_published?(publication, turn) ->
+      unchanged_since_requested?(publication, turn) ->
         :ok
 
-      rearmable?(publication, repository) ->
+      rearmable?(publication, repository) or
+          settling_ready?(publication, repository, settling_ref) ->
         now = Repo.now!()
 
         changes =
@@ -182,10 +187,38 @@ defmodule Ryker.Publication.Custody do
         _rearmed = update!(publication, changes, now)
         :ok
 
-      true ->
+      publication.repository == repository and publication.status in @claimable and
+          publication.last_error_code not in @publication_conflicts ->
         :ok
+
+      true ->
+        Completion.reject_candidate_in_transaction(
+          publication,
+          turn,
+          candidate_blocker(publication, repository)
+        )
     end
   end
+
+  defp settling_ready?(
+         %Publication{status: :review_ready, repository: repository, ref: ref, lease_ref: lease},
+         repository,
+         ref
+       )
+       when is_binary(lease), do: true
+
+  defp settling_ready?(_publication, _repository, _ref), do: false
+
+  defp candidate_blocker(%Publication{repository: other}, repository) when other != repository,
+    do: "publication_repository_mismatch"
+
+  defp candidate_blocker(%Publication{status: :discarded}, _repository),
+    do: "publication_discarded"
+
+  defp candidate_blocker(%Publication{last_error_code: code}, _repository) when is_binary(code),
+    do: code
+
+  defp candidate_blocker(_publication, _repository), do: "publication_branch_changed"
 
   # A merged or closed pull request cannot take a new candidate: the next
   # generation reused its number, Coop refused it
@@ -216,29 +249,36 @@ defmodule Ryker.Publication.Custody do
 
   @doc """
   Whether completed task turn `turn` left its workspace as the turn that armed
-  the task's published draft left it. Such a turn has nothing to publish, so
+  the task's current publication generation left it. Such a turn has nothing to publish, so
   Work offers nothing for it. A workspace that was not saved is never the same.
   """
-  @spec unchanged_since_published?(Work.Turn.t()) :: boolean()
-  def unchanged_since_published?(%Work.Turn{episode_id: episode_id} = turn)
+  @spec unchanged_since_requested?(Work.Turn.t()) :: boolean()
+  def unchanged_since_requested?(%Work.Turn{episode_id: episode_id} = turn)
       when is_binary(episode_id) do
-    episode_id
-    |> Publication.Query.by_episode_id()
-    |> Publication.Query.ordered_by_recent()
-    |> Publication.Query.limit_to(1)
-    |> Repo.peek()
-    |> unchanged_since_published?(turn)
+    case Completion.report_source(turn) do
+      %Work.Turn{} = source ->
+        same_checkpoint?(source, turn)
+
+      nil ->
+        episode_id
+        |> Publication.Query.by_episode_id()
+        |> Publication.Query.ordered_by_recent()
+        |> Publication.Query.limit_to(1)
+        |> Repo.peek()
+        |> unchanged_since_requested?(turn)
+    end
   end
 
-  def unchanged_since_published?(_turn), do: false
+  def unchanged_since_requested?(_turn), do: false
 
   # Answering a question on the pull request is a completed task turn too. It
   # re-armed the published draft with nothing changed, and Ryker force-pushed a
   # new commit of the same tree to AndrewDryga/test#4 (manual test,
   # 2026-10-01). A turn that leaves the workspace exactly as the published
-  # generation's turn left it has nothing to publish.
-  defp unchanged_since_published?(
-         %Publication{status: :published, review_request_ref: "task-readiness:" <> armed_id},
+  # generation's turn left it has nothing to publish. This also prevents a
+  # publication-outcome reply from rearming a refused candidate unchanged.
+  defp unchanged_since_requested?(
+         %Publication{review_request_ref: "task-readiness:" <> armed_id},
          %Work.Turn{} = turn
        ) do
     with {:ok, armed_id} <- Ecto.UUID.cast(armed_id),
@@ -250,7 +290,12 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  defp unchanged_since_published?(_publication, _turn), do: false
+  defp unchanged_since_requested?(_publication, _turn), do: false
+
+  defp same_checkpoint?(source, turn) do
+    checkpoint = checkpointed_candidate(source)
+    is_map(checkpoint) and checkpoint == checkpointed_candidate(turn)
+  end
 
   # Every completed task turn checkpoints its workspace before it is accepted.
   defp checkpointed_candidate(%Work.Turn{} = turn) do
@@ -309,7 +354,8 @@ defmodule Ryker.Publication.Custody do
           | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
-         :ok <- positive(lease_seconds, :lease_seconds) do
+         :ok <- positive(lease_seconds, :lease_seconds),
+         :ok <- Completion.resume_pending(@publication_conflicts) do
       Repo.transaction(fn -> claim_next_locked(worker_ref, lease_seconds) end)
     end
   end
@@ -437,6 +483,112 @@ defmodule Ryker.Publication.Custody do
       else: "File `#{path}` #{problem}."
   end
 
+  @doc "Advance an automatic task phase without posting a canned chat message."
+  def settle_task_phase(publication_ref, lease_ref) do
+    with :ok <- reference(publication_ref, :publication_ref),
+         :ok <- reference(lease_ref, :lease_ref) do
+      task_transaction(publication_ref, fn ->
+        settle_task_phase_locked(publication_ref, lease_ref)
+      end)
+    end
+  end
+
+  defp settle_task_phase_locked(publication_ref, lease_ref) do
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
+         true <- Completion.task?(publication),
+         true <- publication.status in [:review_ready, :published_ready] do
+      settle_task_candidate(publication, now)
+    else
+      false -> Repo.rollback(:publication_not_task_phase)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp settle_task_candidate(%Publication{status: :review_ready} = publication, now) do
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(publication.episode_id))
+    latest = rearm_completed_candidate(publication, episode, publication.ref)
+
+    if latest.review_generation != publication.review_generation do
+      resume_superseded_result(publication, latest, now)
+      latest
+    else
+      settle_task_outcome(publication, now)
+    end
+  end
+
+  defp settle_task_candidate(publication, now), do: settle_task_outcome(publication, now)
+
+  defp settle_task_outcome(publication, now) do
+    publication |> confirm_phase_delivery(nil, nil, now) |> finish_task_phase(now)
+  end
+
+  defp resume_superseded_result(publication, latest, now) do
+    case Completion.resume_superseded_in_transaction(publication, latest, now) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp finish_task_phase(%Publication{status: status} = publication, now)
+       when status in [:published, :blocked, :reviewed] do
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(publication.episode_id))
+    latest = rearm_completed_candidate(publication, episode)
+
+    cond do
+      latest.review_generation != publication.review_generation ->
+        resume_superseded_result(publication, latest, now)
+        latest
+
+      latest.status == :blocked and latest.fix_review_generation == latest.review_generation ->
+        latest
+
+      true ->
+        resume_publication_result(latest, now)
+        latest
+    end
+  end
+
+  defp finish_task_phase(publication, _now), do: publication
+
+  defp task_transaction(publication_ref, operation),
+    do: Repo.transaction(fn -> with_task_lock(publication_ref, operation) end)
+
+  defp with_task_lock(publication_ref, operation) do
+    case Completion.lock_task_in_transaction(publication_ref) do
+      :ok -> operation.()
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp resume_publication_result(publication, now) do
+    case Completion.resume_in_transaction(publication, now) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp rearm_completed_candidate(publication, episode, settling_ref \\ nil)
+
+  defp rearm_completed_candidate(
+         publication,
+         %Episodes.Episode{state: :cancelled},
+         _settling_ref
+       ),
+       do: publication
+
+  defp rearm_completed_candidate(publication, episode, settling_ref) do
+    case Repo.peek(
+           Work.Turn.Query.latest_publication_candidate(episode.id, publication.repository)
+         ) do
+      {%Work.Turn{} = turn, session} ->
+        :ok = ensure_task_review_in_transaction(episode, session, turn, settling_ref)
+        Repo.fetch!(Publication.Query.by_id(publication.id))
+
+      nil ->
+        publication
+    end
+  end
+
   def confirm_delivery(publication_ref, lease_ref, external_receipt) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
@@ -448,7 +600,7 @@ defmodule Ryker.Publication.Custody do
   # A delivered refusal may start a fix round, which admits input into the
   # task's episode; its locks come before the publication's.
   defp confirm_delivery_after_task(publication_ref, lease_ref, receipt) do
-    case FixLoop.lock_task_in_transaction(publication_ref) do
+    case Completion.lock_task_in_transaction(publication_ref) do
       :ok -> confirm_delivery_locked(publication_ref, lease_ref, receipt)
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -512,10 +664,19 @@ defmodule Ryker.Publication.Custody do
          :ok <- positive(retry_seconds, :retry_seconds),
          :ok <- bounded_error(code, :last_error_code),
          :ok <- bounded_error(detail, :last_error_detail) do
-      Repo.transaction(fn ->
-        defer_locked(publication_ref, lease_ref, retry_seconds, code, detail)
+      task_transaction(publication_ref, fn ->
+        publication_ref
+        |> defer_locked(lease_ref, retry_seconds, code, detail)
+        |> report_retry_failure(code)
       end)
     end
+  end
+
+  defp report_retry_failure(publication, code) do
+    if publication.attempt_count >= 3 or code in @publication_conflicts,
+      do: resume_publication_result(publication, Repo.now!())
+
+    publication
   end
 
   @doc """
@@ -532,7 +693,11 @@ defmodule Ryker.Publication.Custody do
   def discard_unreviewable(publication_ref, lease_ref, :review_session_closed = reason) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref) do
-      Repo.transaction(fn -> discard_unreviewable_locked(publication_ref, lease_ref, reason) end)
+      task_transaction(publication_ref, fn ->
+        discarded = discard_unreviewable_locked(publication_ref, lease_ref, reason)
+        resume_publication_result(discarded, Repo.now!())
+        discarded
+      end)
     end
   end
 

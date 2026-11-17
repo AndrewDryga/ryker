@@ -9,6 +9,73 @@ defmodule Ryker.Fixtures.Publication do
   alias Ryker.Records
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
 
+  # A deterministic model answer is an input. Run its real acceptance and
+  # delivery custody after the publication outcome, without calling a model.
+  def answer_publication!(candidate) do
+    {:ok, claim} = Custody.claim_next("publication-report", 60, :work)
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose(claim, [])
+    {:ok, submission} = Ryker.Inspectors.submission(claim)
+
+    {:ok, frozen} =
+      Custody.freeze_submission(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        submission
+      )
+
+    {:ok, turn} =
+      Custody.bind_turn(
+        claim.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        claim.session.generation,
+        frozen.submit_generation,
+        "coop-report:#{claim.turn.id}"
+      )
+
+    :ok = Ryker.Knowledge.KnowledgeSnapshot.expose_submission(%{claim | turn: turn})
+    sha = digest(candidate)
+
+    {:ok, _staged} =
+      Custody.stage_candidate(
+        claim.episode.id,
+        turn.turn_ref,
+        claim.lease_ref,
+        nil,
+        nil,
+        candidate,
+        sha,
+        1
+      )
+
+    {:ok, result} = Result.new(:reply, Jason.decode!(candidate))
+
+    {:ok, _intent} =
+      Custody.prepare_validation(
+        claim.episode.id,
+        turn.turn_ref,
+        claim.lease_ref,
+        sha,
+        1,
+        :accept,
+        result
+      )
+
+    {:ok, accepted} =
+      Custody.accept_result(
+        claim.episode.id,
+        claim.episode.key,
+        turn.turn_ref,
+        claim.lease_ref,
+        sha,
+        1,
+        "validation:#{turn.id}"
+      )
+
+    accepted
+  end
+
   @now ~U[2026-08-28 12:00:00.000000Z]
 
   @doc """

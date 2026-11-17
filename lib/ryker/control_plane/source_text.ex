@@ -35,10 +35,28 @@ defmodule Ryker.ControlPlane.SourceText do
     %{actor: "Scheduled work", text: text}
   end
 
+  def event_preview(%{"kind" => "publication_result"} = event) do
+    revision = if is_map(event["published_revision"]), do: event["published_revision"], else: %{}
+    status = if Reference.text?(event["status"]), do: event["status"], else: "unknown"
+
+    parts = [
+      "Publication: " <> String.replace(status, "_", " "),
+      if(Reference.text?(revision["commit_sha"]), do: "Commit: " <> revision["commit_sha"]),
+      revision["pull_request_url"],
+      if(Reference.text?(event["error_code"]), do: "Reason: " <> event["error_code"])
+    ]
+
+    %{
+      actor: "Publication result",
+      text: parts |> Enum.filter(&Reference.text?/1) |> Enum.join("\n")
+    }
+  end
+
   def event_preview(%{"content" => %{} = content}), do: event_preview(content)
   def event_preview(_input), do: nil
 
-  def from_content(%{"kind" => kind} = event) when kind in ~w(timer_due scheduled_task) do
+  def from_content(%{"kind" => kind} = event)
+      when kind in ~w(timer_due scheduled_task publication_result) do
     case event_preview(event) do
       %{text: text} -> text
       _ -> nil

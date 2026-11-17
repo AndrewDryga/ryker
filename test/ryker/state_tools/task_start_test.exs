@@ -254,7 +254,7 @@ defmodule Ryker.StateTools.TaskStartTest do
     # The result survives a delayed Slack post without spending delivery attempts.
     assert Ryker.Work.Custody.claim_next("before-card", 60, :delivery) == {:ok, nil}
     assert Repo.get!(Ryker.Work.Turn, accepted.turn.id).delivery_attempt_count == 0
-    # Review can run before Slack posts the card; only its notification waits.
+    # Review and its internal outcome can run before Slack posts the card.
     assert {:ok, review_claim} = Ryker.Publication.Custody.claim_next("before-card-review", 60)
     session = Repo.get!(Session, claim.session.id)
 
@@ -283,10 +283,18 @@ defmodule Ryker.StateTools.TaskStartTest do
              )
 
     assert reviewed.status == :review_ready
-    assert Ryker.Publication.Custody.claim_next("before-card-notice", 60) == {:ok, nil}
+    assert is_nil(accepted.turn.delivery_document)
+    assert {:ok, outcome_claim} = Ryker.Publication.Custody.claim_next("before-card-outcome", 60)
 
-    assert Repo.get!(Ryker.Publication.Publication, reviewed.id).attempt_count ==
-             reviewed.attempt_count
+    assert {:ok, settled} =
+             Ryker.Publication.Custody.settle_task_phase(reviewed.ref, outcome_claim.lease_ref)
+
+    assert is_nil(settled.review_delivery_receipt)
+
+    # The review resumes the model, whose answer still waits for the root card.
+    # Local completion must not become an extra canned reply in the channel.
+    response = Ryker.Fixtures.Publication.answer_publication!(Jason.encode!(document))
+    assert Ryker.Work.Custody.claim_next("response-before-card", 60, :delivery) == {:ok, nil}
 
     assert {:ok, leased_card} = Ryker.Slack.TaskCards.claim_next("root-card", 60, 60)
     root = "1792535722.000100"
@@ -302,26 +310,12 @@ defmodule Ryker.StateTools.TaskStartTest do
 
     assert {:ok, delivery} = Ryker.Work.Custody.claim_next("after-card", 60, :delivery)
     assert delivery.turn.delivery_target["thread_ref"] == root
-    assert delivery.turn.delivery_document == accepted.turn.delivery_document
-    assert delivery.turn.submission == accepted.turn.submission
+    assert delivery.turn.delivery_document == response.turn.delivery_document
+    assert delivery.turn.submission == response.turn.submission
     assert is_nil(Repo.get!(Ryker.Episodes.Episode, episode.id).destination_thread_ref)
 
-    assert {:ok, publication_delivery} =
-             Ryker.Publication.Custody.claim_next("after-card-notice", 60)
-
-    assert {:ok, notice} =
-             Ryker.Publication.Custody.delivery_request(publication_delivery.publication)
-
-    assert {:ok, receipt} = Ryker.Slack.TaskCards.card_receipt(episode.id, notice)
-    assert receipt["message_ref"] == root
-    assert is_nil(receipt["thread_ref"])
-
-    assert {:ok, _delivered} =
-             Ryker.Publication.Custody.confirm_delivery(
-               publication_delivery.publication.ref,
-               publication_delivery.lease_ref,
-               receipt
-             )
+    assert Repo.get!(Ryker.Work.Turn, accepted.turn.id).delivery_document == nil
+    assert Ryker.Publication.Custody.claim_next("after-card-outcome", 60) == {:ok, nil}
 
     destination = %{
       transport: "slack",

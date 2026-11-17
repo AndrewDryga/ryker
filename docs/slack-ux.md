@@ -752,8 +752,9 @@ host rejects them for nonoperators before any repository or session mutation:
   finishes, is taken over, cancelled or blocked, or after an hour at most, it checks at once, so an
   event from the wait is not lost. A correction that completes in scope re-arms the task's own publication for a fresh
   review and updates that same pull request: one task keeps one publication and one draft PR, the
-  card returns to the reviewing stage with its **Open draft PR** link intact, and each review
-  generation posts its own card rather than overwriting the superseded one. After the draft merged
+  card returns to the reviewing stage with its **Open draft PR** link intact. Automatic task
+  phases update the task card; Work writes the reply after receiving the saved publication outcome.
+  Standalone operator publication offers retain separate review notifications. After the draft merged
   or closed, a correction opens a new draft on a branch of its own instead, since GitHub keeps
   the ended pull request's branch name. The prior generation's
   approval cannot carry a new candidate, so a corrected candidate is authorized again by the same

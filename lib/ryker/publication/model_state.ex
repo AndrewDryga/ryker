@@ -17,7 +17,7 @@ defmodule Ryker.Publication.ModelState do
     case Repo.peek(Publication.Query.model_state(episode_id, repository)) do
       {%Publication{} = publication, followup} ->
         publication
-        |> document(followup)
+        |> document(followup, :own)
         |> Map.put(
           "newer_implementation_recorded",
           Review.stale_work?(
@@ -60,11 +60,13 @@ defmodule Ryker.Publication.ModelState do
 
   # Never reuse record/goal text for linked context. These are host custody fields,
   # not a source-backed summary, transcript, authority grant or current GitHub read.
-  defp document(publication, followup) do
+  defp document(publication, followup, scope \\ :related) do
     %{
+      "discarded_reason" =>
+        publication.discarded_reason && Atom.to_string(publication.discarded_reason),
       "existing_pull_request" => existing_pull_request(publication),
       "followup" => followup_document(followup),
-      "latest_failure" => latest_failure(publication),
+      "latest_failure" => latest_failure(publication, scope),
       "published_at" => datetime(publication.published_at),
       "published_revision" => published_revision(publication),
       "ref" => publication.ref,
@@ -75,17 +77,26 @@ defmodule Ryker.Publication.ModelState do
     }
   end
 
-  defp latest_failure(%Publication{
-         last_error_code: "publication_worker_retry",
-         last_error_detail: detail
-       }) do
+  defp latest_failure(
+         %Publication{
+           last_error_code: "publication_worker_retry",
+           last_error_detail: detail
+         },
+         _scope
+       ) do
     case Ryker.PublicationRetry.facts(detail) do
       nil -> nil
       facts -> Map.new(facts, fn {key, value} -> {Atom.to_string(key), value} end)
     end
   end
 
-  defp latest_failure(_publication), do: nil
+  defp latest_failure(%Publication{last_error_code: code, last_error_detail: detail}, :own)
+       when is_binary(code), do: %{"code" => code, "detail" => detail}
+
+  defp latest_failure(%Publication{last_error_code: code}, :related) when is_binary(code),
+    do: %{"code" => code}
+
+  defp latest_failure(_publication, _scope), do: nil
 
   defp published_revision(%Publication{publication_receipt: %{} = receipt} = publication) do
     if receipt["repository"] == publication.repository and

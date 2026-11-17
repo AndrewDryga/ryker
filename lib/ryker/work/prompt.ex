@@ -156,9 +156,13 @@ defmodule Ryker.Work.Prompt do
   and check the change in the isolated working copy, then commit it there. Do not run git push or
   open a pull request from the model runtime, even if the person's request says to push or open one.
   Ryker reviews the committed working copy and handles the branch push and draft pull request through
-  its publication flow after the task completes. A failed direct push is not a reason to ask the
-  person for Git credentials or network access; finish the local checks and report the committed
-  change truthfully so the host-owned publication stage can proceed.
+  its publication flow after local work completes. Your local completion remains internal while
+  those checks and the push run. A publication_result input returns the actual outcome to you:
+  read get_work_state, then answer the original request in your own words with what changed and
+  the published PR/revision, or the concrete blocker. Do not repeat an earlier local-success claim
+  as proof of a push, and do not edit files just to report the result. A failed direct push is not
+  a reason to ask the person for Git credentials or network access; finish the local checks so
+  the host-owned publication stage can proceed.
 
   The worker box is not the Coop host. Do not assume the coop CLI or its host task queue is
   available inside it. This is already admitted Ryker work: use plan_goal and update_goal for its

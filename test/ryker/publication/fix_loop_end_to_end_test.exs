@@ -13,6 +13,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Delivery.Dispatcher, as: DeliveryDispatcher
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.WorkProfile
@@ -170,7 +171,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert {:ok, fixed} =
              Executor.run(%{fix_claim | turn: frozen}, executor_options(fix_api))
 
-    assert fixed.turn.status == :delivery_pending
+    assert fixed.turn.status == :settled
     assert fixed.turn.session_id == task_session.id
     assert FakeWorkCoopAPI.state(fix_api).create_count == 0
     assert Repo.aggregate(from(s in Session, where: s.execution_kind == :work), :count, :id) == 2
@@ -191,13 +192,8 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert file["name"] == "gate-output.txt"
     assert file["data"] == String.duplicate("compiling\n", 500) <> failure
 
-    assert {:ok, {:delivered, :message, fix_delivery_ref}} = deliver_once(adapters)
-
-    assert_receive {:slack_posted, "C456", _, provisional, ^fix_delivery_ref, _}
-    assert Jason.encode!(provisional) =~ "task card"
-    refute Jason.encode!(provisional) =~ "prepared locally"
-    refute Jason.encode!(provisional) =~ "not yet updated"
-    refute Jason.encode!(provisional) =~ "Fixed the failing parser test and committed the change."
+    assert deliver_once(adapters) == {:ok, :idle}
+    assert fixed.turn.delivery_document == nil
 
     # The fixed commit is reviewed by the ordinary path and becomes the draft.
     rearmed = Repo.get!(Publication, blocked.id)
@@ -212,6 +208,14 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     assert published.status == :published
     assert published.pull_request_url == "https://github.com/acme/ryker/pull/91"
     assert published.fix_rounds == 1
+    PublicationFixture.answer_publication!(fixed_reply())
+    assert {:ok, {:delivered, :message, final_ref}} = deliver_once(adapters)
+    assert_receive {:slack_posted, "C456", _, final_document, ^final_ref, _}
+
+    assert Jason.encode!(final_document) =~
+             "Fixed the failing parser test and committed the change."
+
+    refute Jason.encode!(final_document) =~ "prepared the change"
     published_card = refresh_task_card!(task_episode, slack_api)
     assert Jason.encode!(published_card) =~ "https://github.com/acme/ryker/pull/91"
     refute Jason.encode!(published_card) =~ "attempt 1 of 3"
@@ -287,7 +291,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
     end)
 
     assert {:ok, %{status: :accepted}} = Executor.run(task_claim, executor_options(task_api))
-    assert {:ok, {:delivered, :message, _task_delivery}} = deliver_once(adapters)
+    assert deliver_once(adapters) == {:ok, :idle}
 
     assert %Publication{status: :review_pending} =
              Repo.one(from(p in Publication, where: p.episode_id == ^task_episode.id))

@@ -900,12 +900,21 @@ receipts use the same fingerprint-checked projection. The diagnostic text does n
 broaden repository access or prove the current state of a pull request. A task can read why its
 publication was refused without asking a person to copy the review back to it.
 
+An automatic task's local completion is an internal handoff. Review and publication phases
+settle without posting template messages or inventing external delivery receipts. Once publication
+finishes or needs an explanation, `Publication.Completion` admits a `publication_result` input
+at the original request's reply destination. Work reads the saved review and receipt and writes
+its own response. GitHub feedback is answered in its original review thread. The input keeps its
+point-in-time status and receipt; later publication generations never rewrite that evidence.
+Unchanged reporting turns do not publish again. A newer accepted correction queued during a
+publish is reviewed against the same PR after the running phase finishes. Standalone operator
+publication offers retain their explicit notification and approval flow.
+
 `Publication.Review.remedy/1` sorts a refusal, and `Publication.FixLoop` acts on it without a person
 (Andrew, 2026-09-28: "it should be automatic feedback loop, agent needs to get errors from CI, fix
 them without me doing a man in the middle"):
 
-- **Fix** — `gate_failed`, `rebase_conflict`, `gate_modified_candidate`, `policy_findings`. Delivering the review posts a
-  one-line notice instead of the refusal card, and in the same transaction admits a host-written input
+- **Fix** — `gate_failed`, `rebase_conflict`, `gate_modified_candidate`, `policy_findings`. Settling an automatic task review admits a host-written input
   into the task's episode (actor and source `system:publication-review`, turn
   `turn:publication-fix:<publication>:g<review generation>`). The input names the causes in the
   host's words, says what to do about each, and hands over the failed gate's complete output when
@@ -918,7 +927,7 @@ them without me doing a man in the middle"):
   starts a fresh review generation 30 seconds later instead; nothing is posted and no turn is spent.
 - **A person** — `no_changes`, unreadable or missing findings, and any code Ryker cannot read.
   Missing or unstartable checks without safety findings retain their existing draft-shareability
-  decision. The refusal card is delivered when there is no automatic recovery.
+  decision. With no automatic recovery, Work receives the saved outcome and writes the reply.
 
 Repair authority does not grant publication authority. The agent may correct the task's files;
 it cannot weaken the scan, add its own exception, conceal a credential or remove required
@@ -931,7 +940,7 @@ agent says it has fixed them. The task's stopped status names the affected files
 the complete report remains available through `get_work_state`.
 
 Three fix rounds and three re-checks per publication (`fix_rounds`, `recheck_rounds`); after that
-the refusal is delivered and the task card says `I tried to fix it 3 times; …`.
+Work receives the refusal to explain, and the task card says `I tried to fix it 3 times; …`.
 `fix_review_generation` names the review a round answers, so a round is running only while that
 review is the publication's current one: a re-arm, **Review latest state** or **Discard candidate**
 ends it without anyone clearing it. A round starts only for a confirmed task's publication whose

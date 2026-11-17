@@ -12,6 +12,62 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # A publication rejection can admit a new input while accepting a result.
+  # Taking its conversation lock after the episode reversed ingress's order
+  # and let concurrent feedback deadlock acceptance. Check the lock order
+  # before validation, so the downstream missing-result error cannot hide it.
+  test "result acceptance waits for the conversation before owning its episode" do
+    Sandbox.unboxed_run(Repo, fn ->
+      command = create_episode!()
+      {:ok, claim} = Custody.claim_next("accept-order", 60, :work)
+      parent = self()
+
+      ingress =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            :ok = Episodes.ConversationLock.lock(command.destination)
+            send(parent, {:conversation_locked, backend_pid()})
+
+            receive do
+              :inspect_episode ->
+                {:ok, _} = Episodes.fetch_and_lock_current_in_transaction(command.episode_key)
+                send(parent, :episode_accessible)
+            end
+          end)
+        end)
+
+      assert_receive {:conversation_locked, ingress_backend}, 5_000
+
+      acceptance =
+        unboxed_task(fn ->
+          send(parent, {:acceptance_backend, backend_pid()})
+
+          Custody.accept_result(
+            command.episode_id,
+            command.episode_key,
+            claim.turn.turn_ref,
+            claim.lease_ref,
+            String.duplicate("a", 64),
+            1,
+            "validation:lock-order"
+          )
+        end)
+
+      try do
+        assert_receive {:acceptance_backend, acceptance_backend}, 5_000
+        await_blocked_by(acceptance_backend, ingress_backend)
+        send(ingress.pid, :inspect_episode)
+        assert_receive :episode_accessible, 5_000
+        assert Task.await(ingress, 5_000) == {:ok, :episode_accessible}
+        assert {:error, _validation_not_prepared} = Task.await(acceptance, 5_000)
+      after
+        send(ingress.pid, :inspect_episode)
+        stop_tasks([ingress, acceptance])
+        cleanup(command)
+      end
+    end)
+  end
+
   test "simultaneous workers cannot own the same logical turn" do
     # A process crash can release many queued episodes at once. Competing pool
     # workers must converge on one fenced owner without duplicating the turn.
