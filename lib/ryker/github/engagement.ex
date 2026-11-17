@@ -2,7 +2,7 @@ defmodule Ryker.GitHub.Engagement do
   @moduledoc "Host-owned quiet-default eligibility for authenticated GitHub inputs."
   alias Ryker.Behaviors
   alias Ryker.Episodes
-  alias Ryker.GitHub.Binding
+  alias Ryker.GitHub.{Binding, Confirmations, Labels}
   alias Ryker.GitHub.Input, as: GitHubInput
   alias Ryker.Ingress
   alias Ryker.Repo
@@ -41,6 +41,17 @@ defmodule Ryker.GitHub.Engagement do
     end
   end
 
+  @doc "Whether the signed payload alone identifies a human request, for permission feedback."
+  # A denied sender must not cause a parent-comment API read. Direct review
+  # replies without a mention are recognized only after Write authorization.
+  def explicit_request?(%Ingress.Input{actor: %{kind: :user}} = input, binding, bot_login) do
+    review_requested?(input.content["event_name"], input.content["payload"], binding) or
+      mentioned?(input, bot_login) or
+      Confirmations.required_repository_role(input.content["payload"]) == :maintain
+  end
+
+  def explicit_request?(_input, _binding, _bot_login), do: false
+
   defp addressed_reply(
          %{
            content: %{
@@ -73,7 +84,8 @@ defmodule Ryker.GitHub.Engagement do
       ),
       do: true
 
-  def review_requested?(_event_name, _payload, _binding), do: false
+  def review_requested?(event_name, payload, _binding),
+    do: Labels.review_request?(event_name, payload)
 
   # An edit, deletion, or redelivery of an item Ryker already accepted must
   # reach the same durable input lineage even before Admission has opened an

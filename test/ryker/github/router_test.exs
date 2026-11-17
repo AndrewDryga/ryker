@@ -1291,6 +1291,208 @@ defmodule Ryker.GitHub.RouterTest do
     end
   end
 
+  # A denied ask and a malformed confirmation used to answer only the webhook;
+  # the person on GitHub could not tell a refusal from a lost request.
+  test "an explicit denied request explains the required role without admitting work" do
+    parent = self()
+
+    feedback = fn _binding, input, outcome ->
+      send(parent, {:feedback, input.destination.thread_ref, outcome})
+      :ok
+    end
+
+    response =
+      request(Jason.encode!(payload()),
+        delivery_ref: "visible-denial",
+        request_feedback: feedback,
+        repository_access: fn _, _ -> {:error, :actor_not_authorized} end
+      )
+
+    assert response.status == 200
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+    assert_received {:feedback, "github:github-main:pull:42", {:denied, :write}}
+
+    ordinary = put_in(payload(), ["comment", "body"], "Looks good to me.")
+
+    assert request(Jason.encode!(ordinary),
+             delivery_ref: "ordinary-denial",
+             request_feedback: feedback,
+             repository_access: fn _, _ -> {:error, :actor_not_authorized} end
+           ).status == 200
+
+    refute_received {:feedback, _, _}
+  end
+
+  test "an invalid confirmation answers the person and retries a lost acknowledgment" do
+    parent = self()
+    command = put_in(payload(), ["comment", "body"], "/ryker confirm missing-offer")
+    body = Jason.encode!(command)
+
+    failed =
+      request(body,
+        delivery_ref: "visible-confirmation",
+        request_feedback: fn _, _, _ -> {:error, :unavailable} end
+      )
+
+    assert failed.status == 503
+
+    delivered =
+      request(body,
+        delivery_ref: "visible-confirmation",
+        request_feedback: fn _, _, outcome ->
+          send(parent, {:confirmation, outcome})
+          :ok
+        end
+      )
+
+    assert delivered.status == 202
+    assert_received {:confirmation, {:confirmation, "invalid"}}
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+  end
+
+  test "a later review label asks again but replaying its signed body never starts new work" do
+    parent = self()
+
+    feedback = fn _, input, outcome ->
+      send(parent, {:label_feedback, input.native_input_id, outcome})
+      :ok
+    end
+
+    label = review_label_payload()
+
+    body = Jason.encode!(label)
+
+    first =
+      request(body,
+        event_name: "pull_request",
+        delivery_ref: "label-first",
+        request_feedback: feedback
+      )
+
+    assert first.status == 202
+    assert {:ok, entry} = Inbox.fetch(Jason.decode!(first.resp_body)["input_ref"])
+    assert entry.content["request"] == "Review this pull request and post your findings."
+    assert entry.content["payload"]["pull_request"]["body"] == label["pull_request"]["body"]
+    assert entry.engagement_receipt == %{"reason" => "review_request"}
+    assert_received {:label_feedback, _, :review_requested}
+
+    assert request(body,
+             event_name: "pull_request",
+             delivery_ref: "label-first",
+             request_feedback: feedback
+           ).status == 202
+
+    refute_received {:label_feedback, _, _}
+
+    # The signature covers the body, not the delivery header. A captured
+    # request must not start more work when that header is rewritten.
+    replay =
+      request(body,
+        event_name: "pull_request",
+        delivery_ref: "label-replayed-header",
+        request_feedback: feedback
+      )
+
+    assert replay.status == 202
+    assert Jason.decode!(replay.resp_body)["status"] == "duplicate"
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 1
+
+    reapplied = put_in(label, ["pull_request", "updated_at"], "2026-08-28T12:05:00Z")
+
+    second =
+      request(Jason.encode!(reapplied),
+        event_name: "pull_request",
+        delivery_ref: "label-second",
+        request_feedback: feedback
+      )
+
+    assert second.status == 202
+    assert {:ok, repeated} = Inbox.fetch(Jason.decode!(second.resp_body)["input_ref"])
+    refute repeated.native_input_id == entry.native_input_id
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 2
+  end
+
+  test "a review-label retry keeps its work and acknowledgment identity after JSON reencoding" do
+    parent = self()
+    payload = review_label_payload()
+
+    # App-delivery recovery receives a decoded payload and encodes it again.
+    # A failed acknowledgment must not turn that retry into a second review.
+    failed =
+      request(Jason.encode!(payload, pretty: true),
+        event_name: "pull_request",
+        delivery_ref: "label-reencoded",
+        request_feedback: fn _, input, :review_requested ->
+          send(parent, {:label_identity, input.native_input_id})
+          {:error, :timeout}
+        end
+      )
+
+    assert failed.status == 503
+    assert_received {:label_identity, identity}
+
+    retried =
+      request(Jason.encode!(payload),
+        event_name: "pull_request",
+        delivery_ref: "label-reencoded",
+        request_feedback: fn _, input, :review_requested ->
+          send(parent, {:retried_identity, input.native_input_id})
+          :ok
+        end
+      )
+
+    assert retried.status == 202
+    assert_received {:retried_identity, ^identity}
+    assert Jason.decode!(retried.resp_body)["status"] == "duplicate"
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 1
+  end
+
+  test "status labels, bot label changes, and denied review labels cannot start work" do
+    Repo.insert!(%Ryker.Episodes.Episode{
+      key: "active-label-request",
+      state: :working,
+      owner_kind: :turn,
+      owner_ref: "turn:active-label",
+      execution_mode: :live,
+      destination_transport: "github",
+      destination_conversation_ref: "github:github-main:repository:99",
+      destination_thread_ref: "github:github-main:pull:42"
+    })
+
+    label =
+      review_request_payload()
+      |> Map.delete("requested_reviewer")
+      |> Map.put("action", "labeled")
+      |> Map.put("label", %{"name" => "ryker:review"})
+      |> put_in(["pull_request", "state"], "open")
+
+    for {changed, delivery} <- [
+          {put_in(label, ["label", "name"], "ryker:working"), "working-label"},
+          {put_in(label, ["sender", "type"], "Bot"), "bot-label"},
+          {Map.put(label, "action", "unlabeled"), "removed-label"}
+        ] do
+      response =
+        request(Jason.encode!(changed), event_name: "pull_request", delivery_ref: delivery)
+
+      assert response.status == 200
+    end
+
+    parent = self()
+
+    assert request(Jason.encode!(label),
+             event_name: "pull_request",
+             delivery_ref: "denied-label",
+             repository_access: fn _, _ -> {:error, :actor_not_authorized} end,
+             request_feedback: fn _, _, outcome ->
+               send(parent, outcome)
+               :ok
+             end
+           ).status == 200
+
+    assert_received {:denied, :write}
+    assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
+  end
+
   defp record_feedback!(payload, event_name, delivery_ref) do
     response = request(Jason.encode!(payload), event_name: event_name, delivery_ref: delivery_ref)
     assert response.status == 202
@@ -1340,6 +1542,7 @@ defmodule Ryker.GitHub.RouterTest do
       bindings: bindings,
       bot_login: "ryker-test",
       repository_access: repository_access,
+      request_feedback: Keyword.get(options, :request_feedback, fn _, _, _ -> :ok end),
       secret: @sealed
     ]
 
@@ -1404,6 +1607,14 @@ defmodule Ryker.GitHub.RouterTest do
       "title" => "Change awaiting review",
       "updated_at" => "2026-08-28T12:00:00Z"
     })
+  end
+
+  defp review_label_payload do
+    review_request_payload()
+    |> Map.delete("requested_reviewer")
+    |> Map.put("action", "labeled")
+    |> Map.put("label", %{"name" => "ryker:review"})
+    |> put_in(["pull_request", "state"], "open")
   end
 
   defp review_payload do

@@ -9,7 +9,7 @@ defmodule Ryker.GitHub.Router do
   @behaviour Plug
   alias Ryker.Crypto
   alias Ryker.GitHub
-  alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
+  alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events, Labels}
   alias Ryker.HTTPConnection
   alias Ryker.Ingress
   alias Ryker.Publication
@@ -38,6 +38,11 @@ defmodule Ryker.GitHub.Router do
 
     binding_index = binding_index!(bindings)
 
+    request_feedback = Keyword.get(options, :request_feedback, &unconfigured_request_feedback/3)
+
+    unless is_function(request_feedback, 3),
+      do: raise(ArgumentError, "GitHub request feedback is invalid")
+
     confirmations = confirmations(options)
 
     %{
@@ -51,6 +56,7 @@ defmodule Ryker.GitHub.Router do
         |> Enum.map(& &1.max_body_bytes)
         |> Enum.max(fn -> Binding.default_max_body_bytes() end),
       repository_access: repository_access,
+      request_feedback: request_feedback,
       review_reply: review_reply,
       secret: secret
     }
@@ -212,6 +218,41 @@ defmodule Ryker.GitHub.Router do
     end)
   end
 
+  # Status projection and request-label cleanup must not wake an active PR.
+  defp admit_event(
+         conn,
+         binding,
+         delivery_ref,
+         event_ref,
+         "pull_request",
+         %{
+           "action" => action,
+           "label" => %{"name" => label}
+         } = payload,
+         options
+       )
+       when action in ["labeled", "unlabeled"] and label in ["ryker:review", "ryker:working"] do
+    case Binding.authorize_payload(binding, payload) do
+      :ok ->
+        if Labels.review_request?("pull_request", payload) do
+          admit_generic_event(
+            conn,
+            binding,
+            delivery_ref,
+            event_ref,
+            "pull_request",
+            payload,
+            options
+          )
+        else
+          Ingress.InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
+        end
+
+      {:error, _reason} ->
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+    end
+  end
+
   defp admit_event(conn, binding, delivery_ref, event_ref, event_name, payload, options)
        when event_name in @lifecycle_events do
     with :ok <- Binding.authorize_payload(binding, payload),
@@ -321,11 +362,10 @@ defmodule Ryker.GitHub.Router do
       confirm_or_record(conn, input, binding, options)
     else
       {:error, :actor_not_authorized} ->
-        Ingress.InboundHTTP.respond(conn, 200, %{
-          "reason" =>
-            "repository_#{Confirmations.required_repository_role(payload)}_access_required",
-          "status" => "ignored"
-        })
+        case Ingress.Adapters.normalize("github", event, binding) do
+          {:ok, input} -> denied_request(conn, binding, input, options)
+          {:error, _reason} -> Ingress.InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
+        end
 
       {:error, {:invalid_github_input, field}} ->
         refused(conn, field)
@@ -383,10 +423,8 @@ defmodule Ryker.GitHub.Router do
         observe_and_record(conn, input, binding, options)
 
       {:ok, %{"status" => status} = confirmation} ->
-        Ingress.InboundHTTP.respond(conn, 202, %{
-          "confirmation" => confirmation,
-          "status" => status
-        })
+        result = options.request_feedback.(binding, input, {:confirmation, status})
+        feedback_response(conn, result, %{"confirmation" => confirmation, "status" => status})
 
       {:error, _reason} ->
         Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
@@ -403,7 +441,9 @@ defmodule Ryker.GitHub.Router do
              work_profile: binding.work_profile
            ) do
         {:ok, receipt} ->
-          Ingress.InboundHTTP.respond(conn, 202, %{
+          result = acknowledge_review_label(binding, input, options)
+
+          feedback_response(conn, result, %{
             "input_ref" => Ingress.Inbox.ref(receipt.entry),
             "status" => Atom.to_string(receipt.status)
           })
@@ -419,10 +459,7 @@ defmodule Ryker.GitHub.Router do
         })
 
       {:error, :actor_not_authorized} ->
-        Ingress.InboundHTTP.respond(conn, 200, %{
-          "reason" => "repository_write_access_required",
-          "status" => "ignored"
-        })
+        denied_request(conn, binding, input, options)
 
       {:error, _reason} ->
         Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
@@ -435,6 +472,43 @@ defmodule Ryker.GitHub.Router do
       "status" => Atom.to_string(status)
     })
   end
+
+  defp acknowledge_review_label(binding, input, options) do
+    if Labels.review_request?(input.content["event_name"], input.content["payload"]),
+      do: options.request_feedback.(binding, input, :review_requested),
+      else: :ok
+  end
+
+  defp denied_request(conn, binding, input, options) do
+    role = Confirmations.required_repository_role(input.content["payload"])
+
+    result =
+      if Engagement.explicit_request?(input, binding, options.bot_login),
+        do: options.request_feedback.(binding, input, {:denied, role}),
+        else: :ok
+
+    case result do
+      :ok ->
+        Ingress.InboundHTTP.respond(conn, 200, %{
+          "reason" => "repository_#{role}_access_required",
+          "status" => "ignored"
+        })
+
+      {:error, _reason} ->
+        unavailable_feedback(conn)
+    end
+  end
+
+  defp feedback_response(conn, :ok, response),
+    do: Ingress.InboundHTTP.respond(conn, 202, response)
+
+  defp feedback_response(conn, {:error, _reason}, _response), do: unavailable_feedback(conn)
+
+  defp unavailable_feedback(conn),
+    do: Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+
+  defp unconfigured_request_feedback(_binding, _input, _outcome),
+    do: {:error, :github_request_feedback_not_configured}
 
   defp route_record_error(conn, {:invalid_input, field}), do: refused(conn, field)
   defp route_record_error(conn, {:invalid_input, field, _reason}), do: refused(conn, field)

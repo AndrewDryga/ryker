@@ -16,6 +16,7 @@ defmodule Ryker.GitHub.Server do
     :port,
     :repository_access,
     :review_reply,
+    :request_feedback,
     :secret
   ]
 
@@ -43,6 +44,7 @@ defmodule Ryker.GitHub.Server do
       bot_login: options.bot_login,
       repository_access: options.repository_access,
       review_reply: options.review_reply,
+      request_feedback: options.request_feedback,
       secret: options.secret
     ]
 
@@ -104,6 +106,8 @@ defmodule Ryker.GitHub.Server do
       port: port,
       repository_access: repository_access,
       review_reply: review_reply,
+      request_feedback:
+        Map.get(configuration, :request_feedback, &unconfigured_request_feedback/3),
       secret: secret
     }
   end
@@ -153,6 +157,9 @@ defmodule Ryker.GitHub.Server do
 
   defp unconfigured_repository_access(_binding, _payload),
     do: {:error, {:github_repository_access_unavailable, :not_configured}}
+
+  defp unconfigured_request_feedback(_binding, _input, _outcome),
+    do: {:error, :github_request_feedback_not_configured}
 
   defp unconfigured_review_reply(_binding, _payload),
     do: {:error, {:github_review_reply_unavailable, :not_configured}}

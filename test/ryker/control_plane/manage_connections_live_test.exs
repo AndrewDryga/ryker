@@ -680,6 +680,22 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
       snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
     }
 
+  test "GitHub usage gives copyable requests for the installed App and explains its labels" do
+    connect_github!()
+    {:ok, view, _html} = open("/integrations/github")
+    assert has_element?(view, "#github-usage pre", "@ryker-acme review this PR")
+    assert has_element?(view, "#github-usage pre", "@ryker-acme add a regression test")
+
+    assert has_element?(
+             view,
+             "#github-usage button[aria-label='Copy review request'][data-copy-block]"
+           )
+
+    assert has_element?(view, "#github-usage code", "ryker:review")
+    assert has_element?(view, "#github-usage code", "ryker:working")
+    assert has_element?(view, "#github-usage", "even when GitHub does not suggest the handle")
+  end
+
   # A verified GitHub App as Connect leaves it before any repository is added.
   defp connect_github! do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})

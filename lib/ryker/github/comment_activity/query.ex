@@ -22,6 +22,18 @@ defmodule Ryker.GitHub.CommentActivity.Query do
     |> current_revision()
   end
 
+  def pending_threads(name, repository_id) do
+    pending_entries(name, repository_id)
+    |> exclude(:select)
+    |> select([source: e], e.destination_thread_ref)
+  end
+
+  def active_threads(name, repository_id) do
+    active_origins(name, repository_id)
+    |> exclude(:select)
+    |> select([source: o], o.thread_ref)
+  end
+
   def active_origins(name, repository_id) do
     conversation = "github:#{name}:repository:#{repository_id}"
 

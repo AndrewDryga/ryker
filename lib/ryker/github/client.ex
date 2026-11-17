@@ -17,8 +17,13 @@ defmodule Ryker.GitHub.Client do
   """
   @behaviour Ryker.GitHub.API
   alias Ryker.Adapter
-  alias Ryker.GitHub.Client.{Actions, Comments, Context, PullRequests, Search}
+  alias Ryker.GitHub.Client.{Actions, Comments, Context, Labels, PullRequests, Search}
   alias Ryker.Maps
+
+  defdelegate ensure_label(client, repository, label), to: Labels
+  defdelegate add_pull_label(client, repository, number, name), to: Labels
+  defdelegate remove_pull_label(client, repository, number, name), to: Labels
+  defdelegate labeled_pulls(client, repository, name), to: Labels
 
   @fields [:http, :requester]
 

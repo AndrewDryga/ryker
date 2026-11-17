@@ -575,6 +575,12 @@ defmodule Ryker.Publication.FollowupsTest do
     assert %LifecycleEvent{state: :failed, wakeup_state: :pending} =
              event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
 
+    # Automatic CI correction is work on this PR even before Work claims it.
+    assert publication.pull_request_number in Ryker.GitHub.Labels.active_pulls("github-main", %{
+             repository_id: 99,
+             repository_full_name: publication.github_repository
+           })
+
     # The same red run observed again is the same fact, not a second correction.
     Repo.update_all(
       from(saved in Followup, where: saved.publication_id == ^publication.id),

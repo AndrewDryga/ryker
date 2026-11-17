@@ -92,23 +92,36 @@ an SSH tunnel's local port. It must be HTTPS or a loopback HTTP address.
 
 ### Asking for a GitHub review
 
-On a connected repository, mention the installed App's slug in a pull request
-comment, followed by the request. Use the App shown under **Integrations › GitHub**;
-different installations can use different Apps. The product name alone is not
-necessarily its GitHub handle. Mention autocomplete is not required to send the
-comment. The sender needs write or admin access to the repository.
+On a connected repository, type the installed App's slug in a pull request
+comment, followed by the request. **Integrations › GitHub** provides copyable
+review and change requests using that installation's actual handle. The sender
+needs Write access or higher. Confirming a Ryker offer with `/ryker confirm ...`
+requires Maintain or Admin access. Mentions, review-label requests, and confirmation
+commands that lack the required access receive a reply in the same discussion,
+as do confirmation outcomes.
 
-Ryker also accepts a signed `pull_request` / `review_requested` webhook addressed
-to its configured bot identity, with the same sender authorization. Requests for
-another reviewer or a team do not start a review on an idle pull request.
+Ryker creates two standard labels in connected repositories where the App can review:
 
-GitHub controls which identities appear in its native reviewer and mention
-pickers. Its [GraphQL review API](https://docs.github.com/en/graphql/reference/pulls#requestreviewsbylogininput)
-has a `botLogins` input, but an API response without an actual requested reviewer
-does not prove that a bot was selected. GitHub's separate
-[agent apps](https://docs.github.com/en/copilot/concepts/agent-capabilities/about-agents/agent-apps)
-feature requires agent features enabled for the App. Installing an ordinary App
-and successfully posting a review do not prove native picker eligibility.
+- `ryker:review`: add it to an open PR to request a review. Ryker acknowledges the
+  request and removes the label after acceptance. Add it again for another pass.
+  The sender needs the same Write access as a comment request; Triage access to
+  apply labels does not authorize Ryker work.
+- `ryker:working`: Ryker manages this label while a PR request is queued or being
+  handled. It also covers automatic CI corrections and review follow-ups on PRs
+  Ryker publishes. It clears when the work finishes, fails, or waits for input.
+  Adding or removing this status label does not start or cancel work.
+
+Label updates preserve unrelated labels. A restart or uncertain write rereads
+GitHub's labels, and a periodic reconciliation repairs manual changes.
+
+Ordinary GitHub Apps cannot appear in native mention autocomplete or be selected
+as requested PR reviewers. Typing the App's handle still works through the comment
+webhook. A successful GraphQL review-request response with an empty requested-reviewer
+list does not select the bot. GitHub Support confirmed these restrictions for the
+existing App in November 2026. The separate
+[Agent Apps](https://docs.github.com/en/copilot/concepts/agent-capabilities/about-agents/agent-apps)
+partner program has limited developer access and runs through Copilot cloud agent;
+it is not an enablement setting for this integration.
 
 ### Connecting an installation
 

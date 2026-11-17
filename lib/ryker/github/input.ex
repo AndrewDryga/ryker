@@ -7,7 +7,7 @@ defmodule Ryker.GitHub.Input do
   """
   @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
-  alias Ryker.GitHub.{Binding, Payload}
+  alias Ryker.GitHub.{Binding, Labels, Payload}
   alias Ryker.Ingress
   alias Ryker.Maps
   alias Ryker.Reference
@@ -104,6 +104,8 @@ defmodule Ryker.GitHub.Input do
          {:ok, actor} <- actor(event.payload, binding),
          :ok <- says_something(event.event_name, details.item),
          {:ok, occurred_at} <- occurred_at(details.item) do
+      event = review_label_event(event)
+      details = review_label_details(event, details)
       build_input(event, binding, details, actor, occurred_at)
     end
   end
@@ -117,6 +119,8 @@ defmodule Ryker.GitHub.Input do
   submitted without a word.
   """
   @spec body(term()) :: String.t() | nil
+  def body(%{"request" => request}) when is_binary(request), do: request
+
   def body(%{"payload" => %{} = payload}) do
     # The event's own item, never the one beside it: a review submitted
     # without a word read as its pull request's description (PR #2,
@@ -142,11 +146,7 @@ defmodule Ryker.GitHub.Input do
   defp input(event, binding, details, actor, occurred_at) do
     Ingress.Input.new(%{
       actor: actor,
-      content: %{
-        "delivery_ref" => event.delivery_ref,
-        "event_name" => event.event_name,
-        "payload" => event.payload
-      },
+      content: content(event),
       destination: %{
         conversation_ref: "github:#{binding.name}:repository:#{binding.repository_id}",
         thread_ref: thread_ref(binding, details),
@@ -162,6 +162,42 @@ defmodule Ryker.GitHub.Input do
       source_capabilities: source_capabilities(details),
       source_item_ref: "github:#{details.item_kind}:#{details.item_id}"
     })
+  end
+
+  # The delivery poller reencodes the authenticated payload. Identity follows
+  # its contents, so a different JSON encoding cannot start another review.
+  defp review_label_event(event) do
+    if Labels.review_request?(event.event_name, event.payload),
+      do: %{event | event_ref: "github-label:" <> CanonicalJSON.digest(event.payload)},
+      else: event
+  end
+
+  # A later signed label event is a new ask, not a revision of the PR body.
+  # The delivery header is unsigned: replaying a captured body with another
+  # header must retain the same identity. Keep the source payload unchanged.
+  defp review_label_details(event, details) do
+    if Labels.review_request?(event.event_name, event.payload) do
+      %{
+        details
+        | event_kind: :message,
+          item_kind: "pull_request_label",
+          item_id: event.event_ref
+      }
+    else
+      details
+    end
+  end
+
+  defp content(event) do
+    content = %{
+      "delivery_ref" => event.delivery_ref,
+      "event_name" => event.event_name,
+      "payload" => event.payload
+    }
+
+    if Labels.review_request?(event.event_name, event.payload),
+      do: Map.put(content, "request", "Review this pull request and post your findings."),
+      else: content
   end
 
   # GitHub submits a review around every line comment. One without words decides nothing and

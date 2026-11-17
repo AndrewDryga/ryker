@@ -937,6 +937,7 @@ defmodule Ryker.Runtime.Assembly do
       runtime: %{
         app_id: settings.github.app_id,
         onboarding: %{},
+        labels: %{bindings: github_label_bindings(prepared)},
         processing_reactions: %{
           bindings:
             Map.new(prepared, fn {name, item} ->
@@ -957,6 +958,7 @@ defmodule Ryker.Runtime.Assembly do
           port: bootstrap.github_listener.port,
           repository_access: repository_access(prepared),
           review_reply: review_reply(prepared),
+          request_feedback: github_request_feedback(prepared),
           secret: Secret.new(webhook_secret)
         },
         tokens: %{
@@ -995,6 +997,25 @@ defmodule Ryker.Runtime.Assembly do
       GitHub.RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name),
         minimum_role: GitHub.Confirmations.required_repository_role(payload)
       )
+    end
+  end
+
+  defp github_label_bindings(prepared) do
+    for {name, item} <- prepared, "review" in item.trusted_binding.action_grants, into: %{} do
+      {name,
+       %{
+         client: item.delivery_client,
+         repository_full_name: item.repository.github_repository,
+         repository_id: item.trusted_binding.repository_id
+       }}
+    end
+  end
+
+  defp github_request_feedback(prepared) do
+    clients = Map.new(prepared, fn {name, item} -> {name, item.delivery_client} end)
+
+    fn binding, input, outcome ->
+      GitHub.RequestFeedback.deliver(binding, input, outcome, Map.fetch!(clients, binding.name))
     end
   end
 

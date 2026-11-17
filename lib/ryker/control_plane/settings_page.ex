@@ -1124,6 +1124,26 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <p :if={@repositories > 0} class="settings-lede">
         {Wording.count(@repositories, "repository")} added.
       </p>
+      <div id="github-usage">
+        <p>
+          In a pull request comment, type the App’s handle and your request.
+          You can send it even when GitHub does not suggest the handle.
+        </p>
+        <Components.copy_block label="Copy review request">
+          <pre>{@view.snapshot.github.app_slug && "@#{@view.snapshot.github.app_slug} review this PR"}</pre>
+        </Components.copy_block>
+        <p>For a specific change, include what you want done:</p>
+        <Components.copy_block label="Copy change request">
+          <pre>{@view.snapshot.github.app_slug && "@#{@view.snapshot.github.app_slug} add a regression test for the bug fixed in this PR"}</pre>
+        </Components.copy_block>
+        <p>
+          You can also add <code>ryker:review</code>
+          to request a review. Ryker removes it
+          after accepting the request; add it again for another review. <code>ryker:working</code>
+          appears while Ryker handles work on the PR, including
+          automatic CI fixes and review follow-ups on its own PRs.
+        </p>
+      </div>
       <Kit.empty
         :if={@repositories == 0}
         variant={:hint}

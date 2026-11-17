@@ -183,8 +183,11 @@ defmodule Ryker.GitHub.ProcessingReactionsTest do
       })
 
     assert ProcessingReactions.active_targets("github-main", 99) == [@target]
+    binding = %{repository_id: 99, repository_full_name: "octo/example"}
+    assert Ryker.GitHub.Labels.active_pulls("github-main", binding) == MapSet.new([42])
     turn |> Ecto.Changeset.change(status: :blocked) |> Repo.update!()
     assert ProcessingReactions.active_targets("github-main", 99) == []
+    assert Ryker.GitHub.Labels.active_pulls("github-main", binding) == MapSet.new()
     turn |> Ecto.Changeset.change(status: :pending) |> Repo.update!()
 
     for {state, owner_kind, owner_ref} <- [
@@ -203,6 +206,7 @@ defmodule Ryker.GitHub.ProcessingReactionsTest do
       |> Repo.update!()
 
       assert ProcessingReactions.active_targets("github-main", 99) == []
+      assert Ryker.GitHub.Labels.active_pulls("github-main", binding) == MapSet.new()
     end
 
     Repo.get!(Episode, episode.id)
