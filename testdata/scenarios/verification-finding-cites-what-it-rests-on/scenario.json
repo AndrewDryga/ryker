@@ -1099,7 +1099,7 @@
     ],
     "quality_rubric": [
       {
-        "criterion": "Reports readiness, liveness, version, image digest and recent errors for both replicas in a few lines.",
+        "criterion": "Answers the requested verification in plain language, with the running revision and health result. Preserves readiness, liveness, image digest and recent-error evidence for both replicas in cited findings; includes exact detail in the reply when the person explicitly asks for it.",
         "weight": 2
       },
       {

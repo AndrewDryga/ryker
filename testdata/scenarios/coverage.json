@@ -6,7 +6,7 @@
     "denied_authority": [
       "deployment-review-says-plainly-when-no-baseline-is-readable",
       "github-pr-review-remains-in-thread",
-      "missing-project-denied-access-asks-about-access",
+      "missing-project-denied-access-requests-evidence",
       "unmeasured-failure-claims-no-cause"
     ],
     "missing_stale_contradictory_evidence": [

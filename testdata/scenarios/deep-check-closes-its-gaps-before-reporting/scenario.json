@@ -10462,7 +10462,7 @@
     "weight": 2
    },
    {
-    "criterion": "Names as remaining gaps only what its tools cannot settle, such as the backup objects its role cannot list, says what it tried, and asks only for that access or a decision.",
+    "criterion": "Finishes useful available reads before asking for specific backup evidence or a decision. Does not ask for permissions or turn inaccessible optional checks into a disclaimer checklist. States a missing result when it prevents answering the actual request.",
     "weight": 2
    },
    {

@@ -3104,7 +3104,7 @@
     ],
     "quality_rubric": [
       {
-        "criterion": "Gives the revision the saved plan will deploy and says the deployed baseline could not be established, naming what it tried and the access that would settle it.",
+        "criterion": "Gives the revision the saved plan will deploy and says plainly that the deployed baseline could not be established after available reads. Preserves attempted reads in evidence. Does not ask for more access or imply a comparison was completed.",
         "weight": 3
       },
       {

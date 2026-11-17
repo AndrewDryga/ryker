@@ -9,7 +9,7 @@ defmodule Ryker.Evals.WorldCaseTest do
   @discovery_scenarios ~w(
     missing-project-answer-unblocks-blocked-checks
     missing-project-candidates-need-one-question
-    missing-project-denied-access-asks-about-access
+    missing-project-denied-access-requests-evidence
     missing-project-discovery-failure-stays-honest
     missing-project-discovery-proves-one-target
     missing-project-empty-discovery-still-asks
@@ -253,7 +253,7 @@ defmodule Ryker.Evals.WorldCaseTest do
     for {id, expected} <- [
           {"missing-project-empty-discovery-still-asks", :verified_absence},
           {"missing-project-discovery-failure-stays-honest", "discovery_unavailable"},
-          {"missing-project-denied-access-asks-about-access", "permission_denied"}
+          {"missing-project-denied-access-requests-evidence", "permission_denied"}
         ] do
       cassette = cassette!(id)
       reply = WorldCassette.call(cassette, "gcp.projects.list", %{"query" => "emisar portal"})
@@ -268,7 +268,7 @@ defmodule Ryker.Evals.WorldCaseTest do
       end
     end
 
-    denied = cassette!("missing-project-denied-access-asks-about-access")
+    denied = cassette!("missing-project-denied-access-requests-evidence")
 
     for {tool, arguments} <- [
           {"gcp.backend_health", %{"project_id" => "emisar-portal-qa", "service" => "portal"}},

@@ -998,7 +998,7 @@
     ],
     "quality_rubric": [
       {
-        "criterion": "Says the arena alert is firing but its error rate could not be read, and asks for the access that would settle it.",
+        "criterion": "Says plainly that the arena alert is firing and its error rate could not be measured. After trying available sources, may ask for a specific current error-rate reading the person can send; never asks for access or permissions.",
         "weight": 3
       },
       {

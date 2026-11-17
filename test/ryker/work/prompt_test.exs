@@ -172,7 +172,7 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "Close a gap before you report it."
     assert instructions =~ "count first, filter, split by group or page through it"
     assert instructions =~ "look for that source before calling the fact unchecked"
-    assert instructions =~ "say what you tried and exactly what would close it"
+    assert instructions =~ "preserve attempted reads and their limits in findings"
 
     assert instructions =~
              "every gap the reply names was tried with the tools you hold"
@@ -182,26 +182,37 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "A broad check is no reason for a long reply"
   end
 
-  # The 2026-10-17 world matrix and its A/B, "How is health of our infra in VA1?": the replies
-  # that said Arena's error rate could not be read without viewer access and stopped there
-  # failed, and every reply that asked for that access with request_input passed. Asking for any
-  # gap a person could close then put a question beside an established cause, asking for
-  # dead-letter details the answer did not need (two runs in the next two matrices). In alert
-  # threads where nobody asked, request_input is refused, and three runs then waited without any
-  # reply at all.
-  test "access that blocks the measurement the question needs is asked for, not only named" do
-    instructions =
-      Prompt.build(%{})
-      |> Jason.decode!()
-      |> Map.fetch!("instructions")
-      |> String.replace(~r/\s+/, " ")
+  # The November 16 review found replies asking people for access they cannot
+  # grant, while deployment replies repeated healthy counters and disclaimers.
+  # These are prompt-contract checks; the harvested world cases judge behavior.
+  test "missing access exhausts available evidence before requesting specific data" do
+    instructions = normalized_instructions()
+    assert instructions =~ "Treat the available access as fixed"
 
     assert instructions =~
-             "When access you lack keeps you from the measurement the question needs, ask the " <>
-               "person who asked to grant it, with request_input in this turn"
+             "Do not ask people to grant access, connect an integration or change permissions"
 
-    assert instructions =~ "Where nobody asked, the reply still says what is missing."
-    assert instructions =~ "A detail beside an answer you could settle needs no question."
+    assert instructions =~ "the smallest specific piece of evidence"
+    assert instructions =~ "A permission error is not an empty result"
+    refute instructions =~ "ask the person who asked to grant it"
+    refute instructions =~ "ask for the access as well as the identifier"
+    refute instructions =~ "connect it or paste the diff"
+  end
+
+  test "operational replies explain the result without a routine disclaimer footer" do
+    instructions = normalized_instructions()
+    assert instructions =~ "Use ordinary words, contractions and short sentences"
+    assert instructions =~ "Do not append a routine list of checks you could not perform"
+
+    assert instructions =~
+             "new versions, main changes since the previous versions, then health so far"
+
+    assert instructions =~
+             "Keep instance-by-instance image provenance and observation times in cited findings"
+
+    assert instructions =~ "I don't know yet. I'm checking."
+    assert instructions =~ "These are wording examples, not evidence or actions to copy"
+    refute instructions =~ "Do not drop that independent evidence after retrieving it"
   end
 
   test "a missing operational fact leads to discovery and one useful remembered question" do
@@ -230,10 +241,10 @@ defmodule Ryker.Work.PromptTest do
     # gcp.projects.list as "no projects" and asked only for a project name —
     # which the next turn would refuse identically, for the same reason.
     assert instructions =~ "A tool that refuses is not a tool that answered"
-    assert instructions =~ "ask for the access as well as the identifier"
+    assert instructions =~ "A project name alone cannot unblock a denied read"
 
     assert instructions =~
-             "state what it found and what it could not reach, then ask one concrete"
+             "ask one concrete question for the missing fact or evidence"
 
     assert instructions =~ "arm that watch with wait_for in the same turn as the question"
     # The judge rejected a delivery that answered about "the requested revision"
@@ -517,7 +528,7 @@ defmodule Ryker.Work.PromptTest do
     # discarded, and plan reviews counted "19 of 22 drift entries" hidden
     # (#infra, 2026-10-07 and 08).
     assert instructions =~ "A run discarded or cancelled before apply began changed nothing"
-    assert instructions =~ "without counting what was"
+    assert instructions =~ "keep other inspection details in cited findings"
     assert instructions =~ "durable wait for the next exact lifecycle update"
 
     # Asked to check disk space "with Emisar's debugging.disk_free", Ryker answered that the
@@ -532,7 +543,7 @@ defmodule Ryker.Work.PromptTest do
     # Andrew asked for short, simple English (2026-10-11).
     assert instructions =~ "what changed and what, if anything, a person has to do"
     assert instructions =~ "It leaves out what you will check next"
-    assert instructions =~ "say what you could not see instead"
+    assert instructions =~ "State a limitation when it changes the answer"
 
     # Six observations delivered "I have scheduled a follow-up in 10 minutes"
     # in a turn that called no wait_for. The episode ends there and the person

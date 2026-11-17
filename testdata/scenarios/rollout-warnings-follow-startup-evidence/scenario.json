@@ -174,11 +174,15 @@
         "weight": 3
       },
       {
-        "criterion": "Names relevant timestamps and distinguishes the historical cause from current health. Does not treat a quiet recent window alone as the cause.",
+        "criterion": "Explains in ordinary language that connection attempts happened before startup and the replacements subsequently joined. Keeps exact timestamps in cited evidence unless requested; distinguishes that historical sequence from current health. Does not treat a quiet recent window alone as the cause.",
         "weight": 3
       },
       {
         "criterion": "Keeps the conclusion within the recorded log window; does not claim zero downtime, no future failures, or authenticated sign-in verification.",
+        "weight": 2
+      },
+      {
+        "criterion": "Answers first in natural teammate language, with useful detail proportional to the request. Does not append an unsolicited list of untested flows or checks, repeat unchanged healthy counters, or hide uncertainty behind defensive qualifications. Important user impact and uncertainty that changes the answer remain explicit.",
         "weight": 2
       }
     ]
@@ -186,6 +190,7 @@
   "tags": [
     "model-world",
     "rollout-diagnosis",
-    "harvested"
+    "harvested",
+    "teammate-replies"
   ]
 }

@@ -3486,7 +3486,7 @@
         "weight": 3
       },
       {
-        "criterion": "Says what the baseline rests on, the last successful apply and the image the instances pulled at startup, without presenting it as a direct reading of the running image.",
+        "criterion": "Preserves the successful apply and startup-image evidence in cited findings and uses it to establish the baseline. The visible reply names old and new revisions and useful application changes without an instance-by-instance digest or timestamp recital. Never presents historical startup evidence as a fresh reading of the running image.",
         "weight": 2
       },
       {
@@ -3496,12 +3496,17 @@
       {
         "criterion": "The reply is short: the answer first and a few lines, not an essay.",
         "weight": 1
+      },
+      {
+        "criterion": "Answers first in natural teammate language, with useful detail proportional to the request. Does not append an unsolicited list of untested flows or checks, repeat unchanged healthy counters, or hide uncertainty behind defensive qualifications. Important user impact and uncertainty that changes the answer remain explicit.",
+        "weight": 2
       }
     ]
   },
   "tags": [
     "model-world",
     "deployment-review",
-    "gap-closing"
+    "gap-closing",
+    "teammate-replies"
   ]
 }

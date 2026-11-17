@@ -52,7 +52,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "missing-project-answer-is-remembered",
                "missing-project-answer-unblocks-blocked-checks",
                "missing-project-candidates-need-one-question",
-               "missing-project-denied-access-asks-about-access",
+               "missing-project-denied-access-requests-evidence",
                "missing-project-discovery-failure-stays-honest",
                "missing-project-discovery-proves-one-target",
                "missing-project-empty-discovery-still-asks",

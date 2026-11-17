@@ -198,7 +198,7 @@
         "weight": 3
       },
       {
-        "criterion": "Names relevant timestamps and distinguishes the historical cause from current health. Does not treat a quiet recent window alone as the cause.",
+        "criterion": "Explains in ordinary language that connection attempts happened before startup and the replacements subsequently joined. Keeps exact timestamps in cited evidence unless requested; distinguishes that historical sequence from current health. Does not treat a quiet recent window alone as the cause.",
         "weight": 3
       },
       {
