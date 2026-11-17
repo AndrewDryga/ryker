@@ -17,8 +17,11 @@ defmodule Ryker.GitHub.Client.Labels do
     end
   end
 
-  defp create_label(client, repository, %{name: name} = label) do
-    with {:ok, response} <- Transport.request(client, :post, "/repos/#{repository}/labels", label) do
+  defp create_label(client, repository, %{name: name, color: color, description: description}) do
+    document = %{"name" => name, "color" => color, "description" => description}
+
+    with {:ok, response} <-
+           Transport.request(client, :post, "/repos/#{repository}/labels", document) do
       case response do
         %{status: 201, body: %{"name" => ^name}} -> :ok
         # Another installer can have created it after our read. Check the
