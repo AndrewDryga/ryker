@@ -768,7 +768,7 @@ defmodule Ryker.Records do
         subject_ref: prepared.subject_ref,
         turn_id: turn.id
       }
-      |> Record.Changeset.insert()
+      |> Record.Changeset.insert(Repo.now!())
       |> Repo.insert()
       |> persistence_result()
     end

@@ -1206,6 +1206,108 @@ defmodule Ryker.Publication.CustodyTest do
     assert PublicationCustody.publication_authorized?(publication)
   end
 
+  test "task progress preserves a changed or unverified target after a real push receipt" do
+    for state <- ~w(changed_after_push unverified_after_push) do
+      target = Ryker.Fixtures.GitHubActions.publication_target()
+
+      %{claim: claim, publication: publication} =
+        task_reviewed_publication!(state,
+          confirmed_repository: "ryker",
+          publication_target: target
+        )
+
+      {:ok, publishing} = PublicationCustody.claim_next("push-warning:" <> state, 60)
+
+      observation = %{
+        "state" => state,
+        "head_ref" => "human/fix",
+        "base_ref" => "release",
+        "head_repository_id" => 17,
+        "base_repository_id" => 17,
+        "head_commit" => publication.review_document["candidate_head"],
+        "pull_request_state" => "open"
+      }
+
+      receipt = %{
+        "repository" => "ryker",
+        "branch_ref" => target["head_ref"],
+        "candidate_tree" => publication.review_document["candidate_tree"],
+        "commit_sha" => publication.review_document["candidate_head"],
+        "pull_request_number" => 7,
+        "pull_request_url" => "https://github.com/example/repository/pull/7",
+        "target_observation" => observation
+      }
+
+      assert {:ok, _published} =
+               PublicationCustody.store_publication(
+                 publication.ref,
+                 publishing.lease_ref,
+                 receipt
+               )
+
+      task = Repo.get_by!(Records.Record, episode_id: claim.episode.id, kind: "task_offer")
+      progress = Records.TaskProgress.read(task)
+      assert progress["status"] == "publication_needs_attention"
+      assert progress["terminal"]
+      assert progress["target_observation"] == observation
+      assert progress["commit"] == receipt["commit_sha"]
+      assert Ryker.GitHubActions.IssueMessages.status(progress) =~ "could not be verified"
+      # Finish the delivery phase so the next fixture owns the next claim.
+      {:ok, result} = PublicationCustody.claim_next("warning-result:" <> state, 60)
+      {:ok, request} = PublicationCustody.delivery_request(result.publication)
+
+      {:ok, delivered} =
+        DeliveryReceipt.new(
+          request.ref,
+          request.transport,
+          request.conversation_ref,
+          request.thread_ref,
+          "message:" <> state
+        )
+
+      {:ok, _settled} =
+        PublicationCustody.confirm_delivery(publication.ref, result.lease_ref, delivered)
+    end
+  end
+
+  test "discarded publication progress ends when its task has finished" do
+    %{claim: claim, publication: publication} =
+      task_reviewed_publication!("discarded-progress",
+        confirmed_repository: "ryker",
+        gate: "failed"
+      )
+
+    task = Repo.get_by!(Records.Record, episode_id: claim.episode.id, kind: "task_offer")
+
+    assert {:ok, _discarded} =
+             PublicationCustody.recover(
+               publication.ref,
+               :discard,
+               publication.recovery_generation
+             )
+
+    assert Records.TaskProgress.read(task) == %{
+             "status" => "finished_without_result",
+             "terminal" => true
+           }
+
+    admit_followup!(claim, "recover-after-discard")
+    assert Records.TaskProgress.read(task) == %{"status" => "building"}
+  end
+
+  test "selected fixes with unavailable checks leave the existing PR untouched" do
+    %{publication: publication} =
+      task_reviewed_publication!("existing-unverified",
+        confirmed_repository: "ryker",
+        gate: "startup_error",
+        publication_target: Ryker.Fixtures.GitHubActions.publication_target()
+      )
+
+    assert publication.status == :blocked
+    assert publication.approval_ref == nil
+    assert PublicationCustody.claim_next("no-unverified-existing-push", 60) == {:ok, nil}
+  end
+
   test "without a task's grant, a change whose checks could not run is offered to a person" do
     %{claim: claim, publication: blocked} =
       task_reviewed_publication!("checks-unavailable",
@@ -1322,6 +1424,192 @@ defmodule Ryker.Publication.CustodyTest do
     assert repeated.turn.delivery_document == nil
   end
 
+  defmodule BrowserPublisher do
+    @behaviour Ryker.Delivery.Platform
+    @behaviour Ryker.Delivery.MessagePublisher
+    @behaviour Ryker.Delivery.ReactionPublisher
+    def transport, do: "control_plane"
+
+    def publish_message(request, owner) do
+      send(owner, {:browser_delivery, request})
+      Ryker.ControlPlane.Publisher.publish_message(request, nil)
+    end
+
+    def publish_reaction(request, owner), do: publish_message(request, owner)
+  end
+
+  test "publication replies preserve original browser evidence and download ownership" do
+    conversation = Ecto.UUID.generate()
+    ref = "control-plane:lab:" <> conversation
+
+    %{claim: claim} =
+      task_episode!("browser-handoff",
+        destination: %{
+          transport: "control_plane",
+          conversation_ref: ref,
+          thread_ref: ref
+        }
+      )
+
+    data = File.read!(Application.app_dir(:ryker, "priv/static/brand/avatar.png"))
+
+    metadata = %{
+      "id" => "artifact:menu",
+      "name" => "menu.png",
+      "data" => data,
+      "bytes" => byte_size(data),
+      "sha256" => digest(data),
+      "media_type" => "image/png"
+    }
+
+    report = %{
+      "title" => "Menu",
+      "observed_at" => "2026-11-17T10:00:00Z",
+      "revision" => %{
+        "commit" => String.duplicate("a", 40),
+        "tree" => String.duplicate("b", 40),
+        "dirty" => false
+      },
+      "cases" => [
+        %{
+          "name" => "Open menu",
+          "status" => "passed",
+          "steps" => ["Open menu"],
+          "expected" => "Menu visible",
+          "observed" => "Menu visible",
+          "viewport" => %{"width" => 390, "height" => 844},
+          "screenshot" => "menu.png",
+          "screenshot_sha256" => digest(data)
+        }
+      ]
+    }
+
+    before_stage = fn work ->
+      {:ok, _files} =
+        Ryker.Artifacts.Outputs.put_many(work.turn.id, [
+          metadata,
+          %{
+            metadata
+            | "id" => "artifact:unselected",
+              "name" => "unselected.png",
+              "data" => data <> "unselected",
+              "bytes" => byte_size(data) + 10,
+              "sha256" => digest(data <> "unselected")
+          }
+        ])
+
+      binding = Map.put(work, :state_token, Records.token(work.turn))
+      assert {:ok, _report} = Ryker.BrowserTests.record(report, binding)
+    end
+
+    %{claim: work, turn: source} =
+      corrected_candidate!(claim, "browser-handoff", "one",
+        artifacts: [metadata["id"]],
+        before_stage: before_stage
+      )
+
+    assert source.delivery_document == nil
+    publish_task_publication!(work, "browser-handoff", "one", report: false)
+
+    %{claim: final_work, sha256: sha} =
+      staged_candidate!(work, "browser-handoff", "report", resume: true, publication: false)
+
+    {:ok, accepted} =
+      Custody.accept_result(
+        final_work.episode.id,
+        final_work.episode.key,
+        final_work.turn.turn_ref,
+        final_work.lease_ref,
+        sha,
+        1,
+        "validation:browser-final"
+      )
+
+    final = accepted.turn
+    assert final.delivery_document["outcome"]["artifact_refs"] == []
+
+    {:ok, adapters} =
+      Ryker.Delivery.Adapters.new(%{
+        "control_plane" => %{
+          binding: self(),
+          message_publisher: BrowserPublisher,
+          reaction_publisher: BrowserPublisher
+        }
+      })
+
+    assert {:ok, {:delivered, :message, _}} =
+             Ryker.Delivery.Dispatcher.run_once(
+               adapters: adapters,
+               kind: :message,
+               lease_seconds: 60,
+               worker_ref: "browser-result"
+             )
+
+    assert_receive {:browser_delivery, request}
+    assert request.document["message"] =~ "1 passed"
+    assert [image] = request.artifacts
+    assert image["data"] == data
+    assert Ryker.Artifacts.Shares.selected_refs(Repo.get!(Turn, source.id)) == [metadata["id"]]
+
+    rows = Repo.all(Ryker.ControlPlane.Conversation.Query.replies(ref, :all, 20))
+
+    messages =
+      Ryker.ControlPlane.ConversationTranscript.messages(
+        Enum.map(rows, &{&1.occurred_at, :reply, &1}),
+        conversation
+      )
+
+    reply = Enum.find(messages, &(&1.turn_id == final.id))
+    assert reply.text =~ "1 passed"
+    assert [%{path: path, ref: "artifact:menu"}] = reply.attachments
+    assert path =~ source.id
+    assert reply.generated_files == []
+
+    assert {:ok, %{data: ^data}} =
+             Ryker.ControlPlane.ConversationProjection.artifact(
+               conversation,
+               source.id,
+               metadata["id"]
+             )
+
+    assert Ryker.ControlPlane.ConversationProjection.artifact(
+             conversation,
+             source.id,
+             "artifact:unselected"
+           ) == :not_found
+
+    assert Ryker.ControlPlane.ConversationProjection.artifact(
+             Ecto.UUID.generate(),
+             source.id,
+             metadata["id"]
+           ) == :not_found
+
+    mixed = %{final | selected_input_refs: final.selected_input_refs ++ ["input:unrelated"]}
+    assert Ryker.Publication.Completion.report_sources([mixed]) == %{}
+
+    # A later task input cannot replace the frozen evidence relation.
+    admit_followup!(work, "newer-work")
+    assert Ryker.Artifacts.Shares.projections([final.id])[final.id].turn_id == source.id
+    Repo.update_all(Turn.Query.by_id(final.id), set: [operational_pruned_at: Repo.now!()])
+
+    assert Ryker.ControlPlane.ConversationProjection.artifact(
+             conversation,
+             source.id,
+             metadata["id"]
+           ) == :not_found
+
+    Repo.update_all(Turn.Query.by_id(final.id), set: [operational_pruned_at: nil])
+    Repo.update_all(Turn.Query.by_id(source.id), set: [operational_pruned_at: Repo.now!()])
+
+    assert Ryker.ControlPlane.ConversationProjection.artifact(
+             conversation,
+             source.id,
+             metadata["id"]
+           ) == :not_found
+
+    assert Ryker.Artifacts.Shares.projections([final.id])[final.id].refs == []
+  end
+
   test "a publication refusal explains the concrete policy blocker in its text" do
     %{review_request: request} =
       task_reviewed_publication!("concrete-blocker",
@@ -1362,6 +1650,27 @@ defmodule Ryker.Publication.CustodyTest do
     state = Ryker.Publication.ModelState.snapshot(work.episode.id, "ryker")
     assert state["latest_failure"] == %{"code" => code, "detail" => detail}
     assert state["published_revision"] == nil
+  end
+
+  test "an uncertain existing PR push cannot be retried or retargeted as if nothing happened" do
+    %{publication: publication} = PublicationFixture.approved!("uncertain-push")
+    {:ok, publishing} = PublicationCustody.claim_next("publication:uncertain-push", 60)
+
+    {:ok, failed} =
+      PublicationCustody.defer(
+        publication.ref,
+        publishing.lease_ref,
+        30,
+        "publication_push_outcome_unverified",
+        "The push may have completed."
+      )
+
+    assert PublicationCustody.claim_next("no-repeat-push", 60) == {:ok, nil}
+
+    for action <- [:retry, :update] do
+      assert PublicationCustody.recover(failed.ref, action, failed.recovery_generation) ==
+               {:error, :publication_requires_reconciliation}
+    end
   end
 
   test "a policy finding displays change-controlled filenames as literals" do
@@ -2147,9 +2456,12 @@ defmodule Ryker.Publication.CustodyTest do
   # One confirmed engineering task on its own episode: the task record settles
   # on the first turn, and the session carries the workspace task that makes
   # every later completed turn a candidate for this task's own publication.
-  defp task_episode!(suffix) do
+  defp task_episode!(suffix, options \\ []) do
     %{claim: claim, task: task} =
-      delivered_offer!(suffix, repository: "ryker", task_repository: "ryker")
+      delivered_offer!(
+        suffix,
+        Keyword.merge([repository: "ryker", task_repository: "ryker"], options)
+      )
 
     confirm_task!(task, claim, suffix, confirmed_repository: "ryker")
 
@@ -2239,11 +2551,17 @@ defmodule Ryker.Publication.CustodyTest do
                )
     end
 
+    if callback = options[:before_stage], do: callback.(work)
+
     final = %{
       "decision_reason" => nil,
       "delivery" => "reply",
       "message" => "The #{label} correction is committed.",
-      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      "outcome" => %{
+        "artifact_refs" => Keyword.get(options, :artifacts, []),
+        "record_refs" => [],
+        "state" => "complete"
+      }
     }
 
     candidate = Jason.encode!(final)
@@ -2473,6 +2791,10 @@ defmodule Ryker.Publication.CustodyTest do
     %{claim: claim, offer: offer, offer_receipt: receipt, task: task} =
       delivered_offer!(suffix, task_repository: Keyword.fetch!(options, :confirmed_repository))
 
+    if target = Keyword.get(options, :publication_target) do
+      claim.session |> Ecto.Changeset.change(publication_target: target) |> Repo.update!()
+    end
+
     confirm_task!(task, claim, suffix, options)
 
     assert {:ok, %{publication: publication}} =
@@ -2641,7 +2963,12 @@ defmodule Ryker.Publication.CustodyTest do
   end
 
   defp delivered_offer!(suffix, options \\ []) do
-    claim = claim_episode!(suffix, Keyword.get(options, :repository))
+    claim =
+      claim_episode!(
+        suffix,
+        Keyword.get(options, :repository),
+        Keyword.get(options, :destination)
+      )
 
     delivery_thread_ref =
       Keyword.get(options, :delivery_thread_ref, claim.episode.destination_thread_ref)
@@ -2731,7 +3058,7 @@ defmodule Ryker.Publication.CustodyTest do
       delivery_target: %{
         "conversation_ref" => claim.episode.destination_conversation_ref,
         "thread_ref" => delivery_thread_ref,
-        "transport" => "slack"
+        "transport" => claim.episode.destination_transport
       }
     )
     |> Repo.update!()
@@ -2739,7 +3066,7 @@ defmodule Ryker.Publication.CustodyTest do
     assert {:ok, offer_receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
-               "slack",
+               claim.episode.destination_transport,
                claim.episode.destination_conversation_ref,
                delivery_thread_ref,
                "message:offer:#{suffix}"
@@ -2776,18 +3103,20 @@ defmodule Ryker.Publication.CustodyTest do
     task
   end
 
-  defp claim_episode!(suffix, repository) do
+  defp claim_episode!(suffix, repository, destination) do
     id = Ecto.UUID.generate()
 
     assert {:ok, _transition} =
              Episodes.apply(
                EpisodeFixtures.admit_input(%{
-                 destination: %{
-                   conversation_ref:
-                     "slack:T#{suffix |> digest() |> String.slice(0, 12) |> String.upcase()}:C456",
-                   thread_ref: "thread:#{suffix}",
-                   transport: "slack"
-                 },
+                 destination:
+                   destination ||
+                     %{
+                       conversation_ref:
+                         "slack:T#{suffix |> digest() |> String.slice(0, 12) |> String.upcase()}:C456",
+                       thread_ref: "thread:#{suffix}",
+                       transport: "slack"
+                     },
                  episode_id: id,
                  episode_key: "publication:#{suffix}:#{id}",
                  native_input_id: "source:#{suffix}:#{id}",
@@ -2823,7 +3152,8 @@ defmodule Ryker.Publication.CustodyTest do
                claim.episode.id,
                claim.turn.turn_ref,
                claim.lease_ref,
-               submission
+               submission,
+               selected_input_refs: claim.episode.active_input_refs
              )
 
     assert {:ok, session} =

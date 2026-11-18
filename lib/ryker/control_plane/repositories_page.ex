@@ -603,6 +603,97 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         </:actions>
       </Kit.section_card>
       <Kit.section_card
+        :if={@repository[:github_bound]}
+        id="repository-issue-actions"
+        title="Issue actions"
+        lede="Offer Make a plan and Build this on new GitHub issues. Opening a link never starts work; a repository writer signs in and confirms."
+      >
+        <p :if={@repository[:github_issue_actions_ready] != true} role="status">
+          Quick action links are waiting for GitHub sign-in setup, even when enabled below.
+          <a href="/integrations/github#github-action-sign-in">Set up GitHub sign-in</a>
+          to let repository writers use them.
+        </p>
+        <form phx-submit="save-repository-issue-actions">
+          <input type="hidden" name="repository" value={@item.ref} />
+          <input type="hidden" name="revision" value={@repository[:settings_revision]} />
+          <input type="hidden" name="enabled" value="false" />
+          <label class="github-finding-choice">
+            <input
+              type="checkbox"
+              name="enabled"
+              value="true"
+              checked={@repository[:github_issue_actions] == true}
+            /> Show quick actions on new issues
+          </label>
+          <p>
+            <button type="submit" class="ui-button" phx-disable-with="Saving…">Save issue actions</button>
+          </p>
+        </form>
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@repository[:github_bound]}
+        id="repository-issue-triage"
+        title="Issue triage"
+        lede="Read new issues, relevant code and related reports. Ask for missing details or prepare a plan for review. Triage never starts code changes."
+      >
+        <form phx-submit="save-repository-issue-triage">
+          <input type="hidden" name="repository" value={@item.ref} />
+          <input type="hidden" name="revision" value={@repository[:settings_revision]} />
+          <input type="hidden" name="enabled" value="false" />
+          <label class="github-finding-choice">
+            <input
+              type="checkbox"
+              name="enabled"
+              value="true"
+              checked={@repository[:github_issue_triage] == true}
+            /> Triage new issues
+          </label>
+          <input type="hidden" name="labels" value="false" />
+          <label class="github-finding-choice">
+            <input
+              type="checkbox"
+              name="labels"
+              value="true"
+              checked={@repository[:github_triage_labels] == true}
+            /> Automatically apply labels
+          </label>
+          <p>
+            Only existing labels are added. Human labels stay in place and issues are never closed automatically. Older issues are indexed quietly; use Triage this issue to review one.
+          </p>
+          <p>
+            <button type="submit" class="ui-button" phx-disable-with="Saving…">Save issue triage</button>
+          </p>
+        </form>
+      </Kit.section_card>
+      <Kit.section_card
+        :if={@repository[:github_bound]}
+        id="repository-ci-repair"
+        title="Auto-fix CI"
+        lede="Read failed checks and fix reproducible PR bugs on the same branch. At most two repair rounds until CI passes; Ryker never merges the PR."
+      >
+        <form phx-submit="save-repository-ci-repair">
+          <input type="hidden" name="repository" value={@item.ref} />
+          <input type="hidden" name="revision" value={@repository[:settings_revision]} />
+          <label for="repository-ci-repair-policy">Automatically repair</label>
+          <select id="repository-ci-repair-policy" name="policy">
+            <option value="off" selected={@repository[:github_ci_repair] == :off}>Off</option>
+            <option value="own" selected={@repository[:github_ci_repair] == :own}>
+              Ryker's PRs only
+            </option>
+            <option value="all" selected={@repository[:github_ci_repair] == :all}>
+              All PRs in this repository
+            </option>
+          </select>
+          <p>
+            Add the label <code>ryker:no-ci-fix</code>
+            to a PR to stop automatic repairs, including work already running. Removing it checks the latest CI once. Fork PRs are excluded. Explicit requests to fix CI remain available.
+          </p>
+          <p>
+            <button type="submit" class="ui-button" phx-disable-with="Saving…">Save CI policy</button>
+          </p>
+        </form>
+      </Kit.section_card>
+      <Kit.section_card
         id="repository-knowledge"
         title="Knowledge"
         lede="What Ryker knows about this repository, how a model wrote it, and where it is used. Every task here starts from it, and nothing is written to the repository."

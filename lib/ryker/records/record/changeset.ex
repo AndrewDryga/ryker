@@ -35,10 +35,11 @@ defmodule Ryker.Records.Record.Changeset do
     :turn_id
   ]
 
-  @spec insert(map()) :: Ecto.Changeset.t()
-  def insert(attributes) do
+  @spec insert(map(), DateTime.t()) :: Ecto.Changeset.t()
+  def insert(attributes, %DateTime{} = now) do
     %Record{}
     |> cast(attributes, @fields)
+    |> change(inserted_at: now, updated_at: now)
     |> validate_required(@insert_required)
     |> validate()
   end

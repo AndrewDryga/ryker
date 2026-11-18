@@ -16,6 +16,24 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
     def request(response, :get, _path, nil, _headers), do: response
   end
 
+  test "a reused login cannot inherit a frozen requester's publication authority" do
+    for id <- [nil, 8] do
+      response = {:ok, %{status: 200, body: %{"permission" => "write", "user" => %{"id" => id}}}}
+
+      assert RepositoryAccess.authorize(binding!(), payload("writer"), response,
+               requester: ResponseRequester,
+               expected_actor_id: 7
+             ) == {:error, :actor_not_authorized}
+    end
+
+    response = {:ok, %{status: 200, body: %{"permission" => "write", "user" => %{"id" => 7}}}}
+
+    assert RepositoryAccess.authorize(binding!(), payload("writer"), response,
+             requester: ResponseRequester,
+             expected_actor_id: 7
+           ) == :ok
+  end
+
   # Offers in production named a configured actor without saying who that
   # was; using legacy "write" also admitted writers below the requested role.
   test "any current maintainer or admin can confirm without actor registration" do

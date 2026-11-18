@@ -36,6 +36,7 @@ defmodule Ryker.Work.Session do
     field(:repository_ref, :string)
     field(:repository_context, Ryker.CanonicalJSON.Type)
     field(:repository_source, Ryker.CanonicalJSON.Type)
+    field(:publication_target, Ryker.CanonicalJSON.Type)
     # The environment the work ran in. History outlives the settings row, so
     # this is a recorded ref, never a foreign key.
     field(:environment_ref, :string)

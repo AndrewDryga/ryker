@@ -2,6 +2,7 @@ defmodule Ryker.Records.TaskInstruction do
   @moduledoc "The current source instruction behind an automatic task start."
   alias Ryker.Behaviors
   alias Ryker.Episodes
+  alias Ryker.GitHub
   alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Records.IncidentInstruction
@@ -12,13 +13,14 @@ defmodule Ryker.Records.TaskInstruction do
 
   @doc "Resolve a frozen current input to its authenticated ingress and task grant."
   def fetch(binding, reference, assignment_ref, repository) do
-    context = (binding.turn.submission || %{})["context"] || %{}
+    with {:ok, {entry, event}} <- fetch_source(binding, reference) do
+      authority(binding, entry, event, assignment_ref, repository)
+    end
+  end
 
-    inputs =
-      case context["mode"] do
-        "continuation" -> get_in(context, ["current_inputs", "items"]) || []
-        _ -> Enum.filter(get_in(context, ["inputs", "items"]) || [], & &1["current"])
-      end
+  @doc "Resolve a current frozen input without granting repository writes."
+  def fetch_source(binding, reference) do
+    inputs = current_inputs(binding)
 
     with true <- binding.episode.execution_mode == :live,
          {:ok, ^reference} <- Ecto.UUID.cast(reference),
@@ -28,9 +30,19 @@ defmodule Ryker.Records.TaskInstruction do
          true <- event.episode_id == binding.episode.id,
          true <- event.dedupe_key in binding.episode.active_input_refs,
          {:ok, source} <- source(binding, event) do
-      authority(binding, source, event, assignment_ref, repository)
+      {:ok, {source, event}}
     else
       _ -> {:error, :task_instruction_not_authorized}
+    end
+  end
+
+  @doc "The frozen inputs that can authorize this turn, excluding historical context."
+  def current_inputs(binding) do
+    context = (binding.turn.submission || %{})["context"] || %{}
+
+    case context["mode"] do
+      "continuation" -> get_in(context, ["current_inputs", "items"]) || []
+      _ -> Enum.filter(get_in(context, ["inputs", "items"]) || [], & &1["current"])
     end
   end
 
@@ -78,6 +90,27 @@ defmodule Ryker.Records.TaskInstruction do
     do: first == second
 
   def same_source?(_first, _second), do: false
+
+  defp authority(
+         _binding,
+         %Ingress.Inbox.Entry{content: %{"event_name" => "ryker_ci_repair"}} = entry,
+         _event,
+         _assignment,
+         repository
+       ),
+       do: GitHub.CIRepairAuthority.instruction(entry, repository)
+
+  defp authority(
+         _binding,
+         %Ingress.Inbox.Entry{
+           content: %{"event_name" => "ryker_action", "payload" => %{"action" => kind}}
+         },
+         _event,
+         _assignment,
+         _repository
+       )
+       when kind in ["make_plan", "triage_issue"],
+       do: {:error, :planning_is_read_only}
 
   defp authority(_binding, entry, event, nil, _repository) do
     if Slack.TaskAccess.proactive?(entry),

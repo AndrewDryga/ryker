@@ -6,7 +6,15 @@ defmodule Ryker.Credential do
 
   schema "integration_credentials" do
     field(:kind, Ecto.Enum,
-      values: [:slack_app, :slack_bot, :github_private_key, :github_webhook, :emisar, :webhook]
+      values: [
+        :slack_app,
+        :slack_bot,
+        :github_private_key,
+        :github_webhook,
+        :github_oauth_secret,
+        :emisar,
+        :webhook
+      ]
     )
 
     field(:name, :string)

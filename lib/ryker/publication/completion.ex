@@ -22,22 +22,67 @@ defmodule Ryker.Publication.Completion do
       |> Episodes.Event.Query.select_payloads()
       |> Repo.all()
 
-    case payloads do
-      [
-        %{
-          "payload" => %{
-            "actor" => %{"kind" => "system", "ref" => @source},
-            "source" => %{"kind" => "system", "ref" => @source},
-            "content" => %{"kind" => "publication_result", "candidate_turn_id" => id}
-          }
-        }
-      ] ->
-        same_episode_turn(id, turn.episode_id)
-
-      _ ->
-        nil
-    end
+    same_episode_turn(candidate_id(payloads), turn.episode_id)
   end
+
+  @doc "Frozen publication sources for a bounded set of historical turns; never uses current inputs."
+  def report_sources(turns) do
+    inputs = Enum.flat_map(turns, &(&1.selected_input_refs || []))
+    episodes = Enum.map(turns, & &1.episode_id) |> Enum.uniq()
+
+    admissions =
+      episodes
+      |> Episodes.Event.Query.by_episode_ids()
+      |> Episodes.Event.Query.admitted_inputs(inputs)
+      |> Episodes.Event.Query.select_admissions()
+      |> Repo.all()
+      |> Map.new(fn {episode, ref, payload} -> {{episode, ref}, payload} end)
+
+    pairs =
+      Enum.flat_map(turns, fn turn ->
+        payloads =
+          Enum.map(turn.selected_input_refs || [], &Map.get(admissions, {turn.episode_id, &1}))
+
+        case Ecto.UUID.cast(candidate_id(payloads)) do
+          {:ok, id} -> [{turn.id, turn.episode_id, id}]
+          :error -> []
+        end
+      end)
+
+    sources =
+      pairs
+      |> Enum.map(&elem(&1, 2))
+      |> Work.Turn.Query.by_ids()
+      |> Work.Turn.Query.select_artifact_evidence()
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    Map.new(
+      Enum.flat_map(pairs, fn {reply, episode, id} ->
+        case sources[id] do
+          %Work.Turn{episode_id: ^episode, accepted_at: %DateTime{}, operational_pruned_at: nil} =
+              source ->
+            [{reply, source}]
+
+          _missing ->
+            []
+        end
+      end)
+    )
+  end
+
+  defp candidate_id([
+         %{
+           "payload" => %{
+             "actor" => %{"kind" => "system", "ref" => @source},
+             "source" => %{"kind" => "system", "ref" => @source},
+             "content" => %{"kind" => "publication_result", "candidate_turn_id" => id}
+           }
+         }
+       ]),
+       do: id
+
+  defp candidate_id(_payloads), do: nil
 
   defp report_input_refs(%Work.Turn{selected_input_refs: refs}) when is_list(refs) and refs != [],
     do: refs
@@ -226,7 +271,10 @@ defmodule Ryker.Publication.Completion do
       "discarded_reason" =>
         publication.discarded_reason && Atom.to_string(publication.discarded_reason),
       "published_revision" =>
-        Map.take(publication.publication_receipt || %{}, ~w(commit_sha pull_request_url)),
+        Map.take(
+          publication.publication_receipt || %{},
+          ~w(commit_sha pull_request_url target_observation)
+        ),
       "error_code" => publication.last_error_code,
       "request" =>
         "Continue the original request using this publication outcome. Read get_work_state for the saved review and receipt, then explain the actual result in your own words. Do not change files merely to report the outcome."

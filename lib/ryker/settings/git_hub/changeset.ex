@@ -4,7 +4,7 @@ defmodule Ryker.Settings.GitHub.Changeset do
   use Ryker, :changeset
   alias Ryker.Settings.GitHub
 
-  @fields ~w(enabled app_id app_slug api_url auto_add_repositories bot_actor_id bot_login)a
+  @fields ~w(enabled app_id app_slug oauth_client_id api_url auto_add_repositories bot_actor_id bot_login)a
 
   @impl true
   def fields, do: @fields
@@ -17,6 +17,7 @@ defmodule Ryker.Settings.GitHub.Changeset do
       |> validate_required([:enabled])
       |> validate_number(:app_id, greater_than: 0)
       |> validate_length(:app_slug, min: 1, max: 256, count: :codepoints)
+      |> validate_length(:oauth_client_id, min: 1, max: 256, count: :codepoints)
       |> validate_number(:bot_actor_id, greater_than: 0)
       |> validate_length(:bot_login, min: 1, max: 256, count: :codepoints)
       |> validate_url(:api_url)

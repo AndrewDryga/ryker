@@ -26,7 +26,7 @@ defmodule Ryker.Publication.Custody do
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
   @checkpointed_candidate ~w(repository_ref base_revision committed_revision candidate_tree_sha256)
-  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch publication_authorization_revoked)
+  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch publication_authorization_revoked publication_push_outcome_unverified)
   @request_fields [:actor_ref, :occurred_at, :record_ref, :request_ref, :target]
   @approval_fields [:actor_ref, :approval_ref, :occurred_at, :publication_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -447,8 +447,12 @@ defmodule Ryker.Publication.Custody do
 
   def delivery_request(_publication), do: {:error, :publication_delivery_not_pending}
 
-  defp review_delivery_message(_publication, true) do
-    "The committed change passed the trusted review. I'm opening the draft pull request for it now; merging and deploying stay with you."
+  defp review_delivery_message(publication, true) do
+    if existing_pull_request?(publication) do
+      "The selected fixes passed the repository's checks. I'm updating the existing pull request."
+    else
+      "The committed change passed the trusted review. I'm opening the draft pull request for it now; merging and deploying stay with you."
+    end
   end
 
   defp review_delivery_message(publication, false) do
@@ -781,6 +785,14 @@ defmodule Ryker.Publication.Custody do
     do: {:error, :publication_recovery_lease_active}
 
   defp recovery_attributes(
+         %Publication{last_error_code: "publication_push_outcome_unverified"},
+         action,
+         _now
+       )
+       when action in [:retry, :update],
+       do: {:error, :publication_requires_reconciliation}
+
+  defp recovery_attributes(
          %Publication{status: status, last_error_code: code, recovery_generation: generation},
          :retry,
          now
@@ -1070,8 +1082,14 @@ defmodule Ryker.Publication.Custody do
   defp store_publication_locked(publication_ref, lease_ref, receipt) do
     with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :publish_pending),
+         {:ok, session} <- Repo.fetch(Work.Session.Query.by_id(publication.session_id)),
          {:ok, receipt} <-
-           Receipt.prepare(receipt, publication.review_document, publication.repository) do
+           Receipt.prepare(
+             receipt,
+             publication.review_document,
+             publication.repository,
+             session.publication_target
+           ) do
       persist_publication(publication, receipt, now)
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -1470,13 +1488,20 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp unverified_draft(publication, delivered, now) do
-    case draft_grant(publication) do
-      actor_ref when is_binary(actor_ref) ->
+    case {draft_grant(publication), existing_pull_request?(publication)} do
+      {actor_ref, false} when is_binary(actor_ref) ->
         Map.merge(delivered, host_draft_approval(publication, actor_ref, now))
 
-      nil ->
+      _unverified ->
         Map.put(delivered, :status, :blocked)
     end
+  end
+
+  defp existing_pull_request?(publication) do
+    match?(
+      %Work.Session{publication_target: %{}},
+      Repo.peek(Work.Session.Query.by_id(publication.session_id))
+    )
   end
 
   defp host_draft_approval(publication, actor_ref, now) do

@@ -8,7 +8,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   alias Ryker.{Repo, Settings}
   alias Ryker.Work
 
-  @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source environment_ref workspace_task)a
+  @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source publication_target environment_ref workspace_task)a
 
   def ensure_pinned(
         session,

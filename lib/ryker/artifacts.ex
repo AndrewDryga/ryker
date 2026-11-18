@@ -14,6 +14,9 @@ defmodule Ryker.Artifacts do
   alias Ryker.Maps
   alias Ryker.Repo
 
+  @doc "Read a retained result using fresh GitHub repository Read authorization."
+  defdelegate shared_results(turn_id, token, options), to: Ryker.Artifacts.Shares, as: :view
+
   @maximum_bytes 8 * 1_024 * 1_024
   # What Coop's input-artifact contract carries to a model.
   @model_media_types ~w(

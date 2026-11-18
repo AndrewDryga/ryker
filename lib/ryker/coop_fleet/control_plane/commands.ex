@@ -98,6 +98,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       :repository_ref,
       :repository_context,
       :repository_source,
+      :publication_target,
       :environment_ref,
       :workspace_task
     ])

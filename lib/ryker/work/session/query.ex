@@ -219,6 +219,14 @@ defmodule Ryker.Work.Session.Query do
   def by_coop_session_id(queryable, coop_session_id),
     do: where(queryable, [episode_work_sessions: s], s.coop_session_id == ^coop_session_id)
 
+  def select_artifact_source(queryable) do
+    select(
+      queryable,
+      [episode_work_sessions: s],
+      {s.id, fragment("?::jsonb -> 'source'", s.worker_job_document)}
+    )
+  end
+
   def by_ids(queryable \\ all(), ids),
     do: where(queryable, [episode_work_sessions: s], s.id in ^ids)
 

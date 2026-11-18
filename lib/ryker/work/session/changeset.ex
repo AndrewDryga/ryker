@@ -3,7 +3,7 @@ defmodule Ryker.Work.Session.Changeset do
   use Ryker, :changeset
   alias Ryker.CoopFleet
   alias Ryker.Crypto
-  alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
+  alias Ryker.Work.{PublicationTarget, RepositoryContext, RepositorySource, Session}
 
   @admission_fields [
     :cleanup_status,
@@ -30,6 +30,7 @@ defmodule Ryker.Work.Session.Changeset do
     :repository_ref,
     :repository_context,
     :repository_source,
+    :publication_target,
     :environment_ref,
     :emisar_connection_ref,
     :emisar_account_ref,
@@ -80,6 +81,7 @@ defmodule Ryker.Work.Session.Changeset do
     |> validate_format(:environment_ref, ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/)
     |> RepositoryContext.validate()
     |> validate_repository_source()
+    |> validate_publication_target()
     |> validate_emisar_pin()
     |> validate_workspace_task()
     |> unique_constraint([:episode_id, :generation])
@@ -88,6 +90,7 @@ defmodule Ryker.Work.Session.Changeset do
     |> check_constraint(:repository_ref, name: :episode_work_session_repository_valid)
     |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
     |> check_constraint(:repository_source, name: :episode_work_session_repository_source_valid)
+    |> check_constraint(:publication_target, name: :episode_work_session_publication_target_valid)
     |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
     |> check_constraint(:environment_ref, name: :episode_work_session_environment_valid)
     |> check_constraint(:worker_job_document, name: :episode_work_session_worker_job_valid)
@@ -370,6 +373,32 @@ defmodule Ryker.Work.Session.Changeset do
       end
     end)
   end
+
+  defp validate_publication_target(changeset) do
+    validate_change(changeset, :publication_target, fn :publication_target, value ->
+      case PublicationTarget.parse(value) do
+        {:ok, target} ->
+          publication_target_source(
+            target,
+            get_field(changeset, :repository_ref),
+            get_field(changeset, :repository_source)
+          )
+
+        {:error, _reason} ->
+          [publication_target: "is not an authorized pull request target"]
+      end
+    end)
+  end
+
+  defp publication_target_source(
+         %{"repository_ref" => repository, "head_commit" => head},
+         repository,
+         %{"kind" => "commit", "sha" => head}
+       ),
+       do: []
+
+  defp publication_target_source(_target, _repository, _source),
+    do: [publication_target: "must match the authorized repository and source"]
 
   defp validate_repository_source(changeset) do
     validate_change(changeset, :repository_source, fn :repository_source, value ->

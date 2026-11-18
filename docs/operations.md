@@ -100,6 +100,143 @@ requires Maintain or Admin access. Mentions, review-label requests, and confirma
 commands that lack the required access receive a reply in the same discussion,
 as do confirmation outcomes.
 
+A review with inline findings includes **Fix all findings** and **Fix selected (👍)**.
+Both open a small Ryker page. Sign in with GitHub, then check the findings to fix.
+The selected view starts with your own thumbs-ups. The final button names the PR
+and selection count; opening or previewing the link starts no work. Your GitHub
+sign-in grants repository actions only, with no operator-console access.
+
+To enable these controls, open **Settings › Integrations › GitHub**, enter the
+connected App's OAuth client ID and client secret, and register the displayed
+callback URL in that GitHub App's settings. The callback must use this install's
+public URL. Ryker verifies that the client ID belongs to the connected App.
+Each repository also needs a ready work profile and a Coop worker advertising
+`existing-pr-publication:1`.
+
+Ryker freezes the selected comments and current PR commit, checks your write access
+again before pushing, and updates that same PR only after its checks pass. This
+works for a collaborator's PR within the connected repository; fork PRs are not
+eligible. New commits or edited findings require a fresh selection. Repeated clicks
+reuse the saved request. Ryker resolves only selected findings it reports fixed and
+checked; unfinished findings stay open. It never merges or approves the PR.
+An uncertain push stops for reconciliation instead of blindly trying again.
+
+### From an issue to a pull request
+
+Ask Ryker for issue controls, or enable **Issue actions** on the repository page
+to add them automatically to new and reopened issues. **Make a plan** and
+**Build this** open a GitHub sign-in page; viewing a link never starts work.
+Repository writers can start either action. These controls use the same App
+OAuth setup described above.
+
+**Make a plan** inspects the issue and repository without authorizing code
+changes. Ryker saves the plan and the commit it inspected. For example, an issue
+about empty CSV files might produce steps to handle the empty input and add a
+regression test. **Edit plan** opens its saved text. Saving an edit creates a new
+version; **Implement plan · version 2** starts exactly that version. Unsaved edits
+must be saved first. The page retains older versions, and a newer edit cannot
+change work already approved. A changed issue requires a fresh plan or explicit
+edit before implementation.
+
+**Build this** starts directly from the issue text reviewed on the page. One
+comment tracks the saved plan, work status and resulting PR link. Repeated clicks,
+including clicks by different collaborators, reuse the accepted request. Starting
+another action while work is running is refused. Ordinary engineering offers also
+provide **Review and start task**, which displays their exact brief before approval.
+Neither flow merges a pull request.
+
+Saved plan versions, approved request snapshots and triage evidence remain as issue history
+after ordinary Work logs expire. CI repair attempts also remain, so cleanup cannot reset a
+spent repair budget. The issue search index keeps its current document and triage fingerprint
+per issue; fresh reads replace that document or remove an unavailable issue.
+
+### Issue triage
+
+Enable **Triage new issues** on a repository to read new, reopened and edited reports,
+inspect relevant code and post a concise result. It starts off. An outside contributor's
+report can be triaged, but its text cannot authorize code changes. Repository writers can
+also choose **Triage this issue** from the issue action page for an older report.
+
+For example, “CSV export crashes when no rows match” can get an explanation, inspected
+related reports and a plan to handle empty results. “Export is broken” should get one
+focused question about the missing details. A saved plan uses the same **Edit plan** and
+**Implement plan** controls; triage itself never starts a build or closes an issue.
+Repeated deliveries or clicks for the same title/body revision reuse the request.
+
+**Automatically apply labels** is separate. Without it, labels are suggestions. With it,
+Ryker adds only labels that already exist in that repository and keeps human labels.
+A failed write is reported with the result, so a missing App permission does not discard
+the finding. GitHub sign-in enables the clickable controls; triage comments can still be
+posted without it.
+
+The local issue index quietly backfills at most five pages of twenty GitHub issue/PR
+entries, excludes PRs, and reads up to twenty comments per issue (2,000 bytes per comment).
+New comments and edits refresh the cache. Search uses the existing embedding service when
+available and keyword matching otherwise; GitHub keyword search complements it. Coverage
+is bounded, so an empty search never proves there are no duplicates. Before citing a related
+report, the triage request must inspect it; the saved result points to frozen read evidence.
+A later edit cannot rewrite that evidence or a saved plan. Turning triage off prevents new
+automatic requests and prevents a running automatic request from saving a new result or
+applying labels. Manual triage remains available.
+
+Plan edits are kept in the same browser tab for up to a day, including across GitHub sign-in
+expiry and **Refresh status**. If someone saves a newer plan, the current version stays visible;
+choose whether to recover or discard the older draft before editing. A direct **Build this**
+request that is too long offers **Make a plan** instead, preserving the full issue for planning.
+
+### Browser results and screenshots
+
+Ask for the behavior to check, for example: “Fix the mobile menu, check opening and closing it
+on desktop and mobile, and show before/after screenshots.” Ryker uses the repository's setup
+and browser tests in its Coop task environment. The supported worker bundles Playwright and
+Chromium's system libraries; Chromium downloads on first use within that task's existing network
+grants. A missing browser, failed app startup or unreachable page is reported as blocked.
+Browser testing does not use the operator's browser, saved login cookies or production credentials.
+
+A browser report separates passed, failed, blocked and untested checks. It records steps,
+expected and observed behavior, viewport, observation time, and the commit/tree reported by
+the task. The page also shows Ryker's pinned starting commit. These are task-reported checks;
+verified screenshot bytes alone do not attest that the behavior passed. Each screenshot's digest
+is frozen with its observation, so a file changed later cannot replace that observation's image.
+
+Slack and Chat show retained images. GitHub replies link to **View retained results and
+screenshots**, using the App OAuth setup above. Anyone viewing the page or an image must have
+current Read access to that exact repository; this does not grant permission to start work.
+The worker can stop before a reviewer opens the link. Up to five PNG/JPEG/WebP/GIF images,
+8 MiB combined, are retained per turn. Images expire when the turn's operational data is
+pruned under Settings → Retention; the page states when an image is unavailable. No public
+image upload or ephemeral worker path is used.
+The text report stays with its Work turn until the audit horizon removes that turn.
+When a task waits for publication before replying, its final reply keeps the original browser
+report and selected screenshots. Their URLs still name the producing turn. A GitHub report
+link can show accepted results while publication is pending; it remains available while that
+source is retained and the viewer still has repository access. Chat only exposes a hidden
+source's selected images through a retained publication reply in that conversation.
+
+### Automatic CI repair
+
+Set **Auto-fix CI** on each repository to **Off**, **Ryker PRs only**, or **All same-repository PRs**.
+New repositories default to Off. Existing repositories retain automatic repair of Ryker's own PRs.
+For example, with all PRs enabled, a failing test on a teammate's PR starts a focused repair on
+that PR's exact commit. Ryker reads the failure, compares against the base branch, tests the fix,
+and pushes to the same PR. Fork PRs are excluded. Base-branch failures, infrastructure errors,
+missing credentials and failures it cannot reproduce require a report instead of a speculative fix.
+
+If a push succeeds but the PR changes or cannot be verified afterward, the result keeps that
+warning and no further automatic round starts for that failure episode. Review the publication
+report before requesting more work.
+
+Add the GitHub label `ryker:no-ci-fix` to stop automatic repair on one PR. Create that label in
+GitHub first if it does not exist. Removing it checks the current CI again. Explicit requests still
+work. Turning the repository setting Off also revokes outstanding automatic push authority.
+The label and current PR commit are checked again immediately before every push; stopped work
+is retained. A human push makes the earlier repair stop before another can start.
+
+One status comment tracks a repair. Duplicate webhooks and restarts reuse its saved request.
+Two repair rounds are allowed per consecutive failure episode, including checks failing after
+Ryker's own fix. Passing CI resets that budget. Publishing a fix does not mean CI has passed,
+and no repair merges the PR. Missing GitHub access or an incomplete label read starts no repair.
+
 Ryker creates two standard labels in connected repositories where the App can review:
 
 - `ryker:review`: add it to an open PR to request a review. Ryker acknowledges the

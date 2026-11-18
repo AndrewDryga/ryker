@@ -852,7 +852,9 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     # name again.
     names =
       FixedTools.names() ++
-        ["record_emisar_approval"] ++ Enum.map(CapabilityTools.list(), & &1["name"])
+        ["record_emisar_approval"] ++
+        Enum.map(CapabilityTools.list(), & &1["name"]) ++
+        Enum.map(Ryker.GitHub.CapabilityTools.list(%{bindings: %{}}), & &1["name"])
 
     described =
       %{"controller_tools" => names}

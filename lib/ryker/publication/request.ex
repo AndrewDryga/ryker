@@ -88,7 +88,28 @@ defmodule Ryker.Publication.Request do
     }
   end
 
-  def worker_body(%__MODULE__{} = request, repositories) do
+  def worker_body(request, repositories, target \\ nil)
+
+  def worker_body(%__MODULE__{} = request, repositories, %{} = target) do
+    with {:ok, ^target} <- Ryker.Work.PublicationTarget.parse(target),
+         true <- target["repository_ref"] == request.repository,
+         true <- request.review["parent_head"] == target["head_commit"],
+         true <- request.review["gate"] == "passed" and request.review["publishable"] == true,
+         {:ok, body} <- worker_body(request, repositories, nil) do
+      {:ok,
+       Map.merge(body, %{
+         "mode" => "existing_pull_request",
+         "branch" => String.replace_prefix(target["head_ref"], "refs/heads/", ""),
+         "base_branch" => String.replace_prefix(target["base_ref"], "refs/heads/", ""),
+         "expected_head" => target["head_commit"],
+         "pull_request_number" => target["number"]
+       })}
+    else
+      _invalid -> {:error, :invalid_publication_target}
+    end
+  end
+
+  def worker_body(%__MODULE__{} = request, repositories, nil) do
     case repositories[request.repository] do
       %{base_branch: base, branch_prefix: prefix} ->
         existing = request.existing_pull_request || request.review["pull_request"]

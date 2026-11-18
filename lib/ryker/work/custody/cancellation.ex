@@ -294,7 +294,7 @@ defmodule Ryker.Work.Custody.Cancellation do
           )
 
         {:error, :work_turn_not_found} ->
-          settle_local_cancellation(episode, intent)
+          settle_local_cancellation(episode, turn_ref, intent, fingerprint)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -651,11 +651,44 @@ defmodule Ryker.Work.Custody.Cancellation do
   defp conflicting_cancellation?(turn, fingerprint),
     do: turn.cancellation_intent != nil and turn.cancellation_intent_fingerprint != fingerprint
 
-  defp settle_local_cancellation(episode, intent) do
+  defp settle_local_cancellation(episode, turn_ref, %{"action" => "block"} = intent, fingerprint) do
+    if episode.state != :working or episode.owner_kind != :turn or episode.owner_ref != turn_ref,
+      do: Repo.rollback(:work_episode_owner_lost)
+
+    block_unsubmitted_turn(episode, intent, fingerprint, cancellation_error_code(intent))
+  end
+
+  defp settle_local_cancellation(episode, _turn_ref, intent, _fingerprint) do
     command = WorkCancellation.command(intent, episode, Repo.now!())
 
     case Episodes.apply_batch_in_transaction([command]) do
       {:ok, [transition]} -> %{episode: transition.episode, status: :settled, turn: nil}
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  @doc false
+  def block_unsubmitted_turn(episode, intent, fingerprint, code) do
+    with {:ok, session} <- Sessions.current_session(episode),
+         {:ok, turn} <- Sessions.insert_turn(episode, session),
+         {:ok, turn} <-
+           persist_update(
+             Turn.Changeset.prepare_cancellation(turn, intent, fingerprint, nil),
+             :work_local_stop
+           ),
+         blocked =
+           Turn.Changeset.block(turn, %{
+             last_error_code: code,
+             last_error_detail: intent["reason"],
+             lease_expires_at: nil,
+             lease_owner: nil,
+             lease_ref: nil,
+             next_attempt_at: nil,
+             status: :blocked
+           }),
+         {:ok, turn} <- persist_update(blocked, :work_local_stop) do
+      %{episode: episode, status: :settled, turn: turn}
+    else
       {:error, reason} -> Repo.rollback(reason)
     end
   end

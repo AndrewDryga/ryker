@@ -1183,6 +1183,7 @@
 .ryker-app .filter-add { border-style:solid; font-size:14px; line-height:20px; }
 
 .ryker-app .ui-button:is(:disabled, .is-disabled),
+.sign-in-card .ui-button:disabled,
 .ryker-app .ui-button.is-disabled:is(:hover, :focus-visible) {
   opacity:1;
   cursor:not-allowed;
@@ -1817,6 +1818,18 @@
 .sign-in-card code { font:13px/1.4 var(--ryker-font-mono); color:var(--ryker-text); }
 .sign-in-card form { margin:16px 0 0; }
 .sign-in-card .sign-in-note { margin-top:18px; padding-top:14px; border-top:1px solid var(--ryker-stroke); font-size:13px; }
+.sign-in-card:has(.github-action) { max-width:680px; }
+.github-action { min-width:0; }
+.github-action fieldset { min-width:0; margin:16px 0; padding:0; border:0; }
+.github-action legend { margin-bottom:8px; font-weight:600; }
+.github-finding { padding:12px 0; border-top:1px solid var(--ryker-stroke); overflow-wrap:anywhere; }
+.github-finding-choice { display:flex; align-items:center; gap:12px; min-height:44px; cursor:pointer; }
+.github-finding-choice input { flex:none; width:20px; height:20px; accent-color:var(--ryker-mint); }
+.github-finding-choice span { min-width:0; font-family:var(--ryker-font-mono); }
+.github-finding-body { white-space:pre-wrap; overflow-wrap:anywhere; }
+.github-action a { text-decoration:underline; text-underline-offset:3px; }
+.github-action button { min-height:44px; white-space:normal; }
+.github-action-error { padding:12px; border:1px solid currentColor; border-radius:4px; }
 
 /* A secondary page header keeps its action over the content column, not the far edge. */
 .secondary-page > .page-header { max-width:1040px; }
@@ -2299,6 +2312,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .github-app-card .copy-block + .settings-lede { margin-top:8px; }
 .github-app-card .settings-disclosure + .settings-lede { margin-top:12px; }
 .ryker-app .github-app-card .github-credentials-lede { max-width:none; margin:24px 0 16px; padding-top:20px; border-top:1px solid var(--ryker-stroke); }
+.github-app-card > .settings-group { margin-top:24px; padding-top:20px; border-top:1px solid var(--ryker-stroke); }
 .settings-disclosure > summary { width:fit-content; font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); cursor:pointer; }
 .settings-disclosure[open] > summary { margin-bottom:12px; }
 .settings-disclosure > p { margin:0 0 8px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
@@ -3080,3 +3094,33 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
   :is(.rules-view, .schedules-view, .follow-ups-view) .entity-icon { width:32px; height:32px; margin-right:12px; }
   :is(.rules-view, .schedules-view, .follow-ups-view) .entity-meta time { white-space:normal; }
 }
+
+.github-action-page { overflow-wrap:anywhere; }
+.github-action-page pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; }
+.github-action-page textarea { display:block; box-sizing:border-box; width:100%; max-width:100%; padding:12px; margin:8px 0; resize:vertical; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-control-text); font:14px/1.6 var(--ryker-font-sans); }
+.github-action-page textarea:focus-visible { outline:2px solid var(--ryker-mint); outline-offset:2px; }
+.github-action-page details { margin-top:16px; padding-top:12px; border-top:1px solid var(--ryker-stroke); }
+.github-action-page summary { min-height:44px; cursor:pointer; }
+
+.github-plan-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.github-action-page .ui-button.secondary { background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke-strong); color:var(--ryker-text); }
+
+/* Retained task evidence shares the repository action page's native controls. */
+.browser-results { max-width: 64rem; }
+.browser-report { margin-block: 2rem; }
+.browser-case { border: 1px solid var(--ryker-stroke); border-radius: 0.75rem; padding: 1rem; margin-block: 1rem; }
+.browser-case-heading { display: flex; gap: 1rem; align-items: baseline; justify-content: space-between; }
+.browser-case-heading h3 { margin: 0; }
+.browser-result-status { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.browser-result-status[data-status="passed"] { color: var(--ryker-accent); }
+.browser-result-status[data-status="failed"] { color: var(--ryker-error); }
+.browser-results dd { margin: 0.25rem 0 1rem; overflow-wrap: anywhere; }
+.browser-results dt { font-weight: 600; }
+.browser-image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.browser-image-grid figure { margin: 0; }
+.browser-image-grid img { display: block; width: 100%; border-radius: 0.5rem; }
+.browser-image-grid figcaption { padding-block: 0.5rem; overflow-wrap: anywhere; }
+
+.sign-in-card:has(.browser-results) { max-width: 960px; }
+.sign-in-shell:has(.browser-results) { padding-top: 48px; }
+.browser-case-heading { flex-wrap: wrap; }

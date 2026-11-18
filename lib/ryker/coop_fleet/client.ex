@@ -396,6 +396,7 @@ defmodule Ryker.CoopFleet.Client do
       payload =
         %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
         |> with_commit_message(session)
+        |> with_review_parent(session)
 
       case Repo.fetch(Command.Query.by_idempotency_key(key)) do
         {:ok,
@@ -416,6 +417,11 @@ defmodule Ryker.CoopFleet.Client do
       end
     end
   end
+
+  defp with_review_parent(payload, %Work.Session{publication_target: %{"head_commit" => head}}),
+    do: Map.put(payload, "parent_head", head)
+
+  defp with_review_parent(payload, _session), do: payload
 
   # Every task's commit read "Reviewed changes", Coop's fixed message (2026-10-09). A worker that
   # advertises the field is told what the commit changes: the task's title, then what was asked.
@@ -608,7 +614,12 @@ defmodule Ryker.CoopFleet.Client do
         # Destination and prose freeze in the first durable command. A settings
         # refresh cannot reroute its retry, but approval/candidate drift is refused.
         identity =
-          ~w(authorization_ref candidate_head candidate_tree expected_head pull_request_number)
+          ~w(mode authorization_ref candidate_head candidate_tree expected_head pull_request_number)
+
+        identity =
+          if saved["mode"] == "existing_pull_request",
+            do: identity ++ ~w(branch base_branch),
+            else: identity
 
         if command.worker_id == owner.worker_id and command.session_id == owner.session_id and
              Map.take(saved, identity) == Map.take(body, identity),
@@ -688,8 +699,9 @@ defmodule Ryker.CoopFleet.Client do
            "resource_type" => "publication",
            "resource_id" => session_id
          },
-         "publication" => %{"status" => "published", "receipt" => receipt}
-       }),
+         "publication" => %{"status" => status, "receipt" => receipt}
+       })
+       when status in ~w(published published_target_changed published_target_unverified),
        do: {:ok, receipt}
 
   defp publication_result(_client, _command, session_id, %{
@@ -738,6 +750,9 @@ defmodule Ryker.CoopFleet.Client do
 
       "publication_authorization_revoked" ->
         {:error, :publication_authorization_revoked}
+
+      "publication_push_outcome_unverified" ->
+        {:error, :publication_push_outcome_unverified}
 
       _unknown ->
         {:error, {:coop_protocol_error, :publication_refusal}}

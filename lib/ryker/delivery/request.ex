@@ -38,7 +38,8 @@ defmodule Ryker.Delivery.Request do
   @optional [also_answered: [], artifacts: [], frozen_at: nil, upload_refs: []]
   @fields @enforce_keys ++ Keyword.keys(@optional)
   @maximum_document_bytes 512 * 1_024
-  @maximum_message_characters 20_000
+  # The model reply is limited to 20,000; host result links and counts need room too.
+  @maximum_message_characters 24_096
   @maximum_records 64
   @maximum_artifacts 5
   @maximum_artifact_bytes 8 * 1_024 * 1_024

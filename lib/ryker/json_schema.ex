@@ -15,4 +15,13 @@ defmodule Ryker.JSONSchema do
   @doc "`schema`, or null."
   @spec nullable(map()) :: map()
   def nullable(schema), do: %{"anyOf" => [schema, %{"type" => "null"}]}
+
+  @doc "An exact object whose named properties are all required."
+  def object(properties),
+    do: %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "properties" => properties,
+      "required" => Map.keys(properties) |> Enum.sort()
+    }
 end

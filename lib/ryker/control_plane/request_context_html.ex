@@ -164,6 +164,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "cite_source" => "Saves where a piece of evidence came from, so the answer can point to it.",
     "record_finding" => "Records a conclusion of the investigation and the evidence behind it.",
     "render_chart" => "Draws the supplied observations as a chart for the reply.",
+    "record_browser_test" =>
+      "Saves browser checks and screenshot references for a shareable result.",
     "request_input" => "Asks a person a question and waits for the answer.",
     "wait_for" => "Pauses the work until an event arrives or a deadline passes.",
     "list_automations" => "Lists the automations Ryker runs, such as scheduled checks.",
@@ -199,6 +201,20 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "Drafts an extra Slack message that a person confirms before it is posted.",
     "post_slack_update" =>
       "Posts a short update in this conversation right away, before the answer.",
+    "offer_github_issue_actions" =>
+      "Offers issue plan and build controls without starting code changes.",
+    "save_github_issue_plan" =>
+      "Saves an editable issue plan for a repository writer to approve.",
+    "prepare_github_issue_triage" =>
+      "Reads the current issue, related reports and existing labels.",
+    "read_related_github_issue" =>
+      "Inspects a related issue and saves the evidence for this triage.",
+    "complete_github_issue_triage" =>
+      "Saves the triage result and optional plan, applying labels only when enabled.",
+    "resolve_github_review_finding" =>
+      "Resolves one selected review finding after its fix has been published and verified.",
+    "close_github_pull_request" =>
+      "Closes an authorized pull request opened by Ryker, preserving its branch and commits.",
     "read_github_conversation" => "Reads the GitHub issue or pull request this work is about.",
     "search_github" => "Searches issues and pull requests in a repository of this environment.",
     "read_github_pull_request" => "Reads one pull request in a repository of this environment.",

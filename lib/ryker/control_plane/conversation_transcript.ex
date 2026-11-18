@@ -33,6 +33,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     rows = Enum.group_by(window, &elem(&1, 1), &elem(&1, 2))
     inputs = Map.get(rows, :input, [])
     replies = Map.get(rows, :reply, [])
+    evidence = replies |> Enum.map(& &1.turn_id) |> Artifacts.Shares.projections()
+    replies = Enum.map(replies, &Map.put(&1, :evidence, evidence[&1.turn_id]))
     actions = Map.get(rows, :action, [])
     publications = Map.get(rows, :publication, [])
     quick_replies = Map.get(rows, :quick_reply, [])
@@ -370,11 +372,32 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp output_artifacts(replies, conversation_id) do
-    replies
-    |> Enum.map(& &1.turn_id)
-    |> Enum.uniq()
-    |> project_output_artifacts(conversation_id)
+    turn_ids =
+      Enum.flat_map(replies, fn reply ->
+        [reply.turn_id | if(reply.evidence, do: [reply.evidence.turn_id], else: [])]
+      end)
+      |> Enum.uniq()
+
+    artifacts = project_output_artifacts(turn_ids, conversation_id)
+
+    Enum.reduce(replies, artifacts, &inherit_artifacts(&1, &2, artifacts))
   end
+
+  defp inherit_artifacts(
+         %{turn_id: reply_id, evidence: %{turn_id: source_id, refs: refs}},
+         projected,
+         artifacts
+       )
+       when source_id != reply_id do
+    Enum.reduce(refs, projected, fn ref, acc ->
+      case artifacts[{source_id, ref}] do
+        nil -> acc
+        artifact -> Map.put(acc, {reply_id, ref}, artifact)
+      end
+    end)
+  end
+
+  defp inherit_artifacts(_reply, projected, _artifacts), do: projected
 
   defp project_output_artifacts([], _conversation_id), do: %{}
 
@@ -767,7 +790,11 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
        when is_binary(text) do
     outcome = reply_outcome(document)
     record_refs = bounded_refs(outcome["record_refs"])
-    artifact_refs = bounded_refs(outcome["artifact_refs"])
+
+    artifact_refs =
+      bounded_refs(if(reply.evidence, do: reply.evidence.refs, else: outcome["artifact_refs"]))
+
+    text = Artifacts.Shares.append(text, if(reply.evidence, do: reply.evidence.suffix, else: ""))
 
     [
       %{

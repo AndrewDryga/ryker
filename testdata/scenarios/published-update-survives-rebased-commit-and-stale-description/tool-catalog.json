@@ -58,7 +58,7 @@
                 "type": "string"
               },
               "subject": {
-                "description": "A short, specific title for this observation, usually 2\u20136 words: Application readiness, Database backups, or VM CPU. Distinguish what each observation measures; do not repeat a broad episode title. Keep dates, times, URLs, and run identifiers out of the title.",
+                "description": "A short, specific title for this observation, usually 2–6 words: Application readiness, Database backups, or VM CPU. Distinguish what each observation measures; do not repeat a broad episode title. Keep dates, times, URLs, and run identifiers out of the title.",
                 "maxLength": 120,
                 "minLength": 1,
                 "type": "string"
@@ -169,8 +169,8 @@
                       "type": "string"
                     },
                     "value": {
-                      "maximum": 1000000000000000.0,
-                      "minimum": -1000000000000000.0,
+                      "maximum": 1.0e15,
+                      "minimum": -1.0e15,
                       "type": "number"
                     },
                     "x": {
@@ -181,8 +181,8 @@
                           "type": "string"
                         },
                         {
-                          "maximum": 1000000000000000.0,
-                          "minimum": -1000000000000000.0,
+                          "maximum": 1.0e15,
+                          "minimum": -1.0e15,
                           "type": "number"
                         }
                       ]
@@ -195,8 +195,8 @@
                           "type": "string"
                         },
                         {
-                          "maximum": 1000000000000000.0,
-                          "minimum": -1000000000000000.0,
+                          "maximum": 1.0e15,
+                          "minimum": -1.0e15,
                           "type": "number"
                         }
                       ]
@@ -247,6 +247,157 @@
             "type": "object"
           },
           "name": "render_chart"
+        },
+        {
+          "description": "Save the actual results of a bounded headless Playwright journey in this task's Coop environment. Reuse repository browser tests and setup instructions. Use a fresh browser context, never host cookies or production credentials; stay within existing network grants. Close the browser and stop servers you started in finally. Report failed app startup, missing browser or unreachable page as blocked, not passed. revision is the git commit and working tree tested (reported by you, not host-attested); dirty marks uncommitted changes. observed_at is the actual measurement time. Each case names steps, viewport and expected/observed behavior. A screenshot alone is not a passing test. Save only selected PNG/JPEG/WebP/GIF screenshots in the exact coop-output directory (five images, 8MiB total). screenshot is its exact filename or null; screenshot_sha256 is the SHA-256 of those captured bytes, or null without a screenshot. Include filenames in final outcome.artifact_refs. Do not create a report before running the check; this tool records evidence, it does not run a browser.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "cases": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "expected": {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                      "type": "string"
+                    },
+                    "name": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                      "type": "string"
+                    },
+                    "observed": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                      "type": "string"
+                    },
+                    "screenshot": {
+                      "anyOf": [
+                        {
+                          "maxLength": 255,
+                          "minLength": 1,
+                          "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "screenshot_sha256": {
+                      "anyOf": [
+                        {
+                          "pattern": "^[0-9a-f]{64}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "passed",
+                        "failed",
+                        "blocked",
+                        "untested"
+                      ],
+                      "type": "string"
+                    },
+                    "steps": {
+                      "items": {
+                        "maxLength": 300,
+                        "minLength": 1,
+                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                        "type": "string"
+                      },
+                      "maxItems": 12,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "viewport": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "height": {
+                          "maximum": 4096,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "width": {
+                          "maximum": 4096,
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "height",
+                        "width"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "expected",
+                    "name",
+                    "observed",
+                    "screenshot",
+                    "screenshot_sha256",
+                    "status",
+                    "steps",
+                    "viewport"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              "observed_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "revision": {
+                "additionalProperties": false,
+                "properties": {
+                  "commit": {
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                    "type": "string"
+                  },
+                  "dirty": {
+                    "type": "boolean"
+                  },
+                  "tree": {
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "commit",
+                  "dirty",
+                  "tree"
+                ],
+                "type": "object"
+              },
+              "title": {
+                "maxLength": 160,
+                "minLength": 1,
+                "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cases",
+              "observed_at",
+              "revision",
+              "title"
+            ],
+            "type": "object"
+          },
+          "name": "record_browser_test"
         },
         {
           "description": "Record one durable question for a material human decision or missing fact. Ask the whole question in the final reply: people see the reply and, under it, only the answer choices; context and question text here are kept for the record. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",

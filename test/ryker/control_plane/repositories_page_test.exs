@@ -260,6 +260,9 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     assert outline(page, "div.repository-page > *") == [
              "p.kit-status-line",
+             "section.kit-card#repository-issue-actions",
+             "section.kit-card#repository-issue-triage",
+             "section.kit-card#repository-ci-repair",
              "section.kit-card#repository-knowledge",
              "section.kit-card#repository-github",
              "section.kit-card#repository-code",
@@ -650,7 +653,13 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "Setup stopped. Repository setup could not finish. Check GitHub access and retry."
 
     assert stopped |> detail() |> LazyHTML.query("button") |> Enum.map(&LazyHTML.text/1) ==
-             ["Retry setup", "Remove repository"]
+             [
+               "Retry setup",
+               "Save issue actions",
+               "Save issue triage",
+               "Save CI policy",
+               "Remove repository"
+             ]
   end
 
   # Andrew, 2026-09-27: "also when those are updated?" The row says when
@@ -858,6 +867,23 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "Showing the first 100 of 101 repositories."
 
     assert render(@repository) |> LazyHTML.query(".kit-list-note") |> Enum.empty?()
+  end
+
+  test "enabled issue actions explain missing sign-in setup beside the switch" do
+    item =
+      update_in(
+        @repository.configured,
+        &Map.merge(&1, %{github_issue_actions: true, github_issue_actions_ready: false})
+      )
+
+    section = detail(item) |> LazyHTML.query("#repository-issue-actions")
+    assert LazyHTML.text(section) =~ "waiting for GitHub sign-in setup"
+
+    assert LazyHTML.query(section, "a[href='/integrations/github#github-action-sign-in']")
+           |> Enum.count() == 1
+
+    ready = put_in(item.configured.github_issue_actions_ready, true)
+    refute detail(ready) |> LazyHTML.text() =~ "waiting for GitHub sign-in setup"
   end
 
   defp render(items, params \\ %{}) do

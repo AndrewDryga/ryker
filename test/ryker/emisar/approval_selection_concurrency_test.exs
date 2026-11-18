@@ -143,7 +143,7 @@ defmodule Ryker.Emisar.ApprovalSelectionConcurrencyTest do
         payload: run,
         payload_fingerprint: CanonicalJSON.digest(run)
       }
-      |> Records.Record.Changeset.insert()
+      |> Records.Record.Changeset.insert(Repo.now!())
       |> Repo.insert!()
 
     approval =

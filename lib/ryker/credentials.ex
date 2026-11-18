@@ -15,11 +15,25 @@ defmodule Ryker.Credentials do
   @key_version 1
   @minimum_bytes 8
   @maximum_bytes 1_048_576
-  @kinds [:slack_app, :slack_bot, :github_private_key, :github_webhook, :emisar, :webhook]
+  @kinds [
+    :slack_app,
+    :slack_bot,
+    :github_private_key,
+    :github_webhook,
+    :github_oauth_secret,
+    :emisar,
+    :webhook
+  ]
   @name ~r/\A[a-z0-9][a-z0-9_.:-]{0,127}\z/
 
   @type kind ::
-          :slack_app | :slack_bot | :github_private_key | :github_webhook | :emisar | :webhook
+          :slack_app
+          | :slack_bot
+          | :github_private_key
+          | :github_webhook
+          | :github_oauth_secret
+          | :emisar
+          | :webhook
 
   @doc """
   Seals and stores the credential `kind`/`name` as `actor_ref`, replacing any

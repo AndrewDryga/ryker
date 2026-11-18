@@ -2491,6 +2491,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
+  defp publication_cause(%{summary: "publication_push_outcome_unverified"}) do
+    cause(
+      "The push outcome could not be confirmed.",
+      "Ryker attempted to push the reviewed commit, then lost confirmation and could not recheck the result. The commit may already be on the PR.",
+      :fix_first,
+      "Check the PR and its commit history before starting another fix. Automatic publication has stopped."
+    )
+  end
+
   defp publication_cause(%{summary: code})
        when code in [
               "publication_branch_already_exists",

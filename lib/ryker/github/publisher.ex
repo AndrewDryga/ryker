@@ -24,7 +24,15 @@ defmodule Ryker.GitHub.Publisher do
   def publish_message(%Delivery.Request{kind: :message} = request, binding) do
     with {:ok, target} <- Target.parse(request),
          {:ok, api, client, repository} <- client(binding, target),
-         {:ok, message_ref} <- reconcile_message(api, client, repository, request, target) do
+         {:ok, message_ref} <-
+           reconcile_message(
+             api,
+             client,
+             repository,
+             request,
+             target,
+             offer_base(binding, target)
+           ) do
       Work.DeliveryReceipt.new(
         request.ref,
         request.transport,
@@ -44,7 +52,7 @@ defmodule Ryker.GitHub.Publisher do
          {:ok, api, client, repository} <- client(binding, target),
          {:ok, kind, comment_id} <- message_identity(message_ref),
          :ok <- message_kind_matches_thread(kind, target.thread),
-         {:ok, rendered} <- Renderer.render(document),
+         {:ok, rendered} <- Renderer.render(document, offer_base(binding, target)),
          body <- InertText.inert(rendered) <> "\n\n" <> marker(request.ref) do
       update_comment(api, client, repository, kind, comment_id, body, target.thread)
     end
@@ -87,7 +95,7 @@ defmodule Ryker.GitHub.Publisher do
     "<!-- ryker-delivery:#{digest} -->"
   end
 
-  defp reconcile_message(api, client, repository, request, target) do
+  defp reconcile_message(api, client, repository, request, target, offer_base) do
     marker = marker(request.ref)
 
     case find_message(api, client, repository, target.thread, marker) do
@@ -95,7 +103,7 @@ defmodule Ryker.GitHub.Publisher do
         {:ok, message_ref(target.thread, message_id)}
 
       :not_found ->
-        create_message(api, client, repository, request, target.thread, marker)
+        create_message(api, client, repository, request, target.thread, marker, offer_base)
 
       {:error, reason} ->
         {:error, {:delivery_reconciliation_failed, reason}}
@@ -120,8 +128,8 @@ defmodule Ryker.GitHub.Publisher do
     api.find_review_reply(client, repository, number, root_id, marker)
   end
 
-  defp create_message(api, client, repository, request, thread, marker) do
-    with {:ok, rendered} <- Renderer.render(request.document) do
+  defp create_message(api, client, repository, request, thread, marker, offer_base) do
+    with {:ok, rendered} <- Renderer.render(request.document, offer_base) do
       create_rendered_message(api, client, repository, thread, marker, rendered)
     end
   end
@@ -236,6 +244,9 @@ defmodule Ryker.GitHub.Publisher do
          emoji_name
        ),
        do: api.add_review_comment_reaction(client, repository, id, emoji_name)
+
+  defp offer_base(binding, target),
+    do: get_in(binding, [:bindings, target.binding, :engineering_offer_base_url])
 
   defp client(%{bindings: bindings}, target) when is_map(bindings) do
     with {:ok, configured} <- Map.fetch(bindings, target.binding),

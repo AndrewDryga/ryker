@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.Confirmations do
   services used by Slack and Chat.
   """
   alias Ryker.Behaviors
+  alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
@@ -27,6 +28,53 @@ defmodule Ryker.GitHub.Confirmations do
   @supported_kinds ~w(task_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
   @type options :: %{repositories: %{String.t() => %{name: String.t(), digest: String.t()}}}
+
+  @doc "Loads one delivered engineering offer for a repository-scoped approval page."
+  def engineering_offer(record_ref) do
+    with {:ok, %{kind: "task_offer", payload: %{"kind" => "engineering"}} = record, episode, turn} <-
+           offer(record_ref),
+         {:ok, target} <- delivered_target(episode, turn),
+         ["github", binding, "repository", repository_id] <-
+           String.split(episode.destination_conversation_ref, ":"),
+         {repository_id, ""} when repository_id > 0 <- Integer.parse(repository_id) do
+      {:ok,
+       %{
+         record: record,
+         binding: binding,
+         repository_id: repository_id,
+         target: target,
+         fingerprint: CanonicalJSON.digest(record.payload)
+       }}
+    else
+      _invalid -> {:error, :offer_unavailable}
+    end
+  end
+
+  @doc "Confirms the exact delivered brief using the existing task-offer transition."
+  def confirm_engineering(record_ref, expected, actor_ref, access, %{repositories: policies}) do
+    with {:ok, offer} <- engineering_offer(record_ref),
+         true <- offer.fingerprint == expected,
+         true <-
+           offer.binding == access.binding.name and
+             offer.repository_id == access.binding.repository_id,
+         true <- offer.record.payload["repository"] == access.repository.ref,
+         {:ok, policy} <- Map.fetch(policies, access.repository.ref) do
+      Records.TaskOffers.confirm(%{
+        actor_ref: actor_ref,
+        confirmation_ref:
+          "github-button:" <> CanonicalJSON.digest(%{"offer" => record_ref, "brief" => expected}),
+        occurred_at: Repo.now!(),
+        record_ref: record_ref,
+        target: offer.target,
+        policy: policy
+      })
+    else
+      _invalid -> {:error, :offer_unavailable}
+    end
+  end
+
+  def confirm_engineering(_ref, _expected, _actor, _access, _options),
+    do: {:error, :offer_unavailable}
 
   @doc "The current repository role needed for a newly created comment command."
   @spec required_repository_role(map()) :: :maintain | :write

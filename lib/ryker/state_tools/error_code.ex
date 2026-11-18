@@ -30,6 +30,14 @@ defmodule Ryker.StateTools.ErrorCode do
   def code({:invalid_chart, path, rule}),
     do: "invalid_arguments: #{path} #{rule}. No chart was created."
 
+  def code(:invalid_browser_report) do
+    "invalid_browser_report: use the advertised schema, actual UTC observation time, commit/tree IDs and plain screenshot filenames paired with their captured SHA-256. Nothing was saved."
+  end
+
+  def code(:browser_report_limit) do
+    "browser_report_limit: this turn already has three immutable browser reports. Reuse their results and explain any remaining uncertainty."
+  end
+
   def code(:chart_limit_reached) do
     "chart_limit_reached: this turn already has five charts or 8 MiB of chart images. Reuse the returned artifact_refs."
   end

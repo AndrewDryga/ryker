@@ -151,6 +151,66 @@ defmodule Ryker.StateTools.TaskStartTest do
     assert session.workspace_task["purpose"] == "verification"
   end
 
+  test "a selected review action freezes its exact findings and PR head in the linked task" do
+    target = Ryker.Fixtures.GitHubActions.publication_target()
+    reference = "github-action:" <> Ecto.UUID.generate()
+
+    {:ok, input} =
+      Ryker.Ingress.Input.new(%{
+        actor: %{kind: :user, ref: "github-user:123"},
+        content: %{
+          "event_name" => "ryker_action",
+          "request" => "Fix the selected findings.",
+          "payload" => %{
+            "action" => "fix_review",
+            "sender" => %{"id" => 123, "login" => "example-writer", "type" => "User"},
+            "repository" => %{"id" => 17, "full_name" => "example/repository"},
+            "installation" => %{"id" => 41}
+          },
+          "action_evidence" => %{
+            "head" => target["head_commit"],
+            "app_actor_id" => 30,
+            "branch" => "human/fix",
+            "base_branch" => "main",
+            "pull_request_number" => 7,
+            "findings" => target["findings"]
+          }
+        },
+        destination: %{
+          transport: "github",
+          conversation_ref: "github:github-main:repository:17",
+          thread_ref: "github:github-main:pull:7"
+        },
+        event_kind: :message,
+        event_ref: reference,
+        native_input_id: reference,
+        source: %{kind: "github", ref: "github-main"},
+        source_capabilities: %{},
+        source_item_ref: reference,
+        occurred_at: DateTime.utc_now(),
+        occurred_at_source: :ingress,
+        revision: 1
+      })
+
+    request = request!(input: input)
+    assert {:ok, started} = call(request)
+    record = Repo.get_by!(Record, ref: started["record_ref"])
+    session = Repo.get_by!(Session, episode_id: record.confirmed_episode_id)
+    assert session.repository_source == %{"kind" => "commit", "sha" => target["head_commit"]}
+    assert session.publication_target["findings"] == target["findings"]
+    assert session.publication_target["authorization"] == target["authorization"]
+    refute Map.has_key?(session.workspace_task, "publication_target")
+
+    [event] =
+      Ryker.Inspectors.episode_events(
+        Repo.get!(Ryker.Episodes.Episode, record.confirmed_episode_id).key
+      )
+
+    assert event.payload["payload"]["publication_target"] == session.publication_target
+    assert {:ok, repeated} = call(request)
+    assert repeated["record_ref"] == started["record_ref"]
+  end
+
   test "an existing implementation proposal cannot be restarted as verification" do
     request = request!()
     assert {:ok, offered} = call(put_in(request.arguments["start"], false))

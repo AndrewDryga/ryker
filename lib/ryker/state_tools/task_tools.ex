@@ -1,5 +1,6 @@
 defmodule Ryker.StateTools.TaskTools do
   @moduledoc false
+  alias Ryker.GitHubActions
   alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.StateTools.RecordWriter
@@ -10,7 +11,8 @@ defmodule Ryker.StateTools.TaskTools do
     kind = Map.get(arguments, "kind", "engineering")
     arguments = Map.put(arguments, "kind", kind)
 
-    with :ok <- task_repository(kind, arguments["repository"]),
+    with :ok <- GitHubActions.IssueInstructions.task_allowed(binding),
+         :ok <- task_repository(kind, arguments["repository"]),
          {:ok, repository_source} <-
            task_repository_source(arguments["repository"], arguments["repository_source"]),
          {:ok, instruction_ref} <- task_instruction_ref(arguments, binding) do

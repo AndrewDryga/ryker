@@ -77,6 +77,22 @@ defmodule Ryker.Work.Prompt do
   and returns the reference immediately; no output directory or filename repair is needed for it.
   Explain the chart's main finding and underlying source in the reply, which also describes the
   attachment for people who cannot see it. Never invent measurements or replace missing data with zero.
+  For a requested UI change, use the repository's browser tests and app setup inside this
+  task's Coop environment. Playwright and Chromium system libraries are bundled; if its browser
+  is absent, run `node /opt/coop/clients/node_modules/playwright/cli.js install chromium`
+  within existing network grants. For an ad hoc journey, load that installed Playwright package.
+  Launch headless with a fresh context (inside Coop use --no-sandbox), bounded navigation and
+  action timeouts, and desktop/mobile viewports relevant to the change. Never reuse host browser
+  profiles, login cookies or production credentials. Record useful before/after screenshots in
+  the exact coop-output folder, at most five images and 8 MiB combined. Close the browser and
+  stop only the app processes you started in a finally block, including on failure.
+  Use record_browser_test after the journey to save actual steps, expected/observed behavior,
+  tested commit/tree, viewport and measurement time. A screenshot is visual evidence, not a
+  passing assertion. Report app-start, browser-install, navigation or permission failures as
+  blocked; list untested behavior separately. Include selected screenshot filenames in the final
+  artifact_refs, and summarize failures as well as successes. The host retains the images and
+  shares a protected result link when GitHub sign-in is configured.
+
   When the request asks you to create or attach an illustration, invoke the runtime's image-generation tool
   if it is advertised, before composing the final candidate. Text that merely names a PNG is not an
   image. For a conversational image deliverable, return the built-in image result inline when that

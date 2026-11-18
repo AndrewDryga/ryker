@@ -7,8 +7,10 @@ defmodule Ryker.GitHub.Runtime do
   delivery/publication workers can request an installation token.
   """
   use Supervisor
-  alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, LabelWorker, OnboardingWorker}
-  alias Ryker.GitHub.{ProcessingReactionWorker, Server}
+  alias Ryker.GitHub.{CIRepairWorker, DeliveryPoller, InstallationTokens, IssueTriageWorker}
+  alias Ryker.GitHub.LabelWorker
+  alias Ryker.GitHub.{OnboardingWorker, ProcessingReactionWorker, Server}
+  alias Ryker.GitHubActions
   alias Ryker.Options
 
   @spec start_link(map() | keyword()) :: Supervisor.on_start()
@@ -38,6 +40,10 @@ defmodule Ryker.GitHub.Runtime do
       onboarding: onboarding,
       server: server,
       tokens: tokens,
+      issue_triage: IssueTriageWorker.options!(Map.get(configuration, :issue_triage, %{})),
+      ci_repairs: CIRepairWorker.options!(Map.get(configuration, :ci_repairs, %{})),
+      issue_messages:
+        GitHubActions.IssueMessageWorker.options!(Map.get(configuration, :issue_messages, %{})),
       labels: LabelWorker.options!(Map.get(configuration, :labels, %{})),
       processing_reactions:
         ProcessingReactionWorker.options!(Map.get(configuration, :processing_reactions, %{}))
@@ -52,6 +58,9 @@ defmodule Ryker.GitHub.Runtime do
         {OnboardingWorker, options.onboarding},
         {ProcessingReactionWorker, options.processing_reactions},
         {LabelWorker, options.labels},
+        {GitHubActions.IssueMessageWorker, options.issue_messages},
+        {CIRepairWorker, options.ci_repairs},
+        {IssueTriageWorker, options.issue_triage},
         {Server, options.server},
         # The listener takes what GitHub can reach it with; the poller fetches
         # what GitHub could not deliver, such as to 127.0.0.1.
@@ -70,7 +79,17 @@ defmodule Ryker.GitHub.Runtime do
   defp normalize_configuration!(configuration) do
     Options.normalize!(
       configuration,
-      [:app_id, :labels, :onboarding, :processing_reactions, :server, :tokens],
+      [
+        :app_id,
+        :ci_repairs,
+        :labels,
+        :issue_messages,
+        :issue_triage,
+        :onboarding,
+        :processing_reactions,
+        :server,
+        :tokens
+      ],
       [:app_id, :server, :tokens],
       "GitHub runtime configuration is invalid"
     )

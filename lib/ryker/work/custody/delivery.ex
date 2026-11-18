@@ -19,7 +19,7 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Waits
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
-  alias Ryker.Work.Custody.{Cancellation, Sessions}
+  alias Ryker.Work.Custody.Cancellation
   alias Ryker.Work.{DeliveryReceipt, Turn}
 
   @doc false
@@ -265,7 +265,7 @@ defmodule Ryker.Work.Custody.Delivery do
        ) do
     case fetch_turn_identity(episode.id, episode.owner_ref) do
       {:error, :work_turn_not_found} ->
-        block_unsubmitted_destination_turn(episode, intent, fingerprint)
+        Cancellation.block_unsubmitted_turn(episode, intent, fingerprint, "destination_paused")
 
       {:ok, identity} ->
         Cancellation.request_cancellation_for_identity(
@@ -289,31 +289,6 @@ defmodule Ryker.Work.Custody.Delivery do
 
   defp pause_destination_owner(%Episodes.Episode{} = episode, _intent, _fingerprint),
     do: %{episode: episode, status: :settled, turn: nil}
-
-  defp block_unsubmitted_destination_turn(episode, intent, fingerprint) do
-    with {:ok, session} <- Sessions.current_session(episode),
-         {:ok, turn} <- Sessions.insert_turn(episode, session),
-         {:ok, turn} <-
-           persist_update(
-             Turn.Changeset.prepare_cancellation(turn, intent, fingerprint, nil),
-             :work_destination_pause
-           ),
-         blocked =
-           Turn.Changeset.block(turn, %{
-             last_error_code: "destination_paused",
-             last_error_detail: intent["reason"],
-             lease_expires_at: nil,
-             lease_owner: nil,
-             lease_ref: nil,
-             next_attempt_at: nil,
-             status: :blocked
-           }),
-         {:ok, turn} <- persist_update(blocked, :work_destination_pause) do
-      %{episode: episode, status: :settled, turn: turn}
-    else
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
 
   defp pause_destination_delivery(episode, intent) do
     now = Repo.now!()

@@ -10,6 +10,7 @@ defmodule Ryker.GitHub.PullRequestActivity.Query do
       from(l in Publication.LifecycleEvent,
         as: :lifecycle_event,
         where: l.publication_id == parent_as(:publication).id and l.wakeup_state == :pending,
+        where: not (l.kind == :checks and l.state == :failed),
         select: 1
       )
 

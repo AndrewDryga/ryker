@@ -887,6 +887,7 @@ defmodule Ryker.Runtime.Assembly do
         Map.new(prepared, fn {name, item} ->
           {name,
            %{
+             action_base_url: github_action_base_url(bootstrap, settings, name),
              api: GitHub.Client,
              client: item.client,
              ci_cancel_client: item.ci_cancel_client,
@@ -896,6 +897,7 @@ defmodule Ryker.Runtime.Assembly do
              repository_ref: item.repository_alias,
              review_client: item.review_client,
              close_client: item.close_client,
+             triage_client: item.delivery_client,
              ryker_actor_id: item.trusted_binding.ryker_actor_id,
              repository_full_name: item.repository.github_repository,
              repository_id: item.trusted_binding.repository_id
@@ -910,6 +912,7 @@ defmodule Ryker.Runtime.Assembly do
            %{
              api: GitHub.Client,
              client: item.delivery_client,
+             engineering_offer_base_url: github_actions_base_url(bootstrap, settings, "offer"),
              repository_full_name: item.repository.github_repository,
              repository_id: item.trusted_binding.repository_id
            }}
@@ -938,6 +941,22 @@ defmodule Ryker.Runtime.Assembly do
         app_id: settings.github.app_id,
         onboarding: %{},
         labels: %{bindings: github_label_bindings(prepared)},
+        ci_repairs: %{
+          bindings:
+            Map.new(prepared, fn {name, item} ->
+              {name, Map.put(delivery_binding.bindings[name], :read_client, item.client)}
+            end)
+        },
+        issue_triage: %{
+          bindings:
+            Map.new(prepared, fn {name, item} ->
+              {name, %{read_client: item.client}}
+            end)
+        },
+        issue_messages: %{
+          bindings: delivery_binding.bindings,
+          base_url: bootstrap.control_public_url
+        },
         processing_reactions: %{
           bindings:
             Map.new(prepared, fn {name, item} ->
@@ -1024,6 +1043,16 @@ defmodule Ryker.Runtime.Assembly do
 
     fn binding, payload ->
       GitHub.ReviewReply.check(binding, payload, Map.fetch!(clients, binding.name))
+    end
+  end
+
+  defp github_action_base_url(bootstrap, settings, name),
+    do: github_actions_base_url(bootstrap, settings, "review/" <> name)
+
+  defp github_actions_base_url(bootstrap, settings, path) do
+    if is_binary(bootstrap.control_public_url) and is_binary(settings.github.oauth_client_id) and
+         match?({:ok, _secret}, Credentials.fetch(:github_oauth_secret, "primary")) do
+      String.trim_trailing(bootstrap.control_public_url, "/") <> "/github/actions/" <> path
     end
   end
 

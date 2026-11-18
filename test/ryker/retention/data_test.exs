@@ -2125,7 +2125,7 @@ defmodule Ryker.Retention.DataTest do
         status: :confirmed,
         turn_id: source.turn.id
       }
-      |> Record.Changeset.insert()
+      |> Record.Changeset.insert(Repo.now!())
       |> Repo.insert!()
 
     schedule =

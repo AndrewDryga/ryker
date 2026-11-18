@@ -3,6 +3,21 @@ defmodule Ryker.GitHub.RendererTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.GitHub.Renderer
 
+  test "engineering offers link to their exact brief when sign-in is available" do
+    offer = record("task_offer", TaskOffer.payload())
+
+    assert {:ok, rendered} =
+             Renderer.render(
+               %{"message" => "Review the proposal.", "records" => [offer]},
+               "https://ryker.example/github/actions/offer"
+             )
+
+    assert rendered =~ "[**Review and start task**]"
+    assert rendered =~ URI.encode(offer["ref"], &URI.char_unreserved?/1)
+    refute rendered =~ "/ryker confirm"
+    assert rendered =~ "Opening the link starts no work"
+  end
+
   test "event-only waits do not crash a visible reply or expose internal instructions" do
     # A shared wait contract must remain deliverable outside Slack as well.
     message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()

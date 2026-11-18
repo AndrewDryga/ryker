@@ -5,6 +5,7 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Event}
+  alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.{Inbox, Input}
@@ -230,6 +231,27 @@ defmodule Ryker.Publication.FollowupsTest do
 
     owner = Repo.get_by!(Records.Record, ref: episode.owner_ref)
     assert {:ok, claim} = Followups.claim_poll("side-check", 60)
+    status = lifecycle_status(publication, "passing", false)
+    assert {:ok, _} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+    deliver_pending!()
+
+    assert Repo.get!(Episodes.Episode, episode.id).state == :working
+    assert Repo.get!(Records.Record, side.id).status == :answered
+    assert Repo.get!(Records.Record, owner.id).status == :open
+  end
+
+  # The release hook stranded a CI side watch when the host timestamp was
+  # 192 microseconds ahead of its later database-clock observation. A real
+  # clock offset must not suppress the event or leave that task waiting.
+  test "a CI side watch resumes when the database clock trails the host" do
+    DatabaseClock.behind_host!()
+
+    %{episode: episode, publication: publication, side: side} =
+      publication_wait!("side-check-clock", :event, %{"kind" => "checks"})
+
+    owner = Repo.get_by!(Records.Record, ref: episode.owner_ref)
+    DatabaseClock.behind_host!()
+    assert {:ok, claim} = Followups.claim_poll("side-check-clock", 60)
     status = lifecycle_status(publication, "passing", false)
     assert {:ok, _} = Followups.store_poll(publication.ref, claim.lease_ref, status)
     deliver_pending!()
@@ -554,13 +576,9 @@ defmodule Ryker.Publication.FollowupsTest do
     assert stored_followup.verification_sequence > 0
   end
 
-  # A draft PR whose checks fail is work the agent can still finish: the change
-  # is its own, the scope is the task's, and a Slack line saying "checks are
-  # failing, open the PR for the exact failures" teaches an operator nothing they
-  # can act on faster than the agent can. Before this the failure was a
-  # history-only fact and the episode stayed settled, so every red run waited for
-  # a person to notice and retype the task.
-  test "failing checks on the exact reviewed head return the task to in-scope correction" do
+  # The former own-PR wakeup granted a correction independently of repository policy.
+  # It must remain a notice while the shared repair custody decides whether work is allowed.
+  test "failing checks cannot bypass the repository CI policy by waking the original task" do
     %{episode: episode, publication: publication} = PublicationFixture.published!("ci-correction")
 
     assert {:ok, claim} = Followups.claim_poll("publication-followup:ci", 60)
@@ -575,8 +593,8 @@ defmodule Ryker.Publication.FollowupsTest do
     assert %LifecycleEvent{state: :failed, wakeup_state: :pending} =
              event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :checks)
 
-    # Automatic CI correction is work on this PR even before Work claims it.
-    assert publication.pull_request_number in Ryker.GitHub.Labels.active_pulls("github-main", %{
+    # A failure notice alone is not an authorized repair.
+    refute publication.pull_request_number in Ryker.GitHub.Labels.active_pulls("github-main", %{
              repository_id: 99,
              repository_full_name: publication.github_repository
            })
@@ -601,31 +619,21 @@ defmodule Ryker.Publication.FollowupsTest do
 
     deliver_pending!()
 
-    assert resumed = Ryker.Inspectors.episode(episode.key)
-    assert resumed.state == :working
-    assert resumed.owner_ref == "turn:publication-verification:#{event.id}"
+    assert current = Ryker.Inspectors.episode(episode.key)
+    assert current.state == :complete
+    assert Repo.get!(LifecycleEvent, event.id).wakeup_state == :none
 
-    assert [wake] =
-             Repo.all(
-               from(saved in Event,
-                 where:
-                   saved.episode_id == ^episode.id and saved.kind == :input_admitted and
-                     fragment(
-                       "?::jsonb -> 'payload' -> 'content' ->> 'kind' = ?",
-                       saved.payload,
-                       "publication_lifecycle"
-                     )
-               )
+    refute Repo.exists?(
+             from(saved in Event,
+               where:
+                 saved.episode_id == ^episode.id and saved.kind == :input_admitted and
+                   fragment(
+                     "?::jsonb -> 'payload' -> 'content' ->> 'kind' = ?",
+                     saved.payload,
+                     "publication_lifecycle"
+                   )
              )
-
-    content = wake.payload["payload"]["content"]
-
-    # The agent is asked to fix its own change inside the scope the task already
-    # granted, not to verify a deployment and not to widen the work.
-    assert content["correction_request"] =~ "existing scope"
-    refute content["verification_request"]
-    assert content["lifecycle"]["state"] == "failed"
-    assert content["publication"]["head_sha"] == publication.commit_sha
+           )
   end
 
   # The wait is a real deployment wakeup's: one whose turn never held the task
@@ -768,18 +776,18 @@ defmodule Ryker.Publication.FollowupsTest do
 
   # --- the wait for a woken task --------------------------------------------
 
-  # Red checks wake the task, and Ryker waits for the woken turn before it asks
+  # Passing checks resume a task waiting for them, and Ryker waits for the woken turn before it asks
   # GitHub again. Only that turn accepting a result used to end the wait, so a
   # newer turn taking the task, a cancelled task or a blocked turn left the
   # pull request unchecked for good: nothing would notice it merge, close or go
   # green. A wakeup that finds the task busy is queued behind another turn and
   # never gets its own, so it was stuck the same way.
   for ending <- [:taken_over, :cancelled, :blocked] do
-    test "an open pull request is checked at once when the turn its red checks woke is #{String.replace(to_string(ending), "_", " ")}" do
+    test "an open pull request is checked at once when the turn its passed checks woke is #{String.replace(to_string(ending), "_", " ")}" do
       %{episode: episode, publication: publication} =
-        PublicationFixture.published!("woken-#{unquote(ending)}")
+        publication_wait!("woken-#{unquote(ending)}", :event)
 
-      woken = wake_on_red_checks!(publication)
+      woken = wake_on_passed_checks!(publication)
       end_woken_turn!(unquote(ending), episode, woken)
 
       a_minute_later!(publication)
@@ -789,7 +797,7 @@ defmodule Ryker.Publication.FollowupsTest do
     end
   end
 
-  test "an open pull request is checked at once when its red checks find the task busy" do
+  test "an open pull request is checked at once when its passed checks find the task busy" do
     %{episode: episode, publication: publication} = PublicationFixture.published!("woken-busy")
 
     # A person's message has the task working on another turn, so the wakeup
@@ -811,7 +819,7 @@ defmodule Ryker.Publication.FollowupsTest do
                })
              )
 
-    wake_on_red_checks!(publication)
+    wake_on_passed_checks!(publication)
     a_minute_later!(publication)
     assert next_check!(publication) == :checked_task
     assert next_check!(publication) == :checked_github
@@ -820,9 +828,9 @@ defmodule Ryker.Publication.FollowupsTest do
   # Coop stops any turn after an hour, so a woken turn still holding the task
   # by then is stuck or starting over, and waiting longer only leaves the pull
   # request unwatched.
-  test "Ryker waits at most an hour for the turn red checks woke before it checks the pull request again" do
-    %{publication: publication} = PublicationFixture.published!("woken-hour")
-    woken = wake_on_red_checks!(publication)
+  test "Ryker waits at most an hour for the turn passed checks woke before it checks the pull request again" do
+    %{publication: publication} = publication_wait!("woken-hour", :event)
+    woken = wake_on_passed_checks!(publication)
     assert {:ok, work} = WorkCustody.claim_next("work:woken-hour", 60, :work)
     assert work.turn.turn_ref == woken.verification_turn_ref
 
@@ -843,24 +851,34 @@ defmodule Ryker.Publication.FollowupsTest do
   # webhook announced waited that long.
   test "a webhook that arrives while Ryker waits for the woken turn still gets its GitHub check" do
     %{episode: episode, publication: publication} =
-      PublicationFixture.published!("woken-webhook", pull_request_number: 95)
+      publication_wait!("woken-webhook", :event)
 
-    woken = wake_on_red_checks!(publication)
+    woken = wake_on_passed_checks!(publication)
 
     check_run = %{
       "check_run" => %{
         "head_sha" => publication.commit_sha,
-        "pull_requests" => [%{"number" => 95}]
+        "pull_requests" => [%{"number" => publication.pull_request_number}]
       }
     }
 
-    assert Followups.nudge_github_event("acme/ryker", "check_run", "delivery:95", check_run) ==
+    assert Followups.nudge_github_event(
+             publication.github_repository,
+             "check_run",
+             "delivery:95",
+             check_run
+           ) ==
              {:ok, :nudged}
 
     assert next_check!(publication) == :checked_task
 
     # The woken turn finishes its correction.
-    insert_result_event!(episode.id, woken.verification_sequence + 1, woken.verification_turn_ref)
+    insert_result_event!(
+      episode.id,
+      Repo.get!(Episodes.Episode, episode.id).next_sequence,
+      woken.verification_turn_ref
+    )
+
     a_minute_later!(publication)
     assert next_check!(publication) == :checked_task
     assert next_check!(publication) == :checked_github
@@ -2086,12 +2104,11 @@ defmodule Ryker.Publication.FollowupsTest do
     )
   end
 
-  # Red checks on the reviewed head wake the task: the poll records them and
-  # the wakeup is admitted, which hands the task to the woken turn.
-  defp wake_on_red_checks!(publication) do
+  # Passing checks resume the real saved wait and hand the task to its verification turn.
+  defp wake_on_passed_checks!(publication) do
     assert {:ok, claim} = Followups.claim_poll("publication-followup:red", 60)
-    red = lifecycle_status(publication, "failing", false)
-    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, red)
+    passed = lifecycle_status(publication, "passing", false)
+    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, passed)
     deliver_pending!()
 
     woken = Repo.get_by!(Followup, publication_id: publication.id)
@@ -2160,8 +2177,8 @@ defmodule Ryker.Publication.FollowupsTest do
                "ryker:work:create:#{work.session.id}:g#{work.session.create_generation}",
                nil,
                work.session.coop_session_id,
-               "closed",
-               "ryker:work:cancel-close:#{work.turn.id}:g1"
+               if(work.session.coop_session_id, do: "closed"),
+               if(work.session.coop_session_id, do: "ryker:work:cancel-close:#{work.turn.id}:g1")
              )
 
     assert {:ok, %{turn: %{status: :blocked}}} =

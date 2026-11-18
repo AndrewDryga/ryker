@@ -880,6 +880,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
+  def handle_event("connect-github-actions", %{"connection" => params}, socket) do
+    case IntegrationSetup.connect_github_actions(params, actor(socket)) do
+      {:ok, _snapshot} ->
+        {:noreply,
+         socket
+         |> refresh_settings()
+         |> assign(setup_notice: "GitHub sign-in settings saved.", setup_failure: nil)}
+
+      {:error, reason} ->
+        {:noreply, failed(socket, reason)}
+    end
+  end
+
   # Add repositories lists what the GitHub App reaches when it opens; this
   # lists it again, keeping what was ticked (repository-picker.mjs).
   def handle_event("refresh-github-repositories", _params, socket) do
@@ -1171,6 +1184,99 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           finish_setup(socket, result, "Signing credential #{name} was deleted.")
       end
     end)
+  end
+
+  def handle_event(
+        "save-repository-issue-triage",
+        %{"repository" => ref, "revision" => revision, "enabled" => enabled, "labels" => labels},
+        socket
+      )
+      when enabled in ["true", "false"] and labels in ["true", "false"] do
+    result =
+      case Integer.parse(revision) do
+        {revision, ""} ->
+          Settings.put_repository(
+            %{
+              ref: ref,
+              github_issue_triage: enabled == "true",
+              github_triage_labels: labels == "true"
+            },
+            revision,
+            actor(socket)
+          )
+
+        _invalid ->
+          {:error, :invalid_revision}
+      end
+
+    notice =
+      case result do
+        {:ok, _snapshot} ->
+          {:list, :success, "Issue triage saved."}
+
+        {:error, _reason} ->
+          {:list, :error, "Issue triage could not be saved. Refresh the page and try again."}
+      end
+
+    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
+  end
+
+  def handle_event(
+        "save-repository-ci-repair",
+        %{"repository" => ref, "revision" => revision, "policy" => policy},
+        socket
+      )
+      when policy in ~w(off own all) do
+    result =
+      case Integer.parse(revision) do
+        {revision, ""} ->
+          Settings.put_repository(%{ref: ref, github_ci_repair: policy}, revision, actor(socket))
+
+        _invalid ->
+          {:error, :invalid_revision}
+      end
+
+    notice =
+      case result do
+        {:ok, _snapshot} ->
+          {:list, :success, "CI repair policy saved."}
+
+        {:error, _reason} ->
+          {:list, :error, "CI repair policy could not be saved. Refresh the page and try again."}
+      end
+
+    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
+  end
+
+  def handle_event(
+        "save-repository-issue-actions",
+        %{"repository" => ref, "revision" => revision, "enabled" => enabled},
+        socket
+      )
+      when enabled in ["true", "false"] do
+    result =
+      case Integer.parse(revision) do
+        {revision, ""} ->
+          Settings.put_repository(
+            %{ref: ref, github_issue_actions: enabled == "true"},
+            revision,
+            actor(socket)
+          )
+
+        _invalid ->
+          {:error, :invalid_revision}
+      end
+
+    notice =
+      case result do
+        {:ok, _snapshot} ->
+          {:list, :success, "Issue actions saved."}
+
+        {:error, _reason} ->
+          {:list, :error, "Issue actions could not be saved. Refresh the page and try again."}
+      end
+
+    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
   end
 
   def handle_event("retry-github-onboarding", %{"repository" => ref}, socket)

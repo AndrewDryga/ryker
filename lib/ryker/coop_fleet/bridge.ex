@@ -150,11 +150,16 @@ defmodule Ryker.CoopFleet.Bridge do
 
     %{
       capability_names: settings.capability_names,
-      capability_versions: versions,
+      capability_versions: publication_capabilities(versions, session.publication_target),
       repository_ref: session.repository_ref,
       workspace_ref: settings.workspace_ref
     }
   end
+
+  defp publication_capabilities(versions, nil), do: versions
+
+  defp publication_capabilities(versions, %{"kind" => "existing_pull_request"}),
+    do: Map.put(versions, "existing-pr-publication", "1")
 
   @spec await_command(Ecto.UUID.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def await_command(command_id, options) do

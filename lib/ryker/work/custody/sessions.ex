@@ -23,6 +23,7 @@ defmodule Ryker.Work.Custody.Sessions do
     :ready,
     :repository_context,
     :repository_ref,
+    :publication_target,
     :repository_source
   ]
 
@@ -68,7 +69,8 @@ defmodule Ryker.Work.Custody.Sessions do
          ready: options[:ready] == true,
          repository_context: repository_context,
          repository_ref: repository_ref,
-         repository_source: repository_source
+         repository_source: repository_source,
+         publication_target: options[:publication_target]
        })}
     end
   end
@@ -97,7 +99,12 @@ defmodule Ryker.Work.Custody.Sessions do
       ) do
     options =
       options
-      |> Keyword.validate!([:environment_ref, :repository_context, :repository_source])
+      |> Keyword.validate!([
+        :environment_ref,
+        :repository_context,
+        :repository_source,
+        :publication_target
+      ])
       |> Keyword.put(:repository_ref, repository_ref)
 
     with {:ok, session} <-
@@ -296,6 +303,7 @@ defmodule Ryker.Work.Custody.Sessions do
       environment_ref: authority.environment_ref,
       repository_context: authority.repository_context,
       repository_source: authority.repository_source,
+      publication_target: Map.get(authority, :publication_target),
       emisar: emisar,
       workspace_task: nil
     })
@@ -542,6 +550,7 @@ defmodule Ryker.Work.Custody.Sessions do
       repository_context: session.repository_context,
       repository_ref: session.repository_ref,
       repository_source: session.repository_source,
+      publication_target: session.publication_target,
       emisar: %{
         connection_ref: session.emisar_connection_ref,
         account_ref: session.emisar_account_ref,
@@ -586,6 +595,7 @@ defmodule Ryker.Work.Custody.Sessions do
         environment_ref: authority.environment_ref,
         repository_context: authority.repository_context,
         repository_source: authority.repository_source,
+        publication_target: Map.get(authority, :publication_target),
         emisar: present_emisar(authority.emisar),
         workspace_task: authority.workspace_task
       })

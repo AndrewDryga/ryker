@@ -103,7 +103,8 @@ defmodule Ryker.IntegrationSetupTest do
       })
     end
 
-    defp response_for("/app"), do: response(%{"id" => 1234, "slug" => "ryker-test"})
+    defp response_for("/app"),
+      do: response(%{"id" => 1234, "slug" => "ryker-test", "client_id" => "Iv1.example"})
 
     defp response_for("/users/ryker-test%5Bbot%5D"),
       do: response(%{"id" => 4321, "login" => "ryker-test[bot]"})
@@ -1481,6 +1482,29 @@ defmodule Ryker.IntegrationSetupTest do
         secret: Ryker.Secret.new(secret)
       )
     )
+  end
+
+  test "action sign-in belongs to the connected app and disconnect removes its secret" do
+    connect_github!()
+    params = %{"client_id" => "Iv1.example", "client_secret" => "oauth-secret-example"}
+
+    assert {:ok, saved} =
+             IntegrationSetup.connect_github_actions(params, @actor, requester: Requester)
+
+    assert saved.github.oauth_client_id == "Iv1.example"
+    assert Credentials.fetch(:github_oauth_secret, "primary") == {:ok, "oauth-secret-example"}
+    assert "oauth-secret-example" in Credentials.redaction_values()
+
+    assert IntegrationSetup.connect_github_actions(
+             %{params | "client_id" => "Iv1.another"},
+             @actor,
+             requester: Requester
+           ) ==
+             {:error, {:github_verification_failed, :client_id_mismatch}}
+
+    assert Credentials.fetch(:github_oauth_secret, "primary") == {:ok, "oauth-secret-example"}
+    assert {:ok, _saved} = IntegrationSetup.disconnect(:github, @actor)
+    assert Credentials.fetch(:github_oauth_secret, "primary") == {:error, :credential_missing}
   end
 
   defp connect_github! do

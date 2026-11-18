@@ -276,6 +276,51 @@ defmodule Ryker.Work.CancellationTest do
     assert retried.turn.status == :superseded
   end
 
+  # A stop arriving between task admission and its first claim tried to apply
+  # a nil episode command. CI opt-out then retried forever and work could start.
+  test "a stop before the first claim preserves the task and prevents execution" do
+    id = Ecto.UUID.generate()
+
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: id,
+        episode_key: "work-stop:local:#{id}",
+        native_input_id: "source:stop-local:#{id}",
+        occurred_at: @now,
+        turn_ref: "turn:stop-local:#{id}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+
+    assert {:ok, session} =
+             WorkSessions.pin_episode(id, "work-read-only", String.duplicate("a", 64))
+
+    args = [
+      id,
+      command.episode_key,
+      command.turn_ref,
+      "stop:local:#{id}",
+      "Stop before execution."
+    ]
+
+    assert {:ok, stopped} = apply(Custody, :request_stop, args)
+    assert stopped.status == :settled
+    assert stopped.episode.state == :working
+    assert stopped.episode.owner_ref == command.turn_ref
+    assert stopped.turn.session_id == session.id
+    assert stopped.turn.status == :blocked
+    assert stopped.turn.last_error_code == "operator_stop"
+    assert stopped.turn.cancellation_intent["action"] == "block"
+    assert stopped.turn.cancellation_receipt == nil
+    assert Custody.claim_next("worker:stopped-before-claim", 60, :work) == {:ok, nil}
+    assert {:ok, retried} = apply(Custody, :request_stop, args)
+    assert retried.turn.id == stopped.turn.id
+    assert retried.status == :settled
+
+    assert Custody.request_stop(id, command.episode_key, "old-turn", "stale-stop", "Stop.") ==
+             {:error, :work_episode_owner_lost}
+  end
+
   test "cancellation before a remote Coop turn exists settles locally without a cancel mutation" do
     id = Ecto.UUID.generate()
 

@@ -211,7 +211,15 @@ defmodule Ryker.Delivery.Dispatcher do
     with {:ok, message, record_refs, artifact_refs} <-
            delivery_message(claim.turn.delivery_document),
          {:ok, records} <- delivery_records(claim.episode.id, record_refs, claim.turn.id),
-         {:ok, artifacts} <- Artifacts.Outputs.fetch_many(claim.turn.id, artifact_refs) do
+         projection =
+           Map.get(Artifacts.Shares.projections([claim.turn.id]), claim.turn.id, %{
+             turn_id: claim.turn.id,
+             refs: artifact_refs,
+             suffix: ""
+           }),
+         {:ok, artifacts} <- Artifacts.Outputs.fetch_many(projection.turn_id, projection.refs) do
+      message = Artifacts.Shares.append(message, projection.suffix)
+
       document =
         if records == [],
           do: %{"message" => message},

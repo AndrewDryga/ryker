@@ -6,7 +6,7 @@ defmodule Ryker.Settings.Repository.Changeset do
   alias Ryker.Settings.{Repository, Validation}
 
   @fields ~w(
-    ref display_name description github_repository base_branch
+    ref display_name description github_repository base_branch github_issue_actions github_issue_triage github_triage_labels github_ci_repair
     github_access onboarding_state onboarding_error source_commit
   )a
 
@@ -31,5 +31,6 @@ defmodule Ryker.Settings.Repository.Changeset do
     |> validate_length(:onboarding_error, max: 1_024, count: :codepoints)
     |> validate_format(:source_commit, ~r/\A[0-9a-f]{40}\z/)
     |> check_constraint(:github_access, name: :repository_github_state_valid)
+    |> check_constraint(:github_ci_repair, name: :repository_ci_repair_valid)
   end
 end

@@ -8,6 +8,7 @@ defmodule Ryker.Settings.GitHub do
     field(:enabled, :boolean, default: false)
     field(:app_id, :integer)
     field(:app_slug, :string)
+    field(:oauth_client_id, :string)
     field(:api_url, :string, default: "https://api.github.com")
     field(:auto_add_repositories, :boolean, default: false)
     field(:bot_actor_id, :integer)

@@ -122,7 +122,8 @@ defmodule Ryker.Publication.Executor do
 
   defp publish(claim, settings) do
     with {:ok, request} <- Request.new(claim.publication),
-         {:ok, body} <- Request.worker_body(request, settings.repositories),
+         {:ok, body} <-
+           Request.worker_body(request, settings.repositories, claim.session.publication_target),
          result <-
            leased_call(claim, settings, fn ->
              settings.api.publish_review(

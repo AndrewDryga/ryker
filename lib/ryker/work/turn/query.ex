@@ -1,6 +1,7 @@
 defmodule Ryker.Work.Turn.Query do
   @moduledoc "Work turns, for every read of `episode_work_turns`."
   use Ryker, :query
+  alias Ryker.BrowserTests
   alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Records
@@ -232,6 +233,62 @@ defmodule Ryker.Work.Turn.Query do
   @doc "The inputs each turn chose to answer, as `{id, episode_id, selected_input_refs}`."
   def select_selected_inputs(queryable),
     do: select(queryable, [episode_work_turns: t], {t.id, t.episode_id, t.selected_input_refs})
+
+  @doc "Turns with browser evidence or a publication handoff; ordinary Chat history needs no extra reads."
+  def having_artifact_evidence(queryable) do
+    from([episode_work_turns: t] in queryable,
+      left_join: report in BrowserTests.Report,
+      as: :browser_test_reports,
+      on: report.turn_id == t.id,
+      left_join: event in Episodes.Event,
+      as: :episode_kernel_events,
+      on:
+        event.episode_id == t.episode_id and event.kind == :input_admitted and
+          event.dedupe_key in t.selected_input_refs and
+          fragment("?::jsonb #>> '{payload,content,kind}' = 'publication_result'", event.payload),
+      where:
+        not is_nil(report.id) or not is_nil(event.id) or
+          fragment(
+            "coalesce(?::jsonb #> '{outcome,artifact_refs}', '[]'::jsonb) <> '[]'::jsonb",
+            t.delivery_document
+          ),
+      distinct: true
+    )
+  end
+
+  @doc "Only accepted selection, source and retention metadata; no prompts or artifact bytes."
+  def select_artifact_evidence(queryable) do
+    select(
+      queryable,
+      [episode_work_turns: t],
+      struct(t, [
+        :id,
+        :episode_id,
+        :session_id,
+        :selected_input_refs,
+        :accepted_at,
+        :operational_pruned_at,
+        :delivery_document,
+        :validation_intent
+      ])
+    )
+  end
+
+  @doc "Retained replies whose frozen input names this candidate; Completion verifies its host origin."
+  def reporting_candidate(queryable, id) do
+    from([episode_work_turns: t] in queryable,
+      join: event in Episodes.Event,
+      as: :episode_kernel_events,
+      on: event.episode_id == t.episode_id and event.dedupe_key in t.selected_input_refs,
+      where:
+        event.kind == :input_admitted and
+          fragment("?::jsonb #>> '{payload,content,candidate_turn_id}' = ?", event.payload, ^id),
+      where:
+        not is_nil(t.accepted_at) and not is_nil(t.delivery_document) and
+          is_nil(t.operational_pruned_at),
+      distinct: true
+    )
+  end
 
   @doc "Each turn's Coop turn and when it was pruned, as `{coop_turn_id, operational_pruned_at}`."
   def select_pruning(queryable),

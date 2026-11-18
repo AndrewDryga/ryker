@@ -1206,6 +1206,43 @@ defmodule Ryker.ControlPlane.SettingsPage do
         Replace the credentials only when the App ID, private key or webhook secret changed.
       </p>
       <.github_form label="Replace credentials" />
+      <div class="settings-group" id="github-action-sign-in">
+        <h3 class="settings-group-title">Sign in from GitHub action buttons</h3>
+        <p class="settings-lede">
+          Register this callback URL in the GitHub App's user authorization settings:
+        </p>
+        <Components.copy_block label="Copy sign-in callback URL">
+          <pre>{@view.github_action_callback_url}</pre>
+        </Components.copy_block>
+        <p class="settings-lede">
+          Contributors sign in with GitHub to choose review fixes and approve issue plans.
+          Ryker checks their repository access each time.
+        </p>
+        <form phx-submit="connect-github-actions" class="settings-form">
+          <div class="settings-field">
+            <label for="github-action-client-id">Client ID</label>
+            <input
+              id="github-action-client-id"
+              name="connection[client_id]"
+              required
+              value={@view.snapshot.github.oauth_client_id}
+            />
+          </div>
+          <div class="settings-field">
+            <label for="github-action-client-secret">Client secret</label>
+            <input
+              id="github-action-client-secret"
+              name="connection[client_secret]"
+              type="password"
+              required
+              autocomplete="new-password"
+            />
+          </div>
+          <div class="settings-actions">
+            <button type="submit" class="ui-button secondary" phx-disable-with="Saving…">Save GitHub sign-in</button>
+          </div>
+        </form>
+      </div>
     </Kit.section_card>
     """
   end

@@ -9,6 +9,7 @@ defmodule Ryker.Artifacts.Outputs do
   """
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
+  alias Ryker.GitHubActions
   alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Repo
@@ -44,7 +45,8 @@ defmodule Ryker.Artifacts.Outputs do
   @spec delivery_supported?(map()) :: boolean()
   def delivery_supported?(episode) do
     episode.execution_mode == :live and
-      episode.destination_transport in ["slack", "control_plane"]
+      (episode.destination_transport in ["slack", "control_plane"] or
+         (episode.destination_transport == "github" and GitHubActions.available?()))
   end
 
   @spec prepare_metadata(term()) :: {:ok, [map()]} | {:error, term()}

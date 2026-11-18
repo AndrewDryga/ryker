@@ -183,6 +183,34 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
+  @doc "Saves the OAuth client of the connected GitHub App for repository action buttons."
+  @spec connect_github_actions(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def connect_github_actions(params, actor_ref, options \\ []) do
+    client_id = text(params, "client_id")
+    secret = text(params, "client_secret")
+
+    with {:ok, snapshot} <- Settings.fetch(),
+         {:ok, pem} <- Credentials.fetch(:github_private_key, "primary"),
+         {:ok, signer} <- GitHub.AppJWT.new(snapshot.github.app_id, pem),
+         {:ok, http} <- github_app_http(signer, snapshot.github.api_url, options),
+         {:ok, %{body: %{"client_id" => ^client_id} = app, status: 200}} <-
+           request(http, :get, "/app", nil, [], options),
+         :ok <- exact_app(app, snapshot.github.app_id) do
+      store_github_actions(client_id, secret, snapshot.installation.revision, actor_ref)
+    else
+      {:error, reason} -> {:error, reason}
+      _mismatch -> {:error, {:github_verification_failed, :client_id_mismatch}}
+    end
+  end
+
+  defp store_github_actions(client_id, secret, revision, actor_ref) do
+    Settings.atomically(fn ->
+      with {:ok, _credential} <-
+             Credentials.put(:github_oauth_secret, "primary", secret, actor_ref),
+           do: Settings.save_github(%{oauth_client_id: client_id}, revision, actor_ref)
+    end)
+  end
+
   @doc """
   Every repository the connected App's installations reach, the most recently
   pushed first, each marked `already_present` once Ryker has it set up:
@@ -965,7 +993,8 @@ defmodule Ryker.IntegrationSetup do
 
   defp delete_connection_credentials(:github, actor_ref) do
     with :ok <- Credentials.delete(:github_private_key, "primary", actor_ref),
-         do: Credentials.delete(:github_webhook, "primary", actor_ref)
+         :ok <- Credentials.delete(:github_webhook, "primary", actor_ref),
+         do: Credentials.delete(:github_oauth_secret, "primary", actor_ref)
   end
 
   # Emisar's handshake names the server, never the account behind a key, and

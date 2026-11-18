@@ -30,16 +30,9 @@ defmodule Ryker.ControlPlane.Router do
   @maximum_form_bytes 4_096
   @maximum_memory_form_bytes 16 * 1_024
   @maximum_lab_form_bytes 65_536
-  # Every file of a message together (`Ryker.Artifacts.maximum_bytes/0`) and
-  # the form beside them, whose allowance also covers the multipart framing.
-  @maximum_lab_multipart_bytes Ryker.Artifacts.maximum_bytes() + @maximum_lab_form_bytes
   @readable_files "It reads text files, PDFs and PNG, JPEG, WebP or GIF images, and transcribes voice messages and videos."
   # Every failure kind with a confirmed recovery; publications have none.
   @recoverable_failures ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
-  @lab_multipart_parser Plug.Parsers.init(
-                          parsers: [{:multipart, length: @maximum_lab_multipart_bytes}],
-                          query_string_length: 4_096
-                        )
 
   @impl Plug
   def init(options) do
@@ -1503,7 +1496,15 @@ defmodule Ryker.ControlPlane.Router do
   defp lab_form(_conn, _content_type), do: {:error, :form}
 
   defp parse_lab_multipart(conn) do
-    {:ok, Plug.Parsers.call(conn, @lab_multipart_parser)}
+    # Resolve context-owned limits at runtime. A compile-time call into Artifacts
+    # makes every context reached by protected results part of this router's cycle.
+    parser =
+      Plug.Parsers.init(
+        parsers: [{:multipart, length: Artifacts.maximum_bytes() + @maximum_lab_form_bytes}],
+        query_string_length: 4_096
+      )
+
+    {:ok, Plug.Parsers.call(conn, parser)}
   rescue
     _error in [
       Plug.Parsers.BadEncodingError,

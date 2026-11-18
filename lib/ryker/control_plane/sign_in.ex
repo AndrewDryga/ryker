@@ -10,9 +10,8 @@ defmodule Ryker.ControlPlane.SignIn do
   """
   @behaviour Plug
   import Plug.Conn
-  alias Phoenix.HTML.Safe
   alias Ryker.ConsoleAccess
-  alias Ryker.ControlPlane.{Layouts, SignInGate, Viewer}
+  alias Ryker.ControlPlane.{PublicPage, SignInGate, Viewer}
 
   @impl true
   def init(action) when action in [:page, :link, :use_link], do: action
@@ -20,15 +19,23 @@ defmodule Ryker.ControlPlane.SignIn do
   @impl true
   def call(conn, :page) do
     case Viewer.from_conn(conn, %{}) do
-      nil -> conn |> delete_session(Viewer.session_key()) |> page(200, "Sign in to Ryker", how())
-      _viewer -> go(conn, "/")
+      nil ->
+        conn
+        |> delete_session(Viewer.session_key())
+        |> PublicPage.page(200, "Sign in to Ryker", how())
+
+      _viewer ->
+        PublicPage.go(conn, "/")
     end
   end
 
   def call(%Plug.Conn{path_params: %{"token" => token}} = conn, :link) do
     case ConsoleAccess.fetch_link(token) do
-      {:ok, link} -> page(conn, 200, "Sign in to Ryker", confirm(link, conn.request_path))
-      {:error, reason} -> refused(conn, reason, token)
+      {:ok, link} ->
+        PublicPage.page(conn, 200, "Sign in to Ryker", confirm(link, conn.request_path))
+
+      {:error, reason} ->
+        refused(conn, reason, token)
     end
   end
 
@@ -43,7 +50,7 @@ defmodule Ryker.ControlPlane.SignIn do
         |> put_session(Viewer.session_key(), session_token)
         |> put_session("live_socket_id", "console_session:" <> session.id)
         |> Viewer.keep_signed_in()
-        |> go(if SignInGate.return_path?(destination), do: destination, else: "/")
+        |> PublicPage.go(if SignInGate.return_path?(destination), do: destination, else: "/")
 
       {:error, reason} ->
         refused(conn, reason, token)
@@ -51,7 +58,7 @@ defmodule Ryker.ControlPlane.SignIn do
   end
 
   defp refused(conn, :not_found, _token) do
-    page(conn, 404, "This link doesn't work", [
+    PublicPage.page(conn, 404, "This link doesn't work", [
       "<p>It may have been withdrawn, or copied only in part. ",
       "Ask Ryker for a new one: send <code>/ryker sign-in</code> in Slack. ",
       "If someone invited you, ask them for a new invite.</p>"
@@ -65,7 +72,7 @@ defmodule Ryker.ControlPlane.SignIn do
         _expired -> {"This link has expired", "It no longer signs anyone in."}
       end
 
-    page(conn, 410, title, ["<p>", opening, " ", again(token), "</p>"])
+    PublicPage.page(conn, 410, title, ["<p>", opening, " ", again(token), "</p>"])
   end
 
   # Where a new link comes from, for the link that was opened.
@@ -96,37 +103,13 @@ defmodule Ryker.ControlPlane.SignIn do
   defp confirm(link, action) do
     [
       "<p>This link signs you in as <strong>",
-      escape(link.person_name),
+      PublicPage.escape(link.person_name),
       "</strong> on this browser. It works once.</p>",
       "<form method=\"post\" action=\"",
-      escape(action),
+      PublicPage.escape(action),
       "\"><input type=\"hidden\" name=\"_csrf_token\" value=\"",
-      escape(Plug.CSRFProtection.get_csrf_token()),
+      PublicPage.escape(Plug.CSRFProtection.get_csrf_token()),
       "\"><button class=\"ui-button primary\" type=\"submit\" phx-disable-with=\"Signing in…\">Sign in</button></form>"
     ]
   end
-
-  # `Layouts.sign_in/1` renders through HEEx, which escapes the title; bodies are this module's
-  # markup, escaping every value.
-  # sobelow_skip ["XSS.SendResp"]
-  defp page(conn, status, title, body) do
-    html =
-      %{__changed__: nil, title: title, body: IO.iodata_to_binary(body)}
-      |> Layouts.sign_in()
-      |> Safe.to_iodata()
-
-    conn
-    |> put_resp_content_type("text/html")
-    |> send_resp(status, html)
-    |> halt()
-  end
-
-  defp go(conn, path) do
-    conn
-    |> put_resp_header("location", path)
-    |> send_resp(303, "")
-    |> halt()
-  end
-
-  defp escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 end

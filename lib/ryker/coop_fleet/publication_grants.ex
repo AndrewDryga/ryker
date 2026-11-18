@@ -1,6 +1,7 @@
 defmodule Ryker.CoopFleet.PublicationGrants do
   @moduledoc false
   alias Ryker.CoopFleet.{Command, ControlPlane, JobAuthority, Placement}
+  alias Ryker.Delivery
   alias Ryker.GitHub
   alias Ryker.{Maps, Repo, Settings}
   alias Ryker.Publication
@@ -10,7 +11,13 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   @request ~w(session_id review_operation_id job_ref job_digest repository command_key request)
   @body ~w(authorization_ref candidate_head candidate_tree branch base_branch expected_head pull_request_number title body)
 
-  def publication_grant(certificate, job_ref, request, provider \\ GitHub.InstallationTokens) do
+  def publication_grant(
+        certificate,
+        job_ref,
+        request,
+        provider \\ GitHub.InstallationTokens,
+        options \\ []
+      ) do
     with {:ok, authority} <- publication_grant_authority(certificate, job_ref, request),
          {:ok, %{token: token, expires_at: expires_at}} <-
            GitHub.InstallationTokens.fresh_publication_token(
@@ -19,6 +26,7 @@ defmodule Ryker.CoopFleet.PublicationGrants do
              Map.take(authority.binding, [:repository_id, :installation_id]),
              authority.workflows_write?
            ),
+         :ok <- authorize_target_actor(authority, token, options),
          {:ok, current} <- publication_grant_authority(certificate, job_ref, request) do
       if current == authority do
         {:ok,
@@ -76,11 +84,14 @@ defmodule Ryker.CoopFleet.PublicationGrants do
     source = job && job["source"]
 
     with true <- Maps.exact_keys?(request, @request),
-         true <- Maps.exact_keys?(body, @body),
+         true <- Maps.exact_keys?(body, request_fields(session)),
          true <- is_binary(body["base_branch"]) and is_binary(body["authorization_ref"]),
          {:ok, ^session} <- JobAuthority.validate(session),
          true <- exact_job?(request, job_ref, session),
-         true <- "refs/heads/" <> body["base_branch"] == source["binding"]["default_ref"],
+         true <- exact_target?(session, body),
+         true <-
+           not is_nil(session.publication_target) or
+             GitHub.CIRepairAuthority.ordinary_publication_allowed?(session),
          [%Publication.Publication{} = publication] <-
            publications(session.id, body["authorization_ref"]),
          true <- Publication.Custody.publication_authorized?(publication),
@@ -92,7 +103,8 @@ defmodule Ryker.CoopFleet.PublicationGrants do
            Enum.find(snapshot.repositories, &(&1.ref == source["repository_ref"])),
          true <-
            repository_id == source["github_repository_id"] and
-             github_repository == source["github_repository"] do
+             github_repository == source["github_repository"],
+         true <- target_binding?(session.publication_target, binding, snapshot.github.enabled) do
       # No publication lease is asked for: Ryker holds one only for the second it takes to check
       # on the worker, and a worker retrying the exact command it was sent must be able to finish
       # between those checks (Andrew's PR #2, 2026-10-01, stuck "updating" until anyone looked).
@@ -104,10 +116,97 @@ defmodule Ryker.CoopFleet.PublicationGrants do
          command: {command.id, command.payload_fingerprint},
          approval:
            {publication.approval_ref, publication.approved_by_actor_ref, publication.approved_at},
-         review: publication.review_fingerprint
+         review: publication.review_fingerprint,
+         target: session.publication_target,
+         api_url: snapshot.github.api_url,
+         github_repository: github_repository
        }}
     else
       _unproven -> {:error, :publication_grant_denied}
+    end
+  end
+
+  defp request_fields(%{publication_target: nil}), do: @body
+  defp request_fields(_session), do: ["mode" | @body]
+
+  defp exact_target?(%{publication_target: nil, worker_job_document: job}, body),
+    do: "refs/heads/" <> body["base_branch"] == job["source"]["binding"]["default_ref"]
+
+  defp exact_target?(session, body) do
+    target = session.publication_target
+
+    case Work.PublicationTarget.parse(target) do
+      {:ok, ^target} ->
+        Map.take(body, ~w(mode branch base_branch expected_head pull_request_number)) == %{
+          "mode" => "existing_pull_request",
+          "branch" => String.replace_prefix(target["head_ref"], "refs/heads/", ""),
+          "base_branch" => String.replace_prefix(target["base_ref"], "refs/heads/", ""),
+          "expected_head" => target["head_commit"],
+          "pull_request_number" => target["number"]
+        } and
+          session.worker_job_document["source"]["binding"]["selected_commit"] ==
+            target["head_commit"]
+
+      _invalid ->
+        false
+    end
+  end
+
+  defp target_binding?(nil, _binding, _enabled), do: true
+
+  defp target_binding?(target, binding, enabled) do
+    enabled and target["binding_ref"] == binding.name and
+      target["repository_id"] == binding.repository_id and
+      target["installation_id"] == binding.installation_id and
+      target["app_actor_id"] == binding.ryker_actor_id and
+      target["repository_ref"] == binding.repository_ref
+  end
+
+  defp authorize_target_actor(%{target: nil}, _token, _options), do: :ok
+
+  defp authorize_target_actor(
+         %{target: %{"reason" => "automatic_ci_repair"}} = authority,
+         token,
+         options
+       ) do
+    with {:ok, http} <-
+           Delivery.JSONClient.new(
+             base_url: authority.api_url,
+             finch: Ryker.CoopFinch,
+             receive_timeout: 15_000,
+             token_provider: fn -> {:ok, token} end
+           ),
+         {:ok, client} <-
+           GitHub.Client.new(
+             http: http,
+             requester: Keyword.get(options, :requester, Delivery.JSONClient)
+           ),
+         do: GitHub.CIRepairAuthority.fresh(authority.target, client)
+  end
+
+  defp authorize_target_actor(%{target: %{"authorization" => actor}} = authority, token, options) do
+    with {:ok, binding} <-
+           GitHub.Binding.new(
+             Map.put(authority.binding, :repository_full_name, authority.github_repository)
+           ),
+         {:ok, http} <-
+           Delivery.JSONClient.new(
+             base_url: authority.api_url,
+             finch: Ryker.CoopFinch,
+             receive_timeout: 15_000,
+             token_provider: fn -> {:ok, token} end
+           ),
+         :ok <-
+           GitHub.RepositoryAccess.authorize(
+             binding,
+             %{"sender" => %{"id" => actor["id"], "login" => actor["login"], "type" => "User"}},
+             http,
+             Keyword.put(options, :expected_actor_id, actor["id"])
+           ) do
+      :ok
+    else
+      {:error, :actor_not_authorized} -> {:error, :publication_grant_denied}
+      _unavailable -> {:error, :publication_grant_unavailable}
     end
   end
 
@@ -128,14 +227,28 @@ defmodule Ryker.CoopFleet.PublicationGrants do
     review = publication.review_document
     body = request["request"]
 
-    is_map(review) and review["candidate_retained"] == true and
-      review["job_digest"] == session.worker_job_digest and
-      review["session_id"] == session.coop_session_id and
-      review["session_revision"] == publication.review_expected_revision and
-      review["operation_id"] == request["review_operation_id"] and
-      review["candidate_head"] == body["candidate_head"] and
-      review["candidate_tree"] == body["candidate_tree"] and
+    is_map(review) and
+      Map.take(
+        review,
+        ~w(candidate_retained job_digest session_id session_revision operation_id candidate_head candidate_tree)
+      ) == %{
+        "candidate_retained" => true,
+        "job_digest" => session.worker_job_digest,
+        "session_id" => session.coop_session_id,
+        "session_revision" => publication.review_expected_revision,
+        "operation_id" => request["review_operation_id"],
+        "candidate_head" => body["candidate_head"],
+        "candidate_tree" => body["candidate_tree"]
+      } and
+      exact_review_parent?(session.publication_target, review) and
       publication.repository == request["repository"]["repository_ref"]
+  end
+
+  defp exact_review_parent?(nil, _review), do: true
+
+  defp exact_review_parent?(%{"head_commit" => head}, review) do
+    review["parent_head"] == head and review["gate"] == "passed" and
+      review["publishable"] == true
   end
 
   defp exact_commands?(publication, session, placement, command, request) do
@@ -163,10 +276,19 @@ defmodule Ryker.CoopFleet.PublicationGrants do
       review.worker_id == placement.worker_id and
       review.placement_generation <= placement.generation and
       review.status in [:succeeded, :uncertain] and
-      reviewed_revision(review.payload) == %{
-        "coop_session_id" => session.coop_session_id,
-        "expected_revision" => publication.review_expected_revision
-      }
+      reviewed_revision(review.payload) == review_identity(session, publication)
+  end
+
+  defp review_identity(session, publication) do
+    identity = %{
+      "coop_session_id" => session.coop_session_id,
+      "expected_revision" => publication.review_expected_revision
+    }
+
+    case session.publication_target do
+      nil -> identity
+      %{"head_commit" => head} -> Map.put(identity, "parent_head", head)
+    end
   end
 
   # A review sent to a worker that names reviewed commits also carries the commit's message

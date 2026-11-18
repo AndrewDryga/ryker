@@ -84,6 +84,60 @@ defmodule Ryker.RetentionPolicies do
       why: "where the delivery poller stopped reading an App's deliveries, one row per App"
     },
     %{
+      table: "github_issue_workflows",
+      class: :kept,
+      why:
+        "one issue's current plan, request revision and reconciled comment receipt; preserved with its saved plan history so an old action cannot become current again"
+    },
+    %{
+      table: "github_issue_plans",
+      class: :kept,
+      why:
+        "saved user-reviewable plan versions, inspected commit and frozen issue content; these are durable documents, independent of transient Work and ingress retention"
+    },
+    %{
+      table: "github_issue_requests",
+      class: :kept,
+      why:
+        "exact approved plan or issue snapshot, actor and saved outcome; retained with plan history and request deduplication so pruning cannot authorize the same action twice"
+    },
+    %{
+      table: "github_issue_triage_reads",
+      class: :cascade,
+      why:
+        "bounded frozen related-issue evidence belongs to its saved triage request through a cascading foreign key; later GitHub edits never rewrite the evidence behind its outcome"
+    },
+    %{
+      table: "github_issue_indexes",
+      class: :kept,
+      why:
+        "repository-scoped refresh lease and backfill cursor; retained across restarts and disabled triage so historical issues do not restart automatic work"
+    },
+    %{
+      table: "github_indexed_issues",
+      class: :cascade,
+      why:
+        "current search documents, embeddings and last-triaged fingerprints belong to their repository index; fresh reads replace documents or remove unavailable issues, and the index foreign key cascades deletion"
+    },
+    %{
+      table: "github_ci_repairs",
+      class: :kept,
+      why:
+        "per-pull-request generation, spent repair budget, current observation and comment custody; retention must never grant another automatic attempt"
+    },
+    %{
+      table: "github_ci_repair_rounds",
+      class: :kept,
+      why:
+        "immutable head, CI evidence and outcome for each spent repair attempt; retained with the repair ledger after ingress and execution history expire"
+    },
+    %{
+      table: "browser_test_reports",
+      class: :cascade,
+      why:
+        "bounded visual-test observations and revision evidence belong to their Work turn and leave through its cascading foreign key at the audit horizon; image bytes follow artifact retention separately"
+    },
+    %{
       table: "publication_settings",
       class: :kept,
       why: "publication identity and desired state; existing branch namespaces depend on it"

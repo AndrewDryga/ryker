@@ -4,7 +4,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   source task once, its summary is posted in the publication's conversation,
   and the receipt that comes back closes it.
 
-  Failing checks wake the task to finish its own change, a deployment or
+  Failing checks enter the repository CI repair policy; a deployment or
   Terraform signal wakes it to verify one that already shipped, and review
   feedback continues it with the feedback itself as the new input. A wakeup
   for a cancelled task, or for an input the task already holds in a newer
@@ -12,6 +12,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   """
   alias Ryker.Delivery
   alias Ryker.Episodes
+  alias Ryker.GitHub
   alias Ryker.Ingress
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.{Leases, Store}
@@ -21,7 +22,8 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   def admit_wakeup(event_ref, lease_ref) do
     with :ok <- Store.reference(event_ref, :event_ref),
-         :ok <- Store.reference(lease_ref, :lease_ref) do
+         :ok <- Store.reference(lease_ref, :lease_ref),
+         :ok <- GitHub.CIRepairSignals.observe_lifecycle(event_ref) do
       Store.transaction(fn -> admit_wakeup_locked(event_ref, lease_ref) end)
     end
   end
@@ -145,6 +147,11 @@ defmodule Ryker.Publication.Followups.Delivery do
   defp admit_wakeup_event(%LifecycleEvent{wakeup_state: state} = event, _now)
        when state in [:none, :admitted],
        do: event
+
+  # All failing-CI repairs now go through the repository policy and two-round custody.
+  # The old source-task wakeup must not bypass Off or the PR skip label.
+  defp admit_wakeup_event(%LifecycleEvent{kind: :checks, state: :failed} = event, now),
+    do: Store.update_event!(event, %{wakeup_state: :none}, now)
 
   defp admit_wakeup_event(%LifecycleEvent{wakeup_state: :pending} = event, now) do
     publication = Repo.fetch!(Publication.Query.by_id(event.publication_id))
@@ -291,15 +298,7 @@ defmodule Ryker.Publication.Followups.Delivery do
     input
   end
 
-  # A red check asks the agent to finish its own change; a deployment or
-  # Terraform signal asks it to verify one that already shipped. Naming the two
-  # differently is what keeps a correction from being reported as a verification.
-  defp wakeup_request(%LifecycleEvent{kind: :checks, state: :failed}),
-    do: %{
-      "correction_request" =>
-        "The checks on this exact pull request are failing. Fix them inside the task's existing scope and update the same branch, or say precisely what is blocking them. Do not widen the task, and do not merge or deploy."
-    }
-
+  # Passing checks and deployments can resume an existing verification promise.
   defp wakeup_request(%LifecycleEvent{kind: :checks, state: :succeeded}),
     do: %{
       "verification_request" =>

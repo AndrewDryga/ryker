@@ -37,6 +37,12 @@ defmodule Ryker.StateTools.SchemaCheckTest do
     }
   ]
 
+  test "a host-issued UUID is accepted by an advertised UUID format" do
+    catalog = [%{"name" => "source", "inputSchema" => %{"type" => "string", "format" => "uuid"}}]
+    assert SchemaCheck.exact_schema("source", Ryker.Repo.generate_id(), catalog) == :ok
+    assert {:error, _reason} = SchemaCheck.exact_schema("source", "not-an-id", catalog)
+  end
+
   # The catalog tells the model each string's maxLength, which JSON Schema
   # counts in code points, and the host counted what a reader sees as one
   # character: a value the model was told was too long passed, and its row's

@@ -10,6 +10,7 @@ defmodule Ryker.GitHub.Router do
   alias Ryker.Crypto
   alias Ryker.GitHub
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events, Labels}
+  alias Ryker.GitHubActions
   alias Ryker.HTTPConnection
   alias Ryker.Ingress
   alias Ryker.Publication
@@ -256,6 +257,7 @@ defmodule Ryker.GitHub.Router do
   defp admit_event(conn, binding, delivery_ref, event_ref, event_name, payload, options)
        when event_name in @lifecycle_events do
     with :ok <- Binding.authorize_payload(binding, payload),
+         :ok <- GitHub.CIRepairSignals.observe(binding, event_name, payload),
          false <- Engagement.review_requested?(event_name, payload, binding),
          {:ok, outcome} <-
            Publication.Followups.nudge_github_event(
@@ -357,7 +359,10 @@ defmodule Ryker.GitHub.Router do
       payload: payload
     }
 
-    with :ok <- authorize_repository_actor(event_name, binding, payload, options),
+    with :ok <- Binding.authorize_payload(binding, payload),
+         :ok <- GitHub.IssueIndex.signal(binding, event_name, payload),
+         :ok <- GitHubActions.offer_issue_actions(binding, event_name, payload),
+         :ok <- authorize_repository_actor(event_name, binding, payload, options),
          {:ok, input} <- Ingress.Adapters.normalize("github", event, binding) do
       confirm_or_record(conn, input, binding, options)
     else

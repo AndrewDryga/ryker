@@ -136,9 +136,9 @@ defmodule Ryker.ControlPlane.Conversation.Query do
           episode.destination_transport == "control_plane" and
           episode.destination_conversation_ref == ^ref and
           episode.destination_thread_ref == ^ref and
-          not is_nil(turn.accepted_at) and not is_nil(turn.delivery_document) and
+          not is_nil(turn.accepted_at) and
           is_nil(turn.operational_pruned_at),
-      select: artifact
+      select: {artifact, turn}
     )
   end
 

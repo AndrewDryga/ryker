@@ -8,9 +8,13 @@ defmodule Ryker.Publication.Receipt do
   @fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
 
   @spec prepare(map(), map(), String.t()) :: {:ok, map()} | {:error, term()}
-  def prepare(receipt, review, repository)
+  def prepare(receipt, review, repository, target \\ nil)
+
+  def prepare(receipt, review, repository, target)
       when is_map(receipt) and is_map(review) and is_binary(repository) do
-    with true <- Maps.exact_keys?(receipt, @fields),
+    with true <- Maps.exact_keys?(receipt, @fields, ["target_observation"]),
+         true <- target_observation?(receipt["target_observation"]),
+         true <- target_matches?(receipt, target),
          true <- receipt["repository"] == repository,
          true <- receipt["candidate_tree"] == review["candidate_tree"],
          true <- receipt["commit_sha"] == review["candidate_head"],
@@ -26,10 +30,41 @@ defmodule Ryker.Publication.Receipt do
     end
   end
 
-  def prepare(_receipt, _review, _repository),
+  def prepare(_receipt, _review, _repository, _target),
     do: {:error, {:invalid_publication_receipt, :document}}
 
   def fingerprint(receipt), do: CanonicalJSON.digest(receipt)
+
+  defp target_matches?(receipt, nil), do: not Map.has_key?(receipt, "target_observation")
+
+  defp target_matches?(receipt, %{"kind" => "existing_pull_request"} = target) do
+    receipt["branch_ref"] == target["head_ref"] and
+      receipt["pull_request_number"] == target["number"]
+  end
+
+  defp target_matches?(_receipt, _target), do: false
+
+  defp target_observation?(nil), do: true
+
+  defp target_observation?(%{} = observation) do
+    Maps.exact_keys?(
+      observation,
+      ~w(state head_ref base_ref head_repository_id base_repository_id head_commit pull_request_state)
+    ) and
+      observation["state"] in ~w(changed_after_push unverified_after_push) and
+      Enum.all?(~w(head_ref base_ref), &observed_ref?(observation[&1])) and
+      Enum.all?(
+        ~w(head_repository_id base_repository_id),
+        &(is_integer(observation[&1]) and observation[&1] >= 0)
+      ) and
+      (observation["head_commit"] == "" or GitObject.id?(observation["head_commit"])) and
+      observation["pull_request_state"] in ["", "open", "closed"]
+  end
+
+  defp target_observation?(_observation), do: false
+
+  defp observed_ref?(value),
+    do: is_binary(value) and String.valid?(value) and byte_size(value) <= 256
 
   # The link opens the pull request the receipt names. Its owner and
   # repository are GitHub's own, and the publication keeps them: a worker can

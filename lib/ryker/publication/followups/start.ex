@@ -13,10 +13,21 @@ defmodule Ryker.Publication.Followups.Start do
   alias Ryker.Publication.{Custody, Followup, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
+  alias Ryker.Work
 
   @default_deadline_seconds 30 * 24 * 60 * 60
 
   def arm_published_in_transaction(%Publication{status: :published} = publication, now) do
+    case Repo.peek(Work.Session.Query.by_id(publication.session_id)) do
+      %Work.Session{publication_target: %{"kind" => "existing_pull_request"}} -> :ok
+      _ordinary -> arm_owned_publication(publication, now)
+    end
+  end
+
+  def arm_published_in_transaction(_publication, _now),
+    do: Repo.rollback(:publication_not_delivered)
+
+  defp arm_owned_publication(publication, now) do
     attributes = %{
       deadline_at: DateTime.add(now, @default_deadline_seconds, :second),
       episode_id: publication.episode_id,
@@ -45,9 +56,6 @@ defmodule Ryker.Publication.Followups.Start do
         end
     end
   end
-
-  def arm_published_in_transaction(_publication, _now),
-    do: Repo.rollback(:publication_not_delivered)
 
   def rearm_stale_in_transaction(%Publication{} = publication, now) do
     case fetch_and_lock_followup(publication) do

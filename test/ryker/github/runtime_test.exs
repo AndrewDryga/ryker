@@ -24,6 +24,9 @@ defmodule Ryker.GitHub.RuntimeTest do
              OnboardingWorker,
              ProcessingReactionWorker,
              LabelWorker,
+             Ryker.GitHubActions.IssueMessageWorker,
+             Ryker.GitHub.CIRepairWorker,
+             Ryker.GitHub.IssueTriageWorker,
              Server,
              DeliveryPoller
            ]

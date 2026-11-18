@@ -9,6 +9,10 @@ defmodule Ryker.Settings.Repository do
     field(:description, :string)
     field(:github_repository, :string)
     field(:base_branch, :string, default: "main")
+    field(:github_issue_actions, :boolean, default: false)
+    field(:github_issue_triage, :boolean, default: false)
+    field(:github_triage_labels, :boolean, default: false)
+    field(:github_ci_repair, Ecto.Enum, values: [:off, :own, :all], default: :off)
 
     field(:github_access, Ecto.Enum,
       values: [:available, :suspended, :removed],

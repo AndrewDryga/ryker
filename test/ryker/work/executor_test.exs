@@ -2343,7 +2343,7 @@ defmodule Ryker.Work.ExecutorTest do
           continuation: prepared.continuation,
           payload_fingerprint: CanonicalJSON.digest(prepared.payload)
         }
-        |> Record.Changeset.insert()
+        |> Record.Changeset.insert(Repo.now!())
         |> Repo.insert!()
 
       captured =

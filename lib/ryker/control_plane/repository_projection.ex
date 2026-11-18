@@ -269,6 +269,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
   defp configured_repositories(snapshot) do
     bindings = Map.new(snapshot.github_bindings, &{&1.repository_ref, &1})
+    issue_actions_ready = Ryker.GitHubActions.available?()
 
     Map.new(snapshot.repositories, fn repository ->
       binding = Map.get(bindings, repository.ref)
@@ -282,6 +283,12 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
          github_bound: not is_nil(binding),
          github_permissions: binding && binding.granted_permissions,
          github_access: repository.github_access,
+         github_issue_actions: repository.github_issue_actions,
+         github_issue_actions_ready: issue_actions_ready,
+         github_issue_triage: repository.github_issue_triage,
+         github_triage_labels: repository.github_triage_labels,
+         github_ci_repair: repository.github_ci_repair,
+         settings_revision: snapshot.installation.revision,
          github_repository: repository.github_repository,
          onboarding_error: repository.onboarding_error,
          onboarding_state: repository.onboarding_state,

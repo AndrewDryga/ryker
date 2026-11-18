@@ -1,7 +1,7 @@
 defmodule Ryker.GitHub.TaskAccess do
   @moduledoc "Authorizes a human GitHub instruction against current repository task access."
   alias Ryker.CoopFleet
-  alias Ryker.GitHub.Binding
+  alias Ryker.GitHub.{Binding, CIRepairAuthority}
   alias Ryker.Ingress
   alias Ryker.Settings
 
@@ -23,7 +23,13 @@ defmodule Ryker.GitHub.TaskAccess do
       repositories:
         Enum.map(
           snapshot.repositories,
-          &Map.take(&1, [:ref, :github_repository, :github_access, :base_branch])
+          &Map.take(&1, [
+            :ref,
+            :github_repository,
+            :github_access,
+            :base_branch,
+            :github_ci_repair
+          ])
         ),
       environments:
         Enum.map(snapshot.environments, fn environment ->
@@ -39,6 +45,13 @@ defmodule Ryker.GitHub.TaskAccess do
   end
 
   @doc "Recheck the sender's write access before starting work in the event's own repository."
+  def authorize(
+        %Ingress.Inbox.Entry{content: %{"event_name" => "ryker_ci_repair"}} = entry,
+        repository,
+        options
+      ),
+      do: policy(entry, repository, options)
+
   def authorize(entry, repository, options) do
     with {:ok, _policy} <- policy(entry, repository, options),
          %{binding: binding} <- Map.fetch!(options.bindings, entry.source_ref),
@@ -48,6 +61,24 @@ defmodule Ryker.GitHub.TaskAccess do
   end
 
   @doc "Resolve the unchanged local grant, also under the task-start settings fence."
+  def policy(
+        %Ingress.Inbox.Entry{content: %{"event_name" => "ryker_ci_repair"}} = entry,
+        repository,
+        options
+      ) do
+    with {:ok, {_entry, _actor}} <- CIRepairAuthority.instruction(entry, repository),
+         %{binding: binding, repository: ^repository, policy: policy} <-
+           Map.get(options.bindings, entry.source_ref),
+         :ok <- Binding.authorize_payload(binding, entry.content["payload"]),
+         {:ok, snapshot} <- Settings.fetch(),
+         true <- authority_configuration(snapshot) == options.configuration do
+      {:ok,
+       Map.take(policy, [:name, :digest, :environment_ref, :repository_ref, :repository_context])}
+    else
+      _revoked -> {:error, :task_instruction_not_authorized}
+    end
+  end
+
   def policy(
         %Ingress.Inbox.Entry{
           execution_mode: :live,

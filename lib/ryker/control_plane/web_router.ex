@@ -32,11 +32,64 @@ defmodule Ryker.ControlPlane.WebRouter do
   scope "/" do
     pipe_through([:form, :browser])
     post("/sign-in/:token", Ryker.ControlPlane.SignIn, :use_link)
+
+    post(
+      "/github/actions/offer/:ref",
+      Ryker.ControlPlane.GitHubActions,
+      :confirm_engineering_offer
+    )
+
+    post("/github/actions/sign-in", Ryker.ControlPlane.GitHubActions, :sign_in)
+    post("/github/actions/review/:binding/:number", Ryker.ControlPlane.GitHubActions, :fix_review)
+  end
+
+  pipeline :issue_form do
+    plug(Plug.Parsers, parsers: [:urlencoded], length: 65_536)
+  end
+
+  scope "/" do
+    pipe_through([:issue_form, :browser])
+
+    post(
+      "/github/actions/issue/:binding/:number",
+      Ryker.ControlPlane.GitHubActions,
+      :issue_action
+    )
+
+    post(
+      "/github/actions/issue/:binding/:number/edit",
+      Ryker.ControlPlane.GitHubActions,
+      :edit_issue_plan
+    )
   end
 
   scope "/" do
     pipe_through(:browser)
     get("/sign-in", Ryker.ControlPlane.SignIn, :page)
+    get("/github/actions/results/:turn", Ryker.ControlPlane.GitHubActions, :browser_results)
+
+    get(
+      "/github/actions/results/:turn/images/:ref",
+      Ryker.ControlPlane.GitHubActions,
+      :result_image
+    )
+
+    get("/github/actions/offer/:ref", Ryker.ControlPlane.GitHubActions, :engineering_offer)
+    get("/github/actions/callback", Ryker.ControlPlane.GitHubActions, :callback)
+    get("/github/actions/issue/:binding/:number", Ryker.ControlPlane.GitHubActions, :issue)
+
+    get(
+      "/github/actions/issue/:binding/:number/history/:before",
+      Ryker.ControlPlane.GitHubActions,
+      :issue
+    )
+
+    get(
+      "/github/actions/review/:binding/:number/:head/:mode",
+      Ryker.ControlPlane.GitHubActions,
+      :review
+    )
+
     get("/sign-in/:token", Ryker.ControlPlane.SignIn, :link)
     live("/", Ryker.ControlPlane.WorkbenchLive)
 

@@ -1,5 +1,6 @@
 defmodule Ryker.StateTools.SchemaCheck do
   @moduledoc false
+  alias Ryker.Reference
   alias Ryker.Schedules
   alias Ryker.StateTools.Catalog
   alias Ryker.Text
@@ -377,6 +378,8 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp valid_format?(value, "date-time") do
     UTCDateTime.iso8601?(value)
   end
+
+  defp valid_format?(value, "uuid"), do: Reference.uuid?(value)
 
   defp valid_format?(_value, _format), do: false
 end

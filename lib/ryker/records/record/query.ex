@@ -8,6 +8,20 @@ defmodule Ryker.Records.Record.Query do
 
   def all, do: from(records in Record, as: :episode_state_records)
 
+  @doc "The confirmed task started by this exact admitted input."
+  def for_source_entry(entry) do
+    from(r in Record,
+      as: :episode_state_records,
+      join: e in Episodes.Event,
+      on: r.confirmation_ref == type(e.id, :string),
+      where: r.episode_id == ^entry.episode_id and e.episode_id == ^entry.episode_id,
+      where: r.kind == "task_offer" and r.status == :confirmed and e.kind == :input_admitted,
+      where: fragment("?::jsonb #>> '{payload,event_ref}' = ?", e.payload, ^entry.event_ref),
+      order_by: [asc: r.inserted_at],
+      limit: 1
+    )
+  end
+
   @doc "The task already started for this source instruction, across model retries."
   def started_for_instruction(episode_id, instruction_ref, repository) do
     from([episode_state_records: r] in all(),

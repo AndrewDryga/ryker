@@ -19,6 +19,53 @@ defmodule Ryker.GitHub.ConfirmationsTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @digest String.duplicate("b", 64)
 
+  test "a button confirms the delivered brief once and refuses another repository or changed brief" do
+    fixture = delivered_offers!()
+    assert {:ok, offer} = Confirmations.engineering_offer(fixture.task.ref)
+    access = %{binding: %{name: "github-main", repository_id: 99}, repository: %{ref: "ryker"}}
+
+    assert Confirmations.confirm_engineering(
+             fixture.task.ref,
+             "changed",
+             "github-user:7",
+             access,
+             options()
+           ) ==
+             {:error, :offer_unavailable}
+
+    wrong = put_in(access.binding.repository_id, 100)
+
+    assert Confirmations.confirm_engineering(
+             fixture.task.ref,
+             offer.fingerprint,
+             "github-user:7",
+             wrong,
+             options()
+           ) ==
+             {:error, :offer_unavailable}
+
+    assert {:ok, %{episode: episode, status: :confirmed}} =
+             Confirmations.confirm_engineering(
+               fixture.task.ref,
+               offer.fingerprint,
+               "github-user:7",
+               access,
+               options()
+             )
+
+    assert {:ok, %{episode: duplicate, status: :duplicate}} =
+             Confirmations.confirm_engineering(
+               fixture.task.ref,
+               offer.fingerprint,
+               "github-user:8",
+               access,
+               options()
+             )
+
+    assert duplicate.id == episode.id
+    assert Confirmations.engineering_offer(fixture.memory.ref) == {:error, :offer_unavailable}
+  end
+
   test "only newly created confirmation comments require maintain access" do
     for body <- ["/ryker confirm record:task_offer:abc", "  /ryker confirm invalid ref  "] do
       assert Confirmations.required_repository_role(%{

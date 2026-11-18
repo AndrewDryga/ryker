@@ -73,7 +73,7 @@ defmodule Ryker.Delivery.RequestTest do
 
     assert Request.new(%{
              message_attributes()
-             | document: %{"message" => String.duplicate("x", 20_001)}
+             | document: %{"message" => String.duplicate("x", 24_097)}
            }) == {:error, {:invalid_delivery_request, :message}}
 
     assert Request.new(%{

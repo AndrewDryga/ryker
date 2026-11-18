@@ -17,7 +17,11 @@ defmodule Ryker.GitHub.RepositoryAccess do
     with {:ok, login} <- sender_login(payload),
          path <- permission_path(binding.repository_full_name, login),
          response <- requester.request(http, :get, path, nil, @headers) do
-      permission(response, Keyword.get(options, :minimum_role, :write))
+      expected_actor = Keyword.get(options, :expected_actor_id, action_actor(payload))
+
+      with :ok <- exact_actor(response, expected_actor) do
+        permission(response, Keyword.get(options, :minimum_role, :write))
+      end
     end
   rescue
     error -> unavailable(error)
@@ -31,6 +35,20 @@ defmodule Ryker.GitHub.RepositoryAccess do
        do: {:ok, login}
 
   defp sender_login(_payload), do: {:error, :actor_not_authorized}
+
+  defp action_actor(%{"action" => kind, "sender" => %{"id" => id}})
+       when kind in ~w(fix_review make_plan build_issue implement_plan), do: id
+
+  defp action_actor(_payload), do: nil
+
+  # Logins can be renamed and reused while an authorized task is running.
+  defp exact_actor(_response, nil), do: :ok
+
+  defp exact_actor({:ok, %{status: 200, body: %{"user" => %{"id" => id}}}}, id)
+       when is_integer(id) and id > 0, do: :ok
+
+  defp exact_actor({:ok, %{status: 200}}, _id), do: {:error, :actor_not_authorized}
+  defp exact_actor(_response, _id), do: :ok
 
   defp permission({:ok, %{body: body, status: 200}}, minimum_role) when is_map(body) do
     if permitted?(body, minimum_role), do: :ok, else: {:error, :actor_not_authorized}

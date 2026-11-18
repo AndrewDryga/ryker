@@ -16,8 +16,10 @@ defmodule Ryker.GitHub.Renderer do
   @offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
   @confirmable_offer_kinds ~w(automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
-  @spec render(map()) :: {:ok, String.t()} | {:error, term()}
-  def render(%{"emisar_approval_statuses" => [_first | _rest] = statuses} = document)
+  @spec render(map(), String.t() | nil) :: {:ok, String.t()} | {:error, term()}
+  def render(document, offer_base \\ nil)
+
+  def render(%{"emisar_approval_statuses" => [_first | _rest] = statuses} = document, _offer_base)
       when map_size(document) == 1 do
     prepared = Enum.map(statuses, &Emisar.ApprovalStatus.prepare/1)
 
@@ -32,19 +34,19 @@ defmodule Ryker.GitHub.Renderer do
     end
   end
 
-  def render(%{"message" => message} = document)
+  def render(%{"message" => message} = document, _offer_base)
       when is_binary(message) and map_size(document) == 1,
       do: {:ok, message}
 
-  def render(%{"message" => message, "records" => records} = document)
+  def render(%{"message" => message, "records" => records} = document, offer_base)
       when is_binary(message) and map_size(document) == 2 and is_list(records) and
              length(records) <= @maximum_records do
-    with {:ok, sections} <- render_records(records) do
+    with {:ok, sections} <- render_records(records, offer_base) do
       {:ok, Enum.join([message | sections], "\n\n")}
     end
   end
 
-  def render(_document), do: {:error, {:invalid_github_render, :document}}
+  def render(_document, _offer_base), do: {:error, {:invalid_github_render, :document}}
 
   # The same review Slack reports, in Markdown: current status first, then the
   # decisions oldest first. A run no human reviewed states nothing here.
@@ -63,9 +65,9 @@ defmodule Ryker.GitHub.Renderer do
 
   defp error_markdown(_status), do: ""
 
-  defp render_records(records) do
+  defp render_records(records, offer_base) do
     Enum.reduce_while(records, {:ok, []}, fn record, {:ok, rendered} ->
-      case render_record(record) do
+      case render_record(record, offer_base) do
         {:ok, ""} -> {:cont, {:ok, rendered}}
         {:ok, section} -> {:cont, {:ok, rendered ++ [section]}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -74,17 +76,43 @@ defmodule Ryker.GitHub.Renderer do
   end
 
   defp render_record(
-         %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => status} = record
+         %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => status} = record,
+         offer_base
        )
        when map_size(record) == 4 and is_binary(kind) and is_map(payload) and is_binary(ref) and
               status in ["open", "confirmed"] do
     case Records.RecordPayload.prepare(kind, payload, ref) do
-      {:ok, %{payload: prepared}} -> record_markdown(kind, prepared, ref, status)
+      {:ok, %{payload: prepared}} -> record_markdown(kind, prepared, ref, status, offer_base)
       _invalid -> {:error, {:invalid_github_render, :record}}
     end
   end
 
-  defp render_record(_record), do: {:error, {:invalid_github_render, :record}}
+  defp render_record(_record, _offer_base), do: {:error, {:invalid_github_render, :record}}
+
+  defp record_markdown(
+         "task_offer",
+         %{"kind" => "engineering"} = payload,
+         ref,
+         "open",
+         offer_base
+       ) do
+    repository = if payload["repository"], do: " in `#{escape(payload["repository"])}`", else: ""
+
+    control =
+      case offer_base do
+        nil ->
+          confirmation(ref)
+
+        base ->
+          "\n\n[**Review and start task**](#{base}/#{URI.encode(ref, &URI.char_unreserved?/1)})\n\nReview the exact brief, then approve it with your GitHub account. Opening the link starts no work."
+      end
+
+    {:ok,
+     "### Proposed engineering task\n\n**#{escape(payload["title"])}**#{repository}#{control}"}
+  end
+
+  defp record_markdown(kind, payload, ref, status, _offer_base),
+    do: record_markdown(kind, payload, ref, status)
 
   defp record_markdown("emisar_approval", payload, _ref, "open") do
     {:ok,
@@ -135,13 +163,6 @@ defmodule Ryker.GitHub.Renderer do
   # teammate (Andrew, 2026-09-30, on emisar#87). They are still validated above.
   defp record_markdown(kind, _payload, _ref, _status) when kind in @investigation_kinds,
     do: {:ok, ""}
-
-  defp record_markdown("task_offer", %{"kind" => "engineering"} = payload, ref, "open") do
-    repository = if payload["repository"], do: " in `#{escape(payload["repository"])}`", else: ""
-
-    {:ok,
-     "### Proposed engineering task\n\n**#{escape(payload["title"])}**#{repository}#{confirmation(ref)}"}
-  end
 
   defp record_markdown("task_offer", payload, _ref, "open") do
     repository = if payload["repository"], do: " in `#{escape(payload["repository"])}`", else: ""

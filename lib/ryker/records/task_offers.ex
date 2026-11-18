@@ -8,6 +8,8 @@ defmodule Ryker.Records.TaskOffers do
   """
   alias Ryker.Crypto
   alias Ryker.Episodes
+  alias Ryker.GitHub
+  alias Ryker.GitHubActions
   alias Ryker.Ingress
   alias Ryker.Maps
   alias Ryker.Records
@@ -91,12 +93,19 @@ defmodule Ryker.Records.TaskOffers do
            ),
          true <- TaskInstruction.same_source?(entry, candidate) and actor == candidate_actor,
          :ok <- reauthorize_placement(actor, entry, payload["repository"], placement, authorize),
+         {:ok, publication_target} <-
+           Work.PublicationTarget.from_input(entry, payload["repository"]),
+         payload <- Work.PublicationTarget.pin_source(payload, publication_target),
+         {:ok, payload} <- GitHubActions.IssueInstructions.pin(entry, payload),
+         {:ok, payload} <- GitHub.CIRepairRequests.pin(entry, payload),
+         :ok <- authorize_saved_offer(offer_ref, entry, publication_target),
          {:ok, record} <- fetch_or_create_task(current, payload, offer_ref) do
       attributes = %{
         actor_ref: actor,
         confirmation_ref: payload["instruction_ref"],
         occurred_at: Repo.now!(),
         policy: placement,
+        publication_target: publication_target,
         target: %{
           thread_ref: entry.destination_thread_ref,
           message_ref: entry.source_item_ref
@@ -118,6 +127,23 @@ defmodule Ryker.Records.TaskOffers do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp authorize_saved_offer(nil, _entry, _target), do: :ok
+
+  defp authorize_saved_offer(_ref, _entry, %{}),
+    do: {:error, :task_instruction_not_authorized}
+
+  defp authorize_saved_offer(
+         _ref,
+         %Ingress.Inbox.Entry{
+           content: %{"event_name" => "ryker_action", "payload" => %{"action" => action}}
+         },
+         _target
+       )
+       when action in ["build_issue", "implement_plan"],
+       do: {:error, :task_instruction_not_authorized}
+
+  defp authorize_saved_offer(_ref, _entry, _target), do: :ok
 
   defp requester(entry, "system:proactive:" <> _channel, nil), do: {:proactive, entry}
   defp requester(entry, _actor, assignment) when is_binary(assignment), do: {:assignment, entry}
@@ -305,11 +331,7 @@ defmodule Ryker.Records.TaskOffers do
       linked_episode_id: source_episode.id,
       native_input_id: "task-confirmation:#{record.ref}",
       occurred_at: attributes.occurred_at,
-      payload: %{
-        "confirmed_by" => attributes.actor_ref,
-        "record_ref" => record.ref,
-        "task" => record.payload
-      },
+      payload: task_input_payload(record, attributes),
       revision: 1,
       turn_ref: turn_ref
     }
@@ -329,7 +351,8 @@ defmodule Ryker.Records.TaskOffers do
              workspace_task(record),
              environment_ref: Map.get(attributes.policy, :environment_ref),
              repository_context: Map.get(attributes.policy, :repository_context),
-             repository_source: repository_source
+             repository_source: repository_source,
+             publication_target: Map.get(attributes, :publication_target)
            ),
          {:ok, record} <- persist_confirmation(record, transition.episode, attributes) do
       %{
@@ -341,6 +364,15 @@ defmodule Ryker.Records.TaskOffers do
     else
       {:error, reason} -> Repo.rollback(reason)
     end
+  end
+
+  defp task_input_payload(record, attributes) do
+    %{
+      "confirmed_by" => attributes.actor_ref,
+      "record_ref" => record.ref,
+      "task" => record.payload
+    }
+    |> Maps.put_present("publication_target", Map.get(attributes, :publication_target))
   end
 
   # An incident investigation only reads, under a conversation or incident

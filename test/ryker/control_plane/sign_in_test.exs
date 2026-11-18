@@ -58,6 +58,21 @@ defmodule Ryker.ControlPlane.SignInTest do
     assert {:error, {:redirect, %{to: "/sign-in"}}} = live(local(), "/settings/access")
   end
 
+  test "GitHub action previews offer repository sign-in without opening the console" do
+    path = "/github/actions/review/widget-app/42/" <> String.duplicate("a", 40) <> "/selected"
+    response = get(published(), path)
+    assert response.status == 200
+    assert response.resp_body =~ "Continue with GitHub"
+    assert response.resp_body =~ "method=\"post\""
+    refute Map.has_key?(response.resp_cookies, "_ryker_github_user")
+    console = response |> recycle() |> get("/settings")
+    assert get_resp_header(console, "location") == ["/sign-in"]
+
+    assert_error_sent(403, fn ->
+      press(response, "/github/actions/review/widget-app/42", %{"findings[]" => "thread-one"})
+    end)
+  end
+
   test "a localhost page goes to the signed-in cookie host before asking anyone to sign in" do
     response =
       local()

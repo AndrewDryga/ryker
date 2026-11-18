@@ -58,6 +58,7 @@ defmodule Ryker.ControlPlane.SignInGate do
   defp open?(%Plug.Conn{path_info: ["metrics"], host: host}), do: BrowserGuard.local_host?(host)
   defp open?(%Plug.Conn{path_info: ["assets" | _rest]}), do: true
   defp open?(%Plug.Conn{path_info: ["sign-in" | _rest]}), do: true
+  defp open?(%Plug.Conn{path_info: ["github", "actions" | _rest]}), do: true
   defp open?(_conn), do: false
 
   defp page?(%Plug.Conn{method: method}), do: method in ["GET", "HEAD"]

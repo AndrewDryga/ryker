@@ -1,6 +1,6 @@
 defmodule Ryker.GitHub.Labels do
   @moduledoc "The two standard PR labels: a person's review request and Ryker's current activity."
-  alias Ryker.GitHub.{CommentActivity, PullRequestActivity}
+  alias Ryker.GitHub.{CIRepair, CommentActivity, PullRequestActivity}
   alias Ryker.Repo
 
   def active_pulls(name, binding) do
@@ -15,7 +15,8 @@ defmodule Ryker.GitHub.Labels do
         PullRequestActivity.Query.active_publications(binding.repository_full_name, Repo.now!())
       )
 
-    MapSet.new(requested ++ owned)
+    repairing = Repo.all(CIRepair.Query.active_pulls(name, binding.repository_id))
+    MapSet.new(requested ++ owned ++ repairing)
   end
 
   defp pull_number(thread, name) do

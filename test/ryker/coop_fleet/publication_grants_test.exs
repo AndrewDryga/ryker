@@ -15,6 +15,24 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
   @fixture Path.expand("../../../testdata/protocol/coop-worker-v2.json", __DIR__)
 
   defmodule Requester do
+    def request(
+          http,
+          :get,
+          "/repos/example/repository/collaborators/example-writer/permission",
+          nil,
+          _headers
+        ) do
+      {:ok, token} = http.token_provider.()
+      send(Process.get(:permission_owner), {:permission, self(), token})
+
+      receive do
+        {:person, id} ->
+          {:ok, %{status: 200, body: %{"permission" => "write", "user" => %{"id" => id}}}}
+      after
+        5_000 -> {:error, :test_permission_not_released}
+      end
+    end
+
     def request(owner, method, path, body, _headers) do
       send(owner, {:mint, self(), method, path, body})
 
@@ -208,6 +226,111 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
 
     publication
     |> change(review_document: Map.put(publication.review_document, "candidate_retained", false))
+    |> Repo.update!()
+
+    assert authority(certificate, session, request) == {:error, :publication_grant_denied}
+  end
+
+  test "an existing PR grant binds the selected head, refs, parent review and requesting person",
+       %{
+         certificate: certificate,
+         command: command,
+         publication: publication,
+         request: request,
+         review: review,
+         session: session
+       } do
+    {:ok, snapshot} = Settings.fetch()
+
+    {:ok, _} =
+      Settings.save_github(
+        %{enabled: true, app_id: 1234, app_slug: "ryker-test"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    original_review_payload = review.payload
+
+    target =
+      Ryker.Fixtures.GitHubActions.publication_target(%{
+        "head_commit" => session.worker_job_document["source"]["binding"]["selected_commit"]
+      })
+
+    session = session |> change(publication_target: target) |> Repo.update!()
+
+    review_document =
+      Map.put(publication.review_document, "parent_head", target["head_commit"])
+
+    publication |> change(review_document: review_document) |> Repo.update!()
+
+    review
+    |> change(payload: Map.put(review.payload, "parent_head", target["head_commit"]))
+    |> Repo.update!()
+
+    body =
+      Map.merge(request["request"], %{
+        "mode" => "existing_pull_request",
+        "branch" => "human/fix",
+        "base_branch" => "main",
+        "expected_head" => target["head_commit"],
+        "pull_request_number" => 7
+      })
+
+    request = Map.put(request, "request", body)
+
+    command
+    |> change(payload: Map.put(command.payload, "body", body))
+    |> Repo.update!()
+
+    assert {:ok, %{target: ^target}} = authority(certificate, session, request)
+
+    provider = provider!()
+
+    for person <- [123, 124] do
+      owner = self()
+
+      task =
+        Task.async(fn ->
+          Process.put(:permission_owner, owner)
+
+          receive do
+            :begin ->
+              PublicationGrants.publication_grant(
+                certificate,
+                session.external_ref,
+                request,
+                provider,
+                requester: Requester
+              )
+          end
+        end)
+
+      Sandbox.allow(Repo, self(), task.pid)
+      send(task.pid, :begin)
+      assert_receive {:mint, minter, :post, "/app/installations/41/access_tokens", _body}, 5_000
+      send(minter, :complete)
+      assert_receive {:permission, checker, "host-only-publication-token"}, 5_000
+      send(checker, {:person, person})
+
+      if person == 123,
+        do: assert({:ok, _grant} = Task.await(task)),
+        else: assert(Task.await(task) == {:error, :publication_grant_denied})
+    end
+
+    for {field, value} <- [
+          {"mode", ""},
+          {"branch", "other"},
+          {"base_branch", "release"},
+          {"expected_head", String.duplicate("f", 40)},
+          {"pull_request_number", 8}
+        ] do
+      assert authority(certificate, session, put_in(request, ["request", field], value)) ==
+               {:error, :publication_grant_denied}
+    end
+
+    review.__struct__
+    |> Repo.get!(review.id)
+    |> change(payload: original_review_payload)
     |> Repo.update!()
 
     assert authority(certificate, session, request) == {:error, :publication_grant_denied}

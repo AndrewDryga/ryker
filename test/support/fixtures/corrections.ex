@@ -10,6 +10,30 @@ defmodule Ryker.Fixtures.Corrections do
   alias Ryker.Slack
   alias Ryker.Work
 
+  def from_entry!(entry) do
+    {:ok, input} =
+      Ingress.Input.new(%{
+        actor: %{kind: entry.actor_kind, ref: entry.actor_ref},
+        content: entry.content,
+        source: %{kind: entry.source_kind, ref: entry.source_ref},
+        destination: %{
+          transport: entry.destination_transport,
+          conversation_ref: entry.destination_conversation_ref,
+          thread_ref: entry.destination_thread_ref
+        },
+        event_kind: entry.event_kind,
+        event_ref: entry.event_ref,
+        native_input_id: entry.native_input_id,
+        source_item_ref: entry.source_item_ref,
+        source_capabilities: entry.source_capabilities,
+        occurred_at: entry.occurred_at,
+        occurred_at_source: entry.occurred_at_source,
+        revision: entry.revision
+      })
+
+    correction!(input: input, text: entry.content["request"])
+  end
+
   def correction!(options \\ []) do
     fixture = File.read!("testdata/learning/retained-rollout-correction.json") |> Jason.decode!()
     text = Keyword.get(options, :text, hd(fixture["corrections"])["text"])

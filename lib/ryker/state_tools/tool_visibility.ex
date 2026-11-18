@@ -4,6 +4,8 @@ defmodule Ryker.StateTools.ToolVisibility do
   alias Ryker.Work
 
   @tool_transports %{
+    "offer_github_issue_actions" => MapSet.new(["github"]),
+    "save_github_issue_plan" => MapSet.new(["github"]),
     "read_github_conversation" => MapSet.new(["github"]),
     "read_github_pull_request" => MapSet.new(["control_plane", "github", "slack"]),
     "read_github_ci" => MapSet.new(["control_plane", "github", "slack"]),

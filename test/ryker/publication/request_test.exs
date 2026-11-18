@@ -4,6 +4,35 @@ defmodule Ryker.Publication.RequestTest do
 
   @repositories %{"ryker" => %{base_branch: "main", branch_prefix: "ryker"}}
 
+  test "a selected fix publishes only to the frozen human PR after reviewing its exact parent" do
+    target =
+      Ryker.Fixtures.GitHubActions.publication_target(%{"base_ref" => "refs/heads/release"})
+
+    request = request(%{title: "Fix empty input", body: "Checked selected finding."})
+
+    request = %{
+      request
+      | review:
+          Map.merge(request.review, %{
+            "parent_head" => target["head_commit"],
+            "gate" => "passed",
+            "publishable" => true
+          })
+    }
+
+    assert {:ok, body} = Request.worker_body(request, @repositories, target)
+    assert body["mode"] == "existing_pull_request"
+    assert body["branch"] == "human/fix"
+    assert body["base_branch"] == "release"
+    assert body["expected_head"] == target["head_commit"]
+    assert body["pull_request_number"] == 7
+
+    drifted = put_in(request.review["parent_head"], String.duplicate("f", 40))
+
+    assert Request.worker_body(drifted, @repositories, target) ==
+             {:error, :invalid_publication_target}
+  end
+
   # The description was joined into one line, so a task's lists, code blocks
   # and paragraphs reached the pull request as one run-on paragraph
   # (2026-10-04 review).
