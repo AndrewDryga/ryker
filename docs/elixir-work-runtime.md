@@ -984,11 +984,12 @@ The frozen worker job must prove a read-only or workspace-free session; a writab
 requires the successful checkpoint for that exact candidate and retry generation, with its version-2
 transfer and retained bundle. These checks repeat under the owner and session locks.
 
-Closing a wait retains the primary workspace and episode history. Coop's periodic maintenance can
+Closing a wait preserves the episode history. Coop's periodic maintenance can
 then reclaim each clean, independently proven companion copy, even if the primary contains unpublished
 work. A reply during unleased grace reuses the session; after cleanup starts, Work creates a successor
-and writable tasks restore their checkpoint. The old primary becomes eligible for normal discard only
-when the episode finishes or a newer generation replaces it. Other writable sessions remain open.
+and writable tasks restore their checkpoint. A closed read-only primary with a validated source commit and no writable task goes through
+normal discard planning while the episode waits. The worker checks the copy before removal.
+Writable primaries stay until the episode finishes or a newer generation replaces them. Other writable sessions remain open.
 
 A publication someone discarded is finished: cleanup and history retention wait only for one that
 may still publish. Commits it never published keep its workspace retained, as any others do.

@@ -59,7 +59,7 @@ defmodule Ryker.Retention.CustodyTest do
 
   # One waiting session held sixteen full companion histories for days. Closing
   # idle execution must release those copies without erasing the conversation.
-  test "a settled read-only wait closes after grace and retains its primary until replaced" do
+  test "a settled read-only wait closes after grace and can release its primary before the next reply" do
     {session, _turn} = waiting_session!("idle-read-only")
     assert {:ok, %{session: _} = claim} = Custody.claim_next("cleanup:idle", 60)
     assert claim.session.id == session.id
@@ -68,7 +68,30 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, closed} = Custody.mark_closed(session.id, close.lease_ref)
     assert closed.closed_at
     assert closed.cleanup_status == :plan_pending
-    assert Custody.claim_next("cleanup:keep-primary", 60) == {:ok, nil}
+    # Over a hundred idle primaries accumulated even though the next reply gets a new generation.
+    assert {:ok, %{session: planning, lease_ref: plan_lease}} =
+             Custody.claim_next("cleanup:inspect-primary", 60)
+
+    assert planning.id == session.id
+    assert planning.cleanup_status == :plan_pending
+    assert {:ok, _} = Custody.freeze_plan_revision(session.id, plan_lease, 8, false)
+    response = discard_plan(session.coop_session_id, 8, false, false)
+    assert {:ok, plan} = Plan.prepare(response, session.coop_session_id, 8, false)
+
+    assert {:ok, %{cleanup_status: :discard_pending}} =
+             Custody.store_plan(session.id, plan_lease, plan, 21_600)
+
+    assert {:ok, discard} = Custody.claim_next("cleanup:remove-primary", 60)
+
+    assert {:ok, %{cleanup_status: :discarded}} =
+             Custody.settle_discard(
+               session.id,
+               discard.lease_ref,
+               Custody.discard_key(discard.session),
+               session.coop_session_id
+             )
+
+    assert Repo.get!(Episodes.Episode, session.episode_id).state == :waiting_for_event
 
     assert {:ok, resumed} =
              WorkSessions.pin_episode(session.episode_id, session.policy, session.policy_digest)
@@ -76,8 +99,6 @@ defmodule Ryker.Retention.CustodyTest do
     assert resumed.generation == session.generation + 1
     assert resumed.cleanup_status == :active
     assert resumed.closed_at == nil
-    assert {:ok, old} = Custody.claim_next("cleanup:replaced-wait", 60)
-    assert old.session.id == session.id
   end
 
   test "waiting cleanup requires the latest accepted turn and durable read-only authority" do
@@ -284,8 +305,16 @@ defmodule Ryker.Retention.CustodyTest do
     turn = Repo.update!(Ecto.Changeset.change(turn, checkpoint_retry_generation: 3))
     assert Custody.claim_next("cleanup:older-checkpoint", 60) == {:ok, nil}
     Repo.update!(Ecto.Changeset.change(turn, checkpoint_retry_generation: 2))
-    assert {:ok, %{session: claimed}} = Custody.claim_next("cleanup:saved-checkpoint", 60)
+
+    assert {:ok, %{session: claimed, lease_ref: lease}} =
+             Custody.claim_next("cleanup:saved-checkpoint", 60)
+
     assert claimed.id == session.id
+    assert {:ok, _} = Custody.begin_grace(session.id, lease, 0)
+    assert {:ok, close} = Custody.claim_next("cleanup:close-writable", 60)
+    assert {:ok, _closed} = Custody.mark_closed(session.id, close.lease_ref)
+    assert Custody.claim_next("cleanup:keep-writable-primary", 60) == {:ok, nil}
+    assert Custody.eligible_copies(Repo.now!(), 10) == {[], 0}
   end
 
   test "resuming between a waiting close request and its reply cannot close the successor" do

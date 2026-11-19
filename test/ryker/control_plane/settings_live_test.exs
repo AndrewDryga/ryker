@@ -672,9 +672,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
 
     {:ok, github, _html} = open("/integrations/github")
-    assert has_element?(github, "h2", "Repair GitHub connection")
+    assert has_element?(github, "#github-app[open]", "Repair")
     assert has_element?(github, ".settings-connection .state-word[data-tone=bad]", "Needs repair")
-    assert has_element?(github, ".settings-connection a[href='#github-app']", "Repair")
+    assert has_element?(github, "#github-app[open] form[phx-submit=connect-github]")
     refute has_element?(github, "button[phx-value-action=disconnect-github]")
   end
 
@@ -1046,40 +1046,59 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "#{section} form button[type=submit]", "Replace tokens")
   end
 
-  test "the GitHub App credentials section shows its fields under its heading, not behind a fold" do
-    # The same fold as the Slack tokens (Andrew, 2026-09-25: "remove
-    # collapsible, just show inputs"): its fields sat in a closed disclosure.
+  # Operators with a working App could not find the missing sign-in step.
+  test "GitHub setup expands missing steps and folds verified credentials" do
     initialize!()
-    connect_github!()
-    {:ok, view, _html} = open("/integrations/github")
+    {:ok, first, _} = open("/integrations/github")
+    assert has_element?(first, "#github-app[open] .github-connection-form")
+    refute has_element?(first, "form[phx-submit=connect-github-actions]")
 
-    section = "section[aria-label='GitHub App']"
-    refute has_element?(view, "#{section} details form")
-    assert has_element?(view, "#{section} > form[phx-submit=connect-github]")
-    assert has_element?(view, "#{section} input[name='connection[app_id]']")
-    assert has_element?(view, "#{section} form button[type=submit]", "Replace credentials")
+    connect_github!()
+    {:ok, view, _} = open("/integrations/github")
+    assert has_element?(view, "details#github-app:not([open]) .github-connection-form")
+    assert has_element?(view, "#github-app #github-events")
+    assert has_element?(view, "details#github-repositories[open] a[href='/repositories/new']")
+
+    assert has_element?(
+             view,
+             "details#github-action-sign-in[open] form[phx-submit=connect-github-actions]"
+           )
+
+    refute has_element?(view, ".section-head h2", "Connection")
   end
 
-  # Andrew, 2026-10-03, of the Webhook card between Repositories and Pull
-  # requests on a working App: "why show it here after app is installed and
-  # configured? maybe move it below App credentials at least or combine two?"
-  test "a working App's webhook address and credentials share the last card" do
+  test "the sign-in step folds only while Ryker can read the saved client secret" do
     initialize!()
     connect_github!()
-    {:ok, _view, html} = open("/integrations/github")
-    document = LazyHTML.from_document(html)
 
-    titles =
-      document
-      |> LazyHTML.query("main .section-head h2")
-      |> Enum.map(&String.trim(LazyHTML.text(&1)))
+    {:ok, _} =
+      Settings.save_github(
+        %{oauth_client_id: "client-one"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
 
-    assert titles == ["Connection", "Repositories", "Pull requests", "GitHub App"]
+    {:ok, _} =
+      Credentials.put(:github_oauth_secret, "primary", "test-oauth-secret-long-enough", @actor)
 
-    app = LazyHTML.query(document, "section[aria-label='GitHub App']")
-    assert app |> LazyHTML.query(".copy-block pre") |> LazyHTML.text() =~ "http"
-    assert Enum.count(LazyHTML.query(app, "#github-events")) == 1
-    assert Enum.count(LazyHTML.query(app, "form[phx-submit=connect-github]")) == 1
+    {:ok, ready, _} = open("/integrations/github")
+    assert has_element?(ready, "#github-action-sign-in:not([open]) summary", "Credentials saved")
+    secret = Repo.get_by!(Ryker.Credential, kind: :github_oauth_secret, name: "primary")
+    Repo.update!(Ecto.Changeset.change(secret, ciphertext: "unreadable"))
+    {:ok, repair, _} = open("/integrations/github")
+    assert has_element?(repair, "#github-action-sign-in[open] summary", "Set up sign-in")
+  end
+
+  test "GitHub App verification explains an invalid key beside the form" do
+    initialize!()
+    {:ok, view, _} = open("/integrations/github")
+
+    render_submit(view, "connect-github", %{
+      "connection" => %{"app_id" => "123", "private_key" => "invalid"}
+    })
+
+    assert has_element?(view, "#github-app[open] .form-feedback-error")
+    refute has_element?(view, ".page-feedback.form-feedback-error")
   end
 
   # Andrew, 2026-10-03, on tenant's GitHub page with the App verified and no
@@ -1113,7 +1132,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "Add a repository to start"
            )
 
-    assert has_element?(view, ".section-head a[href='/repositories/new']", "Add repositories")
+    assert has_element?(
+             view,
+             "#github-repositories a[href='/repositories/new']",
+             "Add repositories"
+           )
+
     assert has_element?(view, ".copy-block pre", "http")
     assert has_element?(view, "a[href='https://github.com/apps/ryker-acme/installations/new']")
     assert has_element?(view, "#settings-publication .section-head h2", "Pull requests")

@@ -505,7 +505,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   # Approving was granted wherever the App could write pull requests and could
   # not be turned off (2026-10-04 review). It is the repository's own choice,
   # made on its page after a question that says what an approval can do.
-  test "Allow approvals asks first, then lets Ryker's reviews approve until Stop approvals" do
+  test "PR approvals require confirmation to enable and show the saved outcome in the form" do
     connect_github!()
 
     {:ok, %{added: ["acme/api"]}} =
@@ -518,48 +518,29 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     question = "#confirm-approvals"
     approvals_allowed? = fn -> hd(Settings.fetch!().github_bindings).approvals_allowed end
 
-    assert has_element?(view, "#repository-github", "do not approve")
-    view |> element("#repository-github button", "Allow approvals") |> render_click()
-
-    assert has_element?(
-             view,
-             "#{question} .kit-modal-title",
-             "Let Ryker approve pull requests in acme/api?"
-           )
-
-    assert has_element?(view, "#{question} .kit-modal-text", "stand in for a person's")
-
-    # Cancel closes it and changes nothing.
+    selector = "#repository-approvals form"
+    assert has_element?(view, selector <> " button[disabled]", "Save changes")
+    view |> form(selector, %{"enabled" => "true"}) |> render_submit()
+    assert has_element?(view, question, "branch protection")
     view |> element("#{question} button", "Cancel") |> render_click()
-    refute has_element?(view, question)
     refute approvals_allowed?.()
-
-    view |> element("#repository-github button", "Allow approvals") |> render_click()
-    view |> element("#{question} button", "Allow approvals") |> render_click()
-    refute has_element?(view, question)
+    view |> form(selector, %{"enabled" => "true"}) |> render_submit()
+    view |> element("#{question} button", "Allow PR approvals") |> render_click()
     assert approvals_allowed?.()
-
-    assert has_element?(
-             view,
-             "#repository-notice.form-feedback-success",
-             "Ryker's reviews may now approve pull requests in acme/api."
-           )
-
-    assert has_element?(view, "#repository-github", "may approve pull requests here")
-
-    view |> element("#repository-github button", "Stop approvals") |> render_click()
-    view |> element("#{question} button", "Stop approvals") |> render_click()
+    assert has_element?(view, "#repository-approvals .form-feedback-success", "Saved")
+    view |> form(selector, %{"enabled" => "false"}) |> render_submit()
     refute approvals_allowed?.()
+    assert has_element?(view, "#repository-approvals .form-feedback-success", "Saved")
 
-    # A change never asked about only asks.
-    render_click(view, "allow-approvals", %{"repository" => "acme-api"})
+    view |> form(selector, %{"enabled" => "true"}) |> render_submit()
+    assert has_element?(view, question)
 
-    assert has_element?(
-             view,
-             "#{question} .kit-modal-title",
-             "Let Ryker approve pull requests in acme/api?"
-           )
+    {:ok, _} =
+      Settings.put_repository(%{ref: "acme-api", github_issue_triage: true}, :current, @actor)
 
+    send(view.pid, :reload_page)
+    refute has_element?(view, question)
+    assert has_element?(view, "#repository-approvals .form-feedback-error")
     refute approvals_allowed?.()
   end
 

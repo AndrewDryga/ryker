@@ -89,13 +89,15 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   @quiet_after_seconds 5 * 60
 
   @spec snapshot(String.t()) :: {:ok, [map()]} | {:error, term()}
-  def snapshot(workspace_ref) when is_binary(workspace_ref) and workspace_ref != "" do
+  def snapshot(workspace_ref, default \\ :mentions)
+
+  def snapshot(workspace_ref, default) when is_binary(workspace_ref) and workspace_ref != "" do
     cutoff = DateTime.add(DateTime.utc_now(), -@recent_terminal_seconds, :second)
-    episodes = recent_episodes(workspace_ref, cutoff)
+    episodes = recent_episodes(workspace_ref, cutoff, default)
 
     {:ok,
      targets(
-       recent_entries(workspace_ref, cutoff),
+       recent_entries(workspace_ref, cutoff, default),
        episodes,
        owning_turns(episodes),
        workspace_ref
@@ -106,17 +108,18 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     kind, reason -> {:error, {:slack_thread_status_projection_failed, kind, inspect(reason)}}
   end
 
-  def snapshot(_workspace_ref), do: {:error, {:invalid_slack_thread_status, :workspace_ref}}
+  def snapshot(_workspace_ref, _default),
+    do: {:error, {:invalid_slack_thread_status, :workspace_ref}}
 
-  defp recent_entries(workspace_ref, cutoff) do
+  defp recent_entries(workspace_ref, cutoff, default) do
     workspace_ref
-    |> ThreadActivity.Query.recent_entries(cutoff, @maximum_rows)
+    |> ThreadActivity.Query.recent_entries(cutoff, @maximum_rows, default)
     |> Repo.all()
   end
 
-  defp recent_episodes(workspace_ref, cutoff) do
+  defp recent_episodes(workspace_ref, cutoff, default) do
     workspace_ref
-    |> ThreadActivity.Query.recent_episodes(cutoff, @maximum_rows)
+    |> ThreadActivity.Query.recent_episodes(cutoff, @maximum_rows, default)
     |> Repo.all()
   end
 

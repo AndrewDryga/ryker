@@ -278,9 +278,18 @@ defmodule Ryker.GitHubActions do
   defp selected_ids(_ids), do: {:error, :invalid_selection}
 
   defp configuration do
-    with {:ok, snapshot} <- Settings.fetch(),
-         %{enabled: true, oauth_client_id: client_id, api_url: api_url} <- snapshot.github,
-         true <- is_binary(client_id) and client_id != "",
+    case Settings.fetch() do
+      {:ok, %{github: %{enabled: true} = github}} -> client_configuration(github)
+      _missing -> {:error, :github_sign_in_not_configured}
+    end
+  end
+
+  @doc "Whether the saved App has usable local sign-in credentials, including before adding its first repository."
+  @spec sign_in_configured?(map()) :: boolean()
+  def sign_in_configured?(github), do: match?({:ok, _}, client_configuration(github))
+
+  defp client_configuration(%{oauth_client_id: client_id, api_url: api_url}) do
+    with true <- is_binary(client_id) and client_id != "",
          base when is_binary(base) <- Config.get_env(:control_public_url),
          true <- URI.parse(base).scheme in ["http", "https"],
          {:ok, secret} <- Credentials.fetch(:github_oauth_secret, "primary") do

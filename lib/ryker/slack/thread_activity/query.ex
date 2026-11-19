@@ -7,14 +7,16 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   use Ryker, :query
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
   alias Ryker.Work
 
   @doc """
   The `limit` latest live Slack messages of `workspace_ref` that are pending,
   blocked or changed since `cutoff`.
   """
-  def recent_entries(workspace_ref, cutoff, limit) do
+  def recent_entries(workspace_ref, cutoff, limit, default) do
     from(entry in Ingress.Inbox.Entry,
+      as: :status_subject,
       where:
         entry.source_kind == "slack" and entry.source_ref == ^workspace_ref and
           entry.destination_transport == "slack" and entry.execution_mode == :live and
@@ -22,14 +24,16 @@ defmodule Ryker.Slack.ThreadActivity.Query do
       order_by: [desc: entry.updated_at],
       limit: ^limit
     )
+    |> visible_in(workspace_ref, default)
   end
 
   @doc """
   The `limit` latest live episodes of `workspace_ref`'s Slack conversations
   still under way or changed since `cutoff`.
   """
-  def recent_episodes(workspace_ref, cutoff, limit) do
+  def recent_episodes(workspace_ref, cutoff, limit, default) do
     from(episode in Episodes.Episode,
+      as: :status_subject,
       where:
         episode.destination_transport == "slack" and episode.execution_mode == :live and
           fragment(
@@ -42,6 +46,36 @@ defmodule Ryker.Slack.ThreadActivity.Query do
              episode.updated_at >= ^cutoff),
       order_by: [desc: episode.updated_at],
       limit: ^limit
+    )
+    |> visible_in(workspace_ref, default)
+  end
+
+  # Ingress already excludes shadow work. An earlier live request can still be
+  # queued when a channel switches to Observe only. Managed incident rooms
+  # have their own participation, as in Slack.Runtime.effective_settings/1.
+  defp visible_in(query, workspace_ref, default) do
+    rooms =
+      from(room in IncidentRoom,
+        where:
+          room.workspace_ref == ^workspace_ref and
+            room.channel_ref ==
+              fragment(
+                "split_part(?, ':', 3)",
+                parent_as(:status_subject).destination_conversation_ref
+              ),
+        select: 1
+      )
+
+    from(subject in query,
+      left_join: channel in ChannelConfiguration,
+      on:
+        channel.workspace_ref == ^workspace_ref and
+          channel.channel_ref ==
+            fragment("split_part(?, ':', 3)", subject.destination_conversation_ref),
+      where:
+        (is_nil(channel.participation) and ^(default != :shadow)) or
+          channel.participation != :shadow or
+          exists(subquery(rooms))
     )
   end
 

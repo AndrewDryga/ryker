@@ -100,7 +100,10 @@ defmodule Ryker.Retention.Custody do
     |> Cleanup.Query.eligible()
     |> Cleanup.Query.waiting_owners()
     |> Repo.all()
-    |> Enum.reject(fn {session, episode} -> suspendable_wait?(episode, session) end)
+    |> Enum.reject(fn
+      {%{closed_at: %DateTime{}} = session, _episode} -> releasable_primary?(session)
+      {session, episode} -> suspendable_wait?(episode, session)
+    end)
     |> Enum.map(fn {session, _episode} -> session.id end)
   end
 
@@ -598,21 +601,34 @@ defmodule Ryker.Retention.Custody do
 
   defp suspendable_wait?(
          %Episodes.Episode{state: state, queued_input_refs: []},
-         %Work.Session{execution_kind: :work, closed_at: nil} = session
+         %Work.Session{execution_kind: :work} = session
        )
        when state in [:waiting_for_input, :waiting_for_event] do
-    with {:ok, _session} <- CoopFleet.JobAuthority.validate(session),
-         {:ok, %Work.Turn{status: :settled, accepted_at: %DateTime{}} = turn} <-
-           Repo.fetch(Work.Turn.Query.latest_by_session_id(session.id)) do
-      is_nil(session.repository_ref) or
-        session.worker_job_document["repository_read_only"] == true or
-        (is_map(session.workspace_task) and retained_wait_checkpoint?(session, turn))
-    else
-      _unsafe -> false
+    case Repo.fetch(Work.Turn.Query.latest_by_session_id(session.id)) do
+      {:ok, %Work.Turn{status: :settled, accepted_at: %DateTime{}} = turn} ->
+        recoverable_wait?(session, turn)
+
+      _unsafe ->
+        false
     end
   end
 
   defp suspendable_wait?(_owner, _session), do: false
+
+  defp recoverable_wait?(%Work.Session{closed_at: %DateTime{}} = session, _turn),
+    do: releasable_primary?(session)
+
+  defp recoverable_wait?(session, turn) do
+    match?({:ok, _}, CoopFleet.JobAuthority.validate(session)) and
+      (is_nil(session.repository_ref) or
+         session.worker_job_document["repository_read_only"] == true or
+         (is_map(session.workspace_task) and retained_wait_checkpoint?(session, turn)))
+  end
+
+  defp releasable_primary?(session) do
+    is_nil(session.workspace_task) and is_binary(session.repository_ref) and
+      is_binary(review_source_head(session))
+  end
 
   defp retained_wait_checkpoint?(session, turn) do
     session.id

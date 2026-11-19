@@ -56,6 +56,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:notice, :string, default: nil)
   attr(:failure, :string, default: nil)
   attr(:reveal, :map, default: nil)
+  attr(:github_feedback, :map, default: nil)
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
 
   attr(:slack_people, :any,
@@ -236,7 +237,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
           confirm={@confirm}
           slack_people={@slack_people}
         />
-        <.github :if={@section == :github} view={@view} commands={@commands} confirm={@confirm} />
+        <.github
+          :if={@section == :github}
+          view={@view}
+          commands={@commands}
+          confirm={@confirm}
+          feedback={@github_feedback}
+        />
         <.emisar :if={@section == :emisar} view={@view} />
         <.webhooks
           :if={@section == :webhooks}
@@ -1051,32 +1058,187 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
 
+  attr(:feedback, :map, default: nil)
+
   defp github(assigns) do
     view = assigns.view
+    line = Integrations.github(view)
 
     assigns =
       assign(assigns,
-        line: Integrations.github(view),
+        line: line,
+        usable: view.github_connection == :ready and line.status != :broken,
         ready: view.github_connection == :ready,
-        repositories: length(view.snapshot.repositories)
+        repositories: length(view.snapshot.github_bindings),
+        sign_in_configured: view.github_sign_in_configured,
+        app_feedback: if(assigns.feedback && assigns.feedback.step == :app, do: assigns.feedback),
+        sign_in_feedback:
+          if(assigns.feedback && assigns.feedback.step == :sign_in, do: assigns.feedback)
       )
 
     ~H"""
-    <.connection state={@line.state} text={@line.reason}>
-      <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
-      <:action :if={@line.status == :broken}>
-        <a href="#github-app" class="ui-button secondary">Repair</a>
-      </:action>
-      <:action :if={@ready}>
+    <Kit.section_card class="settings-section github-setup" title="GitHub setup">
+      <.setup_step
+        id="github-app"
+        title={
+          if @line.status == :broken,
+            do: "1. Repair GitHub connection",
+            else: "1. Connect the GitHub App"
+        }
+        open={!@ready or @line.status == :broken or not is_nil(@app_feedback)}
+        state={
+          cond do
+            @line.status == :broken -> @line.state
+            @ready -> {:on, "Verified"}
+            true -> @line.state
+          end
+        }
+      >
+        <p :if={@line.reason && (!@ready || @line.status == :broken)}>{@line.reason}</p>
+        <p :if={@ready}>
+          Connected as <strong>@{@view.snapshot.github.app_slug}</strong>. Replace the credentials here when you rotate a key.
+        </p>
+        <p :if={!@ready}>
+          In GitHub, open the App owner’s Settings → Developer settings → GitHub Apps and select the App. Copy its App ID and generate a private key, then upload the .pem file here.
+        </p>
+        <.github_form label={if @ready, do: "Replace credentials", else: "Verify GitHub App"} />
+        <Components.form_feedback
+          :if={@app_feedback}
+          tone={@app_feedback.tone}
+          message={@app_feedback.message}
+        />
+        <section :if={@app_feedback && @app_feedback[:secret]} class="secret-reveal" role="status">
+          <p><strong>GitHub webhook secret</strong> Copy this into the App’s Webhook settings now.</p>
+          <Components.copy_block label="Copy webhook secret">
+            <pre>{@app_feedback.secret}</pre>
+          </Components.copy_block>
+        </section>
+        <h3>Webhook delivery</h3>
+        <p>
+          In the App’s Webhook settings, enter this URL and the webhook secret used above. GitHub sends repository events here.
+        </p>
+        <Components.copy_block label="Copy webhook URL">
+          <pre>{@view.github_callback_url}</pre>
+        </Components.copy_block>
+        <p id="github-events" class="settings-lede">
+          <span :if={local_address?(@view.github_callback_url)}>
+            GitHub can't reach this computer, so it lists every delivery to this address as failed.
+            Ryker collects the same events from GitHub every 30 seconds instead.
+          </span>
+          {github_events(@view.github_events)}
+        </p>
+        <details class="settings-disclosure">
+          <summary>Events and permissions the App needs</summary>
+          <p>
+            Subscribe to issues, pull requests, reviews, pushes, checks, workflow runs, releases,
+            deployments, installation changes and repository changes.
+          </p>
+          <p>
+            Keep Metadata on read. Grant only the issue, pull request, checks, actions, deployment
+            and contents access needed for the work you enable.
+            Allow Workflows write access if Ryker will edit CI workflows.
+          </p>
+        </details>
         <button
+          :if={@ready}
           type="button"
           class="ui-button secondary"
           phx-click="confirm-settings-action"
           phx-value-action="disconnect-github"
           phx-value-ref="github"
         >Disconnect</button>
-      </:action>
-    </.connection>
+      </.setup_step>
+      <.setup_step
+        id="github-repositories"
+        title="2. Add repositories"
+        open={@usable and @repositories == 0}
+        state={
+          cond do
+            !@usable -> {:off, "Connect the App first"}
+            @repositories == 0 -> {:warn, "Add a repository to start"}
+            true -> {:on, Wording.count(@repositories, "repository")}
+          end
+        }
+      >
+        <p>
+          Install the App on GitHub and grant it access to the repositories you want to use. Then add them in Ryker.
+        </p>
+        <p :if={@usable && @view.snapshot.github.app_slug}>
+          <a
+            href={app_install_url(@view.snapshot.github.api_url, @view.snapshot.github.app_slug)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >Install the App on GitHub</a>
+        </p>
+        <.link
+          :if={@usable}
+          navigate={if @repositories == 0, do: "/repositories/new", else: "/repositories"}
+          class="ui-button secondary"
+        >{if @repositories == 0, do: "Add repositories", else: "Manage repositories"}</.link>
+      </.setup_step>
+      <.setup_step
+        id="github-action-sign-in"
+        title="3. Enable GitHub action buttons"
+        open={@usable and (!@sign_in_configured or not is_nil(@sign_in_feedback))}
+        state={
+          cond do
+            !@usable -> {:off, "Connect the App first"}
+            @sign_in_configured -> {:on, "Credentials saved"}
+            true -> {:warn, "Set up sign-in"}
+          end
+        }
+      >
+        <p>
+          Repository writers sign in to choose review fixes or turn an issue plan into a pull request.
+        </p>
+        <ol :if={@usable} class="setup-instructions">
+          <li>
+            Open the App owner’s Settings → Developer settings → GitHub Apps and edit the same App. Under <strong>Identifying and authorizing users</strong>, add this callback URL and save the change.
+            <Components.copy_block label="Copy sign-in callback URL">
+              <pre>{@view.github_action_callback_url}</pre>
+            </Components.copy_block>
+          </li>
+          <li>
+            Copy the App’s <strong>Client ID</strong>
+            and generate a <strong>Client secret</strong>. Enter both below.
+          </li>
+        </ol>
+        <div :if={@usable}>
+          <form phx-submit="connect-github-actions" class="settings-form">
+            <div class="settings-field">
+              <label for="github-action-client-id">Client ID</label>
+              <input
+                id="github-action-client-id"
+                name="connection[client_id]"
+                required
+                value={
+                  (@sign_in_feedback && @sign_in_feedback[:client_id]) ||
+                    @view.snapshot.github.oauth_client_id
+                }
+              />
+            </div>
+            <div class="settings-field">
+              <label for="github-action-client-secret">Client secret</label>
+              <input
+                id="github-action-client-secret"
+                name="connection[client_secret]"
+                type="password"
+                required
+                autocomplete="new-password"
+              />
+            </div>
+            <div class="settings-actions">
+              <button type="submit" class="ui-button secondary" phx-disable-with="Saving…">Save GitHub sign-in</button>
+            </div>
+          </form>
+          <Components.form_feedback
+            :if={@sign_in_feedback}
+            tone={@sign_in_feedback.tone}
+            message={@sign_in_feedback.message}
+          />
+        </div>
+      </.setup_step>
+    </Kit.section_card>
     <Kit.confirm_modal
       :if={@confirm == {"disconnect-github", "github"}}
       id="confirm-disconnect-github"
@@ -1089,41 +1251,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
       phx-value-kind="github"
     />
 
-    <Kit.section_card
-      :if={!@ready}
-      class="settings-section"
-      label="GitHub App"
-      anchor="github-app"
-      title={
-        if @view.github_connection == :invalid,
-          do: "Repair GitHub connection",
-          else: "Connect the GitHub App"
-      }
-      lede={
-        if @view.github_connection == :invalid,
-          do: "Verify the App again with its current private key. Repositories stay as they are.",
-          else:
-            "Ryker checks the App ID and private key, and creates a webhook secret if you leave it empty."
-      }
-    >
-      <.github_form label="Verify GitHub App" />
-    </Kit.section_card>
-
-    <Kit.section_card
-      :if={@ready}
-      class="settings-section"
-      title="Repositories"
-      lede="Anyone with write access to an added repository can ask Ryker to work there. GitHub checks that access on every request."
-    >
-      <:actions>
-        <.link
-          navigate={if @repositories == 0, do: "/repositories/new", else: "/repositories"}
-          class={["ui-button", if(@repositories == 0, do: "primary", else: "secondary")]}
-        >{if @repositories == 0, do: "Add repositories", else: "Manage repositories"}</.link>
-      </:actions>
-      <p :if={@repositories > 0} class="settings-lede">
-        {Wording.count(@repositories, "repository")} added.
-      </p>
+    <details :if={@ready} class="settings-disclosure github-examples">
+      <summary>How to request work on GitHub</summary>
       <div id="github-usage">
         <p>
           In a pull request comment, type the App’s handle and your request.
@@ -1144,15 +1273,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           automatic CI fixes and review follow-ups on its own PRs.
         </p>
       </div>
-      <Kit.empty
-        :if={@repositories == 0}
-        variant={:hint}
-        icon={:repository}
-        title="No repositories yet"
-        text="Add the repositories Ryker may work in. The App can only reach the ones it is installed on."
-      />
-    </Kit.section_card>
-
+    </details>
     <.live_component
       :if={@ready}
       module={SettingsEditor}
@@ -1161,89 +1282,31 @@ defmodule Ryker.ControlPlane.SettingsPage do
       view={@view}
       commands={@commands}
     />
+    """
+  end
 
-    <%!-- Once the App works, where GitHub sends its events and the App's
-    credentials are reference, so they share the last card (Andrew,
-    2026-10-03: "why show it here after app is installed and configured?
-    maybe move it below App credentials at least or combine two?"). --%>
-    <Kit.section_card
-      :if={@ready}
-      class="settings-section github-app-card"
-      anchor="github-app"
-      title="GitHub App"
-      lede="Where GitHub sends the App's events, and its credentials."
+  attr(:id, :string, required: true)
+  attr(:title, :string, required: true)
+  attr(:open, :boolean, required: true)
+  attr(:state, :any, required: true)
+  slot(:inner_block, required: true)
+
+  defp setup_step(assigns) do
+    ~H"""
+    <details
+      id={@id}
+      open={@open}
+      class="github-step"
+      data-disclosure-state={"#{elem(@state, 1)}:#{@open}"}
     >
-      <Components.copy_block label="Copy the callback URL">
-        <pre>{@view.github_callback_url}</pre>
-      </Components.copy_block>
-      <p id="github-events" class="settings-lede">
-        <span :if={local_address?(@view.github_callback_url)}>
-          GitHub can't reach this computer, so it lists every delivery to this address as failed.
-          Ryker collects the same events from GitHub every 30 seconds instead.
-        </span>
-        {github_events(@view.github_events)}
-      </p>
-      <details class="settings-disclosure">
-        <summary>Events and permissions the App needs</summary>
-        <p>
-          Subscribe to issues, pull requests, reviews, pushes, checks, workflow runs, releases,
-          deployments, installation changes and repository changes.
-        </p>
-        <p>
-          Keep Metadata on read. Grant only the issue, pull request, checks, actions, deployment
-          and contents access needed for the work you enable.
-          Allow Workflows write access if Ryker will edit CI workflows.
-        </p>
-      </details>
-      <p :if={@view.snapshot.github.app_slug} class="settings-lede">
-        <a
-          href={app_install_url(@view.snapshot.github.api_url, @view.snapshot.github.app_slug)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >Install the App in another organization</a>
-      </p>
-      <p class="settings-lede github-credentials-lede">
-        Replace the credentials only when the App ID, private key or webhook secret changed.
-      </p>
-      <.github_form label="Replace credentials" />
-      <div class="settings-group" id="github-action-sign-in">
-        <h3 class="settings-group-title">Sign in from GitHub action buttons</h3>
-        <p class="settings-lede">
-          Register this callback URL in the GitHub App's user authorization settings:
-        </p>
-        <Components.copy_block label="Copy sign-in callback URL">
-          <pre>{@view.github_action_callback_url}</pre>
-        </Components.copy_block>
-        <p class="settings-lede">
-          Contributors sign in with GitHub to choose review fixes and approve issue plans.
-          Ryker checks their repository access each time.
-        </p>
-        <form phx-submit="connect-github-actions" class="settings-form">
-          <div class="settings-field">
-            <label for="github-action-client-id">Client ID</label>
-            <input
-              id="github-action-client-id"
-              name="connection[client_id]"
-              required
-              value={@view.snapshot.github.oauth_client_id}
-            />
-          </div>
-          <div class="settings-field">
-            <label for="github-action-client-secret">Client secret</label>
-            <input
-              id="github-action-client-secret"
-              name="connection[client_secret]"
-              type="password"
-              required
-              autocomplete="new-password"
-            />
-          </div>
-          <div class="settings-actions">
-            <button type="submit" class="ui-button secondary" phx-disable-with="Saving…">Save GitHub sign-in</button>
-          </div>
-        </form>
-      </div>
-    </Kit.section_card>
+      <summary>
+        <strong>{@title}</strong><span class="settings-connection"><Kit.state
+          tone={elem(@state, 0)}
+          word={elem(@state, 1)}
+        /></span>
+      </summary>
+      <div class="github-step-body">{render_slot(@inner_block)}</div>
+    </details>
     """
   end
 
@@ -1351,15 +1414,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
       )
 
     ~H"""
-    <.connection state={@line.state} text={@line.reason}>
-      <:facts :if={@line.facts != [] or @line.unassigned > 0}>
-        {facts(@line.facts)}{if @line.facts != [] and @line.unassigned > 0, do: " · "}<.link
-          :if={@line.unassigned > 0}
-          navigate="/environments"
-        >{Integrations.unassigned(@line.unassigned)}</.link>
-      </:facts>
-    </.connection>
-
     <Kit.section_card
       class="settings-section"
       title="Accounts"
@@ -1370,6 +1424,19 @@ defmodule Ryker.ControlPlane.SettingsPage do
           <Components.icon name={:plus} />Add account
         </.link>
       </:actions>
+      <div :if={@line.status != :on || @line.unassigned > 0} class="settings-connection">
+        <div class="settings-connection-body">
+          <Kit.state
+            :if={@line.status != :on}
+            tone={elem(@line.state, 0)}
+            word={elem(@line.state, 1)}
+          />
+          <p :if={@line.reason}>{@line.reason}</p>
+          <.link :if={@line.unassigned > 0} navigate="/environments">{Integrations.unassigned(
+            @line.unassigned
+          )}</.link>
+        </div>
+      </div>
       <Kit.empty
         :if={@accounts == []}
         variant={:hint}

@@ -22,6 +22,10 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
       not Map.has_key?(socket.assigns, :draft) ->
         {:ok, reset(socket)}
 
+      socket.assigns.confirm and
+          assigns.repository.settings_revision != socket.assigns.expected_revision ->
+        {:ok, assign(socket, confirm: false, conflict: true, error: conflict_message())}
+
       latest == socket.assigns.baseline ->
         {:ok, assign(socket, expected_revision: assigns.repository.settings_revision)}
 
@@ -43,6 +47,7 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
       draft: baseline,
       expected_revision: revision,
       dirty: false,
+      confirm: false,
       conflict: false,
       error: nil,
       saved: false
@@ -58,6 +63,8 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
       "labels" => to_string(repository.github_triage_labels)
     }
 
+  defp values(:approvals, repository), do: %{"enabled" => to_string(repository.approvals_allowed)}
+
   defp values(:ci_repair, repository),
     do: %{"policy" => to_string(repository.github_ci_repair)}
 
@@ -65,7 +72,19 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
   def handle_event("change", params, socket), do: {:noreply, put_draft(socket, params)}
 
   def handle_event("save", params, socket),
-    do: {:noreply, socket |> put_draft(params) |> save()}
+    do: {:noreply, socket |> put_draft(params) |> submit()}
+
+  def handle_event("cancel-approvals", _params, socket),
+    do: {:noreply, assign(socket, confirm: false)}
+
+  def handle_event(
+        "confirm-approvals",
+        _params,
+        %{assigns: %{section: :approvals, confirm: true}} = socket
+      ),
+      do: {:noreply, socket |> assign(confirm: false) |> save()}
+
+  def handle_event("confirm-approvals", _params, socket), do: {:noreply, socket}
 
   def handle_event("reset", _params, socket), do: {:noreply, reset(socket)}
 
@@ -104,12 +123,31 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
     draft = Map.merge(socket.assigns.draft, submitted)
 
     assign(socket,
+      confirm: false,
       draft: draft,
       dirty: draft != socket.assigns.baseline,
       saved: false,
       error: if(socket.assigns.conflict, do: socket.assigns.error)
     )
   end
+
+  defp submit(
+         %{
+           assigns: %{
+             section: :approvals,
+             dirty: true,
+             conflict: false,
+             draft: %{"enabled" => "true"}
+           }
+         } = socket
+       ),
+       do: assign(socket, confirm: true)
+
+  defp submit(socket), do: save(socket)
+
+  defp save(%{assigns: %{section: :approvals, draft: %{"enabled" => value}}} = socket)
+       when value not in ["true", "false"],
+       do: assign(socket, error: "Choose whether Ryker may approve pull requests.")
 
   defp save(%{assigns: %{conflict: true}} = socket), do: socket
   defp save(%{assigns: %{dirty: false}} = socket), do: socket
@@ -120,7 +158,7 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
 
     case socket.assigns.save.(attributes, revision) do
       {:ok, snapshot} ->
-        repository = Enum.find(snapshot.repositories, &(&1.ref == ref))
+        repository = saved_record(snapshot, section, ref)
         baseline = values(section, repository)
         send(self(), :repository_settings_saved)
 
@@ -160,7 +198,7 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
   # The refusal already carries the latest values. Reset must use them even
   # before the parent's debounced refresh, and must never revive a removed repo.
   defp save_conflict(socket, snapshot) do
-    case Enum.find(snapshot.repositories, &(&1.ref == socket.assigns.ref)) do
+    case saved_record(snapshot, socket.assigns.section, socket.assigns.ref) do
       nil ->
         assign(socket,
           current_values: nil,
@@ -179,6 +217,14 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
     end
   end
 
+  defp saved_record(snapshot, :approvals, ref),
+    do: Enum.find(snapshot.github_bindings, &(&1.repository_ref == ref))
+
+  defp saved_record(snapshot, _section, ref),
+    do: Enum.find(snapshot.repositories, &(&1.ref == ref))
+
+  defp attributes(:approvals, draft), do: %{allowed: draft["enabled"] == "true"}
+
   # Keep form values as supplied for Settings' changeset to validate. Never
   # turn an unexpected checkbox value into a silent false, or accept a ref
   # or another section's attributes from the browser.
@@ -194,10 +240,12 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
       "Use saved settings to review the latest values before editing again."
   end
 
+  defp title(:approvals), do: "Pull request approvals"
   defp title(:issue_actions), do: "Issue actions"
   defp title(:issue_triage), do: "Issue triage"
   defp title(:ci_repair), do: "Auto-fix CI"
 
+  defp lede(:approvals), do: "Choose what Ryker can submit when it reviews a pull request."
   defp lede(:issue_actions), do: "Let repository writers start work from a GitHub issue."
   defp lede(:issue_triage), do: "Review new issues with the code and related reports for context."
   defp lede(:ci_repair), do: "Fix reproducible failures and push the changes to the same PR."
@@ -230,6 +278,22 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
           data-revision={@expected_revision}
           data-baseline={FormDraft.digest(@baseline)}
         >
+          <div :if={@section == :approvals} class="settings-field settings-choice">
+            <input type="hidden" name="enabled" value="false" />
+            <label class="settings-option" for={"#{@id}-enabled"}>
+              <input
+                id={"#{@id}-enabled"}
+                type="checkbox"
+                name="enabled"
+                value="true"
+                checked={@enabled}
+              />
+              <span>
+                <strong>Allow Ryker to approve pull requests</strong>
+                <small>An approval can count toward branch protection. With this off, Ryker can still comment and request changes. Existing approvals stay on GitHub.</small>
+              </span>
+            </label>
+          </div>
           <div :if={@section == :issue_actions} class="settings-field settings-choice">
             <input type="hidden" name="enabled" value="false" />
             <label class="settings-option" for={"#{@id}-enabled"}>
@@ -344,6 +408,19 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
           </div>
         </form>
       </Kit.section_card>
+      <Kit.confirm_modal
+        :if={@confirm}
+        id="confirm-approvals"
+        title={"Allow Ryker to approve PRs in #{@repository.github_repository}?"}
+        text="If branch protection counts the Ryker App’s review, an approval from Ryker can satisfy a required review."
+        label="Allow PR approvals"
+        cancel="cancel-approvals"
+        target={@myself}
+        phx-target={@myself}
+        phx-click="confirm-approvals"
+        pending="Saving…"
+        tone={:primary}
+      />
     </div>
     """
   end

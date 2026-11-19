@@ -2536,9 +2536,16 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         now: nil
       })
 
-    assert html =~ "worker-silent</strong>"
-    assert html =~ "has not reported storage yet."
-    assert html =~ "not taking new copies (reserve exhausted)"
+    document = LazyHTML.from_fragment(html)
+    silent_worker = LazyHTML.query(document, "#storage-worker-silent")
+    assert LazyHTML.text(silent_worker) =~ "No storage report yet."
+    assert Enum.empty?(LazyHTML.query(silent_worker, "meter"))
+
+    assert document
+           |> LazyHTML.query("#storage-worker-measured .storage-refusal")
+           |> LazyHTML.text() =~
+             "reserve exhausted"
+
     assert html =~ ~s(id="ready-for-cleanup")
     assert html =~ "Keep it briefly for follow-up questions"
 

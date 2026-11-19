@@ -309,3 +309,20 @@ test("a reconnect reaches the conversation controls", () => {
   f.hook.reconnected()
   assert.equal(f.conversation.reconnects, 1)
 })
+
+test("a setup step follows its new status after a save and keeps manual toggles between saves", () => {
+  const f = fixture()
+  f.hook.mounted()
+  f.outer.dataset.disclosureState = "missing"
+  f.outer.open = true
+  f.hook.beforeUpdate()
+  f.outer.dataset.disclosureState = "saved"
+  f.outer.open = false
+  f.hook.updated()
+  assert.equal(f.outer.open, false)
+  f.outer.open = true
+  f.hook.beforeUpdate()
+  f.outer.open = false
+  f.hook.updated()
+  assert.equal(f.outer.open, true)
+})

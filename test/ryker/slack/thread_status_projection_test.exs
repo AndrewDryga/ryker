@@ -30,6 +30,22 @@ defmodule Ryker.Slack.ThreadStatusProjectionTest do
     assert {:ok, [%{phase: :queued, status: "is queued…"}]} =
              ThreadStatusProjection.snapshot("TF2975945C602")
 
+    assert ThreadStatusProjection.snapshot("TF2975945C602", :shadow) == {:ok, []}
+
+    # Switching to Observe only must also retire an indicator for already queued live work.
+    Repo.insert!(%Ryker.Slack.ChannelConfiguration{
+      id: Ecto.UUID.generate(),
+      workspace_ref: "TF2975945C602",
+      channel_ref: "C456",
+      participation: :shadow,
+      alert_policy: :reply,
+      actor_ref: "U123",
+      revision: 1,
+      saved_at: Repo.now!()
+    })
+
+    assert ThreadStatusProjection.snapshot("TF2975945C602") == {:ok, []}
+
     assert ThreadStatusProjection.snapshot("") ==
              {:error, {:invalid_slack_thread_status, :workspace_ref}}
   end

@@ -145,9 +145,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
 
   @doc """
   Where Slack stands, in the words the Slack page uses, with the one step
-  that moves it forward. Once Slack is set up, a second row says how a
-  channel Ryker joins takes part until it makes its own choice, and Change
-  opens that setting on the Slack page.
+  that moves it forward. The same card includes the default for new channels.
   """
   def slack_status(assigns) do
     assigns =
@@ -158,17 +156,13 @@ defmodule Ryker.ControlPlane.ChannelsPage do
 
     ~H"""
     <div class="connection-card">
-      <Integrations.line id="slack-status" key={:slack} integration={@integration} />
-      <%!-- No space after the hidden words: Chrome lays that space out as a
-      second item of the button and puts the button's icon gap before it, so
-      Change drew 9px wider than Manage above it (Andrew, 2026-09-27). --%>
-      <div :if={@default} id="new-channels-default" class="connection-line">
-        <p><strong>New channels</strong> <span>{participation(@default)}</span></p>
-        <.link
-          navigate="/integrations/slack#new-channels"
-          class="ui-button secondary"
-        >Change<span class="sr-only"> what new channels do</span></.link>
-      </div>
+      <Integrations.line id="slack-status" key={:slack} integration={@integration}>
+        <:detail :if={@default}>
+          <p id="new-channels-default">
+            <span>New channels</span><span>{participation(@default)}</span>
+          </p>
+        </:detail>
+      </Integrations.line>
     </div>
     """
   end

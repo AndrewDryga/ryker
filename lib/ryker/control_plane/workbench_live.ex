@@ -133,6 +133,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        settings_section: :setup,
        setup_notice: nil,
        setup_failure: nil,
+       github_feedback: nil,
        setup_reveal: nil,
        settings_confirm: nil,
        setup_progress: nil,
@@ -143,7 +144,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        repository_notice: nil,
        repository_question: nil,
        knowledge_question: nil,
-       approvals_question: nil,
        channel_notice: nil,
        welcome_pending: nil,
        slack_people: nil,
@@ -223,6 +223,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_failure: nil,
        # A secret is shown once, on the page it was made on or returned to; it
        # stayed on every settings page after that (2026-10-04 review).
+       github_feedback: nil,
        setup_reveal: socket.assigns.carried_reveal,
        carried_reveal: nil,
        settings_confirm: nil,
@@ -873,13 +874,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
          socket
          |> refresh_settings()
          |> assign(
-           setup_notice: "GitHub App #{result.app_slug} is verified.",
-           setup_failure: nil,
-           setup_reveal: %{label: "GitHub webhook secret", value: result.webhook_secret}
+           github_feedback: %{
+             step: :app,
+             tone: :success,
+             message: "GitHub App #{result.app_slug} is verified.",
+             secret: result.webhook_secret
+           },
+           setup_notice: nil,
+           setup_failure: nil
          )}
 
       {:error, reason} ->
-        {:noreply, failed(socket, reason)}
+        {:noreply,
+         assign(socket,
+           github_feedback: %{
+             step: :app,
+             tone: :error,
+             message: IntegrationErrors.message(reason)
+           },
+           setup_notice: nil,
+           setup_failure: nil
+         )}
     end
   end
 
@@ -889,10 +904,28 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         {:noreply,
          socket
          |> refresh_settings()
-         |> assign(setup_notice: "GitHub sign-in settings saved.", setup_failure: nil)}
+         |> assign(
+           github_feedback: %{
+             step: :sign_in,
+             tone: :success,
+             message: "GitHub sign-in settings saved."
+           },
+           setup_notice: nil,
+           setup_failure: nil
+         )}
 
       {:error, reason} ->
-        {:noreply, failed(socket, reason)}
+        {:noreply,
+         assign(socket,
+           github_feedback: %{
+             step: :sign_in,
+             tone: :error,
+             message: IntegrationErrors.message(reason),
+             client_id: params["client_id"]
+           },
+           setup_notice: nil,
+           setup_failure: nil
+         )}
     end
   end
 
@@ -1130,28 +1163,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       when is_binary(ref),
       do: {:noreply, ask_refresh_knowledge(socket, ref)}
 
-  # Letting Ryker approve pull requests in a repository, or stop, asks over the
-  # repository's page: an approval can stand in for a person's.
-  def handle_event(
-        "confirm-settings-action",
-        %{"action" => action, "ref" => ref},
-        socket
-      )
-      when action in ["allow-approvals", "stop-approvals"] and is_binary(ref),
-      do: {:noreply, ask_approvals(socket, action, ref)}
-
   # Anything on the settings pages that disconnects or deletes asks first. The
   # button that starts it only opens the question; the action runs when the
   # question's own button sends it, so a double click never gets past it.
   def handle_event("confirm-settings-action", %{"action" => action, "ref" => ref}, socket)
       when action in @confirmed_settings_actions and is_binary(ref) do
     {:noreply,
-     assign(socket, settings_confirm: {action, ref}, setup_notice: nil, setup_failure: nil)}
+     assign(socket,
+       settings_confirm: {action, ref},
+       setup_notice: nil,
+       setup_failure: nil,
+       github_feedback: nil
+     )}
   end
 
   def handle_event("cancel-settings-action", _params, socket) do
-    {:noreply,
-     assign(socket, settings_confirm: nil, knowledge_question: nil, approvals_question: nil)}
+    {:noreply, assign(socket, settings_confirm: nil, knowledge_question: nil)}
   end
 
   def handle_event("disconnect-integration", %{"kind" => kind}, socket)
@@ -1251,41 +1278,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   def handle_event("refresh-knowledge", %{"repository" => ref}, socket) when is_binary(ref),
     do: {:noreply, ask_refresh_knowledge(socket, ref)}
-
-  # Only the question's own button changes it; one never asked about only asks.
-  def handle_event(
-        action,
-        %{"repository" => ref},
-        %{assigns: %{settings_confirm: {action, ref}}} = socket
-      )
-      when action in ["allow-approvals", "stop-approvals"] do
-    allowed? = action == "allow-approvals"
-    name = socket.assigns.approvals_question && socket.assigns.approvals_question.name
-
-    notice =
-      case IntegrationSetup.allow_github_approvals(ref, allowed?, actor(socket)) do
-        {:ok, _snapshot} when allowed? ->
-          {:list, :success, "Ryker's reviews may now approve pull requests in #{name || ref}."}
-
-        {:ok, _snapshot} ->
-          {:list, :success, "Ryker's reviews no longer approve pull requests in #{name || ref}."}
-
-        {:error, :repository_not_found} ->
-          {:list, :error, "That repository is no longer added."}
-
-        {:error, _reason} ->
-          {:list, :error, "The change could not be saved. Reload the page and try again."}
-      end
-
-    {:noreply,
-     socket
-     |> assign(settings_confirm: nil, approvals_question: nil, repository_notice: notice)
-     |> refresh(true)}
-  end
-
-  def handle_event(action, %{"repository" => ref}, socket)
-      when action in ["allow-approvals", "stop-approvals"] and is_binary(ref),
-      do: {:noreply, ask_approvals(socket, action, ref)}
 
   # Only the question's own button removes; a removal that was never asked
   # about only asks. One that is refused keeps its question open and says why.
@@ -1923,7 +1915,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
-  # The settings forms save as the page's person; the previews record nobody.
+  defp repository_editors(repository) do
+    sections = [
+      issue_actions: "repository-issue-actions",
+      issue_triage: "repository-issue-triage",
+      ci_repair: "repository-ci-repair"
+    ]
+
+    if "review" in (repository.action_grants || []),
+      do: sections ++ [approvals: "repository-approvals"],
+      else: sections
+  end
+
+  # Changes record the person who opened the form.
   defp settings_commands(options, viewer) do
     actions = options.actions
 
@@ -1933,6 +1937,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       preview_retention: actions[:preview_retention],
       preview_webhook: actions[:preview_webhook],
       put_environment: &Settings.put_environment(&1, &2, Actor.of(viewer)),
+      put_approvals: fn %{ref: ref, allowed: allowed}, revision ->
+        IntegrationSetup.allow_github_approvals(ref, allowed, Actor.of(viewer), revision)
+      end,
       put_repository: &Settings.put_repository(&1, &2, Actor.of(viewer)),
       put_item: &actions.put_settings_item.(&1, &2, &3, viewer),
       save: &actions.save_settings.(&1, &2, &3, viewer),
@@ -2065,25 +2072,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       _gone ->
         socket
         |> assign(repository_notice: {:list, :error, refresh_error(:repository_not_found)})
-        |> refresh(true)
-    end
-  end
-
-  defp ask_approvals(socket, action, ref) do
-    %{projection: projection} = Endpoint.config(:control_plane)
-
-    case projection.repository.(ref) do
-      {:ok, %{configured: %{}} = item} ->
-        assign(socket,
-          settings_confirm: {action, ref},
-          approvals_question:
-            RepositoriesPage.approvals_question(item, action == "allow-approvals"),
-          repository_notice: nil
-        )
-
-      _gone ->
-        socket
-        |> assign(repository_notice: {:list, :error, "That repository is no longer added."})
         |> refresh(true)
     end
   end
@@ -2815,6 +2803,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             model_usage={@model_usage}
             error={@settings_error}
             section={@settings_section}
+            github_feedback={@github_feedback}
             notice={@setup_notice}
             failure={@setup_failure}
             confirm={@settings_confirm}
@@ -2922,20 +2911,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             <RepositoriesPage.detail :if={@repository} item={@repository} now={@observed_at}>
               <:settings :if={@repository.configured && @repository.configured.github_bound}>
                 <.live_component
-                  :for={
-                    {section, id} <- [
-                      {:issue_actions, "repository-issue-actions"},
-                      {:issue_triage, "repository-issue-triage"},
-                      {:ci_repair, "repository-ci-repair"}
-                    ]
-                  }
+                  :for={{section, id} <- repository_editors(@repository.configured)}
                   module={Ryker.ControlPlane.RepositorySettingsEditor}
                   id={id <> "-" <> @repository.ref}
                   section={section}
                   ref={@repository.ref}
                   card_id={id}
                   repository={@repository.configured}
-                  save={@settings_commands.put_repository}
+                  save={
+                    if section == :approvals,
+                      do: @settings_commands.put_approvals,
+                      else: @settings_commands.put_repository
+                  }
                 />
               </:settings>
             </RepositoriesPage.detail>
@@ -2983,24 +2970,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             cancel="cancel-settings-action"
             phx-click="refresh-knowledge"
             pending="Refreshing…"
-            phx-value-repository={elem(@settings_confirm, 1)}
-          />
-          <Kit.confirm_modal
-            :if={
-              (repository_page?(@path) and @approvals_question) &&
-                match?(
-                  {action, _ref} when action in ["allow-approvals", "stop-approvals"],
-                  @settings_confirm
-                )
-            }
-            id="confirm-approvals"
-            title={@approvals_question.title}
-            text={@approvals_question.text}
-            label={@approvals_question.label}
-            tone={:primary}
-            cancel="cancel-settings-action"
-            phx-click={elem(@settings_confirm, 0)}
-            pending="Saving…"
             phx-value-repository={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal

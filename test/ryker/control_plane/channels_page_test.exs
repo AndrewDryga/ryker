@@ -225,12 +225,11 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
         render_component(&ChannelsPage.slack_status/1, settings: {:ok, view})
         |> LazyHTML.from_fragment()
 
-      row = LazyHTML.query(card, ".connection-card > #new-channels-default")
-
-      assert row |> LazyHTML.text() |> squeeze() ==
-               "New channels Joins relevant conversations Change what new channels do"
-
-      assert Enum.count(LazyHTML.query(row, "a[href='/integrations/slack#new-channels']")) == 1
+      # Both former buttons opened the Slack integration.
+      row = LazyHTML.query(card, "#slack-status #new-channels-default")
+      assert row |> LazyHTML.text() |> squeeze() =~ "Joins relevant conversations"
+      assert Enum.count(LazyHTML.query(card, "a")) == 1
+      assert Enum.count(LazyHTML.query(card, "a[href='/integrations/slack']")) == 1
 
       page =
         Pages.page(["channels"], %{}, %{

@@ -361,7 +361,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
   defp surfaces(:github),
     do: [
       {"/integrations", "#integration-github"},
-      {"/integrations/github", ".settings-connection"},
+      {"/integrations/github", "#github-app"},
       {"/repositories", "#github-status"},
       {"/setup", "ol.setup-steps > li:nth-child(2)"}
     ]

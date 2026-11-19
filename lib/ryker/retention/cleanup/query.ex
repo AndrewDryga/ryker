@@ -418,8 +418,7 @@ defmodule Ryker.Retention.Cleanup.Query do
     )
   end
 
-  # Only close the idle runtime. Once closed, the primary stays until the
-  # ordinary terminal/replacement branch permits planning its discard.
+  # A closed read-only primary has no work to restore when a waiting episode resumes.
   defp work_waiting do
     latest =
       from(turn in Work.Turn,
@@ -454,9 +453,22 @@ defmodule Ryker.Retention.Cleanup.Query do
 
     dynamic(
       [episode_work_sessions: session, episode_kernel_episodes: episode],
-      session.execution_kind == :work and is_nil(session.closed_at) and
+      session.execution_kind == :work and
+        ^waiting_primary() and
         episode.state in [:waiting_for_input, :waiting_for_event] and
         episode.queued_input_refs == [] and exists(subquery(latest))
+    )
+  end
+
+  defp waiting_primary do
+    dynamic(
+      [episode_work_sessions: session],
+      is_nil(session.closed_at) or
+        (is_nil(session.workspace_task) and not is_nil(session.repository_ref) and
+           fragment(
+             "(?::jsonb -> 'repository_read_only') = 'true'::jsonb",
+             session.worker_job_document
+           ))
     )
   end
 

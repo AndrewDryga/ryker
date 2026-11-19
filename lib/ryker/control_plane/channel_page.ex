@@ -906,18 +906,26 @@ defmodule Ryker.ControlPlane.ChannelPage do
         text="What Ryker's work in this channel costs shows here once it runs."
       />
       <%= if @view.usage.executions > 0 do %>
-        <p class="channel-usage">
-          <span>{Wording.count(@view.usage.executions, "run")}</span>
-          <span :if={@view.usage.measured > 0}>
-            {number(@view.usage.input_tokens)} input, {number(@view.usage.cached_input_tokens)} cached, {number(
-              @view.usage.output_tokens
-            )} output, {number(@view.usage.reasoning_tokens)} reasoning tokens
-          </span>
-          <span :if={@view.usage.measured == 0}>Tokens not recorded</span>
-          <span>
-            {if @view.usage.cost_usd, do: Units.money(@view.usage.cost_usd), else: "Cost not recorded"}
-          </span>
-        </p>
+        <div class="usage-summary">
+          <strong>{Wording.count(@view.usage.executions, "run")}</strong>
+          <span>{if @view.usage.cost_usd,
+            do: "Recorded cost " <> Units.money(@view.usage.cost_usd),
+            else: "Cost not recorded"}</span>
+        </div>
+        <dl :if={@view.usage.measured > 0} class="token-breakdown" aria-label="Tokens by type">
+          <div :for={
+            {label, value} <- [
+              {"Input", @view.usage.input_tokens},
+              {"Cached input", @view.usage.cached_input_tokens},
+              {"Output", @view.usage.output_tokens},
+              {"Reasoning", @view.usage.reasoning_tokens}
+            ]
+          }>
+            <dt>{label}</dt>
+            <dd>{number(value)}</dd>
+          </div>
+        </dl>
+        <p :if={@view.usage.measured == 0} class="channel-usage-note">Tokens not recorded</p>
         <p class="channel-usage-note">
           {@view.usage.measured} of {@view.usage.executions} reported tokens · {@view.usage.costed} of {@view.usage.executions} recorded a cost
         </p>

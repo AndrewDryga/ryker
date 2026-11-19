@@ -1275,6 +1275,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       text = section |> LazyHTML.text() |> String.replace(~r/\s+/, " ")
       assert text =~ "Last 7 days"
       assert text =~ "live work and evaluation runs"
+      assert LazyHTML.query(section, ".token-breakdown dt") |> Enum.count() == 4
       assert text =~ "3 runs"
       assert text =~ "2 of 3 reported tokens"
       assert text =~ "1 of 3 recorded a cost"
@@ -1302,7 +1303,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert %{executions: 1, measured: 1, costed: 0, input_tokens: 0, cost_usd: nil} = view.usage
       measured_zero = page("/channels/T123/C456") |> usage_text()
       assert measured_zero =~ "1 of 1 reported tokens"
-      assert measured_zero =~ "0 input"
+      assert measured_zero =~ "Input 0"
       assert measured_zero =~ "Cost not recorded"
       refute measured_zero =~ "$0"
 

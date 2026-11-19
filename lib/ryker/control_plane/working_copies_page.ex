@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   It reads as every list page does (Andrew, 2026-09-28: "design the bottom
   half properly"): how many copies are in use, ready for cleanup and removed,
-  then a compact storage line per worker, then Current or Removed, each a
+  then a storage chart per worker, then Current or Removed, each a
   list of copies with their confirmed cleanup actions. What is ready for
   cleanup now shows above the current copies only when there is some.
   Nothing here estimates a byte no worker measured: a missing report is
@@ -265,6 +265,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp storage(assigns) do
     assigns =
       assign(assigns,
+        scale:
+          assigns.storage.workers
+          |> Enum.reject(&(&1.measurement == :unknown))
+          |> Enum.flat_map(&Map.take(&1.bytes, ["protected_bytes", "disposable_bytes"]))
+          |> Enum.reduce(1, fn {_kind, value}, largest ->
+            if is_integer(value), do: max(value, largest), else: largest
+          end),
         limit: assigns.storage.budget[:disposable_bytes_limit],
         target: assigns.storage.budget[:reclaim_target_seconds]
       )
@@ -275,36 +282,59 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         <span class="connection-dot" data-tone="off" aria-hidden="true"></span>
         No worker has reported storage yet, so how much space copies use is unknown.
       </p>
-      <p :for={worker <- @storage.workers} class="storage-line" id={"storage-" <> worker.id}>
-        <span class="connection-dot" data-tone={worker_tone(worker)} aria-hidden="true"></span>
-        <strong>{worker.id}</strong>
-        <%= if worker.measurement == :unknown do %>
-          has not reported storage yet.
-        <% else %>
-          {size(worker.bytes["protected_bytes"])} in use, {size(worker.bytes["disposable_bytes"])} can be freed<span :if={
-            worker.measured_at
-          }> · <ShortTime.time
-            at={worker.measured_at}
-            now={@now}
-            prefix="measured "
-          /></span><span :if={worker.measurement == :stale}> · this report is out of date</span><span :if={
-            is_integer(worker.bytes["unattributed_bytes"]) and worker.bytes["unattributed_bytes"] > 0
-          }> · {size(worker.bytes["unattributed_bytes"])} not tied to a copy</span><span :if={
-            is_integer(worker.reclaimed_bytes) and worker.reclaimed_bytes > 0
-          }> · {size(worker.reclaimed_bytes)} freed so far</span><span :if={
-            worker.allocation == "refused"
-          }> · not taking new copies ({refusal(worker.refusal_reason)})</span>
-        <% end %>
+      <p :if={@scale > 1} class="storage-note">
+        Worker storage · Bars share a scale of 0 to {size(@scale)}
       </p>
-      <p :if={@limit} class="storage-note">
-        Cleanup budget: {size(@limit)} of disposable data. This is separate from the worker's disk capacity.
+      <div :if={@storage.workers != []} class="storage-grid">
+        <article :for={worker <- @storage.workers} class="storage-worker" id={"storage-" <> worker.id}>
+          <header>
+            <h3>
+              <span class="connection-dot" data-tone={worker_tone(worker)} aria-hidden="true"></span>{worker.id}
+            </h3>
+            <small :if={worker.measured_at && worker.measurement != :unknown}>
+              <ShortTime.time at={worker.measured_at} now={@now} prefix="measured " />
+            </small>
+          </header>
+          <p :if={worker.measurement == :unknown}>No storage report yet.</p>
+          <%= if worker.measurement != :unknown do %>
+            <p :if={worker.measurement == :stale}>Out of date</p>
+            <div
+              :for={
+                {key, label} <- [{"protected_bytes", "In use"}, {"disposable_bytes", "Can be freed"}]
+              }
+              class="storage-measure"
+              data-kind={key}
+            >
+              <span>{label}</span><strong>{size(worker.bytes[key])}</strong>
+              <meter
+                :if={is_integer(worker.bytes[key])}
+                min="0"
+                max={@scale}
+                value={worker.bytes[key]}
+                aria-label={"#{worker.id} · #{label}"}
+                aria-valuetext={size(worker.bytes[key])}
+              />
+            </div>
+            <p :if={is_integer(worker.reclaimed_bytes) && worker.reclaimed_bytes > 0}>
+              Freed so far <strong>{size(worker.reclaimed_bytes)}</strong>
+            </p>
+            <p :if={
+              is_integer(worker.bytes["unattributed_bytes"]) && worker.bytes["unattributed_bytes"] > 0
+            }>
+              Space outside copies <strong>{size(worker.bytes["unattributed_bytes"])}</strong>
+            </p>
+          <% end %>
+          <p :if={worker.allocation == "refused"} class="storage-refusal">
+            New copies paused · {refusal(worker.refusal_reason)}
+          </p>
+        </article>
+      </div>
+      <p :if={@limit || @target} class="storage-note">
+        <span :if={@limit}>Cleanup budget <strong>{size(@limit)}</strong> of disposable data</span>
+        <span :if={@target}>Cleanup target <strong>{duration(@target)}</strong> after eligibility</span>
       </p>
       <p :if={not @copies? and space_in_use?(@storage.workers)} class="storage-note">
-        No working copy holds this space: it is the workers' shared checkouts, conversations and
-        their own data.
-      </p>
-      <p :if={@target} class="storage-note">
-        Ryker cleans up copies that are ready within {duration(@target)}.
+        No working copy holds this space. It includes shared checkouts, conversations and worker data.
       </p>
     </section>
     """

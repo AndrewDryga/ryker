@@ -2045,7 +2045,14 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .channel-page .channel-relation .pagination { margin:8px 0 0; }
 .channel-page .channel-entry-text { margin:0; max-width:720px; white-space:pre-line; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .channel-page .section-actions a { font-size:13px; line-height:18px; }
-.channel-page .channel-usage { display:flex; flex-wrap:wrap; gap:4px 16px; margin:0; font-size:14px; line-height:20px; color:var(--ryker-text); }
+.connection-summary { flex:1; min-width:0; }
+.connection-line #new-channels-default { margin-top:4px; }
+.usage-summary { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 20px; font-variant-numeric:tabular-nums; }
+.usage-summary strong { font-size:20px; }
+.usage-summary span { color:var(--ryker-text-secondary); }
+.token-breakdown { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr)); margin:14px 0 10px; padding:12px 0; border-block:1px solid var(--ryker-stroke); gap:10px; }
+.token-breakdown dt, .storage-worker small { color:var(--ryker-text-secondary); font-size:13px; }
+.token-breakdown dd { margin:2px 0 0; font-size:16px; font-variant-numeric:tabular-nums; }
 .channel-page .channel-usage-note { margin:4px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 /* Add repositories (/repositories/new): the list loads as the page opens. */
 .repository-import-body { display:grid; justify-items:start; gap:16px; }
@@ -2068,7 +2075,19 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 /* Working copies: one storage line per worker, then the copies. */
 .working-copies-storage { display:grid; gap:6px; max-width:1040px; margin:0 0 16px; }
 .working-copies-storage .storage-line, .working-copies-storage .storage-note { margin:0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.working-copies-storage .storage-line strong { font-weight:500; color:var(--ryker-text); }
+.storage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:12px; }
+.storage-worker { min-width:0; padding:14px 16px; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:10px; }
+.storage-worker header, .storage-measure { display:flex; align-items:baseline; flex-wrap:wrap; justify-content:space-between; gap:4px 10px; }
+.storage-worker h3 { display:flex; align-items:center; gap:7px; font-size:15px; margin:0; overflow-wrap:anywhere; }
+.storage-worker p, .storage-measure { margin:8px 0 0; color:var(--ryker-text-secondary); font-size:13px; }
+.storage-measure strong, .storage-worker p strong { font-weight:500; color:var(--ryker-text); font-variant-numeric:tabular-nums; }
+.storage-measure meter { display:block; appearance:none; width:100%; height:5px; border:0; border-radius:5px; background:var(--ryker-stroke); --bar:var(--ryker-text-secondary); }
+.storage-measure[data-kind=disposable_bytes] meter { --bar:var(--ryker-accent-strong); }
+.storage-measure meter::-webkit-meter-bar { height:5px; border:0; border-radius:5px; background:var(--ryker-stroke); }
+.storage-measure meter::-webkit-meter-optimum-value { background:var(--bar); border-radius:5px; }
+.storage-measure meter::-moz-meter-bar { background:var(--bar); border-radius:5px; }
+.storage-worker .storage-refusal { color:var(--ryker-warning); }
+.working-copies-storage .storage-note { display:flex; flex-wrap:wrap; gap:4px 20px; margin-top:4px; }
 @media (max-width:800px) {
   .connection-line { flex-direction:column; align-items:flex-start; }
   .channel-page .channel-facts { grid-template-columns:minmax(0,1fr); gap:2px; }
@@ -3138,3 +3157,18 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .sign-in-card:has(.browser-results) { max-width: 960px; }
 .sign-in-shell:has(.browser-results) { padding-top: 48px; }
 .browser-case-heading { flex-wrap: wrap; }
+
+.github-setup .github-step { border-top:1px solid var(--ryker-stroke); }
+.github-setup .github-step:first-of-type { margin-top:14px; }
+.github-step > summary { display:flex; gap:8px 16px; flex-wrap:wrap; align-items:center; padding:14px 2px; cursor:pointer; }
+.github-step > summary::-webkit-details-marker { display:none; }
+.github-step > summary strong { flex:1; min-width:min(100%,190px); font-size:15px; }
+.github-step > summary::after { content:""; width:7px; height:7px; margin:0 4px; border-right:2px solid var(--ryker-text-secondary); border-bottom:2px solid var(--ryker-text-secondary); transform:rotate(45deg); }
+.github-step[open] > summary::after { transform:rotate(225deg); }
+.github-step > summary .settings-connection { margin:0; }
+.github-step-body { max-width:660px; padding:0 2px 16px; }
+.github-step-body > p, .setup-instructions { font-size:14px; color:var(--ryker-text-secondary); margin:0 0 12px; }
+.github-step-body > h3 { margin:18px 0 6px; font-size:15px; }
+.setup-instructions { padding-inline-start:22px; }
+.setup-instructions li + li { margin-top:8px; }
+.github-examples { margin-block:16px; }

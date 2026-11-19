@@ -578,7 +578,7 @@ defmodule Ryker.Slack.Runtime do
         name: ThreadStatusWorker,
         refresh_interval_ms: 90_000,
         retry_base_ms: 1_000,
-        snapshot: &ThreadStatusProjection.snapshot/1,
+        snapshot: &ThreadStatusProjection.snapshot(&1, default_participation),
         worker_ref: "slack-thread-status:#{identity.workspace_ref}",
         workspace_ref: identity.workspace_ref
       })

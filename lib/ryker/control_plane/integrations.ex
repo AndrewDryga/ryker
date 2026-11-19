@@ -715,6 +715,8 @@ defmodule Ryker.ControlPlane.Integrations do
   attr(:key, :atom, required: true)
   attr(:id, :string, required: true)
 
+  slot(:detail)
+
   @doc """
   One integration's state as a line above a list that needs it, such as the
   Slack channels or the repositories: its name, the dot and word, why, and
@@ -725,15 +727,18 @@ defmodule Ryker.ControlPlane.Integrations do
 
     ~H"""
     <div class="connection-line" id={@id}>
-      <p :if={@integration}>
-        <strong>{@name}</strong>
-        <Kit.state tone={elem(@integration.state, 0)} word={elem(@integration.state, 1)} />
-        <span :if={line_text(@integration)}>{line_text(@integration)}</span>
-      </p>
-      <p :if={!@integration}>
-        <strong>{@name}</strong>
-        <span>Its state is unknown, because settings could not be read.</span>
-      </p>
+      <div class="connection-summary">
+        <p :if={@integration}>
+          <strong>{@name}</strong>
+          <Kit.state tone={elem(@integration.state, 0)} word={elem(@integration.state, 1)} />
+          <span :if={line_text(@integration)}>{line_text(@integration)}</span>
+        </p>
+        <p :if={!@integration}>
+          <strong>{@name}</strong>
+          <span>Its state is unknown, because settings could not be read.</span>
+        </p>
+        {render_slot(@detail)}
+      </div>
       <.link
         navigate={if @integration, do: @integration.action.href, else: "/integrations"}
         class="ui-button secondary"

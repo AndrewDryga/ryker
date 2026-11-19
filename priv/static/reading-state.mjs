@@ -5,6 +5,11 @@ import {createConversationControls} from "./conversation.mjs"
 import {createComposer} from "./composer.mjs"
 import {captureReadingAnchor, restoreReadingAnchor} from "./history.mjs"
 
+function disclosureKey(node, index) {
+  const key = node.id || `${index}:${node.querySelector("summary")?.textContent}`
+  return node.dataset?.disclosureState ? `${key}:${node.dataset.disclosureState}` : key
+}
+
 // A tool call's body comes back with the reply to its disclosure, rather than
 // with the whole page projected again (3.4 s on a long timeline, 2026-09-30).
 // Any other body arrives with the page's next render.
@@ -112,7 +117,7 @@ export function createReadingStateHook(environment = {}) {
       this.readingURL = loc.href
       this.focusedID = this.el.contains(doc.activeElement) ? doc.activeElement.id : null
       this.expanded = Array.from(this.el.querySelectorAll("details")).map((node, index) => ({
-        key: node.id || `${index}:${node.querySelector("summary")?.textContent}`, open: node.open
+        key: disclosureKey(node, index), open: node.open
       }))
       this.scroll = win.scrollY
       // A conversation transcript is anchored to the row being read, not to a
@@ -122,7 +127,7 @@ export function createReadingStateHook(environment = {}) {
     updated() {
       const expanded = new Map((this.expanded || []).map(item => [item.key, item.open]))
       this.el.querySelectorAll("details").forEach((node, index) => {
-        const key = node.id || `${index}:${node.querySelector("summary")?.textContent}`
+        const key = disclosureKey(node, index)
         // Privacy wins over the reader's selection. Once the server says a body
         // was revoked, expired or redacted, the disclosure it was read in closes
         // and no earlier open state reopens it.

@@ -359,7 +359,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Storage",
        [
-         "The storage line shows data in use and what can be freed. The cleanup budget limits disposable data; it is not the worker's disk capacity.",
+         "Worker charts compare data in use and what can be freed on a shared byte scale. The cleanup budget limits disposable data.",
          "New copies wait when the worker's filesystem reaches its free-space reserve. Settings → Advanced shows its capacity and the space needed to resume. A container or virtual machine may have a smaller disk than its host."
        ]}
     ])
@@ -591,7 +591,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How the GitHub connection works", [
       {"Connect the App",
        [
-         "Enter the App ID and private key (.pem) from the App's settings on GitHub, then paste the callback URL shown here into the App's webhook settings. Leave the webhook secret empty and Ryker creates one."
+         "Enter the App ID and private key (.pem) from the App's settings on GitHub, then paste the webhook URL into the App's Webhook settings. For issue and review buttons, add the separate sign-in callback under Identifying and authorizing users. Leave the webhook secret empty and Ryker creates one."
        ]},
       {"Access",
        [

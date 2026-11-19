@@ -682,7 +682,9 @@ defmodule Ryker.IntegrationSetup do
   """
   @spec allow_github_approvals(String.t(), boolean(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def allow_github_approvals(ref, allowed?, actor_ref)
+  @spec allow_github_approvals(String.t(), boolean(), String.t(), non_neg_integer() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def allow_github_approvals(ref, allowed?, actor_ref, revision \\ nil)
       when is_binary(ref) and is_boolean(allowed?) do
     snapshot = Settings.fetch!()
 
@@ -690,12 +692,16 @@ defmodule Ryker.IntegrationSetup do
       nil ->
         {:error, :repository_not_found}
 
-      binding ->
-        Settings.put_github_binding(
-          %{name: binding.name, approvals_allowed: allowed?},
-          snapshot.installation.revision,
-          actor_ref
-        )
+      %{action_grants: grants} = binding when is_list(grants) ->
+        if "review" in grants do
+          Settings.put_github_binding(
+            %{name: binding.name, approvals_allowed: allowed?},
+            revision || snapshot.installation.revision,
+            actor_ref
+          )
+        else
+          {:error, :review_not_granted}
+        end
     end
   end
 
