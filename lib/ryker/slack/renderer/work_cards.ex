@@ -162,7 +162,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
 
       {publication_blocks, controls_block} =
         one_row(
-          TaskPublication.blocks(task_ref, repository, publication),
+          TaskPublication.blocks(task_ref, repository, publication, task["stages"]),
           work_controls_block(task_ref, controls, :task, task["resume_ref"])
         )
 

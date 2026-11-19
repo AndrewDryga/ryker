@@ -56,23 +56,28 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   def validate(_publication), do: {:error, :invalid_task_publication}
 
-  @spec blocks(String.t(), String.t(), map() | nil) :: [map()]
-  def blocks(_task_ref, _repository, nil), do: []
+  @spec blocks(String.t(), String.t(), map() | nil, [map()]) :: [map()]
+  def blocks(_task_ref, _repository, nil, _stages), do: []
 
-  def blocks(task_ref, repository, %{
-        "automatic_fix" => automatic_fix,
-        "blocked_reason" => blocked_reason,
-        "branch" => branch,
-        "controls" => controls,
-        "discarded_reason" => discarded_reason,
-        "publication_ref" => publication_ref,
-        "pull_request_number" => number,
-        "pull_request_state" => pull_request_state,
-        "pull_request_url" => url,
-        "recovery_generation" => recovery_generation,
-        "status" => status,
-        "unverified" => unverified
-      }) do
+  def blocks(
+        task_ref,
+        repository,
+        %{
+          "automatic_fix" => automatic_fix,
+          "blocked_reason" => blocked_reason,
+          "branch" => branch,
+          "controls" => controls,
+          "discarded_reason" => discarded_reason,
+          "publication_ref" => publication_ref,
+          "pull_request_number" => number,
+          "pull_request_state" => pull_request_state,
+          "pull_request_url" => url,
+          "recovery_generation" => recovery_generation,
+          "status" => status,
+          "unverified" => unverified
+        },
+        stages
+      ) do
     detail =
       cond do
         not (is_binary(url) and is_integer(number)) -> ""
@@ -90,7 +95,17 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
         unverified: unverified
       })
 
-    summary = section("#{message}#{detail}#{publication_branch_line(status, branch)}")
+    summary =
+      case message do
+        {:outcome, outcome} ->
+          outcome_line(stages, url, outcome, detail)
+
+        nil ->
+          draft_link(stages, url, number)
+
+        text ->
+          section(text <> detail <> publication_branch_line(status, branch))
+      end
 
     buttons =
       Enum.map(controls, fn
@@ -146,10 +161,26 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
           )
       end)
 
-    if buttons == [],
-      do: [summary],
-      else: [summary, actions("#{task_ref}:publication", buttons)]
+    row = if buttons != [], do: actions("#{task_ref}:publication", buttons)
+    Enum.reject([summary, row], &is_nil/1)
   end
+
+  defp outcome_line(stages, url, outcome, link_detail) do
+    shown? =
+      Enum.any?(stages, fn row ->
+        row["stage"] == "review_and_merge" and row["detail"] == outcome and row["url"] == url
+      end)
+
+    unless shown?, do: section("The pull request was #{outcome}.#{link_detail}")
+  end
+
+  # Older projections can have a PR before the stage has its link.
+  defp draft_link(stages, url, number) when is_binary(url) and is_integer(number) do
+    unless Enum.any?(stages, &(&1["stage"] == "draft_pr" and &1["url"] == url)),
+      do: section(link(url, "Draft PR ##{number}"))
+  end
+
+  defp draft_link(_stages, _url, _number), do: section("Draft PR created.")
 
   # The host's own line for a fix round Ryker is running on the refusal
   # (`Ryker.Publication.FixLoop`) says what the blocked status would not.
@@ -157,10 +188,10 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   # doing with it: Andrew closed draft PR #90 and this line still read "Draft PR created. Open
   # it to review the changes." (2026-10-04).
   defp publication_message(_status, _controls, %{pull_request_state: "closed"}),
-    do: "The pull request was closed without merging."
+    do: {:outcome, "closed without merging"}
 
   defp publication_message(_status, _controls, %{pull_request_state: "merged"}),
-    do: "The pull request was merged."
+    do: {:outcome, "merged"}
 
   defp publication_message(_status, _controls, %{automatic_fix: fix}) when is_binary(fix),
     do: escape(fix)
@@ -216,8 +247,9 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
     "The changes passed their checks. I don't have a draft-PR grant for this task, so open the draft when you want one."
   end
 
-  defp publication_status_message("published", _controls, nil),
-    do: "Draft PR created. Open it to review the changes."
+  defp publication_status_message(status, _controls, nil)
+       when status in ["published", "published_ready"],
+       do: nil
 
   # A draft opened because a check could not run stays explicitly unverified
   # after it exists. Saying only "open it to review the changes" is how an

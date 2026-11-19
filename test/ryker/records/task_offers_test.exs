@@ -371,7 +371,8 @@ defmodule Ryker.Records.TaskOffersTest do
 
     stored = Repo.get!(TaskCard, card.id)
     assert stored.card_fingerprint =~ ~r/\A[0-9a-f]{64}\z/
-    assert stored.card_ui_revision == 7
+    assert task["ui_revision"] == 8
+    assert stored.card_ui_revision == task["ui_revision"]
 
     assert Enum.map(task["stages"], &{&1["stage"], &1["state"]}) == [
              {"workspace_setup", "waiting"},

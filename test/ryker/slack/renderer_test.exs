@@ -1261,7 +1261,7 @@ defmodule Ryker.Slack.RendererTest do
   # Andrew closed draft PR #90 on GitHub (2026-10-04). The Review and merge row said so within
   # seconds, but the line under the progress still read "Draft PR created. Open it to review the
   # changes. · Open draft PR #90", as if nothing had happened.
-  test "a pull request closed or merged on GitHub is said under the progress" do
+  test "a closed or merged PR has a fallback only when the progress row lacks the outcome" do
     publication = %{
       "automatic_fix" => nil,
       "blocked_reason" => nil,
@@ -1294,7 +1294,35 @@ defmodule Ryker.Slack.RendererTest do
              "The pull request was merged. · <https://github.com/acme/ryker/pull/90|PR #90>"
 
     assert rendered.(%{publication | "pull_request_state" => nil}) =~
-             "Draft PR created. Open it to review the changes. · <https://github.com/acme/ryker/pull/90|Open PR #90>"
+             "<https://github.com/acme/ryker/pull/90|Draft PR #90>"
+
+    for {state, detail, outcome} <- [
+          {"closed", "closed without merging", "stopped"},
+          {"merged", "merged", "completed"}
+        ] do
+      task = publication_task_card(%{publication | "pull_request_state" => state})
+
+      task =
+        update_in(task["stages"], fn stages ->
+          Enum.map(stages, fn
+            %{"stage" => "review_and_merge"} = row ->
+              %{
+                row
+                | "detail" => detail,
+                  "state" => outcome,
+                  "url" => publication["pull_request_url"]
+              }
+
+            row ->
+              row
+          end)
+        end)
+
+      assert {:ok, %{"blocks" => blocks}} = Renderer.render(%{"task_card" => task})
+      sections = Enum.map(blocks, &text_of/1)
+      assert Enum.any?(sections, &(&1 =~ "Review and merge> · #{detail}"))
+      refute Enum.any?(sections, &(&1 =~ "The pull request was"))
+    end
 
     stale = %{publication | "pull_request_state" => "stale"}
 
@@ -1496,7 +1524,11 @@ defmodule Ryker.Slack.RendererTest do
 
     checked = put_in(task, ["publication", "unverified"], nil)
     assert {:ok, checked_rendered} = Renderer.render(%{"task_card" => checked})
-    assert Jason.encode!(checked_rendered) =~ "Draft PR created. Open it to review the changes."
+
+    assert Enum.any?(
+             checked_rendered["blocks"],
+             &(text_of(&1) == "<https://github.com/acme/ryker/pull/91|Draft PR #91>")
+           )
   end
 
   # "Review recovery" is the only control a card with no saved workspace can

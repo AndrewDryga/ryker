@@ -151,6 +151,10 @@ still confirm first (Andrew, 2026-09-30: "not too many red buttons in the same s
 never offers a control for what Ryker does by itself: refreshing a pull request's state was
 "Check delivery" until 2026-09-30 ("not clear wtf this button does?"), and a re-check of a change
 in a repository with no checks can only repeat its answer.
+Once the Draft PR row links the published change, keep the primary Open PR button and omit
+the publication success paragraph. The Review and merge row owns a known GitHub outcome.
+A failed update or an unverified draft still explains what
+the reader needs to know.
 A repository is named as owner/repo, never by its ref.
 
 ## Governed review

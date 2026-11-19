@@ -984,7 +984,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   # seconds, but the line under the progress kept "Draft PR created. Open it to review the
   # changes." and the card still said "Updated 03 Oct". The pull request's state, and when GitHub
   # last changed it, are the whole card's.
-  test "a pull request closed on GitHub is said under the progress and dates the card" do
+  test "progress links the published PR and shows its later GitHub outcome once" do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("closed-on-github")
 
@@ -1010,6 +1010,28 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     assert {:ok, open} = TaskCardProjection.build(source)
     assert open.document["task_card"]["publication"]["pull_request_state"] == nil
+
+    # An open draft appeared three times on one card: in Progress, in a publication
+    # paragraph with another link, and on the primary button.
+    assert {:ok, %{"blocks" => blocks}} = Renderer.render(open.document)
+    sections = for %{"type" => "section", "text" => %{"text" => text}} <- blocks, do: text
+    [progress] = Enum.filter(sections, &String.starts_with?(&1, "*Progress*"))
+
+    assert progress =~
+             "<#{publication.pull_request_url}|Draft PR ##{publication.pull_request_number}>"
+
+    assert progress =~ "CI"
+    refute Enum.any?(sections -- [progress], &String.contains?(&1, publication.pull_request_url))
+    refute Enum.any?(sections, &String.contains?(&1, "Draft PR created"))
+
+    assert [%{"url" => url, "style" => "primary"}] =
+             for(
+               %{"type" => "actions", "elements" => elements} <- blocks,
+               %{"action_id" => "ryker_open_publication"} = button <- elements,
+               do: button
+             )
+
+    assert url == publication.pull_request_url
 
     Repo.update_all(from(saved in Followup, where: saved.publication_id == ^publication.id),
       set: [next_poll_at: DateTime.add(DateTime.utc_now(), -60, :second)]
@@ -1053,7 +1075,8 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     assert {:ok, rendered} = Renderer.render(closed.document)
     json = Jason.encode!(rendered)
-    assert json =~ "The pull request was closed without merging."
+    assert json =~ "Review and merge> · closed without merging"
+    refute json =~ "The pull request was closed without merging."
     refute json =~ "Open it to review"
   end
 

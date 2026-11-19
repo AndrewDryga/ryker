@@ -19,7 +19,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.Wording
   alias Ryker.Work
 
-  @ui_revision 7
+  @ui_revision 8
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
   # Why a refused grant stopped the draft, in words: the card said "needs operator attention:
   # `publication_authorization_revoked`" (2026-09-30). The recovery is on the card itself.
