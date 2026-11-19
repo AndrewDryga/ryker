@@ -43,7 +43,6 @@ jobs:
           key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
           restore-keys: |
             mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
-            mix-test-${{ runner.os }}-
       - name: format, compile warnings, cycles, Credo, Sobelow, JavaScript and ShellCheck
         run: make static-check
       # The test jobs compile from this; main's newest build is the one each run starts from.
@@ -86,7 +85,6 @@ jobs:
           key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
           restore-keys: |
             mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
-            mix-test-${{ runner.os }}-
       # Partition 0 is the async files; the serial files are dealt across 1 to 4.
       - name: the suite's partition ${{ matrix.partition }}
         run: make elixir-partitions
@@ -117,7 +115,6 @@ jobs:
           key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
           restore-keys: |
             mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
-            mix-test-${{ runner.os }}-
       - name: the capacity tests the partitions leave out
         run: make slow-tests
 
@@ -144,7 +141,6 @@ jobs:
           key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
           restore-keys: |
             mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
-            mix-test-${{ runner.os }}-
       - name: the scenario bundles' deterministic host replay
         run: make eval-replay
 
@@ -172,7 +168,6 @@ jobs:
           key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
           restore-keys: |
             mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
-            mix-test-${{ runner.os }}-
       - name: thirty accelerated days of workspace cleanup
         run: make retention-simulation
 

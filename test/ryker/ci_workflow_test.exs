@@ -37,6 +37,25 @@ defmodule Ryker.CiWorkflowTest do
              Enum.to_list(0..step["env"]["RYKER_TEST_PARTITIONS"])
   end
 
+  # Every cached test job failed after the November dependency update: the
+  # OS-only fallback restored old package directories, so the wrapper skipped
+  # fetching and Mix refused their lock mismatch before any test could run.
+  test "dependency caches never restore packages from another lockfile or toolchain" do
+    caches =
+      for {name, job} <- jobs(),
+          %{"uses" => "actions/cache/restore@" <> _revision, "with" => cache} <- job["steps"],
+          "deps" in String.split(cache["path"], "\n", trim: true),
+          do: {name, cache}
+
+    assert caches != []
+
+    for {name, cache} <- caches,
+        key <- [cache["key"] | String.split(cache["restore-keys"], "\n", trim: true)] do
+      assert key =~ "${{ hashFiles('.tool-versions', 'mix.lock') }}",
+             "#{name} can restore dependencies without their lockfile/toolchain identity: #{key}"
+    end
+  end
+
   defp jobs do
     ".github/workflows/ci.yml" |> read!() |> YamlElixir.read_from_string!() |> Map.fetch!("jobs")
   end
