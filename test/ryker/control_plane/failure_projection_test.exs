@@ -290,7 +290,11 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
              Enum.find(WorkspaceProjection.learning_sessions(), &(&1.ref == session.external_ref))
 
     copies = WorkspaceProjection.copies(%{})
-    refute Enum.any?(copies.current ++ copies.removed.items, &(&1.ref == session.external_ref))
+
+    refute Enum.any?(
+             copies.current.items ++ copies.removed.items,
+             &(&1.ref == session.external_ref)
+           )
   end
 
   # Learning that only a person could restart was listed only on the Learning

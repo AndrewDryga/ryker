@@ -2393,7 +2393,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     assert WorkingCopiesPage.html(%{
              copies: %{
-               current: [],
+               current: %{key: "page", items: [], total: 0, page: 1, pages: 1},
                removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
              },
              storage: %{budget: %{}, preview: [], workers: []},

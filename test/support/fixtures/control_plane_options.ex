@@ -1211,41 +1211,47 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
         end,
         working_copies: fn _params ->
           %{
-            current: [
-              %{
-                action: :rearm,
-                execution_kind: :work,
-                kind: "coop_session",
-                repository: "ryker",
-                ref: "workspace:blocked",
-                state: :complete,
-                status: :blocked,
-                summary: "coop_protocol_error",
-                updated_at: ~U[2026-08-28 12:00:00Z]
-              },
-              %{
-                action: :discard_unmerged,
-                execution_kind: :work,
-                kind: "coop_session",
-                repository: "ryker",
-                ref: "workspace:unmerged",
-                state: :complete,
-                status: :retained,
-                summary: "unpublished_unmerged",
-                updated_at: ~U[2026-08-28 12:00:00Z]
-              },
-              %{
-                action: :discard_changes,
-                execution_kind: :work,
-                kind: "coop_session",
-                repository: "ryker",
-                ref: "workspace:dirty",
-                state: :complete,
-                status: :retained,
-                summary: "dirty",
-                updated_at: ~U[2026-08-28 12:00:00Z]
-              }
-            ],
+            current: %{
+              key: "page",
+              total: 3,
+              page: 1,
+              pages: 1,
+              items: [
+                %{
+                  action: :rearm,
+                  execution_kind: :work,
+                  kind: "coop_session",
+                  repository: "ryker",
+                  ref: "workspace:blocked",
+                  state: :complete,
+                  status: :blocked,
+                  summary: "coop_protocol_error",
+                  updated_at: ~U[2026-08-28 12:00:00Z]
+                },
+                %{
+                  action: :discard_unmerged,
+                  execution_kind: :work,
+                  kind: "coop_session",
+                  repository: "ryker",
+                  ref: "workspace:unmerged",
+                  state: :complete,
+                  status: :retained,
+                  summary: "unpublished_unmerged",
+                  updated_at: ~U[2026-08-28 12:00:00Z]
+                },
+                %{
+                  action: :discard_changes,
+                  execution_kind: :work,
+                  kind: "coop_session",
+                  repository: "ryker",
+                  ref: "workspace:dirty",
+                  state: :complete,
+                  status: :retained,
+                  summary: "dirty",
+                  updated_at: ~U[2026-08-28 12:00:00Z]
+                }
+              ]
+            },
             removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
           }
         end,

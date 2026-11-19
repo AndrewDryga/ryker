@@ -22,8 +22,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   @preview_limit 25
 
   @doc """
-  The working copies tasks hold, for the Working copies page: every copy in
-  use, newest change first, and the removed ones a page at a time under
+  The working copies tasks hold, for the Working copies page: copies in
+  use and removed copies, each a page at a time under
   `params["page"]`, newest first, with how many there are.
 
   One 100-row list held both and the Learning page's sessions, so the page
@@ -31,7 +31,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   2026-10-05, the learning sessions taking the other rows (2026-10-04
   review).
   """
-  @spec copies(map()) :: %{current: [map()], removed: PagedRelation.t()}
+  @spec copies(map()) :: %{current: PagedRelation.t(), removed: PagedRelation.t()}
   def copies(params) do
     names = RepositoryNames.all()
 
@@ -40,16 +40,17 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     current =
       copies
       |> WorkingCopy.Query.kept()
-      |> WorkingCopy.Query.ordered_by_recently_updated()
-      |> Repo.all()
-      |> items(names)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
 
     removed =
       copies
       |> WorkingCopy.Query.removed()
       |> PagedRelation.read([desc: :updated_at, desc: :id], "page", params)
 
-    %{current: current, removed: %{removed | items: items(removed.items, names)}}
+    %{
+      current: %{current | items: items(current.items, names)},
+      removed: %{removed | items: items(removed.items, names)}
+    }
   end
 
   @doc """

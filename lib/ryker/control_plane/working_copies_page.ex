@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   attr(:copies, :map,
     required: true,
-    doc: "`WorkspaceProjection.copies/1`: every copy in use, and one page of removed ones"
+    doc: "`WorkspaceProjection.copies/1`: counted pages of current and removed copies"
   )
 
   attr(:storage, :map, required: true)
@@ -68,13 +68,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         removed: removed,
         ready: ready,
         ready_total: ready_total,
-        counts: counts(current, ready_total, removed.total)
+        counts: counts(current.total, ready_total, removed.total)
       )
 
     ~H"""
     <div class="working-copies-page">
       <Kit.counts label="Working copies" items={@counts} />
-      <.storage storage={@storage} now={@now} copies?={@current != []} />
+      <.storage storage={@storage} now={@now} copies?={@current.total > 0} />
       <Kit.toolbar>
         <Kit.segmented
           label="Which copies"
@@ -101,11 +101,19 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
             />
           </Kit.entity_list>
         </section>
-        <Kit.entity_list :if={@current != []} label="Working copies">
-          <.copy :for={row <- @current} row={row} now={@now} />
+        <Kit.entity_list :if={@current.items != []} label="Working copies">
+          <.copy :for={row <- @current.items} row={row} now={@now} />
         </Kit.entity_list>
+        <Components.pager
+          page={@current.page}
+          pages={@current.pages}
+          path={&Paths.query("/working-copies", page: &1)}
+          label="Current copy pages"
+          earlier="Newer"
+          later="Older"
+        />
         <Kit.empty
-          :if={@current == []}
+          :if={@current.total == 0}
           icon={:copy}
           title="No working copies right now"
           text="A copy appears here while a task works in a repository, and stays until cleanup removes it safely."
@@ -139,8 +147,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp counts(current, ready, removed) do
     [
       %{
-        value: length(current),
-        label: Wording.word(length(current), "copy in use", "copies in use"),
+        value: current,
+        label: Wording.word(current, "copy in use", "copies in use"),
         href: "/working-copies"
       },
       ready > 0 &&

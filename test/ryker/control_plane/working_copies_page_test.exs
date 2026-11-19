@@ -381,7 +381,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
         projection: %{
           working_copies: fn _params ->
             %{
-              current: [@blocked],
+              current: %{key: "page", items: [@blocked], total: 1, page: 1, pages: 1},
               removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
             }
           end,
@@ -402,11 +402,11 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
   defp meta(row), do: row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze()
 
-  # The page's copies as `WorkspaceProjection.copies/1` reads them: the ones in use, and one
-  # page of the removed ones.
+  # Both lists have the same counted page shape as `WorkspaceProjection.copies/1`.
   defp render(rows, storage \\ @storage, view \\ "current") do
     {removed, current} = Enum.split_with(rows, &(&1.status == :discarded))
     page = %{key: "page", items: removed, total: length(removed), page: 1, pages: 1}
+    current = %{key: "page", items: current, total: length(current), page: 1, pages: 1}
 
     %{copies: %{current: current, removed: page}, storage: storage, now: @now, view: view}
     |> WorkingCopiesPage.html()

@@ -1304,7 +1304,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # Repository-less conversation sessions are not repository checkouts and do
     # not belong on the Workspaces page.
-    assert WorkspaceProjection.copies(%{}).current == []
+    assert WorkspaceProjection.copies(%{}).current.items == []
 
     assert {:ok, detail} = EpisodeProjection.fetch(working.episode.key)
     assert Enum.flat_map(detail.trace.chapters, & &1.steps) == detail.trace.steps
@@ -2649,7 +2649,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert is_nil(workspace.discard_plan_fingerprint)
     # A repository-less Chat cleanup failure remains inspectable from Failures,
     # but it is not presented as a repository checkout on Workspaces.
-    refute workspace in WorkspaceProjection.copies(%{}).current
+    refute workspace in WorkspaceProjection.copies(%{}).current.items
 
     fixture = File.read!("testdata/control_plane/legacy_cleanup_failure.json") |> Jason.decode!()
 

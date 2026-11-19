@@ -388,7 +388,10 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     }
 
     %{
-      copies: %{current: [], removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}},
+      copies: %{
+        current: %{key: "page", items: [], total: 0, page: 1, pages: 1},
+        removed: %{key: "page", items: [], total: 0, page: 1, pages: 1}
+      },
       storage: %{budget: %{}, preview: [], workers: [worker]},
       now: nil
     }

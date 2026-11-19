@@ -8,15 +8,42 @@ defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
 
   @now ~U[2026-10-05 12:00:00.000000Z]
 
+  # The live page rendered 239 retained copies (318 KB of HTML) on every load and refresh
+  # on 2026-11-19. Current copies need the same bounded reads as removed copies.
+  test "current copies are counted in full and loaded one reachable page at a time" do
+    first = pinned_session!("current-pages")
+    for n <- 1..52, do: copy!(first, n + 1, :active, n)
+
+    copies = WorkspaceProjection.copies(%{})
+    assert %{total: 53, page: 1, pages: 3} = copies.current
+    assert length(copies.current.items) == 25
+
+    last = WorkspaceProjection.copies(%{"page" => "999"})
+    assert %{total: 53, page: 3, pages: 3} = last.current
+    assert length(last.current.items) == 3
+
+    first_refs = MapSet.new(copies.current.items, & &1.ref)
+    last_refs = MapSet.new(last.current.items, & &1.ref)
+    assert MapSet.disjoint?(first_refs, last_refs)
+
+    document = page(%{"page" => "3"})
+    assert "53 copies in use" in counts(document)
+    assert copies_on(document) == 3
+    assert document |> LazyHTML.query("nav.pagination span") |> LazyHTML.text() =~ "Page 3 of 3"
+
+    assert document |> LazyHTML.query("nav.pagination a") |> LazyHTML.attribute("href") ==
+             ["/working-copies?page=2"]
+  end
+
   # One 100-row list held the copies in use, the removed ones and the Learning page's sessions,
   # so the page counted only the removed copies that fitted: "33 removed" with 48 live on
   # 2026-10-05, the learning sessions taking the other rows (2026-10-04 review).
-  test "every copy in use is listed and the removed ones are counted in full, a page at a time" do
+  test "both copy lists are counted in full and removed copies are paginated" do
     in_use = pinned_session!("in-use")
     removed = for n <- 1..102, do: copy!(in_use, n + 1, :discarded, n)
 
     copies = WorkspaceProjection.copies(%{})
-    assert Enum.map(copies.current, & &1.ref) == [in_use.external_ref]
+    assert Enum.map(copies.current.items, & &1.ref) == [in_use.external_ref]
     assert %{total: 102, page: 1, pages: 5} = copies.removed
     assert length(copies.removed.items) == 25
     # Newest first: the last one removed leads.
@@ -33,7 +60,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjectionTest do
     in_use = pinned_session!("work-only")
 
     assert WorkspaceProjection.learning_sessions() == []
-    assert [%{ref: ref}] = WorkspaceProjection.copies(%{}).current
+    assert [%{ref: ref}] = WorkspaceProjection.copies(%{}).current.items
     assert ref == in_use.external_ref
   end
 

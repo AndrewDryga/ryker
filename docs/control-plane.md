@@ -645,7 +645,8 @@ hold no checkout; `/memory/learning` lists them.
   worker still takes new copies. A worker that reported nothing is unknown,
   never zero
 - "Ready for cleanup" lists what the janitor will do next, oldest first;
-  removed copies have their own view (`/working-copies?view=removed`), a page at a time
+  current copies are shown 25 at a time, newest change first, with the full count.
+  Removed copies have their own paginated view (`/working-copies?view=removed`)
 - Resume cleanup restores only the exact cleanup phase captured when
   automation blocked. It keeps the frozen Coop session identity, clears the
   bounded retry state, and records the operator action atomically
