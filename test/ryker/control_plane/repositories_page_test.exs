@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   which holds its buttons and every fact in cards.
   """
   use ExUnit.Case, async: true
+  import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Pages, RepositoriesPage}
 
@@ -258,11 +259,10 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   test "a repository's page holds its facts in cards, in the order they matter" do
     page = detail(@repository)
 
+    assert LazyHTML.query(page, ".repository-page[phx-hook=SettingsDraft]") |> Enum.count() == 1
+
     assert outline(page, "div.repository-page > *") == [
              "p.kit-status-line",
-             "section.kit-card#repository-issue-actions",
-             "section.kit-card#repository-issue-triage",
-             "section.kit-card#repository-ci-repair",
              "section.kit-card#repository-knowledge",
              "section.kit-card#repository-github",
              "section.kit-card#repository-code",
@@ -359,7 +359,10 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert page.status == 200
     assert page.title == "acme/checkout-api"
     assert page.back == {"All repositories", "/repositories"}
-    assert IO.iodata_to_binary(page.body) =~ ~s(id="remove-repository")
+    assert page.repository == @repository
+
+    assert page.repository |> detail() |> LazyHTML.query("#remove-repository") |> Enum.count() ==
+             1
 
     assert Pages.page(["repositories", "gone"], %{}, options).status == 404
   end
@@ -655,9 +658,6 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert stopped |> detail() |> LazyHTML.query("button") |> Enum.map(&LazyHTML.text/1) ==
              [
                "Retry setup",
-               "Save issue actions",
-               "Save issue triage",
-               "Save CI policy",
                "Remove repository"
              ]
   end
@@ -869,23 +869,6 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert render(@repository) |> LazyHTML.query(".kit-list-note") |> Enum.empty?()
   end
 
-  test "enabled issue actions explain missing sign-in setup beside the switch" do
-    item =
-      update_in(
-        @repository.configured,
-        &Map.merge(&1, %{github_issue_actions: true, github_issue_actions_ready: false})
-      )
-
-    section = detail(item) |> LazyHTML.query("#repository-issue-actions")
-    assert LazyHTML.text(section) =~ "waiting for GitHub sign-in setup"
-
-    assert LazyHTML.query(section, "a[href='/integrations/github#github-action-sign-in']")
-           |> Enum.count() == 1
-
-    ready = put_in(item.configured.github_issue_actions_ready, true)
-    refute detail(ready) |> LazyHTML.text() =~ "waiting for GitHub sign-in setup"
-  end
-
   defp render(items, params \\ %{}) do
     items = List.wrap(items)
 
@@ -897,9 +880,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   defp render_row(item), do: [item] |> render() |> LazyHTML.query("article.entity-row")
 
   defp detail(item) do
-    item
-    |> RepositoriesPage.detail_html(@now)
-    |> IO.iodata_to_binary()
+    render_component(&RepositoriesPage.detail/1, item: item, now: @now)
     |> LazyHTML.from_fragment()
   end
 

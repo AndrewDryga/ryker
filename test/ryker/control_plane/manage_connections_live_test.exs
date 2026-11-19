@@ -656,6 +656,213 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert [%{repository_ref: "acme-site"}] = Settings.fetch!().github_bindings
   end
 
+  describe "repository automation forms" do
+    setup do
+      connect_github!()
+
+      {:ok, %{added: ["acme/api"]}} =
+        IntegrationSetup.import_github_repositories([repository("acme/api", 11)], @actor)
+
+      {:ok, _snapshot} =
+        Settings.put_repository(
+          %{
+            ref: "acme-api",
+            github_issue_actions: false,
+            github_issue_triage: false,
+            github_triage_labels: false,
+            github_ci_repair: :off
+          },
+          :current,
+          @actor
+        )
+
+      {:ok, view, _html} = open("/repositories/acme-api")
+      %{view: view}
+    end
+
+    # Production, 2026-11-19: background announcements reset these checkboxes
+    # before they could be saved, making controls appear impossible to use.
+    test "unsaved choices survive background refreshes in every section", %{view: view} do
+      for {section, params, selected} <- [
+            {"issue-actions", %{enabled: "true"}, "input[name=enabled][checked]"},
+            {"issue-triage", %{enabled: "true", labels: "true"}, "input[name=labels][checked]"},
+            {"ci-repair", %{policy: "all"}, "input[name=policy][value=all][checked]"}
+          ] do
+        selector = "#repository-#{section} form"
+        view |> form(selector, params) |> render_change()
+        send(view.pid, :reload_page)
+        assert has_element?(view, "#{selector} #{selected}")
+      end
+
+      assert Settings.fetch!().repositories
+             |> hd()
+             |> Map.take([
+               :github_issue_actions,
+               :github_issue_triage,
+               :github_triage_labels,
+               :github_ci_repair
+             ]) ==
+               %{
+                 github_issue_actions: false,
+                 github_issue_triage: false,
+                 github_triage_labels: false,
+                 github_ci_repair: :off
+               }
+    end
+
+    # The original forms reported success above the entire page, out of view
+    # of the form that was saved, and discarded drafts in neighbouring forms.
+    test "saving reports its result inside the same form", %{view: view} do
+      view |> form("#repository-issue-actions form", %{enabled: "true"}) |> render_submit()
+      assert has_element?(view, "#repository-issue-actions form [role=status]", "Saved")
+      refute has_element?(view, "#repository-notice")
+      assert Settings.fetch!().repositories |> hd() |> Map.fetch!(:github_issue_actions) == true
+    end
+
+    test "saving one section keeps the other sections editable and unsaved", %{view: view} do
+      triage = "#repository-issue-triage form"
+      ci = "#repository-ci-repair form"
+      view |> form(triage, %{enabled: "true", labels: "true"}) |> render_change()
+      view |> form(ci, %{policy: "all"}) |> render_change()
+      view |> form("#repository-issue-actions form", %{enabled: "true"}) |> render_submit()
+      send(view.pid, :reload_page)
+
+      assert has_element?(view, "#{triage}[data-dirty=true] input[name=enabled][checked]")
+      assert has_element?(view, "#{ci}[data-dirty=true] input[value=all][checked]")
+      refute has_element?(view, "#{triage} .form-feedback-success")
+
+      view |> form(triage) |> render_submit()
+      send(view.pid, :reload_page)
+      view |> form(ci) |> render_submit()
+
+      assert Settings.fetch!().repositories
+             |> hd()
+             |> Map.take([
+               :github_issue_actions,
+               :github_issue_triage,
+               :github_triage_labels,
+               :github_ci_repair
+             ]) == %{
+               github_issue_actions: true,
+               github_issue_triage: true,
+               github_triage_labels: true,
+               github_ci_repair: :all
+             }
+
+      view |> form(triage, %{enabled: "false", labels: "false"}) |> render_change()
+      view |> form(triage) |> render_submit()
+      assert has_element?(view, "#{triage} .form-feedback-success", "Saved")
+      refute has_element?(view, "#{triage} input[type=checkbox][checked]")
+      assert Settings.fetch!().repositories |> hd() |> Map.fetch!(:github_issue_triage) == false
+    end
+
+    test "a conflicting save keeps choices and can reload just that section", %{view: view} do
+      triage = "#repository-issue-triage form"
+      view |> form(triage, %{enabled: "true", labels: "false"}) |> render_change()
+
+      {:ok, _snapshot} =
+        Settings.put_repository(
+          %{ref: "acme-api", github_triage_labels: true},
+          :current,
+          @actor
+        )
+
+      send(view.pid, :reload_page)
+
+      assert has_element?(view, "#{triage} [role=alert]", "Saved settings changed")
+      assert has_element?(view, "#{triage} input[name=enabled][checked]")
+      refute has_element?(view, "#{triage} input[name=labels][checked]")
+      view |> form(triage) |> render_submit()
+      assert Settings.fetch!().repositories |> hd() |> Map.fetch!(:github_issue_triage) == false
+
+      view |> element("#{triage} button", "Use saved settings") |> render_click()
+      refute has_element?(view, "#{triage} [role=alert]")
+      refute has_element?(view, "#{triage} input[name=enabled][checked]")
+      assert has_element?(view, "#{triage} input[name=labels][checked]")
+      assert has_element?(view, "#{triage}[data-dirty=false]")
+    end
+
+    test "discarding changes affects only that section", %{view: view} do
+      actions = "#repository-issue-actions form"
+      triage = "#repository-issue-triage form"
+      view |> form(actions, %{enabled: "true"}) |> render_change()
+      view |> form(triage, %{enabled: "true", labels: "true"}) |> render_change()
+      view |> element("#{actions} button", "Discard changes") |> render_click()
+
+      refute has_element?(view, "#{actions} input[name=enabled][checked]")
+      assert has_element?(view, "#{actions}[data-dirty=false]")
+      assert has_element?(view, "#{triage}[data-dirty=true] input[name=enabled][checked]")
+    end
+
+    test "a refused value leaves the section editable and never becomes a silent false", %{
+      view: view
+    } do
+      target = "#repository-issue-triage-acme-api"
+
+      view
+      |> with_target(target)
+      |> render_hook("save", %{"enabled" => "invalid", "labels" => "true"})
+
+      assert has_element?(view, "#{target} form [role=alert]", "Your choices are kept")
+      assert has_element?(view, "#{target} input[name=labels][checked]")
+      assert Settings.fetch!().repositories |> hd() |> Map.fetch!(:github_triage_labels) == false
+
+      view |> form("#{target} form", %{enabled: "true", labels: "true"}) |> render_change()
+      view |> form("#{target} form") |> render_submit()
+      assert has_element?(view, "#{target} form .form-feedback-success", "Saved")
+      refute has_element?(view, "#{target} form [role=alert]")
+    end
+
+    test "a recovered draft keeps its revision and cannot overwrite newer settings", %{view: view} do
+      target = "#repository-issue-triage-acme-api"
+      document = view |> render() |> LazyHTML.from_fragment() |> LazyHTML.query("#{target} form")
+
+      kept = %{
+        "revision" => document |> LazyHTML.attribute("data-revision") |> hd(),
+        "baseline" => document |> LazyHTML.attribute("data-baseline") |> hd(),
+        "form" => "enabled=true&labels=false"
+      }
+
+      {:ok, next_view, _html} = open("/repositories/acme-api")
+      next_view |> with_target(target) |> render_hook("restore", kept)
+      assert_reply(next_view, %{restored: true})
+      assert has_element?(next_view, "#{target} input[name=enabled][checked]")
+
+      {:ok, _snapshot} =
+        Settings.put_repository(
+          %{ref: "acme-api", github_triage_labels: true},
+          :current,
+          @actor
+        )
+
+      {:ok, changed_view, _html} = open("/repositories/acme-api")
+      changed_view |> with_target(target) |> render_hook("restore", kept)
+      assert_reply(changed_view, %{restored: true})
+      assert has_element?(changed_view, "#{target} form [role=alert]", "Saved settings changed")
+      changed_view |> form("#{target} form") |> render_submit()
+      assert Settings.fetch!().repositories |> hd() |> Map.fetch!(:github_issue_triage) == false
+    end
+
+    test "the sign-in prerequisite is explained beside the saved issue action choice", %{
+      view: view
+    } do
+      assert has_element?(
+               view,
+               "#repository-issue-actions .repository-setup-note",
+               "GitHub sign-in is required"
+             )
+
+      assert has_element?(
+               view,
+               "#repository-issue-actions a[href='/integrations/github#github-action-sign-in']"
+             )
+
+      view |> form("#repository-issue-actions form", %{enabled: "true"}) |> render_submit()
+      assert has_element?(view, "#repository-issue-actions input[name=enabled][checked]")
+      assert has_element?(view, "#repository-issue-actions .repository-setup-note")
+    end
+  end
+
   defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   defp answer!(github, repositories),

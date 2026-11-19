@@ -139,6 +139,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_counted: false,
        github_repositories: [],
        github_repository_discovery: :idle,
+       repository: nil,
        repository_notice: nil,
        repository_question: nil,
        knowledge_question: nil,
@@ -469,6 +470,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      |> assign(settings: {:ok, view}, setup_failure: nil)
      |> return_with(list, message)}
   end
+
+  def handle_info(:repository_settings_saved, socket), do: {:noreply, refresh(socket, true)}
 
   def handle_info(:sign_in_ended, socket),
     do: {:noreply, redirect(socket, to: socket.assigns.location)}
@@ -1184,99 +1187,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           finish_setup(socket, result, "Signing credential #{name} was deleted.")
       end
     end)
-  end
-
-  def handle_event(
-        "save-repository-issue-triage",
-        %{"repository" => ref, "revision" => revision, "enabled" => enabled, "labels" => labels},
-        socket
-      )
-      when enabled in ["true", "false"] and labels in ["true", "false"] do
-    result =
-      case Integer.parse(revision) do
-        {revision, ""} ->
-          Settings.put_repository(
-            %{
-              ref: ref,
-              github_issue_triage: enabled == "true",
-              github_triage_labels: labels == "true"
-            },
-            revision,
-            actor(socket)
-          )
-
-        _invalid ->
-          {:error, :invalid_revision}
-      end
-
-    notice =
-      case result do
-        {:ok, _snapshot} ->
-          {:list, :success, "Issue triage saved."}
-
-        {:error, _reason} ->
-          {:list, :error, "Issue triage could not be saved. Refresh the page and try again."}
-      end
-
-    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
-  end
-
-  def handle_event(
-        "save-repository-ci-repair",
-        %{"repository" => ref, "revision" => revision, "policy" => policy},
-        socket
-      )
-      when policy in ~w(off own all) do
-    result =
-      case Integer.parse(revision) do
-        {revision, ""} ->
-          Settings.put_repository(%{ref: ref, github_ci_repair: policy}, revision, actor(socket))
-
-        _invalid ->
-          {:error, :invalid_revision}
-      end
-
-    notice =
-      case result do
-        {:ok, _snapshot} ->
-          {:list, :success, "CI repair policy saved."}
-
-        {:error, _reason} ->
-          {:list, :error, "CI repair policy could not be saved. Refresh the page and try again."}
-      end
-
-    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
-  end
-
-  def handle_event(
-        "save-repository-issue-actions",
-        %{"repository" => ref, "revision" => revision, "enabled" => enabled},
-        socket
-      )
-      when enabled in ["true", "false"] do
-    result =
-      case Integer.parse(revision) do
-        {revision, ""} ->
-          Settings.put_repository(
-            %{ref: ref, github_issue_actions: enabled == "true"},
-            revision,
-            actor(socket)
-          )
-
-        _invalid ->
-          {:error, :invalid_revision}
-      end
-
-    notice =
-      case result do
-        {:ok, _snapshot} ->
-          {:list, :success, "Issue actions saved."}
-
-        {:error, _reason} ->
-          {:list, :error, "Issue actions could not be saved. Refresh the page and try again."}
-      end
-
-    {:noreply, socket |> assign(repository_notice: notice) |> refresh(true)}
   end
 
   def handle_event("retry-github-onboarding", %{"repository" => ref}, socket)
@@ -2023,6 +1933,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       preview_retention: actions[:preview_retention],
       preview_webhook: actions[:preview_webhook],
       put_environment: &Settings.put_environment(&1, &2, Actor.of(viewer)),
+      put_repository: &Settings.put_repository(&1, &2, Actor.of(viewer)),
       put_item: &actions.put_settings_item.(&1, &2, &3, viewer),
       save: &actions.save_settings.(&1, &2, &3, viewer),
       send_weekly_report_preview: actions[:send_weekly_report_preview]
@@ -2501,6 +2412,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       native: nil,
       page_status: page.status,
       body: page.body,
+      repository: Map.get(page, :repository),
       page_title: page.title,
       page_description: page.description,
       page_action: Map.get(page, :action),
@@ -3007,6 +2919,26 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               tone={elem(@repository_notice, 1)}
               message={elem(@repository_notice, 2)}
             />
+            <RepositoriesPage.detail :if={@repository} item={@repository} now={@observed_at}>
+              <:settings :if={@repository.configured && @repository.configured.github_bound}>
+                <.live_component
+                  :for={
+                    {section, id} <- [
+                      {:issue_actions, "repository-issue-actions"},
+                      {:issue_triage, "repository-issue-triage"},
+                      {:ci_repair, "repository-ci-repair"}
+                    ]
+                  }
+                  module={Ryker.ControlPlane.RepositorySettingsEditor}
+                  id={id <> "-" <> @repository.ref}
+                  section={section}
+                  ref={@repository.ref}
+                  card_id={id}
+                  repository={@repository.configured}
+                  save={@settings_commands.put_repository}
+                />
+              </:settings>
+            </RepositoriesPage.detail>
             {Phoenix.HTML.raw(@body)}
             <Kit.form_card
               :if={

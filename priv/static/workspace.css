@@ -2598,6 +2598,20 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .kit-card > .entity-list:last-child { margin-bottom:-14px; }
 .kit-card :is(.settings-form, .settings-editor, .settings-editor > form), .kit-card > .settings-notice { max-width:none; }
 .kit-card form > .settings-actions:last-child { padding-top:20px; border-top:1px solid var(--ryker-stroke); }
+/* Repository automation keeps each choice, explanation and save outcome in
+   one section. The entire label is a comfortable keyboard/pointer target. */
+.repository-settings .settings-option { min-height:44px; box-sizing:border-box; padding:10px 0; }
+.repository-settings .settings-option input { margin-top:2px; }
+.repository-settings .settings-option input:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:4px; }
+.repository-settings .settings-option small { margin-top:3px; max-width:640px; }
+.repository-settings .repository-ci-choices { gap:0; }
+.repository-settings-note { margin:12px 0 0 28px; }
+.repository-setup-note { margin:12px 0 0 28px; padding:10px 12px; border-left:2px solid var(--ryker-warning); background:var(--ryker-warning-soft); color:var(--ryker-text); font-size:13px; line-height:20px; }
+.repository-setup-note strong { font-weight:600; }
+.repository-setup-note a { color:inherit; text-decoration:underline; text-underline-offset:3px; }
+.repository-settings .settings-actions .repository-saved { margin:0; padding:0 4px; border:0; background:none; }
+.repository-settings .settings-actions .ui-button { min-height:44px; }
+.repository-settings .form-feedback { max-width:none; margin:0; }
 /* Kit: a page of one form (Andrew, 2026-09-27: an add form above a list "blends
    into the content"). One card, as wide as a readable form, holds the form;
    its groups of fields are parted by hairlines and its actions sit under the

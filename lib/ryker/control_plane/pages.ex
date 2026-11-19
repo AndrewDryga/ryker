@@ -4,7 +4,8 @@ defmodule Ryker.ControlPlane.Pages do
   path, built from the projection callbacks and nothing else.
 
   `WorkbenchLive` renders these inside the live shell; there is no HTTP route
-  for them. The status tells the shell what it holds: 200 is a page, 404 a
+  for them. Repository details return their projection for the shell to render
+  with stateful settings forms. The status tells the shell what it holds: 200 is a page, 404 a
   path or record that does not exist, and 503 a projection that could not
   answer, which the shell reports instead of showing a stale page as current.
 
@@ -26,7 +27,8 @@ defmodule Ryker.ControlPlane.Pages do
           required(:description) => String.t() | nil,
           required(:body) => binary(),
           optional(:action) => binary(),
-          optional(:back) => {String.t(), String.t()}
+          optional(:back) => {String.t(), String.t()},
+          optional(:repository) => map()
         }
 
   # Every kind the failures page can list, because it links each row it lists
@@ -195,7 +197,8 @@ defmodule Ryker.ControlPlane.Pages do
            ) do
       item
       |> RepositoriesPage.name()
-      |> ok(RepositoriesPage.detail_html(item))
+      |> ok("")
+      |> Map.put(:repository, item)
       |> Map.put(:back, {"All repositories", "/repositories"})
     else
       {:error, :path_ref} -> not_found("Repository")
