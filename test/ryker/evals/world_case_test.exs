@@ -113,7 +113,7 @@ defmodule Ryker.Evals.WorldCaseTest do
     source = File.read!(Path.join([@scenario_root, id, "scenario.json"]))
 
     assert digest(source) ==
-             "3cd6f0ace1aa08dfa2cae2ee116536e96442708b34a6408d96d42c9e0829b80f"
+             "7c6c2107e62573f51b0b486501a31c978ff58f7a3d142b80540862e590e9e16a"
   end
 
   test "Airflow verification includes its pinned GCP scope before asking for live observations" do
@@ -841,7 +841,7 @@ defmodule Ryker.Evals.WorldCaseTest do
            ["host_replay", "model_events", Access.at(0), "preflight_candidate_index"],
            1
          )
-       end, :preflight_candidate},
+       end, :fields},
       {fn scenario ->
          put_in(
            scenario,

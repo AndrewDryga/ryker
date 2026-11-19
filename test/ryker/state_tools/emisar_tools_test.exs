@@ -38,7 +38,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
     assert Enum.filter(tools, &(&1["name"] in @emisar_names)) == @tools_list["tools"]
     assert Enum.take(names, -length(@emisar_names)) == @emisar_names
     assert "record_emisar_approval" in names
-    assert "validate_final" in names
+    refute "validate_final" in names
 
     arguments = %{"limit" => 2, "query" => "disk usage"}
     answer = call(options, "find_actions", arguments)

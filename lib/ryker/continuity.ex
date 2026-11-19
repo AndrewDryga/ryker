@@ -38,7 +38,7 @@ defmodule Ryker.Continuity do
     to: Handover
 
   @doc "The fingerprint of the turn's staged summary for the final preflight."
-  defdelegate preflight_fingerprint_in_transaction(turn), to: Handover
+  defdelegate validation_fingerprint_in_transaction(turn), to: Handover
 
   @doc "The continuity a model receives for an episode."
   defdelegate model_context(episode, repository_ref, input_texts \\ []), to: Recall

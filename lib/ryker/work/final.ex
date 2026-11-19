@@ -23,7 +23,7 @@ defmodule Ryker.Work.Final do
   @reference_pattern "^[A-Za-z0-9_.:-]{1,256}$"
 
   @enforce_keys [:artifact_refs, :decision_reason, :delivery, :message, :record_refs, :state]
-  defstruct @enforce_keys ++ [title: nil, titled?: false]
+  defstruct @enforce_keys ++ [title: nil]
 
   @type t :: %__MODULE__{
           artifact_refs: [String.t()],
@@ -32,8 +32,7 @@ defmodule Ryker.Work.Final do
           message: String.t() | nil,
           record_refs: [String.t()],
           state: :complete | :waiting_for_input | :waiting_for_event,
-          title: String.t() | nil,
-          titled?: boolean()
+          title: String.t() | nil
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
@@ -54,21 +53,12 @@ defmodule Ryker.Work.Final do
          message: document["message"],
          record_refs: outcome.record_refs,
          state: outcome.state,
-         title: document["title"],
-         titled?: Map.has_key?(document, "title")
+         title: document["title"]
        }}
     end
   end
 
   def parse(_document), do: {:error, {:invalid_work_final, :type}}
-
-  # The exact candidate back, title included only when it was answered: the
-  # final preflight compares digests of this document and the returned answer.
-  @spec document(t()) :: map()
-  def document(%__MODULE__{} = final) do
-    document = delivery_document(final)
-    if final.titled?, do: Map.put(document, "title", final.title), else: document
-  end
 
   @doc """
   What delivery sends: the message and its outcome. The title names the

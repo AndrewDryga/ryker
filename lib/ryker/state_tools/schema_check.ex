@@ -33,9 +33,6 @@ defmodule Ryker.StateTools.SchemaCheck do
       else: {:error, :invalid_repository_reference}
   end
 
-  defp schema_error("validate_final", _arguments, _schema),
-    do: {:error, :invalid_final_arguments}
-
   # Each refusal names the correction: four calls for "every weekday" failed in
   # a row on 2026-09-25 before the model settled for Mondays.
   defp schema_error("propose_automation", %{"proposals" => proposals}, _schema)

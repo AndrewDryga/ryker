@@ -363,7 +363,7 @@ defmodule Ryker.Work.Validator do
       violations
     else
       [
-        "Generated output artifacts are available from this turn: #{Enum.join(refs, ", ")}. Include at least one intended host-issued reference in outcome.artifact_refs, call validate_final again with the corrected candidate, and do not report that the host returned no reference."
+        "Generated output artifacts are available from this turn: #{Enum.join(refs, ", ")}. Include at least one intended host-issued reference in outcome.artifact_refs, return the corrected candidate, and do not report that the host returned no reference."
         | violations
       ]
     end

@@ -18,8 +18,8 @@ defmodule Ryker.StateTools.Catalog do
   @spec maximum_automation_proposals() :: pos_integer()
   def maximum_automation_proposals, do: @maximum_automation_proposals
 
-  @spec tools([atom()], map()) :: [map()]
-  def tools(capabilities, final_schema \\ Work.Final.json_schema()) do
+  @spec tools([atom()]) :: [map()]
+  def tools(capabilities) do
     [
       get_work_state_tool(),
       cite_source_tool(),
@@ -41,8 +41,7 @@ defmodule Ryker.StateTools.Catalog do
       remember_correction_tool(),
       record_guidance_result_tool(),
       update_conversation_summary_tool(),
-      record_feedback_tool(),
-      validate_final_tool(final_schema)
+      record_feedback_tool()
     ]
     |> Enum.reject(&is_nil/1)
   end
@@ -471,19 +470,6 @@ defmodule Ryker.StateTools.Catalog do
         "sentiment" => enum(~w(negative suggestion positive)),
         "summary" => text(1_000),
         "target_message_ref" => JSONSchema.nullable(reference(256))
-      }
-    )
-  end
-
-  # The preflight takes the final schema with title optional, like the other
-  # tools' optional fields: an answer recorded before titles still preflights,
-  # and a missing title is the same candidate as a null one.
-  defp validate_final_tool(final_schema) do
-    tool(
-      "validate_final",
-      "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, outcome, and title; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
-      %{
-        "candidate" => Map.update!(final_schema, "required", &List.delete(&1, "title"))
       }
     )
   end

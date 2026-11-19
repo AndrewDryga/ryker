@@ -53,8 +53,7 @@
           }
         ],
         "faults": ["crash_after_submit"],
-        "input_index": 1,
-        "preflight_candidate_index": 1
+        "input_index": 1
       }
     ]
   },

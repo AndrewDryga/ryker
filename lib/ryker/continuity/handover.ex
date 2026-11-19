@@ -132,28 +132,27 @@ defmodule Ryker.Continuity.Handover do
 
   @doc """
   Bind the turn's draft to the candidate the host is validating. A draft bound
-  to an earlier candidate is dropped unless the replacement's successful
-  preflight explicitly validated that exact, unchanged draft.
+  to an earlier candidate is dropped; the model can restage it while correcting
+  an answer. Completion validation fingerprints the bound draft automatically.
   """
   @spec candidate_staged_in_transaction(Work.Turn.t(), String.t(), pos_integer()) ::
           :ok | {:error, term()}
   def candidate_staged_in_transaction(%Work.Turn{} = turn, candidate_sha256, candidate_attempt)
       when is_binary(candidate_sha256) and is_integer(candidate_attempt) and candidate_attempt > 0 do
     if Repo.in_transaction?() do
-      bind_candidate_draft(fetch_and_lock_draft(turn), candidate_sha256, candidate_attempt, turn)
+      bind_candidate_draft(fetch_and_lock_draft(turn), candidate_sha256, candidate_attempt)
     else
       {:error, :conversation_summary_transaction_required}
     end
   end
 
-  defp bind_candidate_draft({:error, :not_found}, _candidate_sha256, _candidate_attempt, _turn),
+  defp bind_candidate_draft({:error, :not_found}, _candidate_sha256, _candidate_attempt),
     do: :ok
 
   defp bind_candidate_draft(
          {:ok, %ConversationSummaryDraft{candidate_sha256: nil} = draft},
          candidate_sha256,
-         candidate_attempt,
-         _turn
+         candidate_attempt
        ),
        do: bind_draft(draft, candidate_sha256, candidate_attempt)
 
@@ -164,44 +163,25 @@ defmodule Ryker.Continuity.Handover do
             candidate_attempt: candidate_attempt
           }},
          candidate_sha256,
-         candidate_attempt,
-         _turn
+         candidate_attempt
        ),
        do: :ok
 
-  defp bind_candidate_draft({:ok, %ConversationSummaryDraft{} = draft}, sha256, attempt, turn) do
-    # Staging used to delete this draft after validate_final had accepted it,
-    # invalidating the host's own continuity fingerprint on the final attempt.
-    if revalidated_draft?(turn, draft) do
-      bind_draft(draft, sha256, attempt)
-    else
-      case Repo.delete(draft) do
-        {:ok, _draft} -> :ok
-        {:error, changeset} -> {:error, {:conversation_summary_persistence, changeset.errors}}
-      end
-    end
-  end
-
-  defp revalidated_draft?(turn, draft) do
-    case Jason.decode(turn.candidate || "") do
-      {:ok, %{} = candidate} ->
-        turn.final_preflight_candidate_sha256 == Work.FinalPreflight.candidate_sha256(candidate) and
-          turn.final_preflight_continuity_sha256 ==
-            CanonicalJSON.digest(preflight_document({:ok, draft}))
-
-      _invalid ->
-        false
+  defp bind_candidate_draft({:ok, %ConversationSummaryDraft{} = draft}, _sha256, _attempt) do
+    case Repo.delete(draft) do
+      {:ok, _draft} -> :ok
+      {:error, changeset} -> {:error, {:conversation_summary_persistence, changeset.errors}}
     end
   end
 
   @doc """
-  The fingerprint of the turn's staged draft, taken while the final preflight
+  The fingerprint of the turn's staged draft, taken while final validation
   holds the turn locked so a summary changed after validation is detected.
   """
-  @spec preflight_fingerprint_in_transaction(Work.Turn.t()) :: String.t() | no_return()
-  def preflight_fingerprint_in_transaction(%Work.Turn{} = turn) do
+  @spec validation_fingerprint_in_transaction(Work.Turn.t()) :: String.t() | no_return()
+  def validation_fingerprint_in_transaction(%Work.Turn{} = turn) do
     if Repo.in_transaction?() do
-      CanonicalJSON.digest(preflight_document(fetch_and_lock_draft(turn)))
+      CanonicalJSON.digest(validation_document(fetch_and_lock_draft(turn)))
     else
       raise ArgumentError, "preflight fingerprint requires a transaction"
     end
@@ -362,9 +342,9 @@ defmodule Ryker.Continuity.Handover do
     end
   end
 
-  defp preflight_document({:error, :not_found}), do: %{"summary" => nil}
+  defp validation_document({:error, :not_found}), do: %{"summary" => nil}
 
-  defp preflight_document({:ok, draft}) do
+  defp validation_document({:ok, draft}) do
     %{
       "revision" => draft.revision,
       "state_fingerprint" => draft.state_fingerprint,

@@ -18,7 +18,6 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
-  alias Ryker.StateTools.WorkStateTools
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{ActivityEvent, Custody, Executor, Result, Session, Turn}
 
@@ -881,8 +880,12 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     }
 
     # The answer waits while an update has not reached the conversation.
-    assert {:ok, %{"accepted" => false, "violations" => [waiting]}} =
-             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+    assert {:reject, [waiting]} =
+             Ryker.Work.Validator.validate(
+               Jason.encode!(candidate),
+               Ryker.Work.ValidationContext.build(binding.episode, binding.turn),
+               Ryker.Repo.now!()
+             )
 
     assert waiting =~ "Do not complete while platform actions are unresolved"
 
@@ -891,8 +894,12 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                Ryker.Delivery.Dispatcher.run_once(delivery_options("update-#{ref}", :action))
     end
 
-    assert {:ok, %{"accepted" => true}} =
-             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+    assert {:accept, _accepted} =
+             Ryker.Work.Validator.validate(
+               Jason.encode!(candidate),
+               Ryker.Work.ValidationContext.build(binding.episode, binding.turn),
+               Ryker.Repo.now!()
+             )
 
     accept_reply!(claim, candidate, "conversation-lab-updates")
 
@@ -999,8 +1006,12 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
       "title" => nil
     }
 
-    assert {:ok, %{"accepted" => false, "violations" => [waiting]}} =
-             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+    assert {:reject, [waiting]} =
+             Ryker.Work.Validator.validate(
+               Jason.encode!(candidate),
+               Ryker.Work.ValidationContext.build(binding.episode, binding.turn),
+               Ryker.Repo.now!()
+             )
 
     assert waiting =~ "Do not complete while platform actions are unresolved"
 
@@ -1009,8 +1020,12 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
                Ryker.Delivery.Dispatcher.run_once(delivery_options("reaction-#{ref}", :action))
     end
 
-    assert {:ok, %{"accepted" => true}} =
-             WorkStateTools.validate_final(%{"candidate" => candidate}, binding)
+    assert {:accept, _accepted} =
+             Ryker.Work.Validator.validate(
+               Jason.encode!(candidate),
+               Ryker.Work.ValidationContext.build(binding.episode, binding.turn),
+               Ryker.Repo.now!()
+             )
 
     assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     assert [message] = Enum.filter(conversation.messages, &(&1.actor == :operator))

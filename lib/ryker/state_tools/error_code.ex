@@ -73,10 +73,6 @@ defmodule Ryker.StateTools.ErrorCode do
     "invalid_arguments: propose_automation takes at most #{Catalog.maximum_automation_proposals()} proposals per call. Monday to Friday at one time is a single proposal with recurrence weekdays, and every day is one with recurrence daily. Nothing was proposed."
   end
 
-  def code(:invalid_final_arguments) do
-    ~s(invalid_arguments: validate_final requires {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]}}}. Keep the candidate wrapper and every outcome field. Use the actual host-issued refs. For delivery none, message must be null and decision_reason must explain the silence. Nothing was accepted; correct the call before returning.)
-  end
-
   def code(:automation_repository_not_writable) do
     "invalid_arguments: repository must be null or one this work can change: work.repository_ref, or another repository of this environment that is not read-only. Nothing was proposed."
   end

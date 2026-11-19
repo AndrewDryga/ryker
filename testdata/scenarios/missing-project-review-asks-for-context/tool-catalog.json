@@ -169,8 +169,8 @@
                       "type": "string"
                     },
                     "value": {
-                      "maximum": 1.0e15,
-                      "minimum": -1.0e15,
+                      "maximum": 1000000000000000.0,
+                      "minimum": -1000000000000000.0,
                       "type": "number"
                     },
                     "x": {
@@ -181,8 +181,8 @@
                           "type": "string"
                         },
                         {
-                          "maximum": 1.0e15,
-                          "minimum": -1.0e15,
+                          "maximum": 1000000000000000.0,
+                          "minimum": -1000000000000000.0,
                           "type": "number"
                         }
                       ]
@@ -195,8 +195,8 @@
                           "type": "string"
                         },
                         {
-                          "maximum": 1.0e15,
-                          "minimum": -1.0e15,
+                          "maximum": 1000000000000000.0,
+                          "minimum": -1000000000000000.0,
                           "type": "number"
                         }
                       ]
@@ -2077,152 +2077,6 @@
             "type": "object"
           },
           "name": "record_feedback"
-        },
-        {
-          "description": "Preflight the complete final candidate against current host-owned state. Pass one candidate object containing decision_reason, delivery, message, outcome, and title; outcome requires state, record_refs, and artifact_refs. Return only the accepted candidate unchanged.",
-          "inputSchema": {
-            "additionalProperties": false,
-            "properties": {
-              "candidate": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "additionalProperties": false,
-                "oneOf": [
-                  {
-                    "properties": {
-                      "decision_reason": {
-                        "type": "null"
-                      },
-                      "delivery": {
-                        "const": "reply"
-                      },
-                      "message": {
-                        "maxLength": 20000,
-                        "minLength": 1,
-                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
-                        "type": "string"
-                      }
-                    }
-                  },
-                  {
-                    "properties": {
-                      "decision_reason": {
-                        "maxLength": 240,
-                        "minLength": 1,
-                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
-                        "type": "string"
-                      },
-                      "delivery": {
-                        "const": "none"
-                      },
-                      "message": {
-                        "type": "null"
-                      }
-                    }
-                  }
-                ],
-                "properties": {
-                  "decision_reason": {
-                    "anyOf": [
-                      {
-                        "maxLength": 240,
-                        "minLength": 1,
-                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "delivery": {
-                    "enum": [
-                      "reply",
-                      "none"
-                    ]
-                  },
-                  "message": {
-                    "anyOf": [
-                      {
-                        "maxLength": 20000,
-                        "minLength": 1,
-                        "pattern": "^[^\\x00]*[^\\s\\x00][^\\x00]*$",
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "outcome": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "artifact_refs": {
-                        "items": {
-                          "maxLength": 256,
-                          "minLength": 1,
-                          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
-                          "type": "string"
-                        },
-                        "maxItems": 5,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "record_refs": {
-                        "items": {
-                          "maxLength": 256,
-                          "minLength": 1,
-                          "pattern": "^[A-Za-z0-9_.:-]{1,256}$",
-                          "type": "string"
-                        },
-                        "maxItems": 64,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "state": {
-                        "enum": [
-                          "complete",
-                          "waiting_for_input",
-                          "waiting_for_event"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "artifact_refs",
-                      "record_refs",
-                      "state"
-                    ],
-                    "type": "object"
-                  },
-                  "title": {
-                    "anyOf": [
-                      {
-                        "maxLength": 80,
-                        "minLength": 1,
-                        "pattern": "^[^\\n\\r\\x00]*[^\\s\\x00][^\\n\\r\\x00]*$",
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "decision_reason",
-                  "delivery",
-                  "message",
-                  "outcome"
-                ],
-                "title": "Ryker episode result",
-                "type": "object"
-              }
-            },
-            "required": [
-              "candidate"
-            ],
-            "type": "object"
-          },
-          "name": "validate_final"
         }
       ]
     }

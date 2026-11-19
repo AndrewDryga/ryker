@@ -261,7 +261,6 @@ defmodule Ryker.Work.Executor.Turns do
          {:ok, claim} <-
            Validation.ensure_validation_intent(
              claim,
-             message,
              sha256,
              attempt,
              artifacts,

@@ -34,12 +34,16 @@ tools own durable records. The generic Delivery module owns external message cus
    Coop session sends only new input plus a parent-submission reference.
 4. Coop creates the session and turn under stable operation keys derived from immutable local rows.
 5. Ryker stores each candidate's exact bytes, SHA-256, and attempt before validation.
-6. The universal validator returns every hard, actionable violation at once. Rejection continues in
+6. Ryker validates the staged answer automatically under its episode, session and turn locks;
+   the model has no separate validation tool to call. The universal validator returns every hard,
+   actionable violation at once. Rejection continues in
    the same Coop turn and session. Domain completion is the working model's responsibility, not
    a second model's approval gate.
 7. Ryker freezes the exact accept or reject mutation before calling Coop. Lost responses are
    reconciled by operation key and current turn state.
-8. A validated accept atomically stores the result and advances the episode. A visible result becomes
+8. Acceptance rechecks the candidate, records, required goals and staged summary against the frozen
+   validation snapshot. Changed state starts a bounded rerun from current context. A validated accept
+   atomically stores the result and advances the episode. A visible result becomes
    `delivery_pending`; deliberate silence settles immediately with an audited reason.
 9. Model workers cannot claim delivery work. A separate bounded Delivery pool claims the frozen
    intent, renews its independent lease across bounded provider I/O, selects only a trusted transport
@@ -247,7 +251,7 @@ evidence within its final-reference budget. Consolidate or forget existing rules
 that bound.
 
 `record_guidance_result` records `satisfied`, `blocked` or `not_applicable` for one exact offered requirement with
-current same-episode evidence. Both preflight and terminal validation require every applicable
+current same-episode evidence. Host completion validation requires every applicable
 output's result and evidence in the reply. Conditional guidance can record evidence of why its
 condition does not apply to the current task; this never counts as successful follow-through. Superseded evidence and withdrawn or replaced rules
 change that check. A blocked result communicates partial findings and missing proof; episode
@@ -584,7 +588,7 @@ permission to retry a gated action. The normal Work prompt says this directly; t
 model judging the answer and no completion-review continuation loop.
 
 Deterministic validation still enforces record ownership, permissions, unresolved required goals,
-delivery receipts, current wait state, source custody and final preflight. It does not judge domain
+delivery receipts, current wait state, source custody and host completion validation. It does not judge domain
 completeness. Model-world evaluation measures whether the working model completes the requested
 checks and stops at genuine human boundaries.
 

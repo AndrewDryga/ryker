@@ -462,7 +462,7 @@ defmodule Ryker.Behaviors.CorrectionsTest do
                binding: later
              )
 
-    digest = Ryker.Work.FinalPreflight.ledger_sha256(later.episode.id, 1, [], later.turn.id)
+    digest = Ryker.Work.ValidationSnapshot.ledger_sha256(later.episode.id, 1, later.turn.id)
     assert [current] = Ryker.Work.GuidanceRequirements.context(later.turn)
     assert current["result"]["status"] == "satisfied"
 
@@ -477,7 +477,7 @@ defmodule Ryker.Behaviors.CorrectionsTest do
     assert is_nil(current["result"])
 
     refute digest ==
-             Ryker.Work.FinalPreflight.ledger_sha256(later.episode.id, 1, [], later.turn.id)
+             Ryker.Work.ValidationSnapshot.ledger_sha256(later.episode.id, 1, later.turn.id)
 
     revise!(correction, "Do not keep the earlier instruction.")
     assert Ryker.Work.GuidanceRequirements.context(later.turn) == []

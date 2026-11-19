@@ -1,11 +1,13 @@
 defmodule Ryker.Work.CustodyConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   import Ecto.Query
+  import Ryker.TestHelpers, only: [digest: 1]
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work.{Activity, ActivityEvent, Cancellation, Custody, OperationKeys, Session}
   alias Ryker.Work.{Submission, Turn}
@@ -189,24 +191,15 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
     end)
   end
 
-  test "activity ingestion cannot deadlock a final preflight holding its episode owner" do
+  test "activity ingestion cannot deadlock host validation holding its episode owner" do
     # September 9's concurrent-human-feedback World run returned HTTP 500 from
     # validate_final: activity held Session then waited on its Episode FK while
     # preflight held Episode then waited on Session. The model had to retry.
     # This one-event structural page reproduces those locks without a model call.
     Sandbox.unboxed_run(Repo, fn ->
       command = create_episode!()
-      {:ok, claim} = Custody.claim_next("activity-preflight", 60, :work)
-
-      {:ok, session} =
-        Custody.bind_session(
-          command.episode_id,
-          claim.turn.turn_ref,
-          claim.lease_ref,
-          claim.session.generation,
-          claim.session.create_generation,
-          "remote:activity-preflight:#{command.episode_id}"
-        )
+      claim = staged_claim!(command)
+      session = claim.session
 
       parent = self()
 
@@ -230,6 +223,218 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
         cleanup(command)
       end
     end)
+  end
+
+  test "new workspace requirements cannot bypass completion checks while validation waits for its owner" do
+    # The host can fetch workspace evidence before acquiring the owner lock.
+    # A completed writable goal added in that gap must not be accepted with no
+    # workspace check, even though there are no remaining open required goals.
+    Sandbox.unboxed_run(Repo, fn ->
+      command = create_episode!()
+      claim = staged_claim!(command)
+      parent = self()
+
+      writer =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            {:ok, _} = Episodes.fetch_and_lock_current_in_transaction(claim.episode.key)
+            send(parent, {:goal_owner, backend_pid()})
+
+            receive do
+              :write_goals ->
+                token = Records.token(claim.turn)
+
+                {:ok, _} =
+                  Records.create(token, "late-goal", "goal", %{
+                    "authority" => "repository_write",
+                    "completion_contract" => "The requested implementation is committed.",
+                    "id" => "implement-feature",
+                    "kind" => "engineering",
+                    "requested_outcome" => "Implement the requested feature",
+                    "required" => true,
+                    "stage" => "implementation",
+                    "writable_repository" => "ryker"
+                  })
+
+                {:ok, _} =
+                  Records.create(token, "late-goal-complete", "goal_state", %{
+                    "detail" => "Implementation completed in the workspace.",
+                    "goal_id" => "implement-feature",
+                    "state" => "completed"
+                  })
+            end
+          end)
+        end)
+
+      assert_receive {:goal_owner, writer_backend}, 5_000
+
+      validation =
+        unboxed_task(fn ->
+          send(parent, {:validation_reader, backend_pid()})
+
+          Ryker.Work.Executor.Validation.ensure_validation_intent(
+            claim,
+            claim.turn.candidate_sha256,
+            claim.turn.candidate_attempt,
+            [],
+            %{
+              validation_context: fn current ->
+                Ryker.Work.ValidationContext.build(current.episode, current.turn)
+              end
+            }
+          )
+        end)
+
+      try do
+        assert_receive {:validation_reader, reader_backend}, 5_000
+        await_blocked_by(reader_backend, writer_backend)
+        send(writer.pid, :write_goals)
+        assert {:ok, {:ok, _}} = Task.await(writer, 5_000)
+        assert Task.await(validation, 5_000) == {:error, :work_validation_context_changed}
+        assert Records.open_required_goals(claim.episode.id) == []
+        turn = Repo.get!(Turn, claim.turn.id)
+        assert turn.validation_intent == nil
+        assert turn.validation_history == []
+        assert turn.candidate_attempt == 1
+      after
+        send(writer.pid, :write_goals)
+        stop_tasks([writer, validation])
+        cleanup(command)
+      end
+    end)
+  end
+
+  test "a state write waits for validation and cannot alter its accepted snapshot" do
+    # Completion used to depend on a model preview. Moving it to the host must
+    # serialize state writes and refuse a verdict whose facts changed afterward.
+    Sandbox.unboxed_run(Repo, fn ->
+      command = create_episode!()
+      claim = staged_claim!(command)
+      parent = self()
+
+      validation =
+        unboxed_task(fn ->
+          Custody.prepare_candidate_validation(
+            claim.episode.id,
+            claim.turn.turn_ref,
+            claim.lease_ref,
+            claim.turn.candidate_sha256,
+            claim.turn.candidate_attempt,
+            fn current ->
+              send(parent, {:validating, backend_pid()})
+
+              receive do
+                :finish_validation ->
+                  assert Records.validation_records(claim.episode.id) == %{}
+                  {:ok, result} = Ryker.Work.Result.new(:none, nil, "checked")
+
+                  Custody.prepare_validation(
+                    current.episode.id,
+                    current.turn.turn_ref,
+                    current.lease_ref,
+                    current.turn.candidate_sha256,
+                    current.turn.candidate_attempt,
+                    :accept,
+                    result
+                  )
+              end
+            end
+          )
+        end)
+
+      assert_receive {:validating, validation_backend}, 5_000
+
+      writing =
+        unboxed_task(fn ->
+          send(parent, {:writing, backend_pid()})
+
+          Records.create(Records.token(claim.turn), "late-question", "input_request", %{
+            "question" => "Which revision?",
+            "choices" => []
+          })
+        end)
+
+      try do
+        assert_receive {:writing, writing_backend}, 5_000
+        await_blocked_by(writing_backend, validation_backend)
+        send(validation.pid, :finish_validation)
+
+        assert {:ok, %Turn{validation_intent: %{"verdict" => "accept"}}} =
+                 Task.await(validation, 5_000)
+
+        assert {:ok, _record} = Task.await(writing, 5_000)
+
+        assert Custody.accept_result(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 claim.lease_ref,
+                 claim.turn.candidate_sha256,
+                 claim.turn.candidate_attempt,
+                 "validation:concurrent-state"
+               ) ==
+                 {:error, :work_validation_state_changed}
+
+        assert Repo.get!(Turn, claim.turn.id).result_ref == nil
+      after
+        send(validation.pid, :finish_validation)
+        stop_tasks([validation, writing])
+        cleanup(command)
+      end
+    end)
+  end
+
+  defp staged_claim!(command) do
+    {:ok, claim} = Custody.claim_next("activity-preflight", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        command.episode_id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        claim.session.generation,
+        claim.session.create_generation,
+        "remote:activity-preflight:#{command.episode_id}"
+      )
+
+    {:ok, submission} =
+      Submission.new(%{}, "Check current state.", %{"type" => "object"}, "work-final-live-v4")
+
+    {:ok, _} =
+      Custody.freeze_submission(
+        command.episode_id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        submission
+      )
+
+    {:ok, turn} =
+      Custody.bind_turn(
+        command.episode_id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        claim.turn.submit_generation,
+        "remote-turn:#{command.episode_id}"
+      )
+
+    candidate = ~s({"delivery":"none","decision_reason":"checked"})
+
+    {:ok, turn} =
+      Custody.stage_candidate(
+        command.episode_id,
+        turn.turn_ref,
+        claim.lease_ref,
+        nil,
+        nil,
+        candidate,
+        digest(candidate),
+        1
+      )
+
+    claim = %{claim | turn: turn, session: session}
+
+    claim
   end
 
   defp preflight_contender(claim, parent) do
@@ -432,13 +637,23 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
 
       receive do
         :preflight ->
-          Custody.record_final_preflight(
+          Custody.prepare_candidate_validation(
             claim.episode.id,
             claim.turn.turn_ref,
             claim.lease_ref,
-            String.duplicate("b", 64),
-            String.duplicate("c", 64),
-            claim.episode.semantic_version
+            claim.turn.candidate_sha256,
+            claim.turn.candidate_attempt,
+            fn current ->
+              Custody.prepare_validation(
+                current.episode.id,
+                current.turn.turn_ref,
+                current.lease_ref,
+                current.turn.candidate_sha256,
+                current.turn.candidate_attempt,
+                {:reject, ["The probe needs more evidence."]},
+                nil
+              )
+            end
           )
       end
     end)
@@ -496,6 +711,10 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
   defp cleanup(command) do
     Repo.delete_all(
       from(activity in ActivityEvent, where: activity.episode_id == ^command.episode_id)
+    )
+
+    Repo.delete_all(
+      from(record in Records.Record, where: record.episode_id == ^command.episode_id)
     )
 
     Repo.delete_all(from(turn in Turn, where: turn.episode_id == ^command.episode_id))

@@ -3,7 +3,7 @@ defmodule Ryker.Work.Custody.Turns do
   One logical turn from frozen submission to accepted result.
 
   Each step freezes its exact input before the matching Coop mutation runs:
-  the submission, the final preflight, the staged candidate, the validation
+  the submission, the staged candidate, the validation
   verdict, and finally the accepted result that advances the episode. The
   mutation fence commits the durable request identity of an outbound Coop
   create or submit before the call and renews the lease under lock for every
@@ -21,7 +21,8 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Waits
-  alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement}
+  alias Ryker.Work.{CandidateResponse, Measurement, ValidationSnapshot}
+  alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{Claims, Delivery}
   alias Ryker.Work.{OperationKeys, Result, Submission, Turn, ValidationIntent}
 
@@ -57,106 +58,101 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
-  @doc false
-  @spec record_final_preflight(
+  @doc """
+  Holds the owner locks while the callback performs local validation and
+  freezes its verdict through `prepare_validation/7`. The callback returns
+  the persisted turn; it must perform no remote I/O. Frozen retries skip it.
+  """
+  @spec prepare_candidate_validation(
           Ecto.UUID.t(),
           String.t(),
           String.t(),
           String.t(),
-          String.t(),
-          non_neg_integer()
-        ) :: {:ok, Turn.t()} | {:error, term()}
-  def record_final_preflight(
-        episode_id,
-        turn_ref,
-        lease_ref,
-        candidate_sha256,
-        ledger_sha256,
-        semantic_version
-      ) do
+          pos_integer(),
+          (Custody.claim() -> {:ok, Turn.t()} | {:error, term()})
+        ) ::
+          {:ok, Turn.t()} | {:error, term()}
+  def prepare_candidate_validation(episode_id, turn_ref, lease_ref, sha256, attempt, validate)
+      when is_function(validate, 1) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
          :ok <- reference(lease_ref, :lease_ref),
-         :ok <- sha256(candidate_sha256, :final_preflight_candidate_sha256),
-         :ok <- sha256(ledger_sha256, :final_preflight_ledger_sha256),
-         :ok <- non_negative_integer(semantic_version, :final_preflight_semantic_version) do
+         :ok <- sha256(sha256, :candidate_sha256),
+         :ok <- positive_integer(attempt, :candidate_attempt) do
       Repo.transaction(fn ->
-        {_, turn} = leased!(episode_id, turn_ref, lease_ref)
-        continuity_sha256 = Continuity.preflight_fingerprint_in_transaction(turn)
-
-        turn
-        |> Turn.Changeset.record_final_preflight(
-          candidate_sha256,
-          continuity_sha256,
-          ledger_sha256,
-          semantic_version
-        )
-        |> Repo.update()
-        |> unwrap_or_rollback(:work_final_preflight)
-      end)
-    end
-  end
-
-  @doc false
-  @spec verify_final_preflight(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          [String.t()]
-        ) :: {:ok, Turn.t()} | {:error, term()}
-  def verify_final_preflight(
-        episode_id,
-        turn_ref,
-        lease_ref,
-        candidate_sha256,
-        artifact_refs
-      ) do
-    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
-         :ok <- reference(turn_ref, :turn_ref),
-         :ok <- reference(lease_ref, :lease_ref),
-         :ok <- sha256(candidate_sha256, :final_preflight_candidate_sha256),
-         :ok <- artifact_refs(artifact_refs) do
-      Repo.transaction(fn ->
-        verify_final_preflight_locked(
+        prepare_candidate_validation_locked(
           episode_id,
           turn_ref,
           lease_ref,
-          candidate_sha256,
-          artifact_refs
+          sha256,
+          attempt,
+          validate
         )
       end)
     end
   end
 
-  defp verify_final_preflight_locked(
+  defp prepare_candidate_validation_locked(
          episode_id,
          turn_ref,
          lease_ref,
-         candidate_sha256,
-         artifact_refs
+         sha256,
+         attempt,
+         validate
        ) do
-    {_, turn} = leased!(episode_id, turn_ref, lease_ref)
+    {session, turn} = leased!(episode_id, turn_ref, lease_ref)
     episode = Repo.fetch!(Episodes.Episode.Query.by_id(episode_id))
 
-    ledger_sha256 =
-      FinalPreflight.ledger_sha256(
-        episode.id,
-        episode.semantic_version,
-        artifact_refs,
-        turn.id
-      )
+    if turn.candidate_sha256 != sha256 or turn.candidate_attempt != attempt,
+      do: Repo.rollback({:work_candidate_conflict, turn.candidate_sha256})
 
-    continuity_sha256 = Continuity.preflight_fingerprint_in_transaction(turn)
-
-    if turn.final_preflight_candidate_sha256 == candidate_sha256 and
-         turn.final_preflight_continuity_sha256 == continuity_sha256 and
-         turn.final_preflight_ledger_sha256 == ledger_sha256 and
-         turn.final_preflight_semantic_version == episode.semantic_version do
+    if is_map(turn.validation_intent) do
       turn
     else
-      Repo.rollback(:work_final_preflight_required)
+      current = %{episode: episode, session: session, turn: turn, lease_ref: lease_ref}
+
+      case validate.(current) do
+        {:ok, validated} -> validated
+        {:error, reason} -> Repo.rollback(reason)
+      end
     end
+  end
+
+  defp record_final_validation(turn, %{"verdict" => "accept"}) do
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(turn.episode_id))
+
+    ledger_sha256 =
+      ValidationSnapshot.ledger_sha256(episode.id, episode.semantic_version, turn.id)
+
+    continuity_sha256 = Continuity.validation_fingerprint_in_transaction(turn)
+
+    turn
+    |> Turn.Changeset.record_final_validation(
+      turn.candidate_sha256,
+      continuity_sha256,
+      ledger_sha256,
+      episode.semantic_version
+    )
+    |> Repo.update()
+    |> unwrap_or_rollback(:work_final_validation)
+  end
+
+  defp record_final_validation(turn, _rejection), do: turn
+
+  defp verify_final_validation(_episode, %{result_ref: ref}) when not is_nil(ref), do: :ok
+
+  defp verify_final_validation(episode, turn) do
+    ledger_sha256 =
+      ValidationSnapshot.ledger_sha256(episode.id, episode.semantic_version, turn.id)
+
+    continuity_sha256 = Continuity.validation_fingerprint_in_transaction(turn)
+
+    if turn.final_preflight_candidate_sha256 == turn.candidate_sha256 and
+         turn.final_preflight_continuity_sha256 == continuity_sha256 and
+         turn.final_preflight_ledger_sha256 == ledger_sha256 and
+         turn.final_preflight_semantic_version == episode.semantic_version,
+       do: :ok,
+       else: {:error, :work_validation_state_changed}
   end
 
   @doc false
@@ -1020,6 +1016,7 @@ defmodule Ryker.Work.Custody.Turns do
 
       true ->
         unchanged_waits!(episode_id, turn)
+        turn = record_final_validation(turn, intent)
         persist_validation_intent(turn, intent, fingerprint)
     end
   end
@@ -1073,6 +1070,7 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <- exact_episode(episode, episode_id),
          {:ok, session, turn} <- fetch_and_lock_turn_after_episode(episode_id, turn_ref),
          {:ok, result} <- accepted_intent_result(turn),
+         :ok <- verify_final_validation(episode, turn),
          consumed_refs = Emisar.Approvals.consume_observed_in_transaction(episode, session, turn),
          continuation_episode = %{
            episode

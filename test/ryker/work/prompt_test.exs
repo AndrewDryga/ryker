@@ -407,7 +407,7 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "when that is narrower than they asked"
     assert instructions =~ "never infer a durable preference"
     assert instructions =~ "An offer awaiting confirmation is a complete proposal"
-    assert instructions =~ ~s("candidate":)
+    refute instructions =~ ~s("candidate":)
     assert instructions =~ ~s("outcome":)
     assert instructions =~ ~s("record_refs":)
     assert instructions =~ ~s("artifact_refs":)
@@ -507,7 +507,7 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ "using the source_ref returned by that tool"
   end
 
-  test "universal instructions require owning-tool receipts and final preflight" do
+  test "universal instructions require owning-tool receipts and automatic final validation" do
     document = Prompt.build(%{"episode_ref" => "episode-1"}) |> Jason.decode!()
     instructions = String.replace(document["instructions"], ~r/\s+/, " ")
 
@@ -555,8 +555,8 @@ defmodule Ryker.Work.PromptTest do
     # armed a timer and said nothing for five minutes (Slack as Andrew,
     # 2026-10-10): a request for later is confirmed when its wait is armed.
     assert instructions =~ "the turn that arms its wait tells them in one short line"
-    assert instructions =~ "Call validate_final"
-    assert instructions =~ "exact JSON"
+    assert instructions =~ "Ryker automatically checks the submitted answer"
+    assert instructions =~ "one JSON object matching the attached schema"
     assert instructions =~ "correct the specific violation in this session"
     assert instructions =~ "this session"
     refute instructions =~ "state_token"
@@ -591,7 +591,10 @@ defmodule Ryker.Work.PromptTest do
 
     assert instructions =~ "save the actual final image there, never in repository source"
     assert instructions =~ "An explicit artifact deliverable is not complete when you only name"
-    assert instructions =~ "Use the artifact-producing capability before validate_final"
+
+    assert instructions =~
+             "Use the artifact-producing capability before returning your final answer"
+
     assert instructions =~ "A reference assigned at turn completion is not a failed creation"
     assert instructions =~ "never substitute an invented filename"
   end

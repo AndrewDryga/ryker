@@ -56,7 +56,7 @@ defmodule Ryker.Emisar.ToolsTest do
 
   # The model's client starts Ryker's tool server with a deadline of its own
   # (Codex allows ten seconds). A catalog read that waited on a hanging Emisar
-  # would cost the session every Ryker tool, validate_final included.
+  # would cost the session every Ryker tool, including state writes.
   test "an Emisar that does not answer in time lists nothing and holds up nothing" do
     pin = pin!(key!("emk-"), "https://hanging.example/api/mcp/rpc")
 

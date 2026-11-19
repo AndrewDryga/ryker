@@ -1193,15 +1193,6 @@ defmodule Ryker.Work.CustodyTest do
     assert Custody.freeze_submission(episode_id, ref, ref, :invalid) ==
              {:error, {:invalid_work_submission, :fields}}
 
-    assert Custody.record_final_preflight(episode_id, ref, ref, "bad", digest, 1) ==
-             {:error, {:invalid_work_custody, :final_preflight_candidate_sha256}}
-
-    assert Custody.record_final_preflight(episode_id, ref, ref, digest, digest, -1) ==
-             {:error, {:invalid_work_custody, :final_preflight_semantic_version}}
-
-    assert Custody.verify_final_preflight(episode_id, ref, ref, digest, :invalid) ==
-             {:error, {:invalid_work_custody, :artifact_refs}}
-
     assert Custody.bind_state_tools(episode_id, ref, ref, "", digest) ==
              {:error, {:invalid_work_custody, :state_tools_endpoint}}
 
@@ -1273,14 +1264,6 @@ defmodule Ryker.Work.CustodyTest do
     command = create_episode!("phase-order")
     assert {:ok, claim} = Custody.claim_next("worker:phase-order", 60)
     digest = digest("{}")
-
-    assert Custody.verify_final_preflight(
-             claim.episode.id,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             digest,
-             []
-           ) == {:error, :work_final_preflight_required}
 
     assert {:error, reason} =
              Custody.bind_turn(

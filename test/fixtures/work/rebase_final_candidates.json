@@ -1,0 +1,7 @@
+{
+  "candidates": [
+    "{\n  \"decision_reason\": null,\n  \"delivery\": \"reply\",\n  \"message\": \"I couldn\u2019t rebase the Gateway diagnostics in [#42](https://github.com/example/infrastructure/pull/42). The current `main` commit (`aaaaaaa`) was missing, and both attempts to fetch it failed. All 11 capture tests and the Terraform formatting check passed on the original change.\",\n  \"outcome\": {\n    \"state\": \"complete\",\n    \"record_refs\": [],\n    \"artifact_refs\": []\n  },\n  \"title\": \"Rebase Gateway reload diagnostics\"\n}",
+    "{\"decision_reason\":null,\"delivery\":\"reply\",\"message\":\"I rebased the Gateway reload diagnostics from [#42](https://github.com/example/infrastructure/pull/42) onto `main` without conflicts. The diagnostics, tests, and runbook carried over unchanged. All 11 capture tests and the Terraform formatting check passed.\",\"outcome\":{\"state\":\"complete\",\"record_refs\":[],\"artifact_refs\":[]},\"title\":\"Rebase Gateway reload diagnostics\"}",
+    "{\"decision_reason\":null,\"delivery\":\"reply\",\"message\":\"I rebased the Gateway reload diagnostics from [#42](https://github.com/example/infrastructure/pull/42) onto `main` without conflicts. The diagnostics, tests, and runbook carried over unchanged. All 11 capture tests and the Terraform formatting check passed.\",\"outcome\":{\"state\":\"complete\",\"record_refs\":[],\"artifact_refs\":[]},\"title\":\"Rebase Gateway reload diagnostics\"}"
+  ]
+}

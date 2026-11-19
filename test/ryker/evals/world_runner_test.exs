@@ -313,10 +313,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     [%{"document" => candidate}] = event["candidates"]
     candidate = Map.put(candidate, "title", nil)
 
-    fn claim, _scenario ->
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
-
+    fn _claim, _scenario ->
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
       :ok
     end
@@ -352,9 +349,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
         end)
 
       candidate = replace_harvested_refs(captured["candidate"], refs)
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
 
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
       :ok
@@ -413,9 +407,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
         end)
 
       candidate = replace_harvested_refs(captured["candidate"], refs)
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
 
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
       :ok
@@ -805,13 +796,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
           final_candidate("complete", "The rollout capacity question stays unresolved.", [
             goal_ref
           ])
-
-        assert {:ok, %{"accepted" => true}} =
-                 Tools.call(
-                   "validate_final",
-                   %{"candidate" => Jason.decode!(candidate)},
-                   binding_options(claim)
-                 )
 
         FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
         :ok
@@ -1565,9 +1549,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
           candidate
         end
 
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
-
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
       Agent.update(counter, fn _ -> {index + 1, refs} end)
       :ok
@@ -1793,13 +1774,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
             candidate = final_candidate(state, message, record_refs)
 
-            assert {:ok, %{"accepted" => true}} =
-                     Tools.call(
-                       "validate_final",
-                       %{"candidate" => Jason.decode!(candidate)},
-                       binding_options(claim)
-                     )
-
             FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
             :ok
           end
@@ -1915,13 +1889,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
       {record_ref, state, message} = record_incident_task_tool!(claim)
       candidate = final_candidate(state, message, [record_ref])
 
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding_options(claim)
-               )
-
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
       :ok
     end
@@ -1989,13 +1956,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
           "Updated the one pending Rivals engineering task.",
           [record_ref]
         )
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding_options(claim)
-               )
 
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
       :ok
@@ -2690,7 +2650,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
 
-    before_execute = fn claim, _scenario ->
+    before_execute = fn _claim, _scenario ->
       candidate =
         Jason.encode!(%{
           "decision_reason" => nil,
@@ -2702,22 +2662,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
             "state" => "complete"
           }
         })
-
-      binding = %{
-        binding: %{
-          episode: claim.episode,
-          session: claim.session,
-          state_token: Records.token(claim.turn),
-          turn: claim.turn
-        }
-      }
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding
-               )
 
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
       :ok
@@ -2863,13 +2807,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
       {record_ref, state, message} = record_state_tool!("request_input", claim)
       candidate = final_candidate(state, message, [record_ref])
 
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding_options(claim)
-               )
-
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
       :ok
     end
@@ -2923,13 +2860,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
       {task_ref, state, message} = record_state_tool!("request_task", claim)
       candidate = final_candidate(state, message, [evidence_ref, task_ref])
 
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call(
-                 "validate_final",
-                 %{"candidate" => Jason.decode!(candidate)},
-                 binding_options(claim)
-               )
-
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
       :ok
     end
@@ -2973,13 +2903,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
       before_execute = fn claim, _scenario ->
         {record_ref, state, message} = record_state_tool!("request_task", claim)
         candidate = final_candidate(state, message, [record_ref])
-
-        assert {:ok, %{"accepted" => true}} =
-                 Tools.call(
-                   "validate_final",
-                   %{"candidate" => Jason.decode!(candidate)},
-                   binding_options(claim)
-                 )
 
         FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [candidate]})
         :ok
@@ -3030,9 +2953,6 @@ defmodule Ryker.Evals.WorldRunnerTest do
                )
 
       candidate = put_in(captured["candidate"], ["outcome", "record_refs"], [record.ref])
-
-      assert {:ok, %{"accepted" => true}} =
-               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
 
       FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
       :ok

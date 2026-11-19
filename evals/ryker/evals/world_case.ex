@@ -31,7 +31,7 @@ defmodule Ryker.Evals.WorldCase do
   @world_fields ~w(repositories scheduled_events tool_rules)
   @expect_fields ~w(hard quality_rubric trajectory)
   @host_replay_fields ~w(model_events)
-  @model_event_fields ~w(calls candidates input_index preflight_candidate_index)
+  @model_event_fields ~w(calls candidates input_index)
   @model_event_optional_fields ~w(faults output_artifacts)
   @model_event_faults ~w(
     crash_after_submit lose_delivery_response lose_submit_response lose_validation_response
@@ -826,9 +826,8 @@ defmodule Ryker.Evals.WorldCase do
              {:error, :input_index},
          :ok <- model_calls(event["calls"]),
          :ok <- model_event_faults(Map.get(event, "faults", [])),
-         :ok <- output_artifacts(Map.get(event, "output_artifacts", [])),
-         :ok <- model_candidates(event["candidates"]) do
-      preflight_candidate(event["preflight_candidate_index"], event["candidates"])
+         :ok <- output_artifacts(Map.get(event, "output_artifacts", [])) do
+      model_candidates(event["candidates"])
     end
   end
 
@@ -991,16 +990,6 @@ defmodule Ryker.Evals.WorldCase do
   end
 
   defp model_candidate(_candidate), do: {:error, :candidate}
-
-  defp preflight_candidate(index, candidates)
-       when is_integer(index) and index > 0 and index <= length(candidates) do
-    case Enum.at(candidates, index - 1) do
-      %{"kind" => "final"} -> :ok
-      _candidate -> {:error, :preflight_candidate}
-    end
-  end
-
-  defp preflight_candidate(_index, _candidates), do: {:error, :preflight_candidate_index}
 
   defp expectation(value) do
     with :ok <- exact_fields(value, @expect_fields, :expect),

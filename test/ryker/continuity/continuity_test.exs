@@ -31,7 +31,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfigurations, ChannelMembership, SourceRef}
-  alias Ryker.Work.{Custody, FinalPreflight, Result, Submission}
+  alias Ryker.Work.{Custody, Result, Submission}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
 
@@ -2109,12 +2109,11 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert Repo.aggregate(ConversationSummary, :count) == 0
   end
 
-  test "a revalidated replacement preserves exactly the summary it validated" do
-    # A successful replacement preflight was followed by staging deleting its
-    # unchanged summary. The host then spent the final attempt rejecting its
-    # own changed fingerprint and stranded an otherwise valid approval wait.
+  # A model-side preview once validated a summary that candidate staging then
+  # deleted, spending the last correction on the host's own changed snapshot.
+  test "a restaged summary binds to the corrected candidate without a preview call" do
     joined!("T123", "C899")
-    work = open_work!("revalidated-summary", "slack:T123:C899", nil, "ryker")
+    work = open_work!("restaged-summary", "slack:T123:C899", nil, "ryker")
     assert {:ok, _draft} = Continuity.stage(work.state_token, state("Retained evidence"))
     claim = bind_work!(work)
     first = ~s({"delivery":"none","decision_reason":"first"})
@@ -2132,25 +2131,7 @@ defmodule Ryker.Continuity.ContinuityTest do
                1
              )
 
-    candidate_sha = FinalPreflight.candidate_sha256(Jason.decode!(second))
-
-    ledger_sha =
-      FinalPreflight.ledger_sha256(
-        work.episode.id,
-        work.episode.semantic_version,
-        [],
-        claim.turn.id
-      )
-
-    assert {:ok, _} =
-             Custody.record_final_preflight(
-               work.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               candidate_sha,
-               ledger_sha,
-               work.episode.semantic_version
-             )
+    assert {:ok, _draft} = Continuity.stage(work.state_token, state("Retained evidence"))
 
     assert {:ok, _} =
              Custody.stage_candidate(
@@ -2164,53 +2145,57 @@ defmodule Ryker.Continuity.ContinuityTest do
                2
              )
 
-    assert {:ok, _} =
-             Custody.verify_final_preflight(
-               work.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               candidate_sha,
-               []
-             )
-
     draft = Repo.one!(ConversationSummaryDraft)
     assert draft.candidate_sha256 == digest(second)
     assert draft.candidate_attempt == 2
   end
 
-  test "final preflight rejects a summary changed after validation" do
+  test "a summary changed after the frozen verdict cannot reach acceptance" do
     joined!("T123", "C999")
-    work = open_work!("preflight-fence", "slack:T123:C999", nil, "ryker")
+    work = open_work!("validation-fence", "slack:T123:C999", nil, "ryker")
     assert {:ok, _draft} = Continuity.stage(work.state_token, state("Before validation"))
-    candidate_sha = String.duplicate("b", 64)
+    claim = bind_work!(work)
+    candidate = ~s({"delivery":"none","decision_reason":"checked"})
 
-    ledger_sha =
-      FinalPreflight.ledger_sha256(
-        work.episode.id,
-        work.episode.semantic_version,
-        [],
-        work.claim.turn.id
-      )
-
-    assert {:ok, _turn} =
-             Custody.record_final_preflight(
+    assert {:ok, _} =
+             Custody.stage_candidate(
                work.episode.id,
-               work.claim.turn.turn_ref,
-               work.claim.lease_ref,
-               candidate_sha,
-               ledger_sha,
-               work.episode.semantic_version
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               digest(candidate),
+               1
+             )
+
+    assert {:ok, result} = Result.new(:none, nil, "checked")
+
+    assert {:ok, _} =
+             Custody.prepare_validation(
+               work.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               digest(candidate),
+               1,
+               :accept,
+               result
              )
 
     assert {:ok, _draft} = Continuity.stage(work.state_token, state("After validation"))
 
-    assert Custody.verify_final_preflight(
+    assert Custody.accept_result(
              work.episode.id,
-             work.claim.turn.turn_ref,
-             work.claim.lease_ref,
-             candidate_sha,
-             []
-           ) == {:error, :work_final_preflight_required}
+             work.episode.key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             digest(candidate),
+             1,
+             "validation:changed-summary"
+           ) == {:error, :work_validation_state_changed}
+
+    assert Repo.aggregate(ConversationSummary, :count) == 0
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).result_ref == nil
   end
 
   test "compaction applies one deterministic byte budget across merged summaries" do

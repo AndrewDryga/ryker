@@ -9,7 +9,6 @@ defmodule Ryker.Work.Contract do
     list_automations
     get_automation
     search_memory
-    validate_final
   ))
 
   # An evaluation run only observes: the platform tools it may use are listed,
@@ -35,7 +34,7 @@ defmodule Ryker.Work.Contract do
   def select(:live) do
     {:ok,
      %{
-       contract_version: "work-final-live-v3",
+       contract_version: "work-final-live-v4",
        mode: :live,
        output_schema: Final.json_schema(:live)
      }}
@@ -44,7 +43,7 @@ defmodule Ryker.Work.Contract do
   def select(:shadow) do
     {:ok,
      %{
-       contract_version: "work-final-shadow-v3",
+       contract_version: "work-final-shadow-v4",
        mode: :shadow,
        output_schema: Final.json_schema(:shadow)
      }}

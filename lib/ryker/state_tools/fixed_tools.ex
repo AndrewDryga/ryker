@@ -32,7 +32,6 @@ defmodule Ryker.StateTools.FixedTools do
     record_guidance_result
     update_conversation_summary
     record_feedback
-    validate_final
   )
 
   @spec names() :: [String.t()]
@@ -46,7 +45,7 @@ defmodule Ryker.StateTools.FixedTools do
 
     options
     |> capabilities()
-    |> Catalog.tools(Work.Final.json_schema(mode))
+    |> Catalog.tools()
     |> Enum.reject(fn tool ->
       not Work.Contract.fixed_tool_allowed?(mode, tool["name"]) or
         (tool["name"] == "render_chart" and not chart_surface?(options)) or
@@ -167,9 +166,6 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp dispatch("record_feedback", arguments, binding),
     do: EvidenceTools.record_feedback(arguments, binding)
-
-  defp dispatch("validate_final", arguments, binding),
-    do: WorkStateTools.validate_final(arguments, binding)
 
   defp tool_binding(options) when is_list(options), do: options |> Map.new() |> tool_binding()
 

@@ -42,18 +42,10 @@ defmodule Ryker.TestSupport.WorldHostReplay do
   defp execute_event(event, claim, fake, cassette) do
     with {:ok, output_artifacts} <- output_artifacts(Map.get(event, "output_artifacts", [])),
          {:ok, outputs} <- execute_calls(event["calls"], claim, cassette),
-         {:ok, candidates} <- render_candidates(event["candidates"], outputs),
-         {:ok, preflight} <- preflight(event, candidates, claim) do
-      on_validation_reject =
-        case {event["preflight_candidate_index"], preflight} do
-          {1, :ok} -> nil
-          {_later, function} when is_function(function, 0) -> function
-        end
-
+         {:ok, candidates} <- render_candidates(event["candidates"], outputs) do
       FakeWorkCoopAPI.update(fake, fn state ->
         state
         |> Map.put(:candidates, candidates)
-        |> Map.put(:on_validation_reject, on_validation_reject)
         |> Map.put(:output_artifact_metadata, output_artifacts.metadata)
         |> Map.put(:output_artifacts, output_artifacts.bodies)
         |> apply_faults(Map.get(event, "faults", []))
@@ -250,41 +242,6 @@ defmodule Ryker.TestSupport.WorldHostReplay do
 
       _missing ->
         {:error, {:invalid_world_host_replay, :placeholder}}
-    end
-  end
-
-  defp preflight(event, candidates, claim) do
-    index = event["preflight_candidate_index"]
-
-    with true <- is_integer(index) and index > 0,
-         candidate when is_binary(candidate) <- Enum.at(candidates, index - 1),
-         {:ok, document} <- Jason.decode(candidate) do
-      validate = fn -> validate_final(document, claim) end
-
-      preflight_result(index, validate)
-    else
-      _invalid -> {:error, {:invalid_world_host_replay, :preflight_candidate_index}}
-    end
-  end
-
-  defp preflight_result(1, validate) do
-    case validate.() do
-      :ok -> {:ok, :ok}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp preflight_result(_later, validate), do: {:ok, validate}
-
-  defp validate_final(document, claim) do
-    case Tools.call(
-           "validate_final",
-           %{"candidate" => document},
-           binding_options(claim)
-         ) do
-      {:ok, %{"accepted" => true}} -> :ok
-      {:ok, response} -> {:error, {:world_host_replay_preflight, response}}
-      {:error, reason} -> {:error, {:world_host_replay_preflight, reason}}
     end
   end
 

@@ -60,6 +60,13 @@ defmodule Ryker.Work.FailureCause do
   # each says the same thing wherever it nests. `depends` says what a retry
   # depends on, where the generic "the condition named above" would mislead.
   @explained [
+    {"work_validation_state_changed",
+     %{
+       cause:
+         "The task state changed after Ryker checked the answer, so that answer could no longer be accepted.",
+       next_step:
+         "Review the saved work, then run the task again to answer from the current state."
+     }},
     {"completion_review_no_addressee",
      %{
        cause:

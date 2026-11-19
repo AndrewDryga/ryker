@@ -272,8 +272,7 @@
             "kind": "final"
           }
         ],
-        "input_index": 1,
-        "preflight_candidate_index": 2
+        "input_index": 1
       }
     ]
   },

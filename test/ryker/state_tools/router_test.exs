@@ -23,7 +23,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Settings
   alias Ryker.Slack.ChannelMembership
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
-  alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt}
+  alias Ryker.Work.{Custody, Prompt}
 
   @options Router.init(cursor_secret: Ryker.Secret.new("trusted-state-tools-token"))
   @wait_only_options Router.init(
@@ -65,8 +65,7 @@ defmodule Ryker.StateTools.RouterTest do
              "remember_correction",
              "record_guidance_result",
              "update_conversation_summary",
-             "record_feedback",
-             "validate_final"
+             "record_feedback"
            ]
 
     refute Enum.any?(tools, fn tool ->
@@ -166,16 +165,8 @@ defmodule Ryker.StateTools.RouterTest do
              "record_finding",
              "list_automations",
              "get_automation",
-             "search_memory",
-             "validate_final"
+             "search_memory"
            ]
-
-    validate_final = Enum.find(tools, &(&1["name"] == "validate_final"))
-
-    # The preflight takes the shadow answer schema, with title optional so a
-    # candidate without it preflights as keeping the episode's name.
-    assert get_in(validate_final, ["inputSchema", "properties", "candidate"]) ==
-             Map.update!(Final.json_schema(:shadow), "required", &List.delete(&1, "title"))
 
     refused =
       rpc(
@@ -594,7 +585,7 @@ defmodule Ryker.StateTools.RouterTest do
               "invalid_arguments: 1 issue. /evidence_refs/0 (pattern): does not match its pattern. Nothing was changed; correct these fields and call again."}
   end
 
-  test "typed goal tools persist a dependency plan and preflight its live state" do
+  test "typed goal tools persist a dependency plan checked by completion validation" do
     claim = claim!("typed-goals")
     options = bound_options(claim)
 
@@ -665,8 +656,12 @@ defmodule Ryker.StateTools.RouterTest do
       }
     }
 
-    assert {:ok, %{"accepted" => false, "violations" => [violation]}} =
-             Tools.call("validate_final", %{"candidate" => candidate}, options)
+    assert {:reject, [violation]} =
+             Ryker.Work.Validator.validate(
+               Jason.encode!(candidate),
+               Ryker.Work.ValidationContext.build(claim.episode, claim.turn),
+               Ryker.Repo.now!()
+             )
 
     assert violation =~ "required goals remain open"
 
@@ -692,8 +687,12 @@ defmodule Ryker.StateTools.RouterTest do
                options
              )
 
-    assert {:ok, %{"accepted" => true}} =
-             Tools.call("validate_final", %{"candidate" => candidate}, options)
+    assert {:accept, _accepted} =
+             Ryker.Work.Validator.validate(
+               Jason.encode!(candidate),
+               Ryker.Work.ValidationContext.build(claim.episode, claim.turn),
+               Ryker.Repo.now!()
+             )
   end
 
   test "request_task can offer a locally emulated incident to Slack or Conversation Lab" do
@@ -1513,137 +1512,6 @@ defmodule Ryker.StateTools.RouterTest do
     assert foreign["publication"] == nil
   end
 
-  test "final preflight reports semantic failures and defers output artifact existence to Coop" do
-    claim =
-      "fixed-final-rejections"
-      |> claim!()
-      |> with_context!(%{
-        "mode" => "full",
-        "inputs" => %{"items" => [%{"actor_ref" => "slack:user:U123", "current" => true}]}
-      })
-
-    options = bound_options(claim)
-
-    silent_candidate = %{
-      "decision_reason" => "There is nothing to send.",
-      "delivery" => "none",
-      "message" => nil,
-      "outcome" => %{
-        "artifact_refs" => [],
-        "record_refs" => [],
-        "state" => "complete"
-      }
-    }
-
-    assert {:ok, %{"accepted" => false, "violations" => violations}} =
-             Tools.call("validate_final", %{"candidate" => silent_candidate}, options)
-
-    assert Enum.any?(violations, &String.contains?(&1, "Set delivery to reply"))
-
-    missing_artifact_candidate = %{
-      "decision_reason" => nil,
-      "delivery" => "reply",
-      "message" => "The requested artifact is attached.",
-      "outcome" => %{
-        "artifact_refs" => ["artifact:missing"],
-        "record_refs" => [],
-        "state" => "complete"
-      }
-    }
-
-    assert {:ok, %{"accepted" => true, "candidate" => ^missing_artifact_candidate}} =
-             Tools.call(
-               "validate_final",
-               %{"candidate" => missing_artifact_candidate},
-               options
-             )
-
-    # Coop assigns output artifact identities only when the provider turn ends.
-    # Executor validates the terminal metadata and exact bytes before accepting
-    # or delivering the candidate; preflight must not require those future bytes.
-    assert {:ok, _turn} =
-             Custody.verify_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               FinalPreflight.candidate_sha256(missing_artifact_candidate),
-               ["artifact:missing"]
-             )
-  end
-
-  # The preflight told the model "an explicit human request cannot be silently
-  # discarded" on every turn, while the executor asks for a reply only when a
-  # person's input is current. Twice in a week (2026-10-01 and 2026-10-04) the
-  # model was refused a silent finish on a turn with no person's input at all,
-  # one the executor would have accepted.
-  test "the final preflight lets a turn with no person's input finish silently, as the executor does" do
-    silent_candidate = %{
-      "decision_reason" => "The alert resolved itself; there is nothing to send.",
-      "delivery" => "none",
-      "message" => nil,
-      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
-    }
-
-    claim =
-      "final-automated-continuation"
-      |> claim!()
-      |> with_context!(%{
-        "mode" => "continuation",
-        "current_inputs" => %{"items" => [%{"actor_ref" => "webhook:alertmanager"}]}
-      })
-
-    assert {:ok, %{"accepted" => true}} =
-             Tools.call(
-               "validate_final",
-               %{"candidate" => silent_candidate},
-               bound_options(claim)
-             )
-
-    claim =
-      "final-person-continuation"
-      |> claim!()
-      |> with_context!(%{
-        "mode" => "continuation",
-        "current_inputs" => %{"items" => [%{"actor_ref" => "slack:user:U123"}]}
-      })
-
-    assert {:ok, %{"accepted" => false, "violations" => violations}} =
-             Tools.call(
-               "validate_final",
-               %{"candidate" => silent_candidate},
-               bound_options(claim)
-             )
-
-    assert Enum.any?(violations, &String.contains?(&1, "Set delivery to reply"))
-  end
-
-  test "Lab images pass the same destination checks as final execution" do
-    # A generated cat was discarded after preflight incorrectly told the model
-    # that Conversation Lab could not deliver images; the final executor could.
-    claim =
-      claim!("lab-image-preflight", %{
-        destination: %{
-          conversation_ref: "control-plane:lab:images",
-          thread_ref: "control-plane:lab:images",
-          transport: "control_plane"
-        }
-      })
-
-    candidate = %{
-      "decision_reason" => nil,
-      "delivery" => "reply",
-      "message" => "Here is the cat image.",
-      "outcome" => %{
-        "artifact_refs" => ["artifact_bd0541dddfe6910a3a3d8ff6"],
-        "record_refs" => [],
-        "state" => "complete"
-      }
-    }
-
-    assert {:ok, %{"accepted" => true, "candidate" => ^candidate}} =
-             Tools.call("validate_final", %{"candidate" => candidate}, bound_options(claim))
-  end
-
   test "automation proposals normalize every supported time trigger without executing it" do
     claim = claim!("fixed-automation-triggers")
     options = bound_options(claim)
@@ -2406,7 +2274,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 21
+    assert length(names) == 20
     refute "record_browser_test" in names
 
     automation =
@@ -2456,7 +2324,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "list_automations" in names
     assert "get_automation" in names
     assert "record_feedback" in names
-    assert "validate_final" in names
+    refute "validate_final" in names
 
     assert {:ok, %{"kind" => "task_offer", "record_ref" => "record:task_offer:" <> _}} =
              Tools.call(
@@ -3126,93 +2994,6 @@ defmodule Ryker.StateTools.RouterTest do
              "operation_conflict"
   end
 
-  test "validate_final preflights the exact candidate without persisting model identifiers" do
-    claim = claim!("validate-final")
-    options = bound_options(claim)
-
-    candidate = %{
-      "decision_reason" => nil,
-      "delivery" => "reply",
-      "message" => "The requested check is complete.",
-      "outcome" => %{
-        "artifact_refs" => [],
-        "record_refs" => [],
-        "state" => "complete"
-      }
-    }
-
-    response =
-      rpc(
-        "tools/call",
-        %{"arguments" => %{"candidate" => candidate}, "name" => "validate_final"},
-        options
-      )
-      |> then(&Jason.decode!(&1.resp_body))
-
-    assert get_in(response, ["result", "structuredContent", "accepted"]) == true
-    assert get_in(response, ["result", "structuredContent", "candidate"]) == candidate
-
-    digest = get_in(response, ["result", "structuredContent", "candidate_sha256"])
-    assert digest =~ ~r/^[0-9a-f]{64}$/
-
-    persisted = Ryker.Repo.get!(Ryker.Work.Turn, claim.turn.id)
-    assert persisted.final_preflight_candidate_sha256 == digest
-    assert persisted.final_preflight_ledger_sha256 =~ ~r/^[0-9a-f]{64}$/
-    assert persisted.final_preflight_semantic_version == claim.episode.semantic_version
-
-    assert {:ok, _turn} =
-             Custody.verify_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               digest,
-               []
-             )
-
-    cite =
-      rpc(
-        "tools/call",
-        %{
-          "arguments" => %{
-            "observation" => "A newer source observation changes the final ledger.",
-            "relation" => "supports",
-            "source_ref" => "source:newer-observation",
-            "subject" => "requested-check",
-            "supersedes" => []
-          },
-          "name" => "cite_source"
-        },
-        options
-      )
-
-    assert get_in(Jason.decode!(cite.resp_body), ["result", "isError"]) == false
-
-    assert Custody.verify_final_preflight(
-             claim.episode.id,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             digest,
-             []
-           ) == {:error, :work_final_preflight_required}
-  end
-
-  test "recorded malformed final checks explain the complete call without accepting a partial answer" do
-    # The live Terraform offer spent two tool calls guessing this shape because
-    # both a missing candidate wrapper and a missing outcome said only invalid_arguments.
-    captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
-    claim = claim!("recorded-final-shape")
-
-    for arguments <- captured["invalid_validation_calls"] do
-      assert {:error, error} = Tools.call("validate_final", arguments, bound_options(claim))
-      assert error =~ "invalid_arguments:"
-      assert error =~ "candidate"
-      assert error =~ "outcome"
-      assert error =~ "record_refs"
-      assert error =~ "artifact_refs"
-      assert Repo.get!(Ryker.Work.Turn, claim.turn.id).final_preflight_candidate_sha256 == nil
-    end
-  end
-
   test "an automation cannot name a vendor as an unregistered ingress source" do
     captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
     claim = claim!("recorded-automation-source")
@@ -3311,7 +3092,7 @@ defmodule Ryker.StateTools.RouterTest do
               "invalid_arguments: status was refused: missing where required, too long, or not valid. Nothing was recorded."}
 
     assert Enum.map(Tools.list(), & &1["name"]) == FixedTools.names()
-    assert "validate_final" in FixedTools.names()
+    refute "validate_final" in FixedTools.names()
     refute "record_emisar_approval" in FixedTools.names()
   end
 
@@ -3558,22 +3339,6 @@ defmodule Ryker.StateTools.RouterTest do
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     assert claim.episode.id == transition.episode.id
     claim
-  end
-
-  # The turn as Coop runs it: its submission frozen, with the briefing's
-  # context, which says whose inputs are current.
-  defp with_context!(claim, context) do
-    submission = %{"context" => context}
-
-    turn =
-      claim.turn
-      |> Ecto.Changeset.change(
-        submission: submission,
-        submission_fingerprint: Ryker.Crypto.sha256_hex(Ryker.CanonicalJSON.encode!(submission))
-      )
-      |> Repo.update!()
-
-    %{claim | turn: turn}
   end
 
   defp joined_channel!(workspace_ref, channel_ref, private, external_shared \\ false) do

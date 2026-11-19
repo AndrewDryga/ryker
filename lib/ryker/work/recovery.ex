@@ -87,7 +87,12 @@ defmodule Ryker.Work.Recovery do
     Map.put(brief, :explained, brief.cause != @unexplained_cause)
   end
 
-  defp completion_pending?(%Turn{completion_receipt: receipt, result_ref: nil, delivery_ref: nil})
+  defp completion_pending?(%Turn{
+         completion_receipt: receipt,
+         cancellation_intent: nil,
+         result_ref: nil,
+         delivery_ref: nil
+       })
        when is_map(receipt), do: true
 
   defp completion_pending?(_), do: false

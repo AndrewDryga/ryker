@@ -3,8 +3,8 @@ defmodule Ryker.Work.ValidationContext do
   What the validator is told about a turn's answer: the episode's mode, its
   open goals and records, the Slack mentions the answer may use, whether its
   artifacts can be delivered, and whether a person is waiting for a visible
-  reply. The final preflight a model runs and the executor's check both build
-  it here, so the preflight never asks for more than the executor will.
+  reply. The executor builds this context while holding the owning episode
+  and turn locks, then freezes the verdict before sending it to Coop.
 
   A reply is required only for live work whose current inputs include a
   person's. A continuation's original request was answered by an earlier

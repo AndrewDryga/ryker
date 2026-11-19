@@ -2544,6 +2544,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert_receive {:fleet_command, ^session, "submit_turn", submit, "submit", _options}
     assert submit["expected_revision"] == 3
     assert submit["submission"]["prompt"] == "frozen prompt"
+    assert submit["submission"]["contract_version"] == "work-final-live-v4"
     assert submit["submission"]["output_schema"] == schema
 
     assert {:ok,

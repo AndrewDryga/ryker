@@ -144,7 +144,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert current["content"] == %{"text" => initial}
     assert current["source_ref"] == hd(claim.episode.active_input_refs)
     assert submission["output_schema"] == Final.json_schema(:live)
-    assert submission["contract_version"] == "work-final-live-v3"
+    assert submission["contract_version"] == "work-final-live-v4"
     assert submission["prompt"] =~ "ORIGINAL_REQUEST_MARKER"
     refute submission["prompt"] =~ ~s("response_schema")
     refute submission["prompt"] =~ ~s("$schema")
@@ -161,27 +161,21 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert shadow.episode.execution_mode == :shadow
     assert {:ok, shadow_submission} = Inspectors.submission(shadow)
 
-    assert shadow_submission["contract_version"] == "work-final-shadow-v3"
+    assert shadow_submission["contract_version"] == "work-final-shadow-v4"
     assert shadow_submission["output_schema"] == Final.json_schema(:shadow)
     assert shadow_submission["prompt"] =~ "This is an observe-only evaluation"
 
     refute Map.has_key?(shadow_submission["context"], "execution_mode")
     refute shadow_submission["prompt"] =~ ~s("delivery":"reply")
 
-    shadow_tools = FixedTools.list(binding: %{episode: shadow.episode})
-    validate_final = Enum.find(shadow_tools, &(&1["name"] == "validate_final"))
-
-    # The preflight takes the same schema with title optional.
-    assert get_in(validate_final, ["inputSchema", "properties", "candidate"]) ==
-             Map.update!(
-               shadow_submission["output_schema"],
-               "required",
-               &List.delete(&1, "title")
-             )
+    refute Enum.any?(
+             FixedTools.list(binding: %{episode: shadow.episode}),
+             &(&1["name"] == "validate_final")
+           )
 
     live = claim_episode!("live-contract", "Reply with the result.")
     assert {:ok, live_submission} = Inspectors.submission(live)
-    assert live_submission["contract_version"] == "work-final-live-v3"
+    assert live_submission["contract_version"] == "work-final-live-v4"
     assert live_submission["output_schema"] == Final.json_schema(:live)
     assert live_submission["prompt"] =~ "This is live work"
     refute Map.has_key?(live_submission["context"], "execution_mode")
@@ -192,7 +186,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              live_contract,
              %{
                session_id: "session-1",
-               submission: %{"contract_version" => "work-final-shadow-v3"}
+               submission: %{"contract_version" => "work-final-shadow-v4"}
              },
              %{id: "session-1"}
            ) == {:error, {:invalid_work_contract, :continuation_variant}}
@@ -446,7 +440,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert second == first
     assert second["prompt"] == first["prompt"]
     assert second["output_schema"] == Final.json_schema()
-    assert second["contract_version"] == "work-final-live-v3"
+    assert second["contract_version"] == "work-final-live-v4"
 
     assert Ryker.CanonicalJSON.encode!(second["context"]) ==
              Ryker.CanonicalJSON.encode!(first["context"])
@@ -531,7 +525,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, submission} = Inspectors.submission(claim)
 
     assert submission["context"]["controller_tools"] ==
-             ~w(get_work_state cite_source record_finding render_chart request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer remember_correction record_guidance_result update_conversation_summary record_feedback validate_final)
+             ~w(get_work_state cite_source record_finding render_chart request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer remember_correction record_guidance_result update_conversation_summary record_feedback)
 
     refute Map.has_key?(submission["context"], "state_tools")
     refute submission["prompt"] =~ Records.token(claim.turn)
@@ -540,7 +534,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert model_record["ref"] == record.ref
     assert model_record["kind"] == "task_offer"
     assert model_record["payload"] == record.payload
-    assert submission["prompt"] =~ "validate_final"
+    refute submission["prompt"] =~ "validate_final"
     assert submission["prompt"] =~ record.ref
   end
 
@@ -558,7 +552,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     names = schedule_only["context"]["controller_tools"]
     refute "wait_for" in names
     assert "propose_automation" in names
-    assert "validate_final" in names
+    refute "validate_final" in names
 
     assert {:ok, governed} =
              Inspectors.submission(claim,
@@ -588,7 +582,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     refute "remember_answer" in names
     refute "record_feedback" in names
     assert "cite_source" in names
-    assert "validate_final" in names
+    refute "validate_final" in names
   end
 
   test "an observe-only briefing advertises readers but no platform effects" do

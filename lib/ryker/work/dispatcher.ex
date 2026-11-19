@@ -138,9 +138,10 @@ defmodule Ryker.Work.Dispatcher do
   # from what is current.
   defp execution_failure(
          claim,
-         {:work_completion_blocked, _receipt, :work_knowledge_context_stale} = reason,
+         {:work_completion_blocked, _receipt, cause} = reason,
          settings
-       ),
+       )
+       when cause in [:work_knowledge_context_stale, :work_validation_state_changed],
        do: rerun_stale_context(claim, reason, settings)
 
   # The same withdrawal found before the answer finished: on 2026-10-07 a later attempt of a
@@ -281,6 +282,9 @@ defmodule Ryker.Work.Dispatcher do
 
     if runs >= settings.max_attempts do
       case reason do
+        {:work_completion_blocked, _receipt, :work_validation_state_changed} ->
+          stop_and_block(claim, {:work_retry_exhausted, :work_validation_state_changed})
+
         {:work_completion_blocked, receipt, _stale} ->
           block_completion(claim, receipt, {:work_retry_exhausted, reason})
 
@@ -490,6 +494,7 @@ defmodule Ryker.Work.Dispatcher do
   # A fetch that stalled past its deadline, or a mirror another fetch holds;
   # one GitHub keeps refusing still blocks once the attempts run out.
   defp retry_class(:coop_worker_source_unavailable), do: :transient
+  defp retry_class(:work_validation_context_changed), do: :transient
   # The worker missed its polls and the session's placement lapsed under a command the turn
   # was waiting on (2026-10-10). The worker's next poll renews it, and the next attempt waits
   # for that or moves a turn Coop does not run yet to a new session

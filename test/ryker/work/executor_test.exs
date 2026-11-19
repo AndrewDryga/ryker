@@ -24,7 +24,7 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.StateTools.FixedTools
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
   alias Ryker.Work.{Activity, Cancellation, Custody, DeliveryReceipt, Dispatcher, Executor, Final}
-  alias Ryker.Work.{FinalPreflight, OperationKeys, Result, Session, StateBinding}
+  alias Ryker.Work.{OperationKeys, Result, Session, StateBinding}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -582,6 +582,30 @@ defmodule Ryker.Work.ExecutorTest do
              nil,
              []
            ]
+  end
+
+  # Host validation replaces the model's preview receipt but keeps a fence
+  # through acceptance: late state must never bless an already frozen answer.
+  test "new durable records after validation cannot silently change the accepted state" do
+    claim = accepted_intent_turn!("late-record-validation")
+
+    assert {:ok, _record} =
+             Records.create(Records.token(claim.turn), "late-question", "input_request", %{
+               "question" => "Which revision?",
+               "choices" => []
+             })
+
+    assert Custody.accept_result(
+             claim.episode.id,
+             claim.episode.key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             claim.turn.candidate_sha256,
+             claim.turn.candidate_attempt,
+             "validation:late-record"
+           ) == {:error, :work_validation_state_changed}
+
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).result_ref == nil
   end
 
   test "withdrawn knowledge is rechecked inside result acceptance before delivery is created" do
@@ -1574,20 +1598,6 @@ defmodule Ryker.Work.ExecutorTest do
 
     candidate = reply("Answered after its placement changed.")
 
-    assert {:ok, _turn} =
-             Custody.record_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
-               FinalPreflight.ledger_sha256(
-                 claim.episode.id,
-                 claim.episode.semantic_version,
-                 []
-               ),
-               claim.episode.semantic_version
-             )
-
     claim = %{claim | turn: Repo.get!(Ryker.Work.Turn, claim.turn.id)}
     {:ok, fake} = FakeAPI.start_link([candidate])
 
@@ -2002,20 +2012,6 @@ defmodule Ryker.Work.ExecutorTest do
     claim = claim_episode!("state-tools-binding")
     candidate = reply("Bound work complete.")
 
-    assert {:ok, _turn} =
-             Custody.record_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
-               FinalPreflight.ledger_sha256(
-                 claim.episode.id,
-                 claim.episode.semantic_version,
-                 []
-               ),
-               claim.episode.semantic_version
-             )
-
     {:ok, fake} = FakeAPI.start_link([candidate])
 
     run_options =
@@ -2045,42 +2041,28 @@ defmodule Ryker.Work.ExecutorTest do
     assert "propose_automation" in tool_names
   end
 
-  test "a product-bound final is repaired in the same Coop turn until exact preflight exists" do
-    claim = claim_episode!("state-tools-preflight-repair")
-    candidate = reply("This final was checked through the owning state tool.")
-
-    record_preflight = fn ->
-      assert {:ok, _turn} =
-               Custody.record_final_preflight(
-                 claim.episode.id,
-                 claim.turn.turn_ref,
-                 claim.lease_ref,
-                 FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
-                 FinalPreflight.ledger_sha256(
-                   claim.episode.id,
-                   claim.episode.semantic_version,
-                   []
-                 ),
-                 claim.episode.semantic_version
-               )
-    end
+  # 2026-11-19: a verified rebase spent its two remaining answer attempts on
+  # the missing validate_final receipt. The commit and eleven passing tests
+  # never reached publication. These are the retained, pseudonymized answers.
+  test "a valid submitted answer finishes without a model-side validation call" do
+    claim = claim_episode!("host-final-validation")
+    fixture = File.read!("test/fixtures/work/rebase_final_candidates.json") |> Jason.decode!()
+    candidate = Enum.at(fixture["candidates"], 1)
 
     {:ok, fake} =
-      FakeAPI.start_link([candidate, candidate], on_validation_reject: record_preflight)
+      FakeAPI.start_link([candidate, candidate],
+        on_validation_reject: &flunk("valid completed work was rejected: #{inspect(&1)}")
+      )
 
     run_options =
       options(fake)
       |> Keyword.put(:state_tools_endpoint, "https://ryker.example/v1/state-tools/mcp")
       |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
 
-    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
-
-    state = FakeAPI.state(fake)
-    assert state.submit_count == 1
-    assert Enum.map(state.validations, & &1.verdict) == [:reject, :accept]
-
-    assert state.validations |> hd() |> Map.fetch!(:violations) |> hd() =~
-             "Call validate_final"
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, run_options)
+    assert turn.candidate == candidate
+    assert Enum.map(FakeAPI.state(fake).validations, & &1.verdict) == [:accept]
+    assert FakeAPI.state(fake).submit_count == 1
   end
 
   test "the exact authenticated input artifact reaches Coop from durable custody" do
@@ -2195,20 +2177,6 @@ defmodule Ryker.Work.ExecutorTest do
 
     claim = claim_episode!("output-artifact-filename-repair")
 
-    assert {:ok, _turn} =
-             Custody.record_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               FinalPreflight.candidate_sha256(Jason.decode!(filename_candidate)),
-               FinalPreflight.ledger_sha256(
-                 claim.episode.id,
-                 claim.episode.semantic_version,
-                 ["handoff-summary.png"]
-               ),
-               claim.episode.semantic_version
-             )
-
     {:ok, fake} =
       fake_for(claim, [filename_candidate, reference_candidate],
         output_artifact_metadata: [metadata],
@@ -2305,123 +2273,115 @@ defmodule Ryker.Work.ExecutorTest do
              )
   end
 
-  for resolve_at <- [:before_validation, :during_validation] do
-    test "an approval resolved #{resolve_at} refreshes custody without rejecting the model" do
-      # Approval arrived during completion review. Its now-answered record was
-      # reported as nonexistent and spent an otherwise valid answer's attempts.
-      claim = bound_turn!("approval-arrived-during-review")
+  test "an approval resolved before validation refreshes custody without rejecting the model" do
+    # Approval arrived during completion review. Its now-answered record was
+    # reported as nonexistent and spent an otherwise valid answer's attempts.
+    claim = bound_turn!("approval-arrived-during-review")
 
-      run =
-        "testdata/emisar/run_action_pending_approval.json"
-        |> File.read!()
-        |> Jason.decode!()
-        |> Map.fetch!("runs")
-        |> hd()
+    run =
+      "testdata/emisar/run_action_pending_approval.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("runs")
+      |> hd()
 
-      payload =
-        run
-        |> Map.take(~w(action_id operation_id pack_ref run_id runner_ref status))
-        |> Map.merge(%{
-          "approval_url" => run["approval"]["url"],
-          "request_id" => run["approval"]["request_id"],
-          "expires_at" => DateTime.to_iso8601(DateTime.add(Repo.now!(), 1, :day))
-        })
+    payload =
+      run
+      |> Map.take(~w(action_id operation_id pack_ref run_id runner_ref status))
+      |> Map.merge(%{
+        "approval_url" => run["approval"]["url"],
+        "request_id" => run["approval"]["request_id"],
+        "expires_at" => DateTime.to_iso8601(DateTime.add(Repo.now!(), 1, :day))
+      })
 
-      ref = "record:emisar_approval:" <> String.replace(Ecto.UUID.generate(), "-", "")
-      assert {:ok, prepared} = Ryker.Emisar.ApprovalContract.prepare(payload, ref)
+    ref = "record:emisar_approval:" <> String.replace(Ecto.UUID.generate(), "-", "")
+    assert {:ok, prepared} = Ryker.Emisar.ApprovalContract.prepare(payload, ref)
 
-      approval =
-        %{
-          id: Ecto.UUID.generate(),
-          episode_id: claim.episode.id,
-          turn_id: claim.turn.id,
-          ref: ref,
-          kind: "emisar_approval",
-          operation_id: "approval-race",
-          status: :open,
-          payload: prepared.payload,
-          continuation: prepared.continuation,
-          payload_fingerprint: CanonicalJSON.digest(prepared.payload)
-        }
-        |> Record.Changeset.insert(Repo.now!())
-        |> Repo.insert!()
-
-      captured =
-        "test/ryker/emisar/fixtures/approval_finished_before_result.json"
-        |> File.read!()
-        |> Jason.decode!()
-
-      candidate =
-        captured["recorded_result"]
-        |> Jason.decode!()
-        |> put_in(["outcome", "record_refs"], [approval.ref])
-        |> Jason.encode!()
-
-      assert {:ok, turn} =
-               Custody.stage_candidate(
-                 claim.episode.id,
-                 claim.turn.turn_ref,
-                 claim.lease_ref,
-                 nil,
-                 nil,
-                 candidate,
-                 digest(candidate),
-                 1
-               )
-
-      # Match production's database clock; Ecto's host clock can lag the
-      # candidate receipt and invert these two events even on one machine.
-      if unquote(resolve_at) == :before_validation,
-        do: approval |> Record.Changeset.answer(Repo.now!()) |> Repo.update!()
-
-      settings = %{
-        validation_context: fn current ->
-          if unquote(resolve_at) == :during_validation,
-            do: approval |> Record.Changeset.answer(Repo.now!()) |> Repo.update!()
-
-          Ryker.Work.ValidationContext.build(current.episode, current.turn)
-        end
+    approval =
+      %{
+        id: Ecto.UUID.generate(),
+        episode_id: claim.episode.id,
+        turn_id: claim.turn.id,
+        ref: ref,
+        kind: "emisar_approval",
+        operation_id: "approval-race",
+        status: :open,
+        payload: prepared.payload,
+        continuation: prepared.continuation,
+        payload_fingerprint: CanonicalJSON.digest(prepared.payload)
       }
+      |> Record.Changeset.insert(Repo.now!())
+      |> Repo.insert!()
 
-      assert Ryker.Work.Executor.Validation.ensure_validation_intent(
-               %{claim | turn: turn},
+    captured =
+      "test/ryker/emisar/fixtures/approval_finished_before_result.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    candidate =
+      captured["recorded_result"]
+      |> Jason.decode!()
+      |> put_in(["outcome", "record_refs"], [approval.ref])
+      |> Jason.encode!()
+
+    assert {:ok, turn} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
                candidate,
+               digest(candidate),
+               1
+             )
+
+    # Match production's database clock; Ecto's host clock can lag the
+    # candidate receipt and invert these two events even on one machine.
+    approval |> Record.Changeset.answer(Repo.now!()) |> Repo.update!()
+
+    settings = %{
+      validation_context: fn current ->
+        Ryker.Work.ValidationContext.build(current.episode, current.turn)
+      end
+    }
+
+    assert Ryker.Work.Executor.Validation.ensure_validation_intent(
+             %{claim | turn: turn},
+             digest(candidate),
+             1,
+             [],
+             settings
+           ) == {:error, :work_wait_state_changed}
+
+    assert Repo.get!(Ryker.Work.Turn, turn.id).validation_intent == nil
+    assert Repo.get!(Ryker.Work.Turn, turn.id).validation_history == []
+    assert Repo.get!(Record, approval.id).status == :answered
+
+    settings = %{
+      validation_context: fn current ->
+        Ryker.Work.ValidationContext.build(current.episode, current.turn)
+      end
+    }
+
+    # An already-answered reference is not this race. It must not let an
+    # invalid candidate buy itself fresh model turns indefinitely.
+    response = Repo.one!(Ryker.Work.CandidateResponse.Query.current_attempt(turn))
+
+    Repo.get!(Record, approval.id)
+    |> Ecto.Changeset.change(updated_at: DateTime.add(response.recorded_at, -1, :second))
+    |> Repo.update!()
+
+    assert {:ok, checked} =
+             Ryker.Work.Executor.Validation.ensure_validation_intent(
+               %{claim | turn: turn},
                digest(candidate),
                1,
                [],
                settings
-             ) == {:error, :work_wait_state_changed}
+             )
 
-      assert Repo.get!(Ryker.Work.Turn, turn.id).validation_intent == nil
-      assert Repo.get!(Ryker.Work.Turn, turn.id).validation_history == []
-      assert Repo.get!(Record, approval.id).status == :answered
-
-      settings = %{
-        validation_context: fn current ->
-          Ryker.Work.ValidationContext.build(current.episode, current.turn)
-        end
-      }
-
-      # An already-answered reference is not this race. It must not let an
-      # invalid candidate buy itself fresh model turns indefinitely.
-      response = Repo.one!(Ryker.Work.CandidateResponse.Query.current_attempt(turn))
-
-      Repo.get!(Record, approval.id)
-      |> Ecto.Changeset.change(updated_at: DateTime.add(response.recorded_at, -1, :second))
-      |> Repo.update!()
-
-      assert {:ok, checked} =
-               Ryker.Work.Executor.Validation.ensure_validation_intent(
-                 %{claim | turn: turn},
-                 candidate,
-                 digest(candidate),
-                 1,
-                 [],
-                 settings
-               )
-
-      assert checked.turn.validation_intent["verdict"] == "reject"
-    end
+    assert checked.turn.validation_intent["verdict"] == "reject"
   end
 
   test "a semantic rejection repairs in the same Coop turn and keeps one accepted result" do
@@ -3564,17 +3524,6 @@ defmodule Ryker.Work.ExecutorTest do
     endpoint = "https://ryker.example/v1/state-tools/mcp"
     candidate = reply("The replacement session completed the work.")
 
-    # A bound turn's final answer carries the preflight its tools recorded.
-    assert {:ok, _turn} =
-             Custody.record_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
-               FinalPreflight.ledger_sha256(claim.episode.id, claim.episode.semantic_version, []),
-               claim.episode.semantic_version
-             )
-
     {:ok, fake} = fake_for(claim, [candidate], on_create_session: &place_session!/1)
 
     FakeAPI.update(fake, fn state ->
@@ -3644,20 +3593,6 @@ defmodule Ryker.Work.ExecutorTest do
   test "a lost fleet placement rotates the immutable Work session before reconstruction" do
     claim = claim_with_bound_empty_session!("fleet-placement-rotation")
     candidate = reply("The reconstructed session completed the work.")
-
-    assert {:ok, _turn} =
-             Custody.record_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
-               FinalPreflight.ledger_sha256(
-                 claim.episode.id,
-                 claim.episode.semantic_version,
-                 []
-               ),
-               claim.episode.semantic_version
-             )
 
     {:ok, fake} = fake_for(claim, [candidate])
 

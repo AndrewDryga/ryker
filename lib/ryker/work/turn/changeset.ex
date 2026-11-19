@@ -157,9 +157,10 @@ defmodule Ryker.Work.Turn.Changeset do
     |> work_constraints()
   end
 
-  @spec record_final_preflight(Turn.t(), String.t(), String.t(), String.t(), non_neg_integer()) ::
+  # Retain the persisted receipt columns so historical turns keep their evidence.
+  @spec record_final_validation(Turn.t(), String.t(), String.t(), String.t(), non_neg_integer()) ::
           Ecto.Changeset.t()
-  def record_final_preflight(
+  def record_final_validation(
         %Turn{} = turn,
         candidate_sha256,
         continuity_sha256,

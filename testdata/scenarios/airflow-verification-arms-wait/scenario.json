@@ -229,8 +229,7 @@
             "kind": "final"
           }
         ],
-        "input_index": 1,
-        "preflight_candidate_index": 1
+        "input_index": 1
       },
       {
         "calls": [
@@ -293,8 +292,7 @@
             "kind": "final"
           }
         ],
-        "input_index": 2,
-        "preflight_candidate_index": 1
+        "input_index": 2
       },
       {
         "calls": [
@@ -374,8 +372,7 @@
             "kind": "final"
           }
         ],
-        "input_index": 3,
-        "preflight_candidate_index": 1
+        "input_index": 3
       }
     ]
   },

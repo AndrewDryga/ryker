@@ -16,7 +16,7 @@ defmodule Ryker.Work.FinalTest do
     }
 
     assert {:ok, final} = Final.parse(document)
-    assert Final.document(final) == document
+    assert Final.delivery_document(final) == Map.delete(document, "title")
   end
 
   test "the published JSON Schema and parser accept the same boundary values" do
@@ -40,7 +40,7 @@ defmodule Ryker.Work.FinalTest do
     Enum.each(documents, fn document ->
       assert {:ok, _validated} = JSV.validate(document, schema)
       assert {:ok, final} = Final.parse(document)
-      assert Final.document(final) == document
+      assert Final.delivery_document(final) == Map.delete(document, "title")
     end)
   end
 
@@ -96,13 +96,13 @@ defmodule Ryker.Work.FinalTest do
       assert {:ok, _validated} = JSV.validate(document, schema)
       assert {:ok, final} = Final.parse(document)
       assert final.title == title
-      assert Final.document(final) == document
+      assert Final.delivery_document(final) == Map.delete(document, "title")
     end
 
     # Recorded answers from before titles still parse, as keeping the name.
     document = reply_document("Done.")
     assert {:ok, %{title: nil} = final} = Final.parse(document)
-    assert Final.document(final) == document
+    assert Final.delivery_document(final) == Map.delete(document, "title")
   end
 
   # The routing digest stores a title under char_length(title) <= 80, which

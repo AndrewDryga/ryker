@@ -11,8 +11,8 @@ defmodule Ryker.Work.Prompt do
   This is live work. The final contract permits a visible reply or an intentionally silent result.
   Use only the authority and tools advertised for this episode.
 
-  validate_final candidate example for a visible reply:
-  {"candidate":{"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]},"title":null}}
+  Final answer example for a visible reply:
+  {"decision_reason":null,"delivery":"reply","message":"Your answer","outcome":{"state":"complete","record_refs":[],"artifact_refs":[]},"title":null}
   """
 
   @shadow_contract_instructions """
@@ -23,8 +23,8 @@ defmodule Ryker.Work.Prompt do
   Read correction guidance as context; its live output obligations and result-writing tool do not
   apply in this observe-only mode.
 
-  validate_final candidate example for this evaluation:
-  {"candidate":{"decision_reason":"Would report the read-only assessment without acting.","delivery":"none","message":null,"outcome":{"state":"complete","record_refs":[],"artifact_refs":[]},"title":null}}
+  Final answer example for this evaluation:
+  {"decision_reason":"Would report the read-only assessment without acting.","delivery":"none","message":null,"outcome":{"state":"complete","record_refs":[],"artifact_refs":[]},"title":null}
   """
 
   @instructions """
@@ -208,8 +208,7 @@ defmodule Ryker.Work.Prompt do
   Generic MCP call example: {"server":"controller-tools","tool":"list_automations","arguments":{"limit":20}}
   If the runtime exposes direct named tools, pass the same arguments to that tool instead.
   Read the tool's input schema before choosing other arguments; names alone do not specify its fields
-  or bounds. list_automations accepts limit 1-50, not 100. validate_final is always required, even for
-  a short answer or a report that another tool failed.
+  or bounds. list_automations accepts limit 1-50, not 100.
   When work.connected says this work has an Emisar account, Emisar's own tools are on the same
   server. An Emisar action a person names, such as debugging.disk_free, is not a tool of its own:
   find it with find_actions and run it with run_action. Say an Emisar action is unavailable only
@@ -601,7 +600,7 @@ defmodule Ryker.Work.Prompt do
   infrastructure state. A later explicit correction takes precedence over an older observation.
   Conversation continuity and rollups are derived, potentially stale summaries. They preserve goals,
   decisions, open loops, questions, topology, and source references across sessions, but never prove
-  current state or grant authority. Use update_conversation_summary before validate_final whenever this
+  current state or grant authority. Use update_conversation_summary before returning your final answer whenever this
   turn establishes or changes durable situation context. Include only facts appropriate to the bound
   conversation; the host publishes the staged summary only after accepting the final candidate.
   A diagnosed investigation's summary keeps the confirmed cause, its evidence time and remaining
@@ -747,7 +746,7 @@ defmodule Ryker.Work.Prompt do
   3. Check that you used available tools while useful work remained: every gap the reply names was
      tried with the tools you hold, and none is one narrower read-only query away from closed.
      An explicit artifact deliverable is not complete when you only name or describe a file. Use
-     the artifact-producing capability before validate_final. A reference assigned at turn completion
+     the artifact-producing capability before returning your final answer. A reference assigned at turn completion
      is not a failed creation: use the actual saved filename until the host returns its exact ref;
      never substitute an invented filename. If no image was produced, say so honestly.
   4. Check facts and action claims against current source/action receipts. If the message says you
@@ -756,14 +755,16 @@ defmodule Ryker.Work.Prompt do
      artifact ref uses its actual saved filename as described above. With no receipt or generated
      file, remove the claim and say what you have instead.
   5. Write a concise, natural answer for this conversation.
-  6. Call validate_final with the exact JSON you plan to return inside its candidate argument.
+  6. Return your final answer as one JSON object matching the attached schema.
      Include the actual host-issued record and artifact refs.
      Required candidate fields: decision_reason, delivery, message, outcome, title.
      All three outcome fields are required; empty ref lists are valid.
 
-  validate_final checks the candidate's structure and durable records, not whether you investigated
-  enough. You own the completion check above. Return exactly the accepted candidate. If a
-  deterministic validation check rejects it, correct the specific violation in this session; do not
+  Ryker automatically checks the submitted answer, workspace and durable records before accepting
+  it. You own the completion check above. If a
+  deterministic validation check rejects it, correct the specific violation in this session. Restage
+  the conversation summary before returning the corrected answer if it should carry forward; update
+  it if the facts changed. Do not
   merely rephrase a caveat or mark an unsupported goal complete. A legitimate human or system wait
   is a valid outcome, not a reason to manufacture more work. Internal failures are not a reason to
   ask the user to start again.

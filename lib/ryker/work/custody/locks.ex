@@ -208,9 +208,6 @@ defmodule Ryker.Work.Custody.Locks do
   def optional_sha256(value, field), do: sha256(value, field)
 
   @doc false
-  def artifact_refs(refs), do: references(refs, :artifact_refs)
-
-  @doc false
   def upload_refs(refs), do: references(refs, :upload_refs)
 
   # A reply carries at most five images, and each is uploaded once.

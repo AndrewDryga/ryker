@@ -2,8 +2,8 @@ defmodule Ryker.Work.Executor.Validation do
   @moduledoc """
   Freezes and delivers the verdict for one staged candidate.
 
-  `ensure_validation_intent/6` runs the semantic validator, the presentation
-  check, and the final preflight over the staged candidate and persists the
+  `ensure_validation_intent/5` runs the semantic validator, the presentation
+  check, and a snapshot of the staged candidate under the owner locks. It persists the
   verdict before anything reaches Coop. `validate_candidate/2` then sends that
   frozen verdict under its validation key, reconciling lost, uncertain, and
   cleanup-failed responses against the remote turn. The validation context
@@ -14,7 +14,7 @@ defmodule Ryker.Work.Executor.Validation do
   alias Ryker.Delivery
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, FinalPreflight, OperationKeys}
+  alias Ryker.Work.{Custody, OperationKeys}
   alias Ryker.Work.Executor.{Remote, States}
   alias Ryker.Work.{StateBinding, Validator}
 
@@ -24,7 +24,6 @@ defmodule Ryker.Work.Executor.Validation do
   @doc false
   def ensure_validation_intent(
         %{turn: %{validation_intent: intent}} = claim,
-        _message,
         _sha,
         _attempt,
         _artifacts,
@@ -33,154 +32,74 @@ defmodule Ryker.Work.Executor.Validation do
       when is_map(intent),
       do: {:ok, claim}
 
-  def ensure_validation_intent(claim, message, sha256, attempt, artifacts, settings) do
-    with {:ok, validation_context} <- validation_context(claim, artifacts, settings) do
-      # Acceptance checks the result again on PostgreSQL's clock, which every wait's deadline
-      # is kept and resumed by; the host's clock let a deadline pass here and fail there
-      # (2026-10-04 review).
-      case Validator.validate(message, validation_context, Repo.now!()) do
-        {:accept, %{final: final, result: result}} ->
-          prepare_accepted_validation(
-            claim,
-            message,
-            sha256,
-            attempt,
-            artifacts,
-            final,
-            result
-          )
+  def ensure_validation_intent(claim, sha256, attempt, artifacts, settings) do
+    requirements = workspace_requirements(claim)
 
-        {:reject, violations} ->
-          prepare_validation(claim, sha256, attempt, {:reject, violations}, nil)
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
-  end
-
-  defp prepare_accepted_validation(
-         claim,
-         message,
-         sha256,
-         attempt,
-         artifacts,
-         final,
-         result
-       ) do
-    selected = Enum.filter(artifacts, &(&1["id"] in final.artifact_refs))
-
-    check =
-      with {:ok, _metadata} <- Artifacts.Outputs.prepare_metadata(selected),
-           do: Delivery.Presentation.validate(claim.episode, claim.turn, final)
-
-    case check do
-      :ok ->
-        ensure_final_preflight(
-          claim,
-          message,
-          sha256,
-          attempt,
-          artifacts,
-          result
-        )
-
-      {:error, {:invalid_delivery_presentation, reason}} ->
-        prepare_validation(
-          claim,
-          sha256,
-          attempt,
-          {:reject, [Validator.presentation_violation(reason)]},
-          nil
-        )
-
-      {:error, {:invalid_work_output_artifacts, _field}} ->
-        prepare_validation(
-          claim,
-          sha256,
-          attempt,
-          {:reject,
-           [
-             "Select at most five distinct chart or image attachments totaling no more than 8 MiB, then call validate_final again."
-           ]},
-          nil
-        )
-
-      # Anything else is the host's to fix, not the model's. It fails this
-      # attempt with its reason on record instead of crashing the worker,
-      # which left a turn retrying every five minutes with no error saved.
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp ensure_final_preflight(
-         %{turn: %{state_tools_endpoint: endpoint}} = claim,
-         message,
-         sha256,
-         attempt,
-         artifacts,
-         result
-       )
-       when is_binary(endpoint) do
-    with {:ok, candidate} <- decode_candidate(message),
-         candidate_sha256 = FinalPreflight.candidate_sha256(candidate),
-         {:ok, _turn} <-
-           Custody.verify_final_preflight(
-             claim.episode.id,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             candidate_sha256,
-             Artifacts.Outputs.refs(artifacts)
-           ) do
-      prepare_validation(claim, sha256, attempt, :accept, result)
-    else
-      {:error, :work_final_preflight_required} ->
-        prepare_validation(
-          claim,
-          sha256,
-          attempt,
-          {:reject,
-           [
-             "Call validate_final with this exact candidate after completing all state-tool writes, then return the accepted candidate unchanged."
-           ]},
-          nil
-        )
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp ensure_final_preflight(
-         claim,
-         _message,
-         sha256,
-         attempt,
-         _artifacts,
-         result
-       ),
-       do: prepare_validation(claim, sha256, attempt, :accept, result)
-
-  defp decode_candidate(message) do
-    case Jason.decode(message) do
-      {:ok, %{} = candidate} -> {:ok, candidate}
-      _invalid -> {:error, {:coop_protocol_error, :candidate}}
-    end
-  end
-
-  defp prepare_validation(claim, sha256, attempt, verdict, result) do
-    with {:ok, turn} <-
-           Custody.prepare_validation(
+    with {:ok, workspace} <- workspace_validation_context(claim, requirements, settings),
+         {:ok, turn} <-
+           Custody.prepare_candidate_validation(
              claim.episode.id,
              claim.turn.turn_ref,
              claim.lease_ref,
              sha256,
              attempt,
-             verdict,
-             result
+             &validate_and_freeze(&1, requirements, artifacts, workspace, settings)
            ) do
       {:ok, %{claim | turn: turn}}
+    end
+  end
+
+  defp validate_and_freeze(claim, requirements, artifacts, workspace, settings) do
+    with :ok <- unchanged_workspace_requirements(claim, requirements) do
+      case validate(claim, claim.turn.candidate, artifacts, workspace, settings) do
+        {:accept, result} -> freeze_verdict(claim, :accept, result)
+        {:reject, violations} -> freeze_verdict(claim, {:reject, violations}, nil)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp unchanged_workspace_requirements(claim, requirements) do
+    if workspace_requirements(claim) == requirements,
+      do: :ok,
+      else: {:error, :work_validation_context_changed}
+  end
+
+  defp freeze_verdict(claim, verdict, result) do
+    Custody.prepare_validation(
+      claim.episode.id,
+      claim.turn.turn_ref,
+      claim.lease_ref,
+      claim.turn.candidate_sha256,
+      claim.turn.candidate_attempt,
+      verdict,
+      result
+    )
+  end
+
+  defp validate(claim, message, artifacts, workspace, settings) do
+    with {:ok, context} <- validation_context(claim, artifacts, workspace, settings),
+         {:accept, %{final: final, result: result}} <-
+           Validator.validate(message, context, Repo.now!()),
+         selected = Enum.filter(artifacts, &(&1["id"] in final.artifact_refs)),
+         {:ok, _metadata} <- Artifacts.Outputs.prepare_metadata(selected),
+         :ok <- Delivery.Presentation.validate(claim.episode, claim.turn, final) do
+      {:accept, result}
+    else
+      {:reject, violations} ->
+        {:reject, violations}
+
+      {:error, {:invalid_delivery_presentation, reason}} ->
+        {:reject, [Validator.presentation_violation(reason)]}
+
+      {:error, {:invalid_work_output_artifacts, _field}} ->
+        {:reject,
+         [
+           "Select at most five distinct chart or image attachments totaling no more than 8 MiB, then return the corrected candidate."
+         ]}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -376,62 +295,56 @@ defmodule Ryker.Work.Executor.Validation do
     )
   end
 
-  defp validation_context(claim, artifacts, settings) do
+  defp validation_context(claim, artifacts, workspace, settings) do
     case settings.validation_context.(claim) do
-      %{} = context -> complete_validation_context(context, claim, artifacts, settings)
-      {:ok, %{} = context} -> complete_validation_context(context, claim, artifacts, settings)
+      %{} = context -> complete_validation_context(context, claim, artifacts, workspace)
+      {:ok, %{} = context} -> complete_validation_context(context, claim, artifacts, workspace)
       {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_work_executor, :validation_context}}
     end
   end
 
-  defp complete_validation_context(context, claim, artifacts, settings) do
-    with {:ok, workspace} <- workspace_validation_context(claim, settings) do
-      {:ok,
-       context
-       |> Map.put("artifact_metadata", Enum.map(artifacts, &Map.take(&1, ~w(id name))))
-       |> Map.put("artifact_refs", Artifacts.Outputs.refs(artifacts))
-       |> Map.put("execution_mode", Atom.to_string(claim.episode.execution_mode))
-       |> Map.put_new(
-         "artifact_delivery_supported",
-         Artifacts.Outputs.delivery_supported?(claim.episode)
-       )
-       |> Map.put_new("open_required_goals", Records.open_required_goals(claim.episode.id))
-       |> Map.put("slack_mentions", Custody.Delivery.answer_mentions(claim.episode, claim.turn))
-       |> Map.put("workspace", workspace)}
-    end
+  defp complete_validation_context(context, claim, artifacts, workspace) do
+    {:ok,
+     context
+     |> Map.put("artifact_metadata", Enum.map(artifacts, &Map.take(&1, ~w(id name))))
+     |> Map.put("artifact_refs", Artifacts.Outputs.refs(artifacts))
+     |> Map.put("execution_mode", Atom.to_string(claim.episode.execution_mode))
+     |> Map.put_new(
+       "artifact_delivery_supported",
+       Artifacts.Outputs.delivery_supported?(claim.episode)
+     )
+     |> Map.put_new("open_required_goals", Records.open_required_goals(claim.episode.id))
+     |> Map.put("slack_mentions", Custody.Delivery.answer_mentions(claim.episode, claim.turn))
+     |> Map.put("workspace", workspace)}
   end
 
-  defp workspace_validation_context(claim, settings) do
-    case workspace_requirements(claim) do
-      [] ->
-        {:ok, nil}
+  defp workspace_validation_context(_claim, [], _settings), do: {:ok, nil}
 
-      goals ->
-        with true <- function_exported?(settings.api, :get_changes, 2),
-             {:ok, changes} <-
-               Remote.api_call(settings, fn ->
-                 settings.api.get_changes(settings.client, claim.session.coop_session_id)
-               end),
-             {:ok, prepared} <- prepare_workspace_changes(changes, goals) do
-          purpose = get_in(claim.session.workspace_task || %{}, ["purpose"]) || "implementation"
+  defp workspace_validation_context(claim, goals, settings) do
+    with true <- function_exported?(settings.api, :get_changes, 2),
+         {:ok, changes} <-
+           Remote.api_call(settings, fn ->
+             settings.api.get_changes(settings.client, claim.session.coop_session_id)
+           end),
+         {:ok, prepared} <- prepare_workspace_changes(changes, goals) do
+      purpose = get_in(claim.session.workspace_task || %{}, ["purpose"]) || "implementation"
 
-          source_commit =
-            get_in(claim.turn.submission || %{}, [
-              "context",
-              "workspace",
-              "source",
-              "selected_commit"
-            ]) || changes["base_commit"]
+      source_commit =
+        get_in(claim.turn.submission || %{}, [
+          "context",
+          "workspace",
+          "source",
+          "selected_commit"
+        ]) || changes["base_commit"]
 
-          {:ok,
-           prepared
-           |> Map.put("purpose", purpose)
-           |> Map.put("admitted_source_commit", source_commit)}
-        else
-          false -> {:error, {:invalid_work_executor, :workspace_changes_api}}
-          {:error, reason} -> {:error, reason}
-        end
+      {:ok,
+       prepared
+       |> Map.put("purpose", purpose)
+       |> Map.put("admitted_source_commit", source_commit)}
+    else
+      false -> {:error, {:invalid_work_executor, :workspace_changes_api}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

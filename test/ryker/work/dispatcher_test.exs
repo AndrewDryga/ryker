@@ -195,6 +195,21 @@ defmodule Ryker.Work.DispatcherTest do
   # was forgotten. Acceptance refused the finished answer, the turn stopped for a person, and
   # "finish saving" refused it again: the answer was stranded (2026-10-04 review). The answer is
   # dropped, and a new turn answers from what is current.
+  test "an answer whose validation snapshot changed restarts from current state" do
+    # Host validation must not turn a concurrent state write into a permanent
+    # operator stop: the old answer is fenced, and recovery has a bounded budget.
+    command = create_episode!("changed-validation-snapshot")
+    reason = {:work_completion_blocked, %{"state" => "completed"}, :work_validation_state_changed}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    assert turn.cancellation_intent["action"] == "transfer"
+    assert turn.result_ref == nil
+  end
+
   test "a finished answer whose briefing was withdrawn is answered again from what is current" do
     command = create_episode!("withdrawn-briefing")
     reason = {:work_completion_blocked, %{"state" => "completed"}, :work_knowledge_context_stale}
@@ -329,6 +344,64 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.status == :blocked
     assert turn.completion_receipt == proof
     assert turn.last_error_detail =~ "work_knowledge_context_stale"
+  end
+
+  test "an operator can refresh an exhausted validation snapshot without losing completion proof" do
+    # Retrying only result saving would reuse the same stale snapshot forever.
+    # Explicit recovery must preserve the finished work and grant a fresh owner.
+    command = create_episode!("stale-validation-loop", "turn:rerun:2:#{Ecto.UUID.generate()}")
+    proof = finished!(command)
+    session = Ryker.Repo.get_by!(Ryker.Work.Session, episode_id: command.episode_id)
+
+    session
+    |> Ecto.Changeset.change(coop_session_id: "remote:#{command.episode_id}")
+    |> Ryker.Repo.update!()
+
+    assert {:ok, {:deferred, {:work_stop_pending, _}}} =
+             Dispatcher.run_once(
+               Keyword.put(saving_fails(proof, :work_validation_state_changed), :max_attempts, 2)
+             )
+
+    assert {:ok, stop} = Custody.claim_next("stale-validation-stop", 60, :work)
+    assert stop.turn.completion_receipt == proof
+
+    assert {:ok, receipt} =
+             Cancellation.terminal_receipt(
+               stop.session.coop_session_id,
+               stop.turn.coop_turn_id,
+               "completed",
+               OperationKeys.cancel(stop.turn.id, stop.turn.cancel_generation),
+               "closed",
+               OperationKeys.cancel_close(stop.turn)
+             )
+
+    assert {:ok, blocked} =
+             Custody.settle_cancellation(
+               command.episode_id,
+               command.episode_key,
+               stop.turn.turn_ref,
+               stop.lease_ref,
+               receipt
+             )
+
+    assert blocked.turn.completion_receipt == proof
+    brief = Ryker.Work.Recovery.project(blocked.turn, :ok, true)
+    assert brief.action_label == "Run the task again"
+    refute brief.next_step =~ "do not rerun"
+    assert brief.cause =~ "changed"
+
+    assert {:ok, _resumed} =
+             Custody.retry_blocked(
+               command.episode_key,
+               Custody.recovery_fingerprint(blocked.turn)
+             )
+
+    assert {:ok, fresh} = Custody.claim_next("stale-validation-resumed", 60, :work)
+    assert fresh.turn.id != blocked.turn.id
+    assert fresh.turn.turn_ref =~ "turn:resume-blocked:"
+    assert Custody.reruns(fresh.turn.turn_ref) == 0
+    assert fresh.turn.validation_intent == nil
+    assert Ryker.Repo.get!(Turn, blocked.turn.id).completion_receipt == proof
   end
 
   # The bundled Coop worker was paused under a running Chat turn (2026-10-10). Each try while it
@@ -931,6 +1004,7 @@ defmodule Ryker.Work.DispatcherTest do
 
   test "every typed recoverable Coop condition is deferred without blocking the queue" do
     reasons = [
+      :work_validation_context_changed,
       {:work_generation_spent, :turn_submit, {:coop_error, 409, "revision_conflict", "stale"}},
       {:work_cancellation_unresolved, :remote_still_running},
       {:coop_upgrade_required, :repository_freshness_v2},

@@ -92,39 +92,28 @@ defmodule Ryker.Work.Custody do
           {:ok, Turn.t()} | {:error, term()}
   defdelegate thaw_stale_submission(episode_id, turn_ref, lease_ref), to: Turns
 
-  @doc false
-  @spec record_final_preflight(
+  @doc """
+  Holds the candidate's owner locks while the executor checks local state and
+  freezes the verdict through `prepare_validation/7`. The callback must return
+  that persisted turn and perform no remote I/O. An existing frozen verdict
+  is returned without running the callback again.
+  """
+  @spec prepare_candidate_validation(
           Ecto.UUID.t(),
           String.t(),
           String.t(),
           String.t(),
-          String.t(),
-          non_neg_integer()
-        ) :: {:ok, Turn.t()} | {:error, term()}
-  defdelegate record_final_preflight(
+          pos_integer(),
+          (claim() -> {:ok, Turn.t()} | {:error, term()})
+        ) ::
+          {:ok, Turn.t()} | {:error, term()}
+  defdelegate prepare_candidate_validation(
                 episode_id,
                 turn_ref,
                 lease_ref,
-                candidate_sha256,
-                ledger_sha256,
-                semantic_version
-              ),
-              to: Turns
-
-  @doc false
-  @spec verify_final_preflight(
-          Ecto.UUID.t(),
-          String.t(),
-          String.t(),
-          String.t(),
-          [String.t()]
-        ) :: {:ok, Turn.t()} | {:error, term()}
-  defdelegate verify_final_preflight(
-                episode_id,
-                turn_ref,
-                lease_ref,
-                candidate_sha256,
-                artifact_refs
+                sha256,
+                attempt,
+                validate
               ),
               to: Turns
 
