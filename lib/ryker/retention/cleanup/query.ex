@@ -571,8 +571,8 @@ defmodule Ryker.Retention.Cleanup.Query do
   end
 
   # Retained work is reconsidered from fresh evidence, never from a manual edit:
-  # an unmerged workspace once its publication is durable, and a dirty workspace
-  # when its scheduled recheck falls due.
+  # an unmerged workspace once its publication is durable or its recorded head
+  # is the unchanged read-only source, and dirty work when its recheck falls due.
   defp retained_status_filter(now) do
     published_session_ids =
       from(publication in Publication.Publication,
@@ -584,7 +584,21 @@ defmodule Ryker.Retention.Cleanup.Query do
       [episode_work_sessions: session],
       session.cleanup_status == :retained and
         ((session.retained_reason == "unpublished_unmerged" and
-            session.id in subquery(published_session_ids)) or
+            (session.id in subquery(published_session_ids) or
+               fragment(
+                 """
+                 (?::jsonb -> 'repository_read_only') = 'true'::jsonb AND
+                 (?::jsonb #>> '{workspace,head}') =
+                   (?::jsonb #>> '{source,binding,selected_commit}') AND
+                 (?::jsonb #> '{workspace,dirty}') = 'false'::jsonb AND
+                 (?::jsonb #> '{workspace,running}') = 'false'::jsonb
+                 """,
+                 session.worker_job_document,
+                 session.discard_plan,
+                 session.worker_job_document,
+                 session.discard_plan,
+                 session.discard_plan
+               ))) or
            (session.retained_reason == "dirty" and
               not is_nil(session.cleanup_next_attempt_at) and
               session.cleanup_next_attempt_at <= ^now))

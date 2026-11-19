@@ -182,8 +182,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              {LazyHTML.text(state), LazyHTML.attribute(state, "data-tone")}
            end) == [
              {"Cleanup needs attention", ["warn"]},
-             {"Changes kept", ["warn"]},
-             {"Changes kept", ["warn"]},
+             {"Copy kept", ["warn"]},
+             {"Copy kept", ["warn"]},
              {"Kept for follow-up", ["off"]},
              {"In use", ["busy"]}
            ]
@@ -197,7 +197,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert meta(blocked) ==
              "the worker could not finish this step; check the saved error before resuming · updated 2 h ago"
 
-    assert meta(unmerged) =~ "has commits that were never merged, kept until you discard them"
+    assert meta(unmerged) =~ "may contain unpublished commits; kept until cleanup is safe"
     assert meta(dirty) =~ "has uncommitted changes, kept until they are safe to remove"
     assert meta(kept) =~ "removed tomorrow 09:00 UTC"
     assert meta(active) =~ "cleanup starts when the task ends"
@@ -240,6 +240,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     # The projection falls back to the repository ref when no cleanup reason
     # is recorded; that fallback is not a reason and is never shown as one.
     document = render([%{@kept | status: :retained}])
+    assert document |> LazyHTML.query(".state-word") |> LazyHTML.text() == "Copy kept"
     assert meta(LazyHTML.query(document, "article.entity-row")) =~ "kept until cleanup is safe"
   end
 

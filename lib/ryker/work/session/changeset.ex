@@ -355,6 +355,9 @@ defmodule Ryker.Work.Session.Changeset do
     |> check_constraint(:cleanup_status, name: :episode_work_session_cleanup_state_valid)
     |> check_constraint(:cleanup_lease_ref, name: :episode_work_session_cleanup_lease_valid)
     |> check_constraint(:discard_plan, name: :episode_work_session_discard_plan_valid)
+    |> check_constraint(:discard_plan_unchanged_head,
+      name: :episode_work_session_unchanged_head_valid
+    )
     |> check_constraint(:cleanup_receipt, name: :episode_work_session_cleanup_receipt_valid)
     |> check_constraint(:cleanup_blocked_from, name: :episode_work_session_cleanup_blocked_valid)
   end

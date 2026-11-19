@@ -3,8 +3,9 @@ defmodule Ryker.Retention.Plan do
   Validates Coop's exact public discard-plan envelope.
 
   A plan is evidence, not deletion authority. Automatic cleanup never accepts
-  dirty work, and accepts unmerged commits only when the caller has separately
-  proved that this exact Work session was published.
+  dirty work. Unmerged commits need separate custody authority: publication,
+  an unchanged read-only source checked against the fresh plan, or an explicit
+  operator confirmation. The native plan preserves the exact requested flags.
   """
   alias Ryker.Crypto
   alias Ryker.Maps

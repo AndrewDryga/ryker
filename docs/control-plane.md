@@ -633,10 +633,12 @@ work.
 ### Working copies — "what is still held, and why?"
 
 Every repository checkout a task worked in, at `/working-copies`, with what
-cleanup does next in plain words. The rows that need a person are the ones
-automatic cleanup has already declined for a stated reason (uncommitted
-changes, commits that were never merged, a worker that stopped answering) and
-will never look at again without someone acting. Background learning sessions
+cleanup does next in plain words. A kept copy states what prevents removal:
+uncommitted changes, possibly unpublished commits, or a worker that stopped
+answering. Dirty copies are checked again later. Copies kept for unpublished
+commits are reconsidered after publication or when their recorded state matches
+their original read-only source; removal still requires a fresh worker plan.
+Blocked cleanup offers a person a retry after the cause is repaired. Background learning sessions
 hold no checkout; `/memory/learning` lists them.
 
 - One storage line per worker comes first: the space it uses (its shared
@@ -650,11 +652,14 @@ hold no checkout; `/memory/learning` lists them.
 - Resume cleanup restores only the exact cleanup phase captured when
   automation blocked. It keeps the frozen Coop session identity, clears the
   bounded retry state, and records the operator action atomically
-- Discard unmerged is offered only for a clean copy kept because it has
-  unpublished, unmerged commits. It requests a fresh exact Coop plan with
+- Discard unmerged is offered only for a clean copy that may contain
+  unpublished commits. It requests a fresh exact Coop plan with
   unmerged acceptance. Discard changes is offered for a copy kept because it
   has uncommitted changes; its plan accepts those changes and any unmerged
-  commits the copy also holds. Automation never accepts either on its own
+  commits the copy also holds. Automation never accepts dirty work. It accepts
+  unmerged commits only with publication proof or a validated read-only source
+  whose original commit exactly matches the fresh, clean, stopped worker plan.
+  The original PR's commits alone therefore do not keep an untouched review copy
 - Publication remains a task/publication workflow, not a cleanup shortcut.
   The Working copies page never invents a publish or generic rerun action
 - A row with no provably safe transition says why and has no dead control

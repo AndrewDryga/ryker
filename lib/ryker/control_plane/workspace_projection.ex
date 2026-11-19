@@ -188,7 +188,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   defp preview_reason(:grace), do: "The follow-up window ended; close the worker session"
   defp preview_reason(:plan_pending), do: "Check again what is safe to remove"
   defp preview_reason(:discard_pending), do: "Remove the copy"
-  defp preview_reason(:retained), do: "Check again whether the kept changes can be removed"
+  defp preview_reason(:retained), do: "Check again whether the kept copy can be removed"
   defp preview_reason(status), do: Atom.to_string(status)
 
   defp workspace_item(

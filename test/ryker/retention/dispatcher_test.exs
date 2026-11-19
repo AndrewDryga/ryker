@@ -42,6 +42,132 @@ defmodule Ryker.Retention.DispatcherTest do
            end)
   end
 
+  # Two untouched review copies were labelled as unmerged work an hour after their
+  # source PR merged (2026-11-19), following 86 copies already cleaned by an operator.
+  # Harvested native workspace and source binding; repository identities are pseudonyms.
+  test "an untouched review is reclaimed even when its source commits are ahead of main" do
+    {session, workspace} = untouched_review!("unchanged-review")
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], workspace: workspace)
+
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:review:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:review:plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(api, "cleanup:review:discard")
+    assert Repo.get!(Session, session.id).cleanup_status == :discarded
+    assert Repo.get!(Episodes.Episode, session.episode_id)
+  end
+
+  test "automatic review cleanup keeps edited files and commits added after checkout" do
+    for {suffix, changes, reason} <- [
+          {"review-edits", %{"dirty" => true}, "dirty"},
+          {"review-commits", %{"head" => String.duplicate("e", 40)}, "unpublished_unmerged"}
+        ] do
+      {session, workspace} = untouched_review!(suffix)
+      workspace = Map.merge(workspace, changes)
+      {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], workspace: workspace)
+
+      assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:#{suffix}:close")
+      assert {:ok, {:executed, %{phase: :retained}}} = run(api, "cleanup:#{suffix}:plan")
+      stored = Repo.get!(Session, session.id)
+      assert stored.retained_reason == reason
+      refute stored.discard_plan_accept_dirty
+      assert run(api, "cleanup:#{suffix}:idle") == {:ok, :idle}
+      refute Enum.any?(FakeAPI.calls(api), &match?({:discard, _, _}, &1))
+    end
+  end
+
+  test "a fresh review plan cannot accept newer commits using an expired source approval" do
+    {session, workspace} = untouched_review!("review-expired")
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], workspace: workspace)
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:expired-review:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:expired-review:plan")
+    FakeAPI.invalidate_plans(api, session.coop_session_id)
+
+    FakeAPI.set_workspace(
+      api,
+      session.coop_session_id,
+      Map.put(workspace, "head", String.duplicate("e", 40))
+    )
+
+    assert {:ok, {:executed, %{phase: :replan}}} = run(api, "cleanup:expired-review:discard")
+    assert {:ok, {:executed, %{phase: :retained}}} = run(api, "cleanup:expired-review:replan")
+    retained = Repo.get!(Session, session.id)
+    assert retained.discard_plan_unchanged_head == workspace["head"]
+    assert retained.retained_reason == "unpublished_unmerged"
+    assert run(api, "cleanup:expired-review:idle") == {:ok, :idle}
+
+    # A person's exact current confirmation can authorize those actual new commits.
+    assert {:ok, %{outcome: :discard_requested}} =
+             Ryker.Operator.Retention.discard_unmerged(
+               retained.external_ref,
+               retained.discard_plan_fingerprint,
+               "operator:review",
+               "discard-review:" <> session.id
+             )
+
+    assert Repo.get!(Session, session.id).discard_plan_unchanged_head == nil
+
+    assert {:ok, {:executed, %{phase: :planned}}} =
+             run(api, "cleanup:expired-review:confirmed-plan")
+
+    assert {:ok, {:executed, %{phase: :discarded}}} =
+             run(api, "cleanup:expired-review:confirmed-discard")
+  end
+
+  test "the source fence does not retain commits the worker confirms are already merged" do
+    {session, workspace} = untouched_review!("review-merged")
+    workspace = Map.merge(workspace, %{"head" => String.duplicate("e", 40), "unmerged" => false})
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], workspace: workspace)
+
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:merged-review:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:merged-review:plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(api, "cleanup:merged-review:discard")
+  end
+
+  test "previously retained untouched reviews are reconsidered with fresh worker evidence" do
+    {session, workspace} = untouched_review!("review-old")
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], workspace: workspace)
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:old-review:close")
+    session = Repo.get!(Session, session.id)
+    # Persist the harvested pre-fix decision, without an automatic source approval.
+    plan = %{
+      "session_id" => session.coop_session_id,
+      "revision" => 8,
+      "operation_id" => "op_old_review",
+      "workspace" => workspace
+    }
+
+    session
+    |> Ecto.Changeset.change(
+      cleanup_status: :retained,
+      retained_reason: "unpublished_unmerged",
+      discard_plan: plan,
+      discard_plan_fingerprint: CanonicalJSON.digest(plan),
+      discard_plan_operation_id: plan["operation_id"],
+      discard_plan_expected_revision: 8
+    )
+    |> Repo.update!()
+
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:old-review:replan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(api, "cleanup:old-review:discard")
+  end
+
+  test "a changed read-only job digest grants no automatic cleanup authority" do
+    {session, workspace} = untouched_review!("review-tampered")
+
+    session =
+      session
+      |> Ecto.Changeset.change(worker_job_digest: String.duplicate("0", 64))
+      |> Repo.update!()
+
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)], workspace: workspace)
+
+    assert run(api, "cleanup:tampered-review") ==
+             {:ok, {:blocked, {:coop_protocol_error, :session_authority}}}
+
+    assert Repo.get!(Session, session.id).discard_plan_unchanged_head == nil
+    refute Enum.any?(FakeAPI.calls(api), &match?({:discard, _, _}, &1))
+  end
+
   # The 2026-10-11 world campaign left clean work blocked on discard_plan_stale;
   # rearming replayed the same expired plan and key, so no retry could release it.
   test "a stale discard plan is replaced before cleanup retries with fresh keys" do
@@ -889,6 +1015,27 @@ defmodule Ryker.Retention.DispatcherTest do
              )
 
     session
+  end
+
+  defp untouched_review!(suffix) do
+    fixture = File.read!("test/fixtures/retention/unchanged_review.json") |> Jason.decode!()
+    session = terminal_session!(suffix)
+
+    job =
+      session.worker_job_document
+      |> Map.put("repository_read_only", true)
+      |> put_in(["source", "binding"], fixture["source_binding"])
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        repository_source: fixture["source_binding"]["requested"],
+        worker_job_document: job,
+        worker_job_digest: CanonicalJSON.worker_digest(job)
+      )
+      |> Repo.update!()
+
+    {session, fixture["workspace"]}
   end
 
   defp remote_session(session) do

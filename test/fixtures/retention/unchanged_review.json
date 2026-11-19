@@ -1,0 +1,29 @@
+{
+  "source_binding": {
+    "admitted_tree": "dddddddddddddddddddddddddddddddddddddddd",
+    "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "default_commit": "cccccccccccccccccccccccccccccccccccccccc",
+    "default_ref": "refs/heads/main",
+    "kind": "pull_request",
+    "pull_request_number": 42,
+    "remote_identity": "origin",
+    "requested": {
+      "kind": "pull_request",
+      "number": 42
+    },
+    "resolved_at": "2026-11-19T14:34:12Z",
+    "selected_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "selected_ref": "refs/pull/42/head",
+    "version": 1
+  },
+  "workspace": {
+    "accepted_dirty": false,
+    "accepted_unmerged": false,
+    "branch": "remote-review-fixture",
+    "dirty": false,
+    "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "running": false,
+    "status_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "unmerged": true
+  }
+}

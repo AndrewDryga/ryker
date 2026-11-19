@@ -221,7 +221,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
 
   defp state(:active), do: {:busy, "In use"}
   defp state(:grace), do: {:off, "Kept for follow-up"}
-  defp state(:retained), do: {:warn, "Changes kept"}
+  defp state(:retained), do: {:warn, "Copy kept"}
   defp state(:blocked), do: {:warn, "Cleanup needs attention"}
   defp state(:discarded), do: {:off, "Removed"}
   defp state(_close_plan_or_discard_pending), do: {:busy, "Cleaning up"}
@@ -239,7 +239,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp next(%{status: :grace}, _now), do: "removed when the follow-up window ends"
 
   defp next(%{status: :retained, summary: "unpublished_unmerged"}, _now),
-    do: "has commits that were never merged, kept until you discard them"
+    do: "may contain unpublished commits; kept until cleanup is safe"
 
   defp next(%{status: :retained, summary: "dirty"}, _now),
     do: "has uncommitted changes, kept until they are safe to remove"

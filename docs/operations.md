@@ -345,6 +345,11 @@ existing receipt and never starts another occurrence.
 
 Deleting a retained working copy confirms its current cleanup plan. A changed plan requires a
 new confirmation before cleanup can accept its uncommitted changes or unmerged commits.
+An unchanged read-only copy is cleaned up automatically after its owner is eligible: a fresh
+worker plan must show a clean, stopped checkout at the exact commit pinned when it started.
+The PR's original commits do not count as new work in that copy. New unpublished commits and edited
+files remain protected, including when a cleanup plan expires and must be requested again. Previously
+retained copies with the same proof are reconsidered automatically; task history stays intact.
 
 If saving a completed result is blocked, retain its workspace and retry completion after repairing
 the cause. An explicit completion retry captures a fresh snapshot under a new operation key;

@@ -5,7 +5,8 @@ defmodule Ryker.Operator.Retention do
   Rearm restores the exact cleanup phase captured when automation blocked. An
   explicit discard never skips Coop review: it clears the old plan and asks Coop
   for a fresh plan that accepts what the person let go of, unmerged commits or
-  uncommitted changes. Automation never discards either on its own.
+  uncommitted changes. Automatic acceptance of unmerged commits needs separate
+  proof of publication or an unchanged read-only source; it never accepts dirty work.
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
@@ -205,6 +206,7 @@ defmodule Ryker.Operator.Retention do
             cleanup_status: :plan_pending,
             discard_plan: nil,
             discard_plan_accept_unmerged: true,
+            discard_plan_unchanged_head: nil,
             discard_plan_expected_revision: nil,
             discard_plan_fingerprint: nil,
             discard_plan_generation: session.discard_plan_generation + 1,
@@ -247,6 +249,7 @@ defmodule Ryker.Operator.Retention do
           discard_plan: nil,
           discard_plan_accept_dirty: true,
           discard_plan_accept_unmerged: workspace["unmerged"] == true,
+          discard_plan_unchanged_head: nil,
           discard_plan_expected_revision: nil,
           discard_plan_fingerprint: nil,
           discard_plan_generation: session.discard_plan_generation + 1,

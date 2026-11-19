@@ -17,6 +17,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet
   alias Ryker.Episodes
+  alias Ryker.GitObject
   alias Ryker.Improvement
   alias Ryker.Ingress
   alias Ryker.Learning
@@ -664,7 +665,7 @@ defmodule Ryker.Retention.Custody do
            session,
          _now
        ),
-       do: published?(session)
+       do: published?(session) or unchanged_review?(session)
 
   defp claimable_status?(
          %Work.Session{
@@ -690,6 +691,7 @@ defmodule Ryker.Retention.Custody do
       discard_plan: nil,
       discard_plan_accept_dirty: false,
       discard_plan_accept_unmerged: false,
+      discard_plan_unchanged_head: nil,
       discard_plan_expected_revision: nil,
       discard_plan_fingerprint: nil,
       discard_plan_generation: session.discard_plan_generation + 1,
@@ -727,7 +729,7 @@ defmodule Ryker.Retention.Custody do
 
       true ->
         fingerprint = CanonicalJSON.digest(plan)
-        {status, retained_reason} = plan_outcome(plan)
+        {status, retained_reason} = plan_outcome(session, plan)
 
         # A workspace that is dirty today may be clean tomorrow. Schedule the
         # next fresh plan so the only way out of retention is new evidence.
@@ -753,13 +755,48 @@ defmodule Ryker.Retention.Custody do
 
   # Uncommitted changes keep a copy unless a person let them go (Discard changes), as unmerged
   # commits do unless accepted; a copy Coop may remove waits for the discard.
-  defp plan_outcome(%{"workspace" => workspace} = plan) do
+  defp plan_outcome(session, %{"workspace" => workspace} = plan) do
     cond do
-      workspace["dirty"] and not workspace["accepted_dirty"] -> {:retained, "dirty"}
-      not Plan.discardable?(plan) -> {:retained, "unpublished_unmerged"}
-      true -> {:discard_pending, nil}
+      workspace["dirty"] and not workspace["accepted_dirty"] ->
+        {:retained, "dirty"}
+
+      workspace["unmerged"] and not unchanged_head?(session, workspace) ->
+        {:retained, "unpublished_unmerged"}
+
+      not Plan.discardable?(plan) ->
+        {:retained, "unpublished_unmerged"}
+
+      true ->
+        {:discard_pending, nil}
     end
   end
+
+  # Automatic acceptance belongs only to the source commit, never to new work.
+  # Keep this fence across plan expiry, retries and a controller restart.
+  defp unchanged_head?(%Work.Session{discard_plan_unchanged_head: nil}, _workspace), do: true
+
+  defp unchanged_head?(session, workspace),
+    do: workspace["head"] == session.discard_plan_unchanged_head
+
+  defp unchanged_review?(%Work.Session{discard_plan: %{"workspace" => workspace}} = session) do
+    head = review_source_head(session)
+
+    is_binary(head) and workspace["head"] == head and workspace["dirty"] == false and
+      workspace["running"] == false
+  end
+
+  defp unchanged_review?(_session), do: false
+
+  defp review_source_head(
+         %Work.Session{worker_job_document: %{"repository_read_only" => true}} = session
+       ) do
+    head = get_in(session.worker_job_document, ["source", "binding", "selected_commit"])
+
+    if GitObject.id?(head) and match?({:ok, _}, CoopFleet.JobAuthority.validate(session)),
+      do: head
+  end
+
+  defp review_source_head(_session), do: nil
 
   # A discarded session has nothing left on any worker, so its placement ends
   # with it; otherwise the worker renews it on every poll, for good.
@@ -797,12 +834,31 @@ defmodule Ryker.Retention.Custody do
          accept_unmerged,
          accept_dirty
        ) do
+    head =
+      session.discard_plan_unchanged_head ||
+        if not accept_unmerged and not accept_dirty, do: review_source_head(session)
+
     persist(session, %{
       discard_plan_accept_dirty: accept_dirty,
-      discard_plan_accept_unmerged: accept_unmerged,
+      discard_plan_accept_unmerged: accept_unmerged or is_binary(head),
+      discard_plan_unchanged_head: head,
       discard_plan_expected_revision: revision
     })
   end
+
+  defp freeze_plan_locked(
+         %Work.Session{
+           discard_plan_accept_dirty: false,
+           discard_plan_accept_unmerged: true,
+           discard_plan_unchanged_head: head,
+           discard_plan_expected_revision: revision
+         } = session,
+         revision,
+         _accept_unmerged,
+         false
+       )
+       when is_binary(head),
+       do: session
 
   defp freeze_plan_locked(
          %Work.Session{
