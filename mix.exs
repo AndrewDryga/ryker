@@ -49,17 +49,20 @@ defmodule Ryker.MixProject do
 
   defp deps do
     [
-      {:bandit, "~> 1.12"},
-      {:phoenix, "~> 1.8.15"},
-      {:phoenix_live_view, "~> 1.2.12"},
-      {:phoenix_html, "~> 4.3"},
+      {:bandit, "~> 1.15"},
+      {:phoenix, "~> 1.8.16"},
+      {:phoenix_live_view, "~> 1.2.13"},
+      {:phoenix_html, "~> 4.4"},
       {:ecto_sql, "~> 3.14"},
-      {:finch, "~> 0.23"},
+      {:finch, "~> 0.25"},
       {:mint_web_socket, "~> 1.0"},
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
-      {:jsv, "~> 0.22", only: :test},
-      {:lazy_html, "~> 0.1.12", only: :test},
+      {:jsv, "~> 0.27", only: :test},
+      # CVE-2026-117678 is fixed in IDNA 8; JSV 0.27 still requires 6/7.
+      # Keep hostname compatibility covered until JSV widens its requirement.
+      {:idna, "~> 8.0", only: :test, override: true},
+      {:lazy_html, "~> 0.1.14", only: :test},
       # A repository's .agent/project.yaml names the check its reviews run
       # (Ryker.CoopFleet.JobSetup); the Slack app manifest test reads YAML too.
       {:yaml_elixir, "~> 2.12"},
@@ -71,7 +74,7 @@ defmodule Ryker.MixProject do
       # Known advisories for the locked Hex packages (`make deps-audit`).
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       # Security static analysis in the gate (`.sobelow-conf`), as Emisar's.
-      {:sobelow, "~> 0.16", only: [:dev, :test], runtime: false}
+      {:sobelow, "~> 0.19", only: [:dev, :test], runtime: false}
     ]
   end
 

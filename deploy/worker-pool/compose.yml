@@ -1,7 +1,7 @@
 name: ryker-worker
 services:
   volume-init:
-    image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+    image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     user: root
     restart: "no"
     command: [sh, -ec, 'find /var/lib/coop /var/lib/ryker-coop \( ! -user 1000 -o ! -group 1000 \) -exec chown -h 1000:1000 {} +']
@@ -12,7 +12,7 @@ services:
       driver: json-file
       options: {max-size: 10m, max-file: "3"}
   ryker-coop-docker:
-    image: docker:28.2.2-dind-alpine3.21@sha256:bbc590727c1e4fe707877314ff4f0f977bdda2985c485f2b044db0e18979efb3
+    image: docker:29.10.0-dind-alpine3.24@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
     privileged: true
     restart: unless-stopped
     depends_on:

@@ -1,6 +1,6 @@
 # Every base image is pinned by digest as well as tag, so a moved tag never changes a build;
 # Dependabot proposes the next one (2026-10-04 review).
-ARG ELIXIR_IMAGE=hexpm/elixir:1.19.6-erlang-28.5.0.8-debian-bookworm-20261005-slim@sha256:85799e31abac9c2636d9f5068f9b11ec7584cc6494ec7a211ddb4257782906a6
+ARG ELIXIR_IMAGE=hexpm/elixir:1.19.7-erlang-28.5.0.8-debian-bookworm-20261104-slim@sha256:d7e5e74384168cf89aea484736cbd922ed532c504502fbafab814ab6cd3ca6ad
 
 FROM ${ELIXIR_IMAGE} AS build
 
@@ -19,9 +19,9 @@ WORKDIR /build
 COPY mix.exs mix.lock release-assets.txt ./
 ENV RYKER_ELIXIR_VERSION=0.0.0-dependencies \
     HEX_HTTP_TIMEOUT=120
-# Hex as scripts/elixir-mix.sh pins it (2.5.1 does not load on this OTP), and
+# Hex as scripts/elixir-mix.sh pins it, and
 # exactly the dependencies mix.lock names.
-RUN mix local.hex 2.4.1 --force \
+RUN mix local.hex 2.7.0 --force \
  && mix local.rebar --force \
  && mix deps.get --only prod --check-locked \
  && mix deps.compile
@@ -56,7 +56,7 @@ RUN test -n "$RYKER_VERSION" \
 # video needs: 3 MB, where Debian's package added 386 MB of video codecs and X11
 # libraries, and far fewer parsers facing an untrusted upload. The release
 # tarball is FFmpeg's signed 9.0.2 (key FCF986EA15E6E293A5644F10B4322F04D67658D8).
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS ffmpeg
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS ffmpeg
 
 ARG FFMPEG_VERSION=9.0.2
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
@@ -84,10 +84,10 @@ RUN curl -fsSL --retry 3 -o /ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$
  && make install
 
 # GGML_NATIVE=OFF keeps whisper-cli portable to any CPU of the image's architecture.
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS whisper
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS whisper
 
-ARG WHISPER_CPP_VERSION=v1.9.4
-ARG WHISPER_CPP_COMMIT=927cfce34f31707e17f2bff35c349632fb9e2c3a
+ARG WHISPER_CPP_VERSION=v1.9.5
+ARG WHISPER_CPP_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
 ARG WHISPER_MODEL_URL=https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin
 ARG WHISPER_MODEL_SHA256=60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe
 
@@ -107,7 +107,7 @@ RUN curl -fsSL --retry 3 -o /opt/whisper/ggml-base.bin "$WHISPER_MODEL_URL" \
 
 # Native Vega-Lite rendering, with version- and checksum-pinned wheels for both
 # supported Linux architectures. No browser, Node service or external chart API.
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS charts
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS charts
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-venv ca-certificates \
@@ -117,7 +117,7 @@ RUN python3 -m venv /opt/ryker-charts \
  && /opt/ryker-charts/bin/pip install --no-cache-dir --disable-pip-version-check \
       --only-binary=:all: --require-hashes -r /tmp/chart-requirements.txt
 
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS runtime
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 python3 \

@@ -7,8 +7,11 @@ defmodule Ryker.Fixtures.DatabaseClock do
   # Sandbox rollback removes the function and schema; production has no clock hook.
   # The schema is named per call: async tests that created one name waited on
   # each other until the first test's transaction ended.
-  def behind_host! do
-    now = DateTime.add(DateTime.utc_now(), -60, :second)
+  def behind_host!, do: offset_host!(-60)
+  def ahead_of_host!, do: offset_host!(60)
+
+  defp offset_host!(seconds) do
+    now = DateTime.add(DateTime.utc_now(), seconds, :second)
     schema = "memory_test_clock_#{System.unique_integer([:positive])}"
     Repo.query!("CREATE SCHEMA #{schema}")
 

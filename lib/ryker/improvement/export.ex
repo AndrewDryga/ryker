@@ -380,6 +380,9 @@ defmodule Ryker.Improvement.Export do
 
   defp rename_conversation(conversation, _names), do: conversation
 
+  # Offline export of a retained snapshot: Regex.escape/1 escapes each identity
+  # before joining the literal alternatives. Identity text cannot add regex syntax.
+  # sobelow_skip ["DOS.Regex"]
   defp rename_text(text, names) when is_binary(text) and map_size(names) > 0 do
     pattern =
       names

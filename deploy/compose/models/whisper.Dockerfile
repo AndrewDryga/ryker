@@ -8,10 +8,10 @@
 # about twice as fast as a generic build: 29 s instead of 54 s for 31 s of speech (2026-10-12).
 # GGML_NATIVE and GGML_CPU_ALL_VARIANTS both fail with bookworm's GCC 12. An older CPU cannot run
 # these servers, and Ryker's own model, built for any CPU, reads voice messages there.
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS build
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS build
 
-ARG WHISPER_CPP_VERSION=v1.9.4
-ARG WHISPER_CPP_COMMIT=927cfce34f31707e17f2bff35c349632fb9e2c3a
+ARG WHISPER_CPP_VERSION=v1.9.5
+ARG WHISPER_CPP_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
 ARG TARGETARCH
 
 RUN apt-get update \
@@ -37,7 +37,7 @@ RUN test -n "$MODEL_URL" && test -n "$MODEL_SHA256" \
  && curl -fsSL --retry 3 -o /opt/whisper/model.bin "$MODEL_URL" \
  && echo "$MODEL_SHA256  /opt/whisper/model.bin" | sha256sum -c -
 
-FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl libstdc++6 \

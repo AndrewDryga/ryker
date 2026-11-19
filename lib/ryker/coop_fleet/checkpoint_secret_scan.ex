@@ -16,6 +16,9 @@ defmodule Ryker.CoopFleet.CheckpointSecretScan do
   ]
 
   # The values arrive sealed (`Ryker.Secret`) and are opened only here.
+  # Only the five source literals in @patterns become regexes. Secret values
+  # stay literal binary matches; no caller supplies regex syntax or pattern size.
+  # sobelow_skip ["DOS.Regex"]
   def new(%Ryker.Secret{value: secrets}) when is_list(secrets) do
     if Enum.all?(secrets, &(is_binary(&1) and byte_size(&1) >= 8)) do
       literals = secrets ++ @markers

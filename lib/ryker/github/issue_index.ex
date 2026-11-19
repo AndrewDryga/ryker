@@ -81,7 +81,7 @@ defmodule Ryker.GitHub.IssueIndex do
   def fetch_next_issue(%IssueIndexState{} = index) do
     index.id
     |> IndexedIssue.Query.by_index_id()
-    |> IndexedIssue.Query.next_pending(DateTime.utc_now(:microsecond))
+    |> IndexedIssue.Query.next_pending(Repo.now!())
     |> Repo.fetch()
   end
 

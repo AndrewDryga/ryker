@@ -31,7 +31,7 @@ defmodule Ryker.ComposeDistributionTest do
     assert public =~ ~s(127.0.0.1)
     assert public =~ "restart: unless-stopped"
     assert public =~ "healthcheck:"
-    assert public =~ "postgres:18.6-bookworm"
+    assert public =~ "postgres:18.7-bookworm"
     assert public =~ "ryker-database:/var/lib/postgresql"
     assert public =~ "ryker-database:"
     assert public =~ "ryker-state:"
@@ -317,10 +317,10 @@ defmodule Ryker.ComposeDistributionTest do
   test "the worker can start a review's services with a verified Docker Compose" do
     worker_image = read("deploy/compose/coop/Dockerfile")
 
-    assert worker_image =~ "ARG COMPOSE_VERSION=v5.1.2"
+    assert worker_image =~ "ARG COMPOSE_VERSION=v5.8.0"
     assert worker_image =~ "docker-compose-linux-$arch"
-    assert worker_image =~ "d5ce4020039cdbe81679b770e64f89d2cc601398d3b1aacd84a02a9176cd9d20"
-    assert worker_image =~ "c372e512a36e67716b0b3a1264ccdc461dec7a7beff601b81f7c5fb008e3511e"
+    assert worker_image =~ "1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3"
+    assert worker_image =~ "b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6"
     assert worker_image =~ "sha256sum -c -"
     assert worker_image =~ "docker compose version"
   end
@@ -371,6 +371,17 @@ defmodule Ryker.ComposeDistributionTest do
       )
 
     assert ("--group=" <> gid) in daemon["command"]
+  end
+
+  # Docker 29 defaults fresh daemons to containerd storage outside /var/lib/docker.
+  # Recreating a daemon must not strand a job's images in its disposable container layer.
+  test "both worker daemons keep image storage inside their persistent Docker volume" do
+    for file <- ["compose.yml", "deploy/worker-pool/compose.yml"] do
+      daemon = YamlElixir.read_from_string!(read(file))["services"]["ryker-coop-docker"]
+
+      assert "--storage-driver=overlay2" in daemon["command"]
+      assert Enum.any?(daemon["volumes"], &String.ends_with?(&1, ":/var/lib/docker"))
+    end
   end
 
   # Repository knowledge moved to filtered networking (2026-10-08), which this worker could not

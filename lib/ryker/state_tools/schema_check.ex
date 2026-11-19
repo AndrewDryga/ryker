@@ -366,6 +366,9 @@ defmodule Ryker.StateTools.SchemaCheck do
 
   defp valid_pattern?(_value, nil), do: true
 
+  # FixedTools supplies the host-built catalog, never a schema from tool arguments.
+  # Its patterns are source-owned constraints; the untrusted value is only the subject.
+  # sobelow_skip ["DOS.Regex"]
   defp valid_pattern?(value, pattern) do
     case Regex.compile(pattern) do
       {:ok, regex} -> Regex.match?(regex, value)

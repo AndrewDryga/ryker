@@ -129,3 +129,33 @@ test("social metadata follows page metadata and JSON-LD escapes script delimiter
   assert.doesNotThrow(() => JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]));
   assert.equal(render(html, "index.html", "https://site-build.invalid"), html);
 });
+
+// The homepage and docs index were canonical but navigation only linked their
+// index.html aliases, leaving both canonical URLs orphaned in the public crawl.
+test("every canonical page has a direct incoming link from another public page", async () => {
+  const origin = "https://site-build.invalid";
+  const incoming = new Set();
+  for (const name of pages) {
+    const canonical = `${origin}/${name.replace(/index\.html$/, "")}`;
+    const html = render(await readFile(path.join(root, "site", name), "utf8"), name, origin);
+    for (const [, href] of html.matchAll(/<a\b[^>]*href="([^"]+)"/g)) {
+      const url = new URL(href, canonical);
+      if (url.origin !== origin) continue;
+      assert.ok(!url.pathname.endsWith("index.html"), `${name}: ${href}`);
+      url.hash = "";
+      if (url.href !== canonical) incoming.add(url.href);
+    }
+  }
+  for (const name of pages) {
+    const canonical = `${origin}/${name.replace(/index\.html$/, "")}`;
+    assert.ok(incoming.has(canonical), `No incoming link: ${canonical}`);
+  }
+});
+
+test("canonical navigation preserves fragments, queries and external URLs", () => {
+  const source = '<title>Docs</title><meta name="description" content="Documentation"><h1>Docs</h1><a href="../index.html#examples">Home</a><a href="index.html?q=x&amp;y=z#shape">Docs</a><a href="https://external.invalid/index.html">External</a>';
+  const html = render(source, "docs/index.html", "https://site-build.invalid");
+  assert.match(html, /href="\/\#examples"/);
+  assert.ok(html.includes('href="/docs/?q=x&amp;y=z#shape"'));
+  assert.ok(html.includes('href="https://external.invalid/index.html"'));
+});

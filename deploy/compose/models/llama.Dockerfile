@@ -1,7 +1,7 @@
 # llama.cpp's server with one model in the image: `embeddings` (bge-m3) for routing's search by
 # meaning and, behind the `routing-model` profile, `routing-model` (Qwen2.5 3B) for the local
 # routing comparison. The server image is llama.cpp's own, pinned by digest (2026-10-13).
-FROM ghcr.io/ggml-org/llama.cpp:server@sha256:052888c603894ecfa08deb6714fdc2d7084e491e174d5ab41bfb36b49ee7151c
+FROM ghcr.io/ggml-org/llama.cpp:server@sha256:5b43086e3ba7ea5794d72904654f6cd41224a9b1c6ac0398f4940ee380d30f23
 
 # The model is pinned by revision and digest: a moved branch or a replaced file fails the build.
 # The server does not run as root, and a downloaded file is only its owner's to read unless the

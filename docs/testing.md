@@ -153,7 +153,7 @@ The deterministic storage and acceptance-wrapper tests run in `make watchdog-che
 To exercise repeated real builds, choose a locally installed Docker-in-Docker image:
 
 ```bash
-python3 -B scripts/storage_pressure_acceptance.py --image docker:28.2.2-dind-alpine3.21
+python3 -B scripts/storage_pressure_acceptance.py --image docker:29.10.0-dind-alpine3.24
 ```
 
 The command inherits Docker's selected context or `DOCKER_HOST`. It resolves the local image

@@ -663,7 +663,9 @@ defmodule Ryker.LocalRoutingTest do
   end
 
   defp local_model!(script) do
-    {:ok, answers} = Agent.start_link(fn -> script end)
+    # A timed-out request may still be queued when the test process exits.
+    # Stop Bandit before its answers, so that late request cannot log a crash.
+    answers = start_supervised!({Agent, fn -> script end})
     port = unused_port!()
 
     start_supervised!(

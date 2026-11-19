@@ -1,8 +1,8 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
-FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
+FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS build
 
-ARG COOP_VERSION=v13.2.1-464-ged1ed59b
-ARG COOP_REVISION=ed1ed59b11ce1f003a2d6f9b7b3ae51e15d7bdc2
+ARG COOP_VERSION=v14.0.0
+ARG COOP_REVISION=12e77fb74cae94ff5a31b2a7250e17c06bb65ea1
 
 # Only the pinned commit, and each download tried again: on 2026-10-17 the tenant host's network
 # broke off a clone of Coop's whole history twice, after 397 s and 36 s, and its worker stayed on
@@ -24,9 +24,9 @@ RUN git init --quiet /build/coop \
       -o /out/coop .
 
 # The image the worker's Docker daemon runs (compose.yml `ryker-coop-docker`), by the same digest.
-FROM docker:28.2.2-dind-alpine3.21@sha256:bbc590727c1e4fe707877314ff4f0f977bdda2985c485f2b044db0e18979efb3 AS docker
+FROM docker:29.10.0-dind-alpine3.24@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c AS docker
 
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+FROM debian:bookworm-20261104-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git git-lfs jq openssl \
@@ -45,10 +45,10 @@ RUN docker --version \
 
 # Coop starts a review's declared service stack with `docker compose`. The plugin is a pinned
 # release, its checksum checked for this image's architecture.
-ARG COMPOSE_VERSION=v5.1.2
+ARG COMPOSE_VERSION=v5.8.0
 RUN case "$(dpkg --print-architecture)" in \
-      arm64) arch=aarch64 sum=d5ce4020039cdbe81679b770e64f89d2cc601398d3b1aacd84a02a9176cd9d20 ;; \
-      amd64) arch=x86_64 sum=c372e512a36e67716b0b3a1264ccdc461dec7a7beff601b81f7c5fb008e3511e ;; \
+      arm64) arch=aarch64 sum=1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3 ;; \
+      amd64) arch=x86_64 sum=b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6 ;; \
       *) echo "no pinned Docker Compose for $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac \
  && mkdir -p /usr/libexec/docker/cli-plugins \

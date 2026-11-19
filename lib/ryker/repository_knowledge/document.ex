@@ -278,6 +278,9 @@ defmodule Ryker.RepositoryKnowledge.Document do
   # operator, a closing quote, backtick, bracket or emphasis, or the
   # punctuation or dash that ends a clause. So `make dev-check-all` writes
   # no `make dev-check`, and "make sure" no `make`.
+  # Each command word is escaped; the separators and boundaries are fixed source
+  # literals, so neither repository text nor a proposed command supplies regex syntax.
+  # sobelow_skip ["DOS.Regex"]
   defp written?(command, text) do
     words = command |> String.split() |> Enum.map_join("\\s+", &Regex.escape/1)
     ending = "(?=[ \\t\\r]*(?:$|#|[;&|)\\]}<>`\"'*]|[.,:!?\\-–—](?:\\s|$)))"

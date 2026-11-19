@@ -1,5 +1,6 @@
 defmodule Ryker.GitHub.IssueIndexTest do
   use Ryker.DataCase, async: false
+  alias Ryker.Fixtures.DatabaseClock
   alias Ryker.GitHub.{IndexedIssue, IssueIndex, IssueIndexState, IssueTriageWorker}
   alias Ryker.Settings
 
@@ -198,9 +199,12 @@ defmodule Ryker.GitHub.IssueIndexTest do
     assert {:ok, _index} = IssueIndex.ensure(configured)
   end
 
-  test "a deleted issue is removed from search without starting or closing anything", %{
+  # The dependency gate left a deleted issue searchable when the database clock
+  # ran ahead: the worker backfilled instead of fetching the already-due refresh.
+  test "a deleted issue is removed from search even when the database clock runs ahead", %{
     configured: configured
   } do
+    DatabaseClock.ahead_of_host!()
     {:ok, issue} = IssueIndex.enqueue(configured, 12, false)
     {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
 
@@ -220,6 +224,20 @@ defmodule Ryker.GitHub.IssueIndexTest do
     assert {:ok, %{"items" => []}} = IssueIndex.search(configured, "CSV", url: nil)
     refute Repo.get!(IndexedIssue, issue.id).pending
     assert Repo.aggregate(Ryker.GitHubActions.IssueRequest, :count) == 0
+  end
+
+  test "a host clock ahead of the database cannot make an issue retry run early", %{
+    configured: configured
+  } do
+    now = DatabaseClock.behind_host!()
+    {:ok, issue} = IssueIndex.enqueue(configured, 12, false)
+    {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
+
+    issue
+    |> IndexedIssue.Changeset.update(%{next_attempt_at: DateTime.add(now, 30)})
+    |> Repo.update!()
+
+    assert IssueIndex.fetch_next_issue(claimed) == {:error, :not_found}
   end
 
   defmodule API do

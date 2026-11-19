@@ -58,8 +58,8 @@ export function render(source, relative, origin) {
     isPartOf: { "@id": `${origin}/#website` }, inLanguage: "en",
   }];
   if (relative === "index.html") {
-    graph.push({ "@type": "SoftwareApplication", "@id": `${origin}/#ryker`, name: "Ryker",
-      url: `${origin}/`, description, applicationCategory: "DeveloperApplication",
+    graph.push({ "@type": "SoftwareSourceCode", "@id": `${origin}/#ryker`, name: "Ryker",
+      url: `${origin}/`, description, codeRepository: "https://github.com/AndrewDryga/ryker",
       license: "https://github.com/AndrewDryga/ryker/blob/main/LICENSE",
       sameAs: ["https://github.com/AndrewDryga/ryker"] });
     graph[1].about = { "@id": `${origin}/#ryker` };
@@ -83,6 +83,12 @@ export function render(source, relative, origin) {
     `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c")}</script>`,
   ].join("\n");
   return source
+    .replace(/(<a\b[^>]*\bhref=")([^"]+)"/g, (match, prefix, href) => {
+      const target = new URL(plain(href), canonical);
+      if (target.origin !== origin || !target.pathname.endsWith("/index.html")) return match;
+      target.pathname = target.pathname.replace(/index\.html$/, "");
+      return `${prefix}${attribute(target.pathname + target.search + target.hash)}"`;
+    })
     .replace(/<!-- Unfurl metadata\.[\s\S]*?-->\s*/g, "")
     .replace(/<link rel="canonical"[^>]*>\s*/g, "")
     .replace(/<meta (?:property="og:(?:url|image|title|description)"|name="twitter:(?:image|title|description)")[^>]*>\s*/g, "")

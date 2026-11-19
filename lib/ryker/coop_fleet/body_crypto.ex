@@ -8,6 +8,9 @@ defmodule Ryker.CoopFleet.BodyCrypto do
   # Each write has fresh 256-bit salt and independent encryption/MAC keys.
   # A zero CTR counter is therefore never reused with the same encryption key.
   # The key arrives sealed (`Ryker.Secret`) and is opened only here.
+  # This is encrypt-then-HMAC-SHA256, not unauthenticated CTR; authenticate/4
+  # verifies the identity-bound header and all ciphertext before exposing a decryptor.
+  # sobelow_skip ["Crypto.WeakCipher"]
   def start(%Secret{value: key}, identity) when is_binary(key) and byte_size(key) == 32 do
     salt = :crypto.strong_rand_bytes(32)
     {encryption, authentication, header} = keys(key, identity, salt)
@@ -36,6 +39,9 @@ defmodule Ryker.CoopFleet.BodyCrypto do
 
   # No decryptor escapes until the complete ciphertext has authenticated. The
   # caller keeps the same immutable open file for verification and every pass.
+  # BodyCryptoTest rejects changed keys, identities, tags and ciphertext before
+  # a CTR context is returned; the MAC uses an independently derived key.
+  # sobelow_skip ["Crypto.WeakCipher"]
   def authenticate(
         %Secret{value: key},
         identity,

@@ -1,7 +1,7 @@
 ARG COOP_BASE_IMAGE=coop-box
 # The image the release builds with (Dockerfile ELIXIR_IMAGE), so a job or review
 # of Ryker's own repository builds and tests it with the release's toolchain.
-ARG ELIXIR_IMAGE=hexpm/elixir:1.19.6-erlang-28.5.0.8-debian-bookworm-20261005-slim@sha256:85799e31abac9c2636d9f5068f9b11ec7584cc6494ec7a211ddb4257782906a6
+ARG ELIXIR_IMAGE=hexpm/elixir:1.19.7-erlang-28.5.0.8-debian-bookworm-20261104-slim@sha256:d7e5e74384168cf89aea484736cbd922ed532c504502fbafab814ab6cd3ca6ad
 
 FROM ${ELIXIR_IMAGE} AS elixir
 

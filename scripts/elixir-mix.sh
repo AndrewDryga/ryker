@@ -19,8 +19,8 @@ if [[ -z $running_elixir || $pinned_elixir != "$running_elixir"* ]]; then
   exit 1
 fi
 
-# Hex 2.5.1's published archive does not load completely on the pinned OTP 28 toolchain.
-hex_version=2.4.1
+# Keep the host and Docker build on the same tested Hex release.
+hex_version=2.7.0
 
 # The checkout's own Hex and Mix homes; scripts/gate.sh points its worktree at
 # the source checkout's, so a gate never installs Hex again.
