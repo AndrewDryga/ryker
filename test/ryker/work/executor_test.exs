@@ -4594,6 +4594,59 @@ defmodule Ryker.Work.ExecutorTest do
     assert reloaded.submission == claim.turn.submission
   end
 
+  # Coop answered a submit 500 when a store read failed before it reserved the
+  # operation (2026-11). The fleet client reads that answer, with no operation
+  # behind it, as a failed submit (`CoopFleet.ClientTest`); before, the saved
+  # 500 replayed under the same key until the turn's attempts ran out.
+  test "a submit Coop failed before reserving it is sent again and answered" do
+    claim = claim_with_bound_session!("submit-server-error")
+    {:ok, fake} = fake_for(claim, [reply("Answered on the second submit.")])
+    first_key = turn_key(claim)
+
+    submit = fn fallback ->
+      if Map.has_key?(FakeAPI.state(fake).known_operations, first_key) do
+        fallback.()
+      else
+        FakeAPI.seed_operation(fake, first_key, %{
+          "error_code" => "internal_error",
+          "error_detail" => "internal server error",
+          "id" => "fleet-command:submit-server-error",
+          "method" => "SubmitTurn",
+          "state" => "failed"
+        })
+
+        {:error, {:coop_error, 500, "internal_error", "internal server error"}}
+      end
+    end
+
+    options = [
+      worker_ref: "submit-server-error",
+      executor_options: protocol_options(fake, %{submit_turn: submit})
+    ]
+
+    assert {:ok, {:deferred, _reason}} = Dispatcher.run_claim(claim, options)
+
+    waiting = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert waiting.status == :pending
+    assert waiting.submit_generation == claim.turn.submit_generation + 1
+    assert waiting.last_error_detail =~ ~s(:coop_operation_failed, "internal_error")
+    assert FakeAPI.state(fake).submit_count == 0
+
+    waiting
+    |> Ecto.Changeset.change(next_attempt_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    |> Repo.update!()
+
+    assert {:ok, resumed} = Custody.claim_next("submit-server-error-resume", 60, :work)
+    second_key = turn_key(resumed)
+    refute second_key == first_key
+
+    assert {:ok, {:executed, %{status: :accepted}}} = Dispatcher.run_claim(resumed, options)
+
+    state = FakeAPI.state(fake)
+    assert state.submit_count == 1
+    assert Map.keys(state.frozen_submissions) == [second_key]
+  end
+
   test "terminal and unknown remote turn states are never silently replayed" do
     Enum.each(~w(failed interrupted budget_exhausted cancelled), fn state ->
       work = bound_turn!("terminal-#{state}")

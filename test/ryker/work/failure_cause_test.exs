@@ -91,6 +91,32 @@ defmodule Ryker.Work.FailureCauseTest do
     refute FailureCause.cause(detail) =~ ":coop_error"
   end
 
+  # Coop answered a submit 500 when a store read failed before it reserved the
+  # operation (2026-11). Ryker sends such a turn again; one that runs out of
+  # attempts must say Coop failed, not that the worker rejected the turn or
+  # that an operation was missing.
+  test "a turn Coop kept failing with an internal error names that error" do
+    for reason <- [
+          {:coop_operation_failed, "internal_error", "internal server error"},
+          {:coop_error, 500, "internal_error", "internal server error"}
+        ] do
+      detail = "work_retry_exhausted: " <> inspect({:work_retry_exhausted, reason})
+
+      assert %{cause: cause, next_step: next_step} = FailureCause.explain(detail)
+      assert cause == "The worker's Coop failed with an internal error: internal server error"
+      refute cause =~ "rejected"
+      assert next_step =~ "Coop log"
+    end
+  end
+
+  test "a submit to a session whose budget is spent reads as the worker's refusal" do
+    detail =
+      inspect({:coop_error, 409, "budget_exhausted", "the session's turn budget is spent"})
+
+    assert FailureCause.cause(detail) ==
+             "The worker rejected the operation: the session's turn budget is spent"
+  end
+
   test "a failure's cause is in words, or nil when Ryker can name none" do
     assert FailureCause.cause("coop_worker_command_timeout: placement 7") ==
              "The worker did not take or finish one of this task's commands in time."

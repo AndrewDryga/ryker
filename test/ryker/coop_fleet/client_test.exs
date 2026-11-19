@@ -3217,6 +3217,53 @@ defmodule Ryker.CoopFleet.ClientTest do
     end
   end
 
+  # Coop answers a submit 500 when a store read fails before it reserves the
+  # operation (2026-11). The saved 500 replayed under the same key on every
+  # retry, so the turn never reached Coop again and spent each attempt on it.
+  # With no operation for the key, the submit failed: the turn submits again.
+  test "a submit Coop failed before reserving an operation is a failed submit", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "remote:submit-server-error")
+    missing = {:error, {:coop_error, 404, "operation_not_found", "No operation."}}
+
+    for status <- [500, 503] do
+      key = "submit-server-error:#{status}"
+
+      command =
+        command!(session, key,
+          kind: "submit_turn",
+          payload: %{"coop_session_id" => session.coop_session_id, "expected_revision" => 3},
+          key: key
+        )
+        |> complete_http_refusal!(status, "internal_error")
+
+      Process.put(:coop_fleet_reconcile_result, missing)
+      assert {:ok, operation} = Client.operation_by_key(client, key)
+
+      assert operation == %{
+               "error_code" => "internal_error",
+               "error_detail" => "changed",
+               "id" => "fleet-command:#{command.id}",
+               "method" => "SubmitTurn",
+               "state" => "failed"
+             }
+
+      assert_receive {:fleet_command, _, "reconcile_operation", %{"operation_key" => ^key}, _, _}
+
+      # Coop reserved it after all: its own operation decides.
+      native = %{"id" => "native-submit", "method" => "SubmitTurn", "state" => "running"}
+      Process.put(:coop_fleet_reconcile_result, native)
+      assert Client.operation_by_key(client, key) == {:ok, native}
+
+      outage = {:error, {:coop_unavailable, :timeout}}
+      Process.put(:coop_fleet_reconcile_result, outage)
+      assert Client.operation_by_key(client, key) == outage
+      assert Repo.get!(Command, command.id) == command
+    end
+  end
+
   test "a saved HTTP refusal cannot reconcile another request or an uncertain outcome", %{
     client: client,
     session: session
@@ -3233,7 +3280,8 @@ defmodule Ryker.CoopFleet.ClientTest do
           {:other_session, "submit_turn", 409, "invalid_session_state"},
           {:other_operation, "close_session", 409, "invalid_session_state"},
           {:uncertain, "cancel_turn", 409, "operation_uncertain"},
-          {:outage, "submit_turn", 503, "invalid_session_state"}
+          {:cancel_outage, "cancel_turn", 503, "invalid_session_state"},
+          {:close_outage, "close_session", 500, "internal_error"}
         ] do
       key = "http-refusal:#{variant}"
 

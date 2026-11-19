@@ -1108,14 +1108,20 @@ defmodule Ryker.CoopFleet.Client do
   # The generic worker reports completed HTTP transport, including a 409. A
   # saved HTTP refusal is not a native operation receipt: look up that exact
   # operation before deciding whether this mutation failed without one.
+  #
+  # A submit Coop answered with a server error is the same: Coop checks a
+  # pending workspace restore before it reserves the operation, and a store
+  # read that failed there answers 500. Replaying the saved 500 under the same
+  # key never reached Coop again, so every retry spent an attempt on it.
   defp reconcile_delivered_refusal(
          client,
          %Command{status: :succeeded, kind: kind} = command,
          key,
-         {:coop_error, 409, code, detail} = reason
+         {:coop_error, status, code, detail} = reason
        )
-       when kind in ["submit_turn", "cancel_turn", "close_session"] and
-              code in ["invalid_session_state", "revision_conflict"] do
+       when (status == 409 and kind in ["submit_turn", "cancel_turn", "close_session"] and
+               code in ["invalid_session_state", "revision_conflict"]) or
+              (status in 500..599 and kind == "submit_turn") do
     with {:ok, session} <- fetch_command_session(command),
          true <- exact_operation_owner?(command, session, key) do
       case execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do

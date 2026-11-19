@@ -19,7 +19,11 @@ defmodule Ryker.Work.FailureCause do
   # truncated detail, and a half sentence is not a cause.
   @coop_refusal ~r/:coop_operation_failed, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
   @coop_uncertain ~r/:coop_operation_uncertain, "(?:[^"\\]|\\.)*", "((?:[^"\\]|\\.)*)"/
-  @coop_workspace_refusal ~r/:coop_error,\s*409,\s*"(?:invalid_session_state|idempotency_conflict|session_cleanup_error)",\s*"((?:[^"\\]|\\.)*)"/
+  @coop_workspace_refusal ~r/:coop_error,\s*409,\s*"(?:invalid_session_state|idempotency_conflict|session_cleanup_error|budget_exhausted)",\s*"((?:[^"\\]|\\.)*)"/
+  # Coop failed on its side, as the failed submit Ryker sent again or as the
+  # answer itself when the lookup after it failed too. Read as a refusal, it
+  # said the worker "rejected" a turn it had never looked at.
+  @coop_internal ~r/(?::coop_operation_failed|:coop_error,\s*5\d\d),\s*"internal_error",\s*"((?:[^"\\]|\\.)*)"/
 
   # A provider that limits the worker's model account keeps its own sentence,
   # which says whether it is a moment's throttle or a usage cap, and until
@@ -198,11 +202,8 @@ defmodule Ryker.Work.FailureCause do
             "Resolve the condition the worker named; Ryker keeps reconciling the same operation."
         }
 
-      refusal = coop_refusal(detail) || provider_sentence(@coop_workspace_refusal, detail) ->
-        %{
-          cause: "The worker rejected the operation: " <> refusal,
-          next_step: "Correct the condition the worker named, then retry this task."
-        }
+      failed = coop_failure(detail) ->
+        failed
 
       refused = refused_source(detail) ->
         refused
@@ -325,6 +326,27 @@ defmodule Ryker.Work.FailureCause do
   """
   @spec checkpoint_unsupported?(String.t() | nil) :: boolean()
   def checkpoint_unsupported?(detail), do: detail in @checkpoint_unsupported
+
+  defp coop_failure(detail) do
+    cond do
+      internal = provider_sentence(@coop_internal, detail) ->
+        %{
+          cause: "The worker's Coop failed with an internal error: " <> internal,
+          next_step:
+            "Ryker already tried it again. Check the worker's Coop log for the error, then " <>
+              "retry this task."
+        }
+
+      refusal = coop_refusal(detail) || provider_sentence(@coop_workspace_refusal, detail) ->
+        %{
+          cause: "The worker rejected the operation: " <> refusal,
+          next_step: "Correct the condition the worker named, then retry this task."
+        }
+
+      true ->
+        nil
+    end
+  end
 
   # The refusal is a provider's own sentence inside an inspected tuple, so it is
   # unescaped back out of that literal, then redacted and bounded like any other

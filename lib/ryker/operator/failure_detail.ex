@@ -8,7 +8,7 @@ defmodule Ryker.Operator.FailureDetail do
   """
   alias Ryker.CanonicalJSON
 
-  @coop_codes ~w(invalid_session_state session_cleanup_error revision_conflict session_not_found operation_not_found operation_uncertain idempotency_conflict unauthorized forbidden)
+  @coop_codes ~w(invalid_session_state session_cleanup_error revision_conflict session_not_found operation_not_found operation_uncertain idempotency_conflict budget_exhausted unauthorized forbidden)
 
   @doc "Allowlisted protocol facts only; never copies diagnostic payload text."
   def facts(detail) when is_binary(detail) and byte_size(detail) <= 4_096 do

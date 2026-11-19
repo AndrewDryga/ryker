@@ -32,6 +32,9 @@ defmodule Ryker.Operator.FailureDetailTest do
 
     refute inspect(FailureDetail.facts(hostile)) =~ "private-provider-body"
 
+    assert FailureDetail.facts(~s({:coop_error, 409, "budget_exhausted", "spent"})) ==
+             %{http_status: 409, code: "budget_exhausted"}
+
     for unrecognized <- [
           nil,
           "private transport detail",
