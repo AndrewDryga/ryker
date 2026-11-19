@@ -28,6 +28,15 @@ const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
       assert.equal(await page.locator('.app-topbar, #live-controls, button[phx-click=toggle-live]').count(), 0);
       assert.equal(await page.locator('.connection-offline').isVisible(), false);
       assert.deepEqual(await page.locator('.usage-headlines .usage-stat > span').allTextContents(), ['Cost', 'Requests', 'Executions', 'Total tokens']);
+      // The top and bottom rows used to shrink to their contents, leaving half a wide card empty.
+      const summary = page.getByRole('region', {name: 'Usage summary'});
+      const headlineRow = await summary.locator('.usage-headlines').boundingBox();
+      const tokenRow = await summary.locator('.usage-token-groups').boundingBox();
+      const contentWidth = await summary.evaluate(element => element.clientWidth);
+      assert(Math.abs(headlineRow.width - contentWidth) <= 1, 'Headline metrics span the summary');
+      assert(Math.abs(tokenRow.width - contentWidth) <= 1, 'Token breakdown spans the summary');
+      assert(Math.abs(tokenRow.y - headlineRow.y - headlineRow.height) <= 1, 'The two rows meet edge to edge');
+
       assert.equal(await page.locator('.usage-page > :last-child').getAttribute('id'), 'cost-method');
       assert(await page.locator('#usage-profiles tbody > tr').count() > 0, 'Use actual populated execution data');
       assert.equal(await page.locator('#usage-profiles h2').textContent(), 'By account');
