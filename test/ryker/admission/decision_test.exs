@@ -40,6 +40,38 @@ defmodule Ryker.Admission.DecisionTest do
     assert decision.episode_ref == "candidate-older-cycle"
   end
 
+  test "only an independent new observation can be handed to another person" do
+    doc =
+      decision_document(
+        action: "start_episode",
+        work_class: "standard",
+        unrequested_observation: true
+      )
+
+    assert {:ok, decision} = Decision.parse(doc)
+    assert Decision.document(decision)["unrequested_observation"]
+
+    assert Decision.fingerprint(decision) !=
+             Decision.fingerprint(%{decision | unrequested_observation: false})
+
+    assert Decision.parse(Map.put(doc, "action", "reply")) ==
+             {:error, {:invalid_decision, :unrequested_observation}}
+
+    assert Decision.parse(Map.put(doc, "same_request_inputs", [Ecto.UUID.generate()])) ==
+             {:error, {:invalid_decision, :unrequested_observation}}
+
+    for audience <- [:ambient, :direct, :mention] do
+      schema =
+        Decision.observation_schema(Decision.json_schema(), %{
+          slack_audience: audience,
+          actor_kind: :user
+        })
+
+      assert Map.has_key?(schema["properties"], "unrequested_observation") ==
+               (audience == :ambient)
+    end
+  end
+
   test "rejects unknown fields and inconsistent action shapes" do
     assert decision_document(action: "ignore", work_class: nil)
            |> Map.put("thread_ts", "the model cannot route")

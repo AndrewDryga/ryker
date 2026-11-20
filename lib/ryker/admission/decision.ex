@@ -51,10 +51,12 @@ defmodule Ryker.Admission.Decision do
                 reactions: nil,
                 repository: nil,
                 sentiment: nil,
+                unrequested_observation: false,
                 same_request_inputs: []
               ]
 
   @type t :: %__MODULE__{
+          unrequested_observation: boolean(),
           action: :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
           episode_ref: String.t() | nil,
           messages: [String.t()] | nil,
@@ -75,11 +77,13 @@ defmodule Ryker.Admission.Decision do
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
   def parse(%{} = value) do
     {sentiment, value} = Map.pop(value, "sentiment")
+    {observation, value} = Map.pop(value, "unrequested_observation", false)
     {batch, value} = Map.pop(value, "same_request_inputs", [])
 
     with :ok <- exact_fields(value),
          :ok <- batch_refs(batch),
          {:ok, action} <- parse_enum(value["action"], @actions, :action),
+         :ok <- observation(observation, action, batch),
          {:ok, relation} <- parse_enum(value["relation"], @relations, :relation),
          {:ok, work_class} <- parse_work_class(value["work_class"]),
          :ok <- validate_reference(value["episode_ref"]),
@@ -101,6 +105,7 @@ defmodule Ryker.Admission.Decision do
          reason: value["reason"],
          repository: repository,
          repository_source: repository_source,
+         unrequested_observation: observation,
          same_request_inputs: batch,
          sentiment: Sentiment.parse(sentiment),
          work_class: work_class
@@ -134,7 +139,27 @@ defmodule Ryker.Admission.Decision do
       "work_class" => work_class_document(decision.work_class)
     }
     |> put_same_request_inputs(decision.same_request_inputs)
+    |> then(
+      &if(decision.unrequested_observation,
+        do: Map.put(&1, "unrequested_observation", true),
+        else: &1
+      )
+    )
   end
+
+  defp observation(false, _action, _batch), do: :ok
+  defp observation(true, :start_episode, []), do: :ok
+  defp observation(_, _, _), do: invalid(:unrequested_observation)
+
+  def observation_schema(schema, %{slack_audience: :ambient, actor_kind: :user}) do
+    put_in(schema, ["properties", "unrequested_observation"], %{
+      "type" => "boolean",
+      "description" =>
+        "True only when starting an independent investigation of an observation. A question, request, assignment, or follow-up to existing work is never an unrequested observation."
+    })
+  end
+
+  def observation_schema(schema, _entry), do: schema
 
   defp put_same_request_inputs(document, []), do: document
   defp put_same_request_inputs(document, refs), do: Map.put(document, "same_request_inputs", refs)

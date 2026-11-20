@@ -67,6 +67,7 @@ defmodule Ryker.Work.SubmissionBuilder do
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
          {receipt, context} = Map.pop(context, "thread_receipt"),
+         contract = Ryker.Work.Final.for_slack_thread(contract, receipt),
          {:ok, submission} <-
            Submission.new(
              context,

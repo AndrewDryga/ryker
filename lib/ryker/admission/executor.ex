@@ -523,6 +523,7 @@ defmodule Ryker.Admission.Executor do
         Enum.map(context.repository_choices, & &1["ref"]),
         Context.sentiment_offered?(context)
       )
+      |> Decision.observation_schema(entry)
       |> Admission.BatchRouting.schema(context.batch_inputs)
 
     with :ok <- renew_lease(settings),

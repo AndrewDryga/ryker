@@ -24,7 +24,10 @@ defmodule Ryker.Work.ValidationContext do
     saved_issue_reply =
       GitHubActions.IssueInstructions.saved_reply?(%{episode: episode, turn: turn})
 
+    items = current_inputs(submission_context(turn))
+
     %{
+      "settlement_choices" => Work.ThreadUpdates.settlement_choices(episode, turn, items),
       "saved_issue_reply" => saved_issue_reply,
       "artifact_delivery_supported" => Artifacts.Outputs.delivery_supported?(episode),
       "artifact_metadata" => [],
@@ -40,7 +43,7 @@ defmodule Ryker.Work.ValidationContext do
       "slack_mentions" => Custody.Delivery.answer_mentions(episode, turn),
       "visible_reply_required" =>
         episode.execution_mode == :live and not saved_issue_reply and
-          reply_required?(submission_context(turn)),
+          Enum.any?(items, &human_input?/1),
       "workspace" => nil
     }
   end
@@ -48,13 +51,13 @@ defmodule Ryker.Work.ValidationContext do
   defp submission_context(%Turn{submission: %{"context" => context}}), do: context
   defp submission_context(_unsubmitted), do: nil
 
-  defp reply_required?(%{"mode" => "full", "inputs" => %{"items" => items}}),
-    do: Enum.any?(items, &(&1["current"] == true and human_input?(&1)))
+  defp current_inputs(%{"mode" => "full", "inputs" => %{"items" => items}}),
+    do: Enum.filter(items, &(&1["current"] == true))
 
-  defp reply_required?(%{"mode" => "continuation", "current_inputs" => %{"items" => items}}),
-    do: Enum.any?(items, &human_input?/1)
+  defp current_inputs(%{"mode" => "continuation", "current_inputs" => %{"items" => items}}),
+    do: items
 
-  defp reply_required?(_context), do: false
+  defp current_inputs(_context), do: []
 
   defp human_input?(%{"actor_ref" => actor_ref}) when is_binary(actor_ref),
     do: String.contains?(actor_ref, ":user:")

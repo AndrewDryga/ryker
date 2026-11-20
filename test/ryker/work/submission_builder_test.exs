@@ -381,6 +381,98 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert replacement.turn.turn_ref == next
   end
 
+  # A teammate had taken setup before Work opened. The old validator still required
+  # a Slack reply. An independent URL question in that thread must survive the handoff.
+  for {name, original, actor, observer?, expected} <- [
+        {"ambient setup", "Setup is needed", "UHELP", true, :accept},
+        {"another person's question", "Which URL do I use?", "UHELP", false, :reject},
+        {"the requester's withdrawal", "Make a new PR to fix that", "UASK", false, :accept},
+        {"withdrawal seen on an earlier tool call", "Make a new PR to fix that", "UASK", false,
+         :accept}
+      ] do
+    @settlement_case {name, original, actor, observer?, expected}
+    test "a scoped silent result respects #{name}" do
+      {name, text, actor, observer?, expected} = @settlement_case
+      thread = "1787832000.000100"
+      {request, entry} = record_thread_message(text, thread, nil, "UASK")
+
+      claim =
+        claim_episode_payload!("settlement", Ryker.Ingress.Input.document(request),
+          destination: request.destination,
+          actor_ref: Ryker.Ingress.Input.actor_ref(request)
+        )
+
+      decision = %Ryker.Admission.Decision{
+        action: :start_episode,
+        relation: :unrelated,
+        reason: "Investigate the setup.",
+        repository_source: nil,
+        episode_ref: nil,
+        work_class: :standard,
+        unrequested_observation: observer?
+      }
+
+      entry
+      |> Ryker.Ingress.Inbox.Entry.Changeset.decide(decision, "decision:setup", claim.episode.id)
+      |> Ecto.Changeset.put_change(:slack_audience, :ambient)
+      |> Ecto.Changeset.put_change(:slack_bot_user_ref, "URYKER")
+      |> Repo.update!()
+
+      handoff = fn ->
+        words = if actor == "UASK", do: "Do not make that change.", else: "I’m doing it rn"
+        record_thread_message(words, "1787832001.000100", thread, actor)
+      end
+
+      during_tool? = name == "withdrawal seen on an earlier tool call"
+      early = unless during_tool?, do: handoff.()
+
+      assert {:ok, %{submission: submission, thread_receipt: receipt}} =
+               SubmissionBuilder.prepare(claim)
+
+      assert [item] = submission["context"]["inputs"]["items"]
+      bind_remote_turn!(claim, submission, thread_receipt: receipt)
+
+      {_, update} = early || handoff.()
+
+      if during_tool? do
+        binding = %{
+          claim
+          | turn: Repo.get!(Ryker.Work.Turn, claim.turn.id),
+            session: Repo.get!(Ryker.Work.Session, claim.session.id)
+        }
+
+        assert [%{"input_id" => id}] = Ryker.Work.ThreadUpdates.for_tool(binding, 2)
+        assert id == update.id
+        record_thread_message("Thanks", "1787832002.000100", thread, "UHELP")
+        latest = %{binding | turn: Repo.get!(Ryker.Work.Turn, claim.turn.id)}
+        assert {:reject, [_]} = Ryker.Work.ThreadUpdates.before_final(latest)
+        assert [%{"input_id" => ^id}] = Ryker.Work.ThreadUpdates.for_tool(latest, 2)
+      end
+
+      turn = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+      context = Ryker.Work.ValidationContext.build(claim.episode, turn)
+      assert context["visible_reply_required"]
+
+      final = %{
+        "delivery" => "none",
+        "decision_reason" => "The person is handling setup.",
+        "message" => nil,
+        "outcome" => %{"state" => "complete", "artifact_refs" => [], "record_refs" => []},
+        "settled_inputs" => [
+          %{"source_event_id" => item["source_event_id"], "update_id" => update.id}
+        ]
+      }
+
+      assert {^expected, _} = Ryker.Work.Validator.validate(Jason.encode!(final), context, @now)
+
+      assert {:reject, _} =
+               final
+               |> Map.put("settled_inputs", [])
+               |> Jason.encode!()
+               |> Ryker.Work.Validator.validate(context, @now)
+    end
+  end
+
   test "the running session receives a later handoff on a tool response and can replay it" do
     thread = "1787832000.000100"
     {request, _} = record_thread_message("Which URL do I use?", thread, nil, "UASK")

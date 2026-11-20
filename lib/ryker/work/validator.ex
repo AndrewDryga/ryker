@@ -15,7 +15,7 @@ defmodule Ryker.Work.Validator do
   alias Ryker.Work
   alias Ryker.Work.{Final, Result}
 
-  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode guidance_requirements open_required_goals records saved_issue_reply slack_mentions visible_reply_required workspace)
+  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode guidance_requirements open_required_goals records saved_issue_reply settlement_choices slack_mentions visible_reply_required workspace)
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @artifact_filename ~r/\b[\p{L}\p{N}][\p{L}\p{N}_.() -]*\.(?:png|jpe?g|gif|webp|svg|pdf|csv|xlsx?|docx?|pptx?|zip)\b/iu
   @artifact_action ~r/(?:\A|[.!?]\s+)(?:I(?:'ve| have)?|we(?:'ve| have)?|Ryker has)?\s*(?:attached|created|exported|generated|made|produced|rendered|saved)\b/iu
@@ -233,6 +233,23 @@ defmodule Ryker.Work.Validator do
   end
 
   defp missing_engineering_change_violations(violations, _workspace), do: violations
+
+  defp visibility_violations(violations, %{settled_inputs: [_ | _] = settled}, context) do
+    choices = context.settlement_choices
+
+    covered? =
+      length(settled) == map_size(choices) and
+        Enum.all?(settled, fn item ->
+          item["update_id"] in Map.get(choices, item["source_event_id"], [])
+        end)
+
+    if context.visible_reply_required and context.execution_mode == :live and covered?,
+      do: violations,
+      else: [
+        "Answer every outstanding request. Only cite an exposed, later update from its requester, or a teammate's takeover of an unrequested observation. A separate question still needs its answer."
+        | violations
+      ]
+  end
 
   defp visibility_violations(
          violations,
@@ -692,12 +709,14 @@ defmodule Ryker.Work.Validator do
   end
 
   defp prepare_context(%{} = context) do
-    context = Map.put_new(context, "saved_issue_reply", false)
+    context =
+      context |> Map.put_new("saved_issue_reply", false) |> Map.put_new("settlement_choices", %{})
 
     with :ok <- exact_context_fields(context),
          true <- is_boolean(context["artifact_delivery_supported"]),
          true <- is_boolean(context["visible_reply_required"]),
          true <- is_boolean(context["saved_issue_reply"]),
+         true <- valid_settlement_choices?(context["settlement_choices"]),
          {:ok, execution_mode} <- execution_mode(context["execution_mode"]),
          {:ok, artifacts} <- prepare_artifacts(context["artifact_refs"]),
          {:ok, artifact_metadata} <-
@@ -717,6 +736,7 @@ defmodule Ryker.Work.Validator do
          open_required_goals: goals,
          records: records,
          saved_issue_reply: context["saved_issue_reply"],
+         settlement_choices: context["settlement_choices"],
          slack_mentions: context["slack_mentions"],
          visible_reply_required: context["visible_reply_required"],
          workspace: workspace
@@ -732,6 +752,14 @@ defmodule Ryker.Work.Validator do
   defp execution_mode("live"), do: {:ok, :live}
   defp execution_mode("shadow"), do: {:ok, :shadow}
   defp execution_mode(_mode), do: {:error, {:invalid_work_validation_context, :execution_mode}}
+
+  defp valid_settlement_choices?(choices) when is_map(choices) do
+    Enum.all?(choices, fn {event, updates} ->
+      Reference.uuid?(event) and is_list(updates) and Enum.all?(updates, &Reference.uuid?/1)
+    end)
+  end
+
+  defp valid_settlement_choices?(_), do: false
 
   defp exact_context_fields(context) do
     if Maps.exact_keys?(context, @context_fields),
@@ -1059,6 +1087,10 @@ defmodule Ryker.Work.Validator do
 
   defp final_violation(:delivery_shape) do
     "For delivery reply, provide message and set decision_reason to null; for delivery none, set message to null and provide decision_reason."
+  end
+
+  defp final_violation(:settled_inputs) do
+    "Use settled_inputs only for a silent completion with no records or artifacts. Match each distinct current source_event_id with its later update_id."
   end
 
   defp final_violation(:outcome) do

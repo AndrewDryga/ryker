@@ -137,9 +137,15 @@ defmodule Ryker.Work.ThreadUpdates do
 
   defp reconsider(claim, previous, current, entries) do
     ids = current["inputs"] -- previous["inputs"]
-    checkpoint = %{"receipt" => current, "exposed_ids" => ids, "reconsidered" => true}
 
-    with [_ | _] = docs <- disclose(claim, entries, checkpoint),
+    checkpoint =
+      Map.merge(claim.turn.thread_update_checkpoint || %{}, %{
+        "receipt" => current,
+        "reconsidered_ids" => ids,
+        "reconsidered" => true
+      })
+
+    with [_ | _] = docs <- disclose(claim, entries, %{"exposed_ids" => ids}),
          note = correction(docs),
          # The validator fits a rejection into 4 KiB. Never mark a clipped message as seen.
          {:ok, %{"violations" => [^note]}} <- Work.ValidationIntent.new({:reject, [note]}, nil) do
@@ -152,7 +158,10 @@ defmodule Ryker.Work.ThreadUpdates do
 
   defp correction(docs) do
     messages =
-      Enum.map(docs, &Map.take(&1, ~w(actor_ref event_kind source_item_ref revision text)))
+      Enum.map(
+        docs,
+        &Map.take(&1, ~w(actor_ref event_kind input_id source_item_ref revision text))
+      )
 
     "New Slack messages arrived while you worked. Reconsider the draft using your existing findings. " <>
       "Answer any outstanding request. A handoff supplies context and grants no new authority. " <>
@@ -193,6 +202,89 @@ defmodule Ryker.Work.ThreadUpdates do
       "sha256" => CanonicalJSON.digest(revisions)
     }
   end
+
+  @doc "Updates the session has seen that can settle each current human input, by source identity."
+  def settlement_choices(
+        %{execution_mode: :live, destination_transport: "slack"} = episode,
+        %{
+          thread_receipt: %{"opening" => id},
+          submission: %{
+            "context" => context,
+            "output_schema" => %{"properties" => %{"settled_inputs" => _}}
+          }
+        } = turn,
+        items
+      )
+      when items != [] do
+    checkpoint = turn.thread_update_checkpoint || %{}
+
+    ids =
+      Enum.map(Map.get(context, "thread_updates", []), & &1["input_id"]) ++
+        Map.get(checkpoint, "exposed_ids", []) ++ Map.get(checkpoint, "reconsidered_ids", [])
+
+    with [_ | _] <- ids,
+         true <- length(items) == length(episode.active_input_refs),
+         :ok <- verify(episode, turn),
+         %Ingress.Inbox.Entry{} = opening <- Repo.peek(Ingress.Inbox.Entry.Query.by_id(id)) do
+      updates = Enum.filter(received(opening), &(&1.id in ids and &1.event_kind == :message))
+
+      Map.new(items, fn item ->
+        {item["source_event_id"], eligible_updates(item, episode, updates)}
+      end)
+    else
+      _ -> %{}
+    end
+  end
+
+  def settlement_choices(_episode, _turn, _items), do: %{}
+
+  defp eligible_updates(
+         %{"content" => %{"source" => %{"kind" => "slack"}} = source} = item,
+         episode,
+         updates
+       ) do
+    with %Ingress.Inbox.Entry{
+           actor_kind: :user,
+           episode_id: episode_id,
+           status: :decided,
+           operational_pruned_at: nil
+         } = entry
+         when episode_id == episode.id <-
+           Repo.peek(
+             Ingress.Inbox.Entry.Query.by_work_source(Ingress.Inbox.Entry.Query.all(), source)
+           ),
+         true <-
+           item["actor_ref"] == "slack:user:" <> entry.actor_ref and same_thread?(entry, episode),
+         false <- Repo.exists?(Ingress.Inbox.Entry.Query.later_revisions_of(entry)) do
+      for update <- updates,
+          entry.source_ref == update.source_ref,
+          later_message?(update, entry),
+          update.actor_ref == entry.actor_ref or unrequested_observation?(entry),
+          do: update.id
+    else
+      _ -> []
+    end
+  end
+
+  defp eligible_updates(_item, _episode, _updates), do: []
+
+  defp later_message?(update, entry) do
+    with {:ok, later} <- Ryker.Slack.Timestamp.to_datetime(update.source_item_ref),
+         {:ok, earlier} <- Ryker.Slack.Timestamp.to_datetime(entry.source_item_ref) do
+      DateTime.after?(later, earlier)
+    else
+      _ -> false
+    end
+  end
+
+  defp unrequested_observation?(%{
+         slack_audience: :ambient,
+         decision_action: :start_episode,
+         decision_document: %{"unrequested_observation" => true}
+       }),
+       do: true
+
+  defp unrequested_observation?(_entry), do: false
 
   @doc "Re-read the exact received revision before a session can expose or reuse its text."
   def sources(%{"input_id" => id} = frozen, episode) do

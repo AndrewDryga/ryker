@@ -23,7 +23,7 @@ defmodule Ryker.Work.Final do
   @reference_pattern "^[A-Za-z0-9_.:-]{1,256}$"
 
   @enforce_keys [:artifact_refs, :decision_reason, :delivery, :message, :record_refs, :state]
-  defstruct @enforce_keys ++ [title: nil]
+  defstruct @enforce_keys ++ [title: nil, settled_inputs: []]
 
   @type t :: %__MODULE__{
           artifact_refs: [String.t()],
@@ -32,18 +32,20 @@ defmodule Ryker.Work.Final do
           message: String.t() | nil,
           record_refs: [String.t()],
           state: :complete | :waiting_for_input | :waiting_for_event,
+          settled_inputs: [map()],
           title: String.t() | nil
         }
 
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
   def parse(%{} = document) do
-    untitled = Map.delete(document, "title")
+    {settled, untitled} = Map.pop(Map.delete(document, "title"), "settled_inputs", [])
 
     with :ok <- exact_fields(untitled, @fields, :fields),
          {:ok, delivery} <- enum(document["delivery"], @deliveries, :delivery),
          :ok <- delivery_shape(delivery, document["message"], document["decision_reason"]),
          {:ok, outcome} <- outcome(document["outcome"]),
          :ok <- state_delivery(delivery, outcome),
+         :ok <- settlements(settled, delivery, outcome),
          :ok <- title(document["title"]) do
       {:ok,
        %__MODULE__{
@@ -53,6 +55,7 @@ defmodule Ryker.Work.Final do
          message: document["message"],
          record_refs: outcome.record_refs,
          state: outcome.state,
+         settled_inputs: settled,
          title: document["title"]
        }}
     end
@@ -149,6 +152,50 @@ defmodule Ryker.Work.Final do
       "type" => "object"
     }
   end
+
+  defp settlements([], _, _), do: :ok
+
+  defp settlements(items, :none, %{state: :complete, record_refs: [], artifact_refs: []})
+       when is_list(items) and length(items) <= 8 do
+    valid =
+      Enum.all?(items, fn
+        %{"source_event_id" => source, "update_id" => update} = item ->
+          map_size(item) == 2 and Reference.uuid?(source) and Reference.uuid?(update)
+
+        _ ->
+          false
+      end)
+
+    if valid and Enum.uniq_by(items, & &1["source_event_id"]) == items,
+      do: :ok,
+      else: {:error, {:invalid_work_final, :settled_inputs}}
+  end
+
+  defp settlements(_, _, _), do: {:error, {:invalid_work_final, :settled_inputs}}
+
+  @doc "Add the silent-settlement choice to a live Slack thread's own frozen contract."
+  def for_slack_thread(contract, %{} = _receipt) when contract.mode == :live do
+    ref = %{"type" => "string", "format" => "uuid"}
+
+    settled = %{
+      "type" => "array",
+      "maxItems" => 8,
+      "items" => %{
+        "type" => "object",
+        "additionalProperties" => false,
+        "required" => ["source_event_id", "update_id"],
+        "properties" => %{"source_event_id" => ref, "update_id" => ref}
+      }
+    }
+
+    %{
+      contract
+      | contract_version: "work-final-live-v5",
+        output_schema: put_in(contract.output_schema, ["properties", "settled_inputs"], settled)
+    }
+  end
+
+  def for_slack_thread(contract, _receipt), do: contract
 
   defp title_schema,
     do: %{
