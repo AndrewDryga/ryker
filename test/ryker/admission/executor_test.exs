@@ -18,6 +18,64 @@ defmodule Ryker.Admission.ExecutorTest do
   @now ~U[2026-08-27 12:00:00.000000Z]
   @message_ref "1787832001.000100"
 
+  test "two parts of one Slack ask use one router submission and retain separate source custody" do
+    first = batch_input!(1, "Please investigate the failed inventory build.")
+    second = batch_input!(2, "It was the latest build on the review branch.")
+    unrelated = batch_input!(3, "What is the status of an unrelated rollout?")
+    now = DateTime.add(unrelated.next_attempt_at, 1, :second)
+    assert {:ok, claim} = Inbox.claim_next("router", now, 300)
+    assert claim.entry.id == first.id
+
+    model =
+      decision("start_episode")
+      |> Jason.decode!()
+      |> Map.put("same_request_inputs", [second.id])
+      |> Jason.encode!()
+
+    {:ok, fake} = FakeAPI.start_link([model, decision("start_episode")])
+    opts = fn lease -> Keyword.put(executor_options(fake, lease), :now, fn -> now end) end
+    assert {:ok, opened} = Executor.run(Inbox.ref(first), opts.(claim.lease_ref))
+    assert {:ok, next} = Inbox.claim_next("router", now, 300)
+    assert next.entry.id == second.id
+    assert {:ok, joined} = Executor.run(Inbox.ref(second), opts.(next.lease_ref))
+    assert joined.result.episode.id == opened.result.episode.id
+    assert joined.result.entry.decision_action == :continue_episode
+    assert joined.result.entry.native_input_id == second.native_input_id
+    assert FakeAPI.state(fake).submit_count == 1
+    assert {:ok, retained} = Inbox.fetch(Inbox.ref(unrelated))
+    assert retained.status == :pending
+    assert joined.result.entry.admission_context["batch_parent"]["id"] == first.id
+    assert {:ok, independent} = Inbox.claim_next("router", now, 300)
+    assert independent.entry.id == unrelated.id
+    assert {:ok, other} = Executor.run(Inbox.ref(unrelated), opts.(independent.lease_ref))
+    refute other.result.episode.id == opened.result.episode.id
+    assert FakeAPI.state(fake).submit_count == 2
+  end
+
+  test "editing another source from the shared reading sends a clarification through normal routing" do
+    first = batch_input!(1, "Please investigate the inventory build.")
+    second = batch_input!(2, "The review branch.")
+    third = batch_input!(3, "That build originally failed.")
+    now = DateTime.add(third.next_attempt_at, 1, :second)
+    assert {:ok, claim} = Inbox.claim_next("router", now, 300)
+
+    model =
+      decision("start_episode")
+      |> Jason.decode!()
+      |> Map.put("same_request_inputs", [second.id])
+      |> Jason.encode!()
+
+    {:ok, fake} = FakeAPI.start_link([model, decision("ignore")])
+    opts = fn lease -> Keyword.put(executor_options(fake, lease), :now, fn -> now end) end
+    assert {:ok, _opened} = Executor.run(Inbox.ref(first), opts.(claim.lease_ref))
+    _edit = batch_input!(3, "Correction about the build", :edit)
+    assert {:ok, next} = Inbox.claim_next("router", now, 300)
+    assert next.entry.id == second.id
+    assert {:ok, routed} = Executor.run(Inbox.ref(second), opts.(next.lease_ref))
+    assert routed.result.entry.decision_action == :ignore
+    assert FakeAPI.state(fake).submit_count == 2
+  end
+
   test "Coop schema validation and host semantic validation finish one admission turn" do
     assert {:ok, _} = Ryker.Instructions.save(:global, "Plain language.", 0, "operator:test")
 
@@ -1160,6 +1218,27 @@ defmodule Ryker.Admission.ExecutorTest do
     assert pending.status == :pending
     assert pending.decision_ref == nil
     assert FakeAPI.state(fake).validations == []
+  end
+
+  defp batch_input!(n, text, kind \\ :message) do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => text},
+               event_kind: kind,
+               event_ref: "Ev-split-#{n}-#{kind}",
+               message_ref: "178783201#{n}.000100",
+               occurred_at: DateTime.add(@now, n, :second),
+               revision: if(kind == :edit, do: 2, else: 1),
+               thread_ref: @message_ref,
+               workspace_ref: "TE5D7C8842D32"
+             })
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input, slack_audience: :direct, slack_bot_user_ref: "UBOT")
+
+    entry
   end
 
   defp claim!(entry) do

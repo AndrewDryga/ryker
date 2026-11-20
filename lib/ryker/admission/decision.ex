@@ -45,7 +45,14 @@ defmodule Ryker.Admission.Decision do
   # A decision built without a repository chose none, and one without
   # messages or reactions sends nothing by itself. A sentiment rides beside
   # the decision and is never part of it.
-  defstruct @enforce_keys ++ [messages: nil, reactions: nil, repository: nil, sentiment: nil]
+  defstruct @enforce_keys ++
+              [
+                messages: nil,
+                reactions: nil,
+                repository: nil,
+                sentiment: nil,
+                same_request_inputs: []
+              ]
 
   @type t :: %__MODULE__{
           action: :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
@@ -68,8 +75,10 @@ defmodule Ryker.Admission.Decision do
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
   def parse(%{} = value) do
     {sentiment, value} = Map.pop(value, "sentiment")
+    {batch, value} = Map.pop(value, "same_request_inputs", [])
 
     with :ok <- exact_fields(value),
+         :ok <- batch_refs(batch),
          {:ok, action} <- parse_enum(value["action"], @actions, :action),
          {:ok, relation} <- parse_enum(value["relation"], @relations, :relation),
          {:ok, work_class} <- parse_work_class(value["work_class"]),
@@ -92,6 +101,7 @@ defmodule Ryker.Admission.Decision do
          reason: value["reason"],
          repository: repository,
          repository_source: repository_source,
+         same_request_inputs: batch,
          sentiment: Sentiment.parse(sentiment),
          work_class: work_class
        }}
@@ -123,7 +133,11 @@ defmodule Ryker.Admission.Decision do
       "repository_source" => decision.repository_source,
       "work_class" => work_class_document(decision.work_class)
     }
+    |> put_same_request_inputs(decision.same_request_inputs)
   end
+
+  defp put_same_request_inputs(document, []), do: document
+  defp put_same_request_inputs(document, refs), do: Map.put(document, "same_request_inputs", refs)
 
   @doc """
   Fingerprints the durable decision, excluding its prose: the reason and a
@@ -384,6 +398,14 @@ defmodule Ryker.Admission.Decision do
       "type" => "string"
     }
   end
+
+  defp batch_refs(refs) when is_list(refs) and length(refs) <= 7 do
+    if Enum.uniq(refs) == refs and Enum.all?(refs, &match?({:ok, _}, Ecto.UUID.cast(&1))),
+      do: :ok,
+      else: invalid(:same_request_inputs)
+  end
+
+  defp batch_refs(_), do: invalid(:same_request_inputs)
 
   defp exact_fields(value) do
     if Maps.exact_keys?(value, @fields),

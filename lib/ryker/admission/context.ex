@@ -33,6 +33,8 @@ defmodule Ryker.Admission.Context do
   ]
   defstruct @enforce_keys ++
               [
+                batch_inputs: [],
+                batch_parent: nil,
                 observations: [],
                 knowledge: [],
                 knowledge_omissions: [],
@@ -100,6 +102,7 @@ defmodule Ryker.Admission.Context do
       "candidates" => Enum.map(context.candidates, &Candidate.for_model/1),
       "input" => Ingress.Input.model_document(context.input)
     }
+    |> put_batch_inputs(Ryker.Admission.BatchRouting.model_inputs(context.batch_inputs))
     |> put_model_conversation(context.conversation_context, context.context_manifest)
     |> put_observations(model_observations(context.observations, context.conversation_context))
     |> put_knowledge(context.knowledge)
@@ -238,6 +241,8 @@ defmodule Ryker.Admission.Context do
       "source_dependencies" => context.source_dependencies,
       "knowledge_omissions" => context.knowledge_omissions
     }
+    |> put_batch_inputs(context.batch_inputs)
+    |> put_batch_parent(context.batch_parent)
     |> put_conversation_context(context.conversation_context, context.context_manifest)
     |> put_routing_receipt(context.routing_receipt)
     |> put_observations(context.observations)
@@ -250,6 +255,12 @@ defmodule Ryker.Admission.Context do
     |> put_candidate_messages(context.candidate_messages)
     |> put_previous_answer(context.previous_answer)
   end
+
+  defp put_batch_parent(document, nil), do: document
+  defp put_batch_parent(document, parent), do: Map.put(document, "batch_parent", parent)
+
+  defp put_batch_inputs(document, []), do: document
+  defp put_batch_inputs(document, inputs), do: Map.put(document, "batch_inputs", inputs)
 
   defp put_previous_answer(document, nil), do: document
 
@@ -276,7 +287,7 @@ defmodule Ryker.Admission.Context do
 
     optional = ~w(
       conversation_observations conversation_knowledge conversation_context context_manifest
-      routing_receipt source_dependencies knowledge_omissions slack_addressing
+      routing_receipt source_dependencies knowledge_omissions slack_addressing batch_inputs batch_parent
       custom_instructions person_asking environment repository_choices candidate_messages previous_answer
     )
 
@@ -291,6 +302,13 @@ defmodule Ryker.Admission.Context do
   def restore(snapshot, %Ingress.Input{} = input, %Ingress.Inbox.Entry{} = entry, episodes)
       when is_map(episodes) do
     with true <- exact_fields?(snapshot),
+         batch_inputs when is_list(batch_inputs) and length(batch_inputs) <= 7 <-
+           Map.get(snapshot, "batch_inputs", []),
+         true <-
+           Enum.all?(
+             batch_inputs,
+             &(is_map(&1) and is_binary(&1["id"]) and is_binary(&1["text"]))
+           ),
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
          {:ok, person_asking} <- restore_person_asking(snapshot),
@@ -336,6 +354,8 @@ defmodule Ryker.Admission.Context do
          repository_choices: repository_choices,
          candidate_messages: candidate_messages,
          previous_answer: previous_answer,
+         batch_inputs: batch_inputs,
+         batch_parent: snapshot["batch_parent"],
          source_dependencies: snapshot["source_dependencies"]
        }}
     else

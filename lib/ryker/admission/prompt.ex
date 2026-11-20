@@ -332,6 +332,8 @@ defmodule Ryker.Admission.Prompt do
 
     [
       {Map.has_key?(document, "slack_addressing"), @addressing},
+      {Map.has_key?(document, "batch_inputs"),
+       "batch_inputs are later messages from the same sender in this thread, received before routing began. Decide the opening input on its own authority. For work you start, continue or send to Work to answer, put only the IDs that clarify that same request in same_request_inputs. Leave distinct questions, acknowledgments and withdrawals for separate routing. Leave the list empty for quick replies, reactions or silence."},
       {Map.has_key?(document, "conversation_observations") or
          Map.has_key?(document, "conversation_knowledge"), @memory},
       {Map.has_key?(document, "environment"), @environment},
@@ -349,7 +351,7 @@ defmodule Ryker.Admission.Prompt do
   # itself, the conversation around it, what Ryker remembers, the time, and the
   # earlier work it may belong to. Canonical key order put the instructions
   # last, where they could never be a cached prefix.
-  @context_order ~w(custom_instructions environment input slack_addressing conversation_context context_manifest previous_answer conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
+  @context_order ~w(custom_instructions environment input slack_addressing batch_inputs conversation_context context_manifest previous_answer conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()
@@ -384,7 +386,8 @@ defmodule Ryker.Admission.Prompt do
     end
   end
 
-  defp fits?(context) do
+  @doc "Whether the complete prompt and frozen context both fit with the supplied inputs."
+  def fits?(context) do
     byte_size(CanonicalJSON.encode!(request(context))) <= @max_encoded_bytes and
       byte_size(CanonicalJSON.encode!(Context.fitting_snapshot(context))) <= @max_snapshot_bytes
   end

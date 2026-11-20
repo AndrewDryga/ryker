@@ -187,6 +187,7 @@ defmodule Ryker.Admission do
       }
       |> Learning.LearningSources.freeze()
       |> Prompt.fit()
+      |> Ryker.Admission.BatchRouting.attach()
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -281,6 +282,7 @@ defmodule Ryker.Admission do
   def validate(%Context{} = context, %Decision{} = decision) do
     with :ok <- reauthorize_work_scope(context),
          {:ok, decision} <- Decision.prepare(decision),
+         :ok <- Ryker.Admission.BatchRouting.validate_selection(context, decision),
          :ok <- allowed_action(context.input, decision.action),
          :ok <- allowed_reactions(context.input, decision),
          {:ok, candidate} <- selected_candidate(context, decision.episode_ref),
@@ -312,7 +314,8 @@ defmodule Ryker.Admission do
     facts = context.person_asking || []
     actor = Ingress.Input.actor_ref(context.input)
 
-    with {:ok, _receipts} <-
+    with :ok <- Ryker.Admission.BatchRouting.authorize(context),
+         {:ok, _receipts} <-
            People.FactSnapshot.authorize(
              facts,
              actor,

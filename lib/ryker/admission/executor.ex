@@ -34,9 +34,14 @@ defmodule Ryker.Admission.Executor do
          {:ok, entry} <- Ingress.Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings) do
       case host_decision(context) do
-        {:unfurled, %Decision{} = decision} -> settle_unfurled(entry, context, decision, settings)
-        {kind, %Decision{} = decision} -> settle_host(entry, context, kind, decision, settings)
-        nil -> run_model(entry, context, settings)
+        {kind, %Decision{} = decision} when kind in [:unfurled, :same_request] ->
+          settle_reused(entry, context, kind, decision, settings)
+
+        {kind, %Decision{} = decision} ->
+          settle_host(entry, context, kind, decision, settings)
+
+        nil ->
+          run_model(entry, context, settings)
       end
     else
       :error -> {:error, {:admission_execution_failed, :input_not_found}}
@@ -118,6 +123,7 @@ defmodule Ryker.Admission.Executor do
       decision = replaced_decision(context) -> {:replaced, decision}
       decision = answer_decision(context) -> {:answer, decision}
       decision = unfurled_decision(context) -> {:unfurled, decision}
+      decision = Admission.BatchRouting.related_decision(context) -> {:same_request, decision}
       true -> nil
     end
   end
@@ -148,8 +154,8 @@ defmodule Ryker.Admission.Executor do
 
   # The reused decision was weighed against the first version's context; one the commit refuses
   # now is routed like any message.
-  defp settle_unfurled(entry, context, decision, settings) do
-    case settle_host(entry, context, :unfurled, decision, settings) do
+  defp settle_reused(entry, context, kind, decision, settings) do
+    case settle_host(entry, context, kind, decision, settings) do
       {:ok, settled} -> {:ok, settled}
       {:error, _refused} -> run_model(entry, context, settings)
     end
@@ -517,6 +523,7 @@ defmodule Ryker.Admission.Executor do
         Enum.map(context.repository_choices, & &1["ref"]),
         Context.sentiment_offered?(context)
       )
+      |> Admission.BatchRouting.schema(context.batch_inputs)
 
     with :ok <- renew_lease(settings),
          {:ok, artifact} <-

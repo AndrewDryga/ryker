@@ -258,6 +258,17 @@ defmodule Ryker.RoutingExamples do
   def quoted_keys(%Ingress.Inbox.Entry{} = entry),
     do: entry |> quoted() |> Map.take([:keys, :conversations])
 
+  @doc "The messages, topics and conversations an inherited routing decision depended on."
+  def quoted_provenance(entry) do
+    quoted = quoted(entry)
+
+    %{
+      "messages" => Enum.map(quoted.messages, &Tuple.to_list/1),
+      "topics" => quoted.topics,
+      "conversations" => quoted.conversations
+    }
+  end
+
   # The message itself; the thread root, the earlier messages and the current
   # one of its conversation; learned observations, with the conversation each
   # came from; the messages the candidates' previews quote, wherever they were
@@ -267,27 +278,37 @@ defmodule Ryker.RoutingExamples do
   defp quoted(entry) do
     context = if is_map(entry.admission_context), do: entry.admission_context, else: %{}
 
+    parent = context["batch_parent"] || %{}
+
+    inherited =
+      for [conversation, message] when is_binary(conversation) and is_binary(message) <-
+            list(parent["messages"]),
+          do: {conversation, message}
+
     messages =
       [own_message(entry)] ++
         history_messages(entry.destination_conversation_ref, context) ++
-        observed_messages(context) ++ previewed_messages(context)
+        observed_messages(context) ++ previewed_messages(context) ++ inherited
 
     topics =
       for %{"source_ref" => "knowledge:" <> id} = topic <- list(context["conversation_knowledge"]),
           do: {id, topic["conversation_ref"]}
 
+    topic_ids = Enum.uniq(Enum.map(topics, &elem(&1, 0)) ++ list(parent["topics"]))
+
     %{
       messages: Enum.uniq(messages),
-      topics: Enum.map(topics, &elem(&1, 0)) |> Enum.uniq(),
+      topics: topic_ids,
       keys:
         (Enum.map(messages, fn {conversation_ref, message_ref} ->
            message_key(conversation_ref, message_ref)
          end) ++
-           Enum.map(topics, &knowledge_key(elem(&1, 0))))
+           Enum.map(topic_ids, &knowledge_key/1))
         |> Enum.uniq()
         |> Enum.sort(),
       conversations:
         (Enum.map(messages, &elem(&1, 0)) ++
+           list(parent["conversations"]) ++
            for(
              {_id, conversation_ref} when is_binary(conversation_ref) <- topics,
              do: conversation_ref
@@ -301,9 +322,16 @@ defmodule Ryker.RoutingExamples do
     history =
       if is_map(context["conversation_context"]), do: context["conversation_context"], else: %{}
 
-    for %{"source_message_ref" => ref} when is_binary(ref) <-
-          [history["root"], history["current"] | list(history["messages"])],
-        do: {conversation, ref}
+    history_refs =
+      for %{"source_message_ref" => ref} when is_binary(ref) <-
+            [history["root"], history["current"] | list(history["messages"])],
+          do: {conversation, ref}
+
+    batch_refs =
+      for %{"message_ref" => ref} when is_binary(ref) <- list(context["batch_inputs"]),
+          do: {conversation, ref}
+
+    history_refs ++ batch_refs
   end
 
   defp observed_messages(context) do

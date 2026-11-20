@@ -11,6 +11,8 @@ defmodule Ryker.Ingress.Inbox.RoutingBatch do
 
   # The caller owns the source conversation lock. Lock the members as well:
   # an executor may claim the first message while the next receipt arrives.
+  def attributes(_input, %{engagement_receipt: %{"path" => "slack_shortcut"}}, _id, _now), do: %{}
+
   def attributes(
         %{
           source: %{kind: "slack"},
