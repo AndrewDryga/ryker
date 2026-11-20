@@ -329,6 +329,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
   defp request_link(row) do
     case FailureExplanation.request(row) do
       %{href: href} -> anchor(%{href: href, text: "Open request"})
+      %{text: text} -> text
       _missing -> nil
     end
   end

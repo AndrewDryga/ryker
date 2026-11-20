@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.RykerTokensTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Assets, BrowserGuard, Layouts}
+  alias Ryker.ControlPlane.{Assets, BrowserGuard, Layouts, Navigation}
 
   # brand/ryker/README.md fixes the identity: graphite #111315, mint #36E6A5,
   # ivory #F2EEE5, with mint on graphite and never as body text on a light
@@ -350,11 +350,12 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     assert String.to_integer(lockup_width) * 878 / 950 >= 160
     assert image =~ "height:auto"
 
-    [_, compact] =
-      Regex.run(~r/@media \(max-width:800px\) \{[^\n]*\.app-brand img \{([^}]+)\}/, workspace)
-
-    [_, mark_width] = Regex.run(~r/width:(\d+)px/, compact)
+    mobile = render_component(&Navigation.mobile/1, path: "/") |> LazyHTML.from_fragment()
+    mark = LazyHTML.query(mobile, ".mobile-brand img")
+    assert LazyHTML.attribute(mark, "src") == ["/assets/brand/mark-mint.svg"]
+    [mark_width] = LazyHTML.attribute(mark, "width")
     assert String.to_integer(mark_width) * 729 / 780 >= 24
+    assert workspace =~ ~r/\.mobile-brand,[^{}]*\{[^}]*min-height:44px;[^}]*min-width:44px;/
 
     # A graphite ring is invisible on the graphite block: the brand link gets
     # the mint ring inset instead, still on graphite.

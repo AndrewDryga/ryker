@@ -725,7 +725,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     row = failure_row("stopping", address)
     assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() == "Fix needed first"
-    assert LazyHTML.text(row) =~ "#{worker.id} is not reporting"
+    assert LazyHTML.text(row) =~ "Bring worker #{worker.id} back"
     assert Enum.empty?(LazyHTML.query(row, "form[action^='/actions/']"))
 
     assert {:ok, %{kind: "stopping"}} = FailureProjection.fetch("stopping", work.episode.key)
@@ -735,6 +735,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     detail = page(["failures", "stopping", address])
     assert detail.status == 200
     assert detail.body =~ "Bring worker #{worker.id} back"
+    assert detail.body =~ "#{worker.id} is not reporting"
 
     # The worker answered: the run stopped, and the stop leaves the page.
     assert {:ok, claim} = Custody.claim_next("worker:unreported-stop:settle", 60, :work)

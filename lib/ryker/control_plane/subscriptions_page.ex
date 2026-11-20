@@ -81,6 +81,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
           icon={:bell}
           name={item.episode_title || item.title}
           href={item.episode_href}
+          link_row
           state={Presentation.status(item)}
           text={if item.episode_title, do: item.title}
           meta={facts(item, @now)}

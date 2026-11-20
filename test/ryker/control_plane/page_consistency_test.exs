@@ -255,7 +255,7 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
       {"Repositories", page("/repositories")},
       {"Schedules", page("/schedules")},
       {"Follow-ups", page("/follow-ups")},
-      {"Rules", rules()},
+      {"Rules", rules(%{"expired" => 1})},
       {"Facts", page("/memory")},
       {"Learned", page("/memory/learned")}
     ]
@@ -323,10 +323,10 @@ defmodule Ryker.ControlPlane.PageConsistencyTest do
     |> LazyHTML.from_fragment()
   end
 
-  defp rules do
+  defp rules(counts \\ %{}) do
     view = %{
       params: %{"q" => "", "view" => "current"},
-      counts: %{},
+      counts: counts,
       items: [],
       page: 1,
       pages: 1,
