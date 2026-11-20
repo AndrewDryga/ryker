@@ -477,6 +477,33 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     end
   end
 
+  test "large closed system instructions and output formats load only when their own disclosure opens" do
+    # Six closed briefs contributed hundreds of kilobytes to a 2 MB timeline.
+    # The clicked source must return the bytes of that same frozen request.
+    {episode, turn, _} = frozen_turn!()
+    prompt = Ryker.Work.Prompt.build(turn.submission["context"])
+    contract = Ryker.Admission.Decision.json_schema()
+    submission = %{turn.submission | "prompt" => prompt, "output_schema" => contract}
+    Repo.update!(Ecto.Changeset.change(turn, submission: submission))
+    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    request = Enum.find(timeline.items, &(&1.id == "request-#{turn.id}"))
+    initial_html = timeline_html(episode) |> LazyHTML.from_document()
+
+    for id <- ~w(instructions contract) do
+      token = "work-#{turn.id}-#{id}"
+      closed = Enum.find(request.sections, &(&1.id == id)).artifact
+      assert closed.state == :collapsed
+      assert closed.text == nil
+      assert Enum.count(LazyHTML.query(initial_html, "details[data-artifact='#{token}']")) == 1
+      {:ok, opened} = ModelRequests.timeline(episode.key, %{"disclosed" => [token]})
+      entry = Enum.find(opened.items, &(&1.id == request.id))
+      retained = Enum.find(entry.sections, &(&1.id == id)).artifact
+      assert retained.state == :retained
+      assert retained.sha256 == closed.sha256
+      assert is_binary(retained.text)
+    end
+  end
+
   test "the continuous timeline includes frozen instructions and context together with bounded redaction" do
     {episode, turn, _prompt} = frozen_turn!()
     assert {:ok, timeline} = ModelRequests.timeline(episode.key, %{})

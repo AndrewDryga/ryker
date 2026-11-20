@@ -35,7 +35,7 @@ defmodule Ryker.InspectionRedactor do
     base = %{state: :retained, sha256: Crypto.sha256_hex(original), bytes: byte_size(original)}
 
     cond do
-      Keyword.get(options, :disclosed, true) == false ->
+      collapsed?(Keyword.get(options, :disclosed, true), base.bytes) ->
         # Nobody has opened this body, so nothing sanitizes, re-encodes or
         # renders it. Collapsing the rendered HTML alone still paid for every
         # byte of every unopened artifact on every refresh.
@@ -57,6 +57,12 @@ defmodule Ryker.InspectionRedactor do
         disclosed_artifact(value, original, base, options)
     end
   end
+
+  # Short items can be displayed immediately while a long, closed source keeps
+  # only its fingerprint and size. Both use the same immutable bytes.
+  defp collapsed?(false, _bytes), do: true
+  defp collapsed?({:up_to, limit}, bytes) when is_integer(limit), do: bytes > limit
+  defp collapsed?(_open, _bytes), do: false
 
   defp disclosed_artifact(value, original, base, options) do
     secrets = Keyword.get_lazy(options, :secrets, &configured_secrets/0)

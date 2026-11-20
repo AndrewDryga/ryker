@@ -412,7 +412,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           "Instructions",
           "How Ryker asked the model to work.",
           [
-            assembly_instructions(instructions.artifact, prefix),
+            assembly_instructions(instructions.artifact, prefix, instructions[:artifact_id]),
             if(kind == :learning and context,
               do: learning_instructions(context.artifact, prefix),
               else: []
@@ -508,7 +508,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
               []
 
             section ->
-              submitted_source(section.artifact, id, title, path, prefix, artifact_id)
+              submitted_source(
+                section.artifact,
+                id,
+                title,
+                path,
+                prefix,
+                section[:artifact_id] || artifact_id
+              )
           end
         end
       )
@@ -2095,6 +2102,22 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp action_label("react"), do: "React"
   defp action_label("ignore"), do: "Ignore"
   defp action_label(value), do: human(value)
+
+  defp assembly_instructions(%{state: :collapsed, bytes: bytes}, prefix, artifact_id) do
+    source(
+      "instructions",
+      "$.instructions",
+      nil,
+      {"System prompt", "policy", nil, nil},
+      loading(),
+      prefix,
+      estimate: {:bytes, bytes},
+      loading: true,
+      artifact: artifact_id
+    )
+  end
+
+  defp assembly_instructions(artifact, prefix, _id), do: assembly_instructions(artifact, prefix)
 
   def assembly_instructions(%{state: :retained, text: text} = artifact, prefix) do
     source(

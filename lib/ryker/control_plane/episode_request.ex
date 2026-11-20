@@ -380,7 +380,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   end
 
   defp unavailable_assembly?(%{id: "instructions", artifact: artifact}),
-    do: artifact.state != :retained
+    do: artifact.state not in [:retained, :collapsed]
 
   defp unavailable_assembly?(section) do
     section.artifact.state != :retained || section.artifact.truncated ||

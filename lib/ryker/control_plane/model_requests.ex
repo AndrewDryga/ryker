@@ -986,7 +986,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
            do: %{found | messages: Redactor.redact(messages, reading.secrets)}
 
     sections = [
-      section("instructions", "Ryker instructions", prompt["instructions"], reading),
+      folded_section(
+        "instructions",
+        "Ryker instructions",
+        prompt["instructions"],
+        "work-#{turn.id}-instructions",
+        reading
+      ),
       section("context", "Messages and selected context", context, reading),
       section(
         "tools",
@@ -994,7 +1000,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
         if(tools != %{}, do: tools),
         reading
       ),
-      section("contract", "Required output contract", submission["output_schema"], reading),
+      folded_section(
+        "contract",
+        "Required output contract",
+        submission["output_schema"],
+        "work-#{turn.id}-contract",
+        reading
+      ),
       request_section(
         "Submitted prompt · sanitized raw view",
         submission["prompt"],
@@ -1339,7 +1351,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     [
       section("input", "Source input", unless(expired, do: entry.content), reading),
-      section("instructions", "Ryker's routing instructions", prompt["instructions"], reading),
+      folded_section(
+        "instructions",
+        "Ryker's routing instructions",
+        prompt["instructions"],
+        "admission-#{entry.id}-#{generation}-instructions",
+        reading
+      ),
       section(
         "context",
         "What routing was given",
@@ -1362,7 +1380,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
         "admission-#{entry.id}-#{generation}-request",
         reading
       ),
-      section("contract", "Required output contract", submission["output_schema"], reading),
+      folded_section(
+        "contract",
+        "Required output contract",
+        submission["output_schema"],
+        "admission-#{entry.id}-#{generation}-contract",
+        reading
+      ),
       section("response", "Observed model response", response, reading),
       section(
         "candidate",
@@ -1413,6 +1437,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp section(id, title, value, %Reading{} = reading) do
     artifact = Redactor.artifact(value, redaction(reading))
     %{id: id, title: title, artifact: artifact}
+  end
+
+  defp folded_section(id, title, value, artifact_id, reading) do
+    display = if MapSet.member?(reading.opened, artifact_id), do: true, else: {:up_to, 2048}
+    artifact = Redactor.artifact(value, [{:disclosed, display} | redaction(reading)])
+    %{id: id, title: title, artifact_id: artifact_id, artifact: artifact}
   end
 
   # The submitted prompt is read as sent, and prepared only once its reader
