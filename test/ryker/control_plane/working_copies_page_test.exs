@@ -199,7 +199,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
     assert meta(unmerged) =~ "may contain unpublished commits; kept until cleanup is safe"
     assert meta(dirty) =~ "has uncommitted changes, kept until they are safe to remove"
-    assert meta(kept) =~ "removed tomorrow 09:00 UTC"
+    assert meta(kept) =~ "eligible for cleanup tomorrow 09:00 UTC"
     assert meta(active) =~ "cleanup starts when the task ends"
 
     # The working copy's id is support plumbing; the row never shows it.
@@ -211,17 +211,19 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   # passed waits for the next cleanup, and says so rather than "removed after 5 min ago".
   test "a kept copy says when it goes in words that read for any time left" do
     soon = %{@kept | discard_after: DateTime.add(@now, 10, :minute)}
+    at_deadline = %{@kept | discard_after: @now}
     due = %{@kept | discard_after: DateTime.add(@now, -5, :minute)}
 
     rows =
-      [soon, due]
+      [soon, at_deadline, due]
       |> render()
       |> LazyHTML.query("div.working-copies-page > .entity-list > article.entity-row")
 
     assert Enum.map(rows, &meta/1) ==
              [
-               "removed in 10 min · updated 2 h ago",
-               "removed at the next cleanup · updated 2 h ago"
+               "eligible for cleanup in 10 min · updated 2 h ago",
+               "eligible for cleanup now · updated 2 h ago",
+               "eligible for cleanup now · updated 2 h ago"
              ]
   end
 

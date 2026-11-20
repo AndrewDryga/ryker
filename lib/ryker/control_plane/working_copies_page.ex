@@ -232,11 +232,11 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   # "removed after " read before a countdown as "removed after in 10 min" (2026-10-09).
   defp next(%{status: :grace, discard_after: %DateTime{} = at}, now) do
     if DateTime.after?(at, now),
-      do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: "removed "}),
-      else: "removed at the next cleanup"
+      do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: "eligible for cleanup "}),
+      else: "eligible for cleanup now"
   end
 
-  defp next(%{status: :grace}, _now), do: "removed when the follow-up window ends"
+  defp next(%{status: :grace}, _now), do: "eligible for cleanup when the follow-up window ends"
 
   defp next(%{status: :retained, summary: "unpublished_unmerged"}, _now),
     do: "may contain unpublished commits; kept until cleanup is safe"
