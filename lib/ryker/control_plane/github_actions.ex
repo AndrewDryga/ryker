@@ -187,14 +187,13 @@ defmodule Ryker.ControlPlane.GitHubActions do
   end
 
   defp sign_in_page(conn) do
+    query = URI.encode_query(%{"return_to" => conn.params["return_to"] || conn.request_path})
+
     PublicPage.page(conn, 200, "Sign in with GitHub", [
       sign_in_description(conn),
-      "<form method=\"post\" action=\"/github/actions/sign-in\">",
-      PublicPage.csrf(),
-      "<input type=\"hidden\" name=\"return_to\" value=\"",
-      PublicPage.escape(conn.params["return_to"] || conn.request_path),
-      "\">",
-      "<button class=\"ui-button primary\" type=\"submit\">Continue with GitHub</button></form>"
+      ~s(<a class="ui-button primary" href="/github/actions/sign-in?),
+      PublicPage.escape(query),
+      ~s(">Continue with GitHub</a>)
     ])
   end
 

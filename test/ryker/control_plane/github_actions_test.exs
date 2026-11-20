@@ -106,7 +106,15 @@ defmodule Ryker.ControlPlane.GitHubActionsTest do
     page = %{conn | secret_key_base: String.duplicate("s", 64)} |> Page.call(:fix_review)
     assert page.status == 200
     assert page.resp_body =~ "Continue with GitHub"
-    assert hidden(page, "return_to") == return_to
+    # Chrome blocked the cross-origin OAuth redirect from the issue action form.
+    [href] =
+      page.resp_body
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+      |> Enum.filter(&String.starts_with?(&1, "/github/actions/sign-in?"))
+
+    assert URI.decode_query(URI.parse(href).query) == %{"return_to" => return_to}
     assert String.ends_with?(return_to, "/selected")
     refute Map.has_key?(page.resp_cookies, "_ryker_github_user")
   end

@@ -39,7 +39,6 @@ defmodule Ryker.ControlPlane.WebRouter do
       :confirm_engineering_offer
     )
 
-    post("/github/actions/sign-in", Ryker.ControlPlane.GitHubActions, :sign_in)
     post("/github/actions/review/:binding/:number", Ryker.ControlPlane.GitHubActions, :fix_review)
   end
 
@@ -75,6 +74,7 @@ defmodule Ryker.ControlPlane.WebRouter do
     )
 
     get("/github/actions/offer/:ref", Ryker.ControlPlane.GitHubActions, :engineering_offer)
+    get("/github/actions/sign-in", Ryker.ControlPlane.GitHubActions, :sign_in)
     get("/github/actions/callback", Ryker.ControlPlane.GitHubActions, :callback)
     get("/github/actions/issue/:binding/:number", Ryker.ControlPlane.GitHubActions, :issue)
 

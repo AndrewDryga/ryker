@@ -63,7 +63,23 @@ defmodule Ryker.ControlPlane.SignInTest do
     response = get(published(), path)
     assert response.status == 200
     assert response.resp_body =~ "Continue with GitHub"
-    assert response.resp_body =~ "method=\"post\""
+
+    [sign_in] =
+      response.resp_body
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("a.ui-button")
+      |> LazyHTML.attribute("href")
+
+    assert URI.parse(sign_in).path == "/github/actions/sign-in"
+    assert URI.decode_query(URI.parse(sign_in).query) == %{"return_to" => path}
+
+    assert Phoenix.Router.route_info(
+             Ryker.ControlPlane.WebRouter,
+             "GET",
+             URI.parse(sign_in).path,
+             "localhost"
+           ).plug_opts == :sign_in
+
     refute Map.has_key?(response.resp_cookies, "_ryker_github_user")
     console = response |> recycle() |> get("/settings")
     assert get_resp_header(console, "location") == ["/sign-in"]
