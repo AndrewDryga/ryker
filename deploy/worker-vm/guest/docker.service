@@ -1,0 +1,12 @@
+[Unit]
+Description=Docker for this Coop worker
+After=network-online.target
+Wants=network-online.target
+[Service]
+ExecStart=/usr/local/bin/dockerd --host=unix:///run/docker.sock --group=docker --storage-driver=overlay2
+Restart=on-failure
+Delegate=yes
+KillMode=process
+LimitNOFILE=1048576
+[Install]
+WantedBy=multi-user.target

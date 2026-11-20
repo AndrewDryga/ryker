@@ -61,7 +61,7 @@ jobs:
     needs: [ci-result, verify]
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,6 +122,30 @@ jobs:
             notes/release-notes.md
           if-no-files-found: error
 
+      - name: Build and check the Linux container images
+        shell: bash
+        run: |
+          set -euo pipefail
+          export RYKER_VERSION=${GITHUB_REF_NAME#v}
+          export RYKER_IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          python3 -B deploy/worker-vm/test-launch.py
+          docker buildx bake -f deploy/worker-vm/docker-bake.hcl --load
+          controller="$RYKER_IMAGE_REPOSITORY:$RYKER_VERSION"
+          worker="$RYKER_IMAGE_REPOSITORY-worker-vm:$RYKER_VERSION"
+          test "$(docker run --rm --network none --entrypoint /opt/ryker/bin/ryker "$controller" version)" = "ryker $RYKER_VERSION"
+          docker run --rm --network none --entrypoint isoinfo "$worker" -i /opt/worker/tools.iso -R -f > worker-files.txt
+          for tool in /coop /connect.sh /egress.sh /engine/dockerd; do
+            grep -Fx "$tool" worker-files.txt
+          done
+          docker image save "$controller" "$worker" | gzip -1 > container-images.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-images
+          path: container-images.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -131,6 +155,7 @@ jobs:
       attestations: write
       contents: write
       id-token: write
+      packages: write
     steps:
       # Only for scripts/check-release.sh; nothing from this checkout is built or run
       # but that check.
@@ -155,6 +180,45 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: built/dist/ryker_*.tar.gz
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: container-images
+          path: built
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish the checked images and record their digests
+        id: images
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker image load --input built/container-images.tar.gz
+          for role in controller worker; do
+            image=$repository
+            if [[ $role == worker ]]; then image="$repository-worker-vm"; fi
+            docker push "$image:$version"
+            ref=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image:$version" |
+              awk -F@ -v image="$image" '$1 == image { print }')
+            digest=${ref#*@}
+            [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
+            printf '%s\n' "$ref" >> built/dist/container-images.txt
+            printf '%s_name=%s\n%s_digest=%s\n' "$role" "$image" "$role" "$digest" >> "$GITHUB_OUTPUT"
+          done
+          cat built/dist/container-images.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.images.outputs.controller_name }}
+          subject-digest: ${{ steps.images.outputs.controller_digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.images.outputs.worker_name }}
+          subject-digest: ${{ steps.images.outputs.worker_digest }}
+          push-to-registry: true
       - name: publish verified draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -165,5 +229,6 @@ jobs:
             --notes-file built/notes/release-notes.md \
             built/dist/ryker_*_elixir_linux_amd64.tar.gz \
             built/dist/checksums.txt \
-            built/dist/checksums.txt.bundle
+            built/dist/checksums.txt.bundle \
+            built/dist/container-images.txt
           gh release edit "$GITHUB_REF_NAME" --draft=false

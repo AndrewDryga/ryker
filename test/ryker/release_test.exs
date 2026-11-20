@@ -123,6 +123,17 @@ defmodule Ryker.ReleaseTest do
     refute Enum.any?(jobs["build"]["steps"], &((&1["run"] || "") =~ "cosign"))
     assert jobs["publish"]["needs"] == "build"
     assert jobs["publish"]["permissions"]["id-token"] == "write"
+    assert jobs["publish"]["permissions"]["packages"] == "write"
+
+    build_commands = Enum.map_join(jobs["build"]["steps"], "\n", &(&1["run"] || ""))
+    publish_commands = Enum.map_join(jobs["publish"]["steps"], "\n", &(&1["run"] || ""))
+    assert build_commands =~ "docker buildx bake"
+    assert build_commands =~ "docker image save"
+    refute build_commands =~ "docker push"
+    assert publish_commands =~ "docker image load"
+    assert publish_commands =~ "docker push"
+    assert publish_commands =~ "built/dist/container-images.txt"
+    refute publish_commands =~ "docker build"
     assert Enum.any?(jobs["publish"]["steps"], &((&1["run"] || "") =~ "cosign sign-blob"))
     refute Enum.any?(jobs["publish"]["steps"], &((&1["run"] || "") =~ ~r/\bmake\b|\bmix\b/))
 
