@@ -713,6 +713,7 @@ defmodule Ryker.GitHub.CapabilityTools do
         repository_full_name: repository,
         repository_id: repository_id,
         repository_ref: Map.get(configured, :repository_ref, name),
+        resolution_client: Map.get(configured, :resolution_client),
         review_client: Map.get(configured, :review_client, client)
       },
       else: nil
@@ -795,6 +796,10 @@ defmodule Ryker.GitHub.CapabilityTools do
   defp error_code(:not_configured), do: "temporarily_unavailable"
   defp error_code(:invalid_arguments), do: "invalid_arguments"
   defp error_code(:actor_not_authorized), do: "unauthorized"
+
+  defp error_code(:thread_resolution_forbidden) do
+    "thread_resolution_forbidden: GitHub denied the App permission to resolve this thread. Leave it open and report the permission refusal."
+  end
 
   defp error_code(:review_changed),
     do: "review_changed: The PR or selected finding changed; leave the thread open and report it."

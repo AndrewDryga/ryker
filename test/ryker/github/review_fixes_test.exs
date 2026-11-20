@@ -24,7 +24,7 @@ defmodule Ryker.GitHub.ReviewFixesTest do
        }}
     end
 
-    def request(_http, :post, "/graphql", %{"query" => query}, _headers) do
+    def request(http, :post, "/graphql", %{"query" => query}, _headers) do
       send(self(), :thread_checked)
 
       data =
@@ -34,7 +34,12 @@ defmodule Ryker.GitHub.ReviewFixesTest do
           },
           else: %{"node" => Process.get(:current_thread)}
 
-      {:ok, %{status: 200, body: %{"data" => data}}}
+      if String.contains?(query, "mutation") && http.token_provider.() != {:ok, "resolve-token"} do
+        # Four retries on the published fixes failed because GitHub also checks contents write.
+        {:ok, %{status: 200, body: %{"errors" => [%{"type" => "FORBIDDEN"}]}}}
+      else
+        {:ok, %{status: 200, body: %{"data" => data}}}
+      end
     end
   end
 
@@ -99,7 +104,11 @@ defmodule Ryker.GitHub.ReviewFixesTest do
     configured = %{
       repository_full_name: "example/repository",
       repository_id: 17,
-      review_client: %{http: http, requester: Requester}
+      review_client: %{http: http, requester: Requester},
+      resolution_client: %{
+        http: %{http | token_provider: fn -> {:ok, "resolve-token"} end},
+        requester: Requester
+      }
     }
 
     %{binding: %{session: session}, publication: publication, configured: configured}
@@ -130,6 +139,12 @@ defmodule Ryker.GitHub.ReviewFixesTest do
     assert ReviewFixes.resolve(binding, args, configured) == {:error, :actor_not_authorized}
     assert_received :permission_checked
     refute_received :thread_checked
+    Process.put(:writer_id, 123)
+
+    assert ReviewFixes.resolve(binding, args, %{
+             configured
+             | resolution_client: configured.review_client
+           }) == {:error, :thread_resolution_forbidden}
   end
 
   # The selected fixes were published and checked, but GitHub briefly returned

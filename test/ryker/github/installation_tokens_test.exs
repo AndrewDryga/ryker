@@ -316,6 +316,29 @@ defmodule Ryker.GitHub.InstallationTokensTest do
     assert length(Agent.get(requester, & &1.calls)) == 3
   end
 
+  test "resolving findings uses its own single-repository token while posting reviews keeps contents read" do
+    expires = DateTime.add(@now, 3600, :second)
+
+    {provider, requester} =
+      provider_with([token_response("review", expires), token_response("resolution", expires)])
+
+    assert InstallationTokens.token(provider, "github-main", :review) == {:ok, "review"}
+
+    assert InstallationTokens.token(provider, "github-main", :thread_resolution) ==
+             {:ok, "resolution"}
+
+    assert Enum.map(Agent.get(requester, & &1.calls), &elem(&1, 2)) == [
+             %{
+               "permissions" => %{"contents" => "read", "pull_requests" => "write"},
+               "repository_ids" => [99]
+             },
+             %{
+               "permissions" => %{"contents" => "write", "pull_requests" => "write"},
+               "repository_ids" => [99]
+             }
+           ]
+  end
+
   test "closing an own PR receives no contents or issue write permission" do
     {provider, requester} =
       provider_with([

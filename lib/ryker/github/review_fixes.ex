@@ -22,6 +22,7 @@ defmodule Ryker.GitHub.ReviewFixes do
          {:ok, receipt} <-
            GitHub.Client.ReviewThreads.resolve(
              configured.review_client,
+             configured.resolution_client,
              target,
              finding,
              publication.commit_sha

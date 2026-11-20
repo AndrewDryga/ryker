@@ -19,13 +19,13 @@ defmodule Ryker.GitHub.Client.ReviewThreads do
   }
   """
 
-  def resolve(client, target, finding, commit) do
+  def resolve(client, resolution_client, target, finding, commit) do
     options = [requester: client.requester]
 
     with {:ok, %{"node" => %{} = thread}} <-
            GraphQL.request(client.http, @query, %{"id" => finding["thread_id"]}, options),
          true <- exact_thread?(thread, target, finding, commit),
-         {:ok, result} <- resolve_current(client, thread, options) do
+         {:ok, result} <- resolve_current(resolution_client, thread) do
       {:ok, Map.put(result, "commit_sha", commit)}
     else
       false -> {:error, :review_changed}
@@ -68,18 +68,22 @@ defmodule Ryker.GitHub.Client.ReviewThreads do
       )
   end
 
-  defp resolve_current(_client, %{"isResolved" => true, "id" => id}, _options),
+  defp resolve_current(_client, %{"isResolved" => true, "id" => id}),
     do: {:ok, %{"thread_id" => id, "status" => "resolved"}}
 
-  defp resolve_current(client, %{"isResolved" => false, "id" => id}, options) do
-    case GraphQL.request(client.http, @resolve, %{"id" => id}, options) do
+  defp resolve_current(%{http: http, requester: requester}, %{"isResolved" => false, "id" => id}) do
+    case GraphQL.request(http, @resolve, %{"id" => id}, requester: requester) do
       {:ok, %{"resolveReviewThread" => %{"thread" => %{"id" => ^id, "isResolved" => true}}}} ->
         {:ok, %{"thread_id" => id, "status" => "resolved"}}
+
+      {:error, :github_forbidden} ->
+        {:error, :thread_resolution_forbidden}
 
       _error ->
         {:error, :github_unavailable}
     end
   end
 
-  defp resolve_current(_client, _thread, _options), do: {:error, :review_changed}
+  defp resolve_current(nil, _thread), do: {:error, :not_configured}
+  defp resolve_current(_client, _thread), do: {:error, :review_changed}
 end

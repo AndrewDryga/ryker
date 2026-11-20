@@ -35,6 +35,7 @@ defmodule Ryker.GitHub.InstallationTokens do
     },
     pull_request_close: %{"pull_requests" => "write"},
     review: %{"contents" => "read", "pull_requests" => "write"},
+    thread_resolution: %{"contents" => "write", "pull_requests" => "write"},
     ci_rerun: %{"actions" => "write", "checks" => "read"},
     ci_cancel: %{"actions" => "write"},
     delivery: %{"issues" => "write", "pull_requests" => "write"},

@@ -896,6 +896,7 @@ defmodule Ryker.Runtime.Assembly do
              grants: item.trusted_binding.action_grants,
              repository_ref: item.repository_alias,
              review_client: item.review_client,
+             resolution_client: item.resolution_client,
              close_client: item.close_client,
              triage_client: item.delivery_client,
              ryker_actor_id: item.trusted_binding.ryker_actor_id,
@@ -1082,6 +1083,11 @@ defmodule Ryker.Runtime.Assembly do
         GitHub.InstallationTokens.token(binding.name, :review)
       end)
 
+    resolution_http =
+      json_client!(api_url, defaults.receive_timeout_ms, fn ->
+        GitHub.InstallationTokens.token(binding.name, :thread_resolution)
+      end)
+
     close_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
         GitHub.InstallationTokens.token(binding.name, :pull_request_close)
@@ -1122,6 +1128,7 @@ defmodule Ryker.Runtime.Assembly do
       ci_cancel_client: github_client!(ci_cancel_http),
       delivery_client: github_client!(delivery_http),
       review_client: github_client!(review_http),
+      resolution_client: github_client!(resolution_http),
       close_client: github_client!(close_http),
       publication_client: github_client!(publication_http),
       repository: repository,

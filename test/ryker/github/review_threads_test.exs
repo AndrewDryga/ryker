@@ -41,7 +41,7 @@ defmodule Ryker.GitHub.ReviewThreadsTest do
     client: client,
     thread: thread
   } do
-    task = Task.async(fn -> ReviewThreads.resolve(client, target, finding, commit) end)
+    task = Task.async(fn -> ReviewThreads.resolve(client, client, target, finding, commit) end)
     assert_receive {:query, %{"variables" => %{"id" => "thread-one"}}}
     send(task.pid, {:respond, %{"node" => thread}})
     assert_receive {:query, %{"query" => mutation, "variables" => %{"id" => "thread-one"}}}
@@ -56,7 +56,7 @@ defmodule Ryker.GitHub.ReviewThreadsTest do
     assert {:ok, %{"status" => "resolved", "commit_sha" => published_commit}} = Task.await(task)
     assert published_commit == commit
 
-    task = Task.async(fn -> ReviewThreads.resolve(client, target, finding, commit) end)
+    task = Task.async(fn -> ReviewThreads.resolve(client, client, target, finding, commit) end)
     assert_receive {:query, _read}
     send(task.pid, {:respond, %{"node" => %{thread | "isResolved" => true}}})
     assert {:ok, %{"status" => "resolved"}} = Task.await(task)
@@ -79,7 +79,7 @@ defmodule Ryker.GitHub.ReviewThreadsTest do
           put_in(thread, ["comments", "nodes"], [%{comment | "body" => "A different issue."}]),
           put_in(thread, ["comments", "nodes"], [put_in(comment, ["author", "databaseId"], 31)])
         ] do
-      task = Task.async(fn -> ReviewThreads.resolve(client, target, finding, commit) end)
+      task = Task.async(fn -> ReviewThreads.resolve(client, client, target, finding, commit) end)
       assert_receive {:query, _read}
       send(task.pid, {:respond, %{"node" => thread}})
       assert Task.await(task) == {:error, :review_changed}
