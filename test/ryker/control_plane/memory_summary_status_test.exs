@@ -72,6 +72,16 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       end)
 
     assert [item] = page.items
+    # A single saved summary waited for both global directory counts and a
+    # third count of its own row on both HTTP and connected mount.
+    refute Enum.any?(statements, fn statement ->
+             String.contains?(statement.sql, "count(") and
+               String.contains?(statement.sql, [
+                 "conversation_summaries",
+                 "conversation_knowledge"
+               ])
+           end)
+
     assert item.source_count == 1
     assert item.source_at == entry.occurred_at
     assert item.expires_at != nil

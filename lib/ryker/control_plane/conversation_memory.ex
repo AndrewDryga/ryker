@@ -95,11 +95,6 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     secrets = InspectionRedactor.configured_secrets()
     source_parent = source_parent(params["related_to"], secrets)
 
-    counts = %{
-      context: Repo.aggregate(Continuity.ConversationSummary.Query.all(), :count),
-      knowledge: Repo.aggregate(Knowledge.ConversationKnowledge.Query.all(), :count)
-    }
-
     kind = selected_kind(params["kind"], source_parent)
     search = Search.term(params["q"]) || ""
     selected = selected_id(params["item"])
@@ -107,22 +102,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     checking? = Map.get(params, :checking_summary_history, false)
     query = listed(kind, source_parent, search, selected, checking?)
 
-    page_options =
-      case {kind, search, selected} do
-        {"knowledge", "", nil} -> [total: counts.knowledge]
-        {"context", "", nil} -> [total: counts.context]
-        _filtered -> []
-      end
-
-    page =
-      PagedRelation.read(
-        query,
-        [desc: :updated_at, desc: :id],
-        "page",
-        params,
-        [{:page_size, @page_size} | page_options]
-      )
-
+    {counts, page} = read_page(query, kind, search, selected, params)
     items = page.items
     ids = items |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
     lookup = lookup(items, ids)
@@ -157,6 +137,37 @@ defmodule Ryker.ControlPlane.ConversationMemory do
           })
         )
     }
+  end
+
+  defp read_page(query, kind, _search, selected, _params)
+       when kind in ["context", "knowledge"] and is_binary(selected) do
+    items = Repo.all(query)
+    {nil, %{page: 1, pages: 1, items: items, total: length(items)}}
+  end
+
+  defp read_page(query, kind, search, _selected, params) do
+    counts = %{
+      context: Repo.aggregate(Continuity.ConversationSummary.Query.all(), :count),
+      knowledge: Repo.aggregate(Knowledge.ConversationKnowledge.Query.all(), :count)
+    }
+
+    page_options =
+      case {kind, search} do
+        {"knowledge", ""} -> [total: counts.knowledge]
+        {"context", ""} -> [total: counts.context]
+        _filtered -> []
+      end
+
+    page =
+      PagedRelation.read(
+        query,
+        [desc: :updated_at, desc: :id],
+        "page",
+        params,
+        [{:page_size, @page_size} | page_options]
+      )
+
+    {counts, page}
   end
 
   defp listed_item(%Knowledge.ConversationKnowledge{} = row, lookup, secrets, sources) do
