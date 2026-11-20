@@ -506,6 +506,30 @@ defmodule Ryker.ControlPlane.SettingsSections do
         "Code changes, schedules, incident rooms and learning each have their own models.",
       fields: [
         %{
+          name: :code_review_preset,
+          kind: :select,
+          label: "Code reviews",
+          unset: "Use current routing",
+          options: :work_presets,
+          errors: %{
+            unavailable: "Choose an available review preset.",
+            invalid: "Choose a read-only review preset.",
+            account_unavailable: "Add the preset’s accounts in Model accounts."
+          }
+        },
+        %{
+          name: :contributor_preset,
+          kind: :select,
+          label: "Contributor configuration",
+          unset: "Use model settings",
+          options: :work_presets,
+          errors: %{
+            unavailable: "Choose an available contributor preset.",
+            invalid: "Choose a valid contributor preset.",
+            account_unavailable: "Add the preset’s accounts in Model accounts."
+          }
+        },
+        %{
           name: :contributor_models,
           kind: :ladder,
           label: "Contributor work",
@@ -935,6 +959,19 @@ defmodule Ryker.ControlPlane.SettingsSections do
       view.worker_installs,
       &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{Wording.count(&1.workers, "worker")} ready"}
     )
+  end
+
+  def options(%{options: :work_presets, name: field}, view) do
+    selected = Map.get(view.snapshot.work, field)
+
+    choices =
+      for preset <- Map.get(view, :model_presets, []),
+          field == :contributor_preset or preset.read_only,
+          do: {preset.name, preset.name}
+
+    if is_binary(selected) and not List.keymember?(choices, selected, 0),
+      do: [{selected, "#{selected} (unavailable)"} | choices],
+      else: choices
   end
 
   def options(%{options: options}, _view) when is_list(options), do: options

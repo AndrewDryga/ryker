@@ -12,6 +12,7 @@ defmodule Ryker.Settings do
   alias Ryker.Accounting
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Emisar
   alias Ryker.Repo
@@ -513,8 +514,31 @@ defmodule Ryker.Settings do
   routing. Returns `t:write_result/0`.
   """
   @spec save_work(map(), revision(), String.t()) :: write_result()
-  def save_work(attributes, expected_revision, actor_ref),
-    do: save_singleton(:work, __MODULE__.Work.Changeset, attributes, expected_revision, actor_ref)
+  def save_work(attributes, expected_revision, actor_ref) do
+    with :ok <- authorize(actor_ref),
+         {:ok, attributes} <-
+           Validation.attributes(attributes, __MODULE__.Work.Changeset.fields()) do
+      save(:work, expected_revision, actor_ref, fn snapshot ->
+        changeset = __MODULE__.Work.Changeset.update(snapshot.work, attributes, snapshot)
+        write_changeset(snapshot.work, validate_work_presets(changeset))
+      end)
+    end
+  end
+
+  defp validate_work_presets(changeset) do
+    accounts = Ecto.Changeset.get_field(changeset, :model_accounts)
+
+    results =
+      for field <- [:contributor_preset, :code_review_preset],
+          Map.has_key?(changeset.changes, field) or
+            Map.has_key?(changeset.changes, :model_accounts),
+          name = Ecto.Changeset.get_field(changeset, field),
+          is_binary(name) do
+        {field, CoopFleet.PresetCatalog.resolve(name, accounts, field == :code_review_preset)}
+      end
+
+    __MODULE__.Work.Changeset.check_presets(changeset, results)
+  end
 
   @doc """
   Sets the installation-wide participation default from a Slack operator command.

@@ -303,7 +303,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # A row's form on its own page returns to the list, which says what was
   # saved; a section that is one form stays where it is and says Saved.
   defp write(socket, {:ok, snapshot}) do
-    view = SettingsView.view(snapshot)
+    view = saved_view(socket, snapshot)
 
     case socket.assigns.form do
       {:form, key} ->
@@ -334,7 +334,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp write(socket, {:error, {:settings_conflict, current}}) do
-    current = SettingsView.view(current)
+    current = saved_view(socket, current)
 
     assign(socket,
       view: current,
@@ -397,6 +397,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp section_error(_errors),
     do: "This change was refused. Check the values and save again."
+
+  defp saved_view(%{assigns: %{section: %{key: :other_models}}}, snapshot),
+    do: snapshot |> SettingsView.view() |> SettingsView.with_model_presets()
+
+  defp saved_view(_socket, snapshot), do: SettingsView.view(snapshot)
 
   defp error(:settings_not_initialized),
     do: "This installation has no settings yet. Reload the page and create them first."
@@ -474,6 +479,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp autosave?(_section), do: false
 
   defp draft(socket, params) do
+    # A selected preset hides the model ladder. Its stored draft still belongs
+    # to this card when the browser submits only the visible controls.
+    params =
+      if socket.assigns.section.key == :other_models and
+           socket.assigns.draft["contributor_preset"] not in [nil, ""] do
+        Map.put_new(params, "contributor_models", socket.assigns.draft["contributor_models"])
+      else
+        params
+      end
+
     draft = SettingsSections.submitted(socket.assigns.section, params)
     assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, refusal: nil)
   end
@@ -1248,6 +1263,18 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         invalid={not is_nil(@error)}
         locked={@locked}
       />
+      <details :if={@field[:recipe]} class="settings-help">
+        <summary>
+          Lead: {hd(@field.recipe.targets)} · {Ryker.Wording.count(
+            length(@field.recipe.roles),
+            "role"
+          )}
+        </summary>
+        <p>Lead targets: {Enum.join(@field.recipe.targets, " → ")}</p>
+        <p :for={role <- @field.recipe.roles}>
+          {role["name"]} ({role["mode"]}) · {Enum.join(role["targets"], " → ")}
+        </p>
+      </details>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
     </div>
     """
@@ -1467,6 +1494,15 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     })
   end
 
+  defp adapt(_section, %{options: :work_presets, name: name} = field, view, draft) do
+    selected = Map.get(draft, Atom.to_string(name))
+
+    case Enum.find(Map.get(view, :model_presets, []), &(&1.name == selected)) do
+      nil -> field
+      recipe -> Map.put(field, :recipe, recipe)
+    end
+  end
+
   defp adapt(_section, field, _view, _draft), do: field
 
   defp slack_channel(field, view, chosen) do
@@ -1501,6 +1537,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       errors: %{required: "Choose the Slack channel where Ryker posts about these events."}
     })
   end
+
+  defp field_visible?(%{name: :contributor_models}, draft),
+    do: Map.get(draft, "contributor_preset") in [nil, ""]
 
   defp field_visible?(%{kind: :mapping}, draft),
     do: Map.get(draft, "adapter_kind") == "mapped_json"

@@ -1350,6 +1350,45 @@ defmodule Ryker.GitHub.RouterTest do
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
   end
 
+  test "review assignments, labels and addressed review requests use the review policy" do
+    review_profile = %{
+      policy: "review-preset",
+      policy_digest: String.duplicate("c", 64),
+      repository_ref: "octo/example"
+    }
+
+    binding = binding!(%{review_work_profile: review_profile})
+
+    cases = [
+      {"pull_request", review_request_payload(), "review-preset"},
+      {"pull_request", review_label_payload(), "review-preset"},
+      {"issue_comment",
+       put_in(payload(), ["comment", "body"], "@ryker-test please review this PR"),
+       "review-preset"},
+      {"issue_comment",
+       put_in(payload(), ["comment", "body"], "@ryker-test explain the review findings"),
+       "github-read-only"}
+    ]
+
+    for {{event, value, expected}, index} <- Enum.with_index(cases) do
+      value =
+        if event == "issue_comment",
+          do: put_in(value, ["comment", "id"], 900 + index),
+          else: value
+
+      response =
+        request(Jason.encode!(value),
+          event_name: event,
+          delivery_ref: "review-route-#{index}",
+          bindings: %{"github-main" => binding}
+        )
+
+      assert response.status == 202
+      assert {:ok, entry} = Inbox.fetch(Jason.decode!(response.resp_body)["input_ref"])
+      assert entry.work_policy == expected
+    end
+  end
+
   test "a later review label asks again but replaying its signed body never starts new work" do
     parent = self()
 

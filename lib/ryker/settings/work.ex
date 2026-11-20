@@ -65,6 +65,9 @@ defmodule Ryker.Settings.Work do
       field(name, {:array, :string}, default: default)
     end
 
+    field(:contributor_preset, :string)
+    field(:code_review_preset, :string)
+
     field(:local_routing_mode, Ecto.Enum, values: [:off, :shadow], default: :off)
     field(:local_routing_endpoint, :string)
     field(:local_routing_model, :string)

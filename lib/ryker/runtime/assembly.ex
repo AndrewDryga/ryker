@@ -146,7 +146,7 @@ defmodule Ryker.Runtime.Assembly do
     weekly_review = weekly_review(settings, policies, work)
     schedules = schedules(settings, repositories, policies)
     gateway = worker_gateway(bootstrap)
-    {github, github_left_out} = github(bootstrap, settings, repositories, environments)
+    {github, github_left_out} = github(bootstrap, settings, repositories, environments, policies)
     repository_knowledge = repository_knowledge(settings, work, github)
 
     {slack, slack_left_out} =
@@ -333,7 +333,13 @@ defmodule Ryker.Runtime.Assembly do
       conversation && contributor ->
         standard = policy(policies, :standard, :environment, environment.ref, ref) || conversation
         deep = policy(policies, :deep, :environment, environment.ref, ref) || standard
-        %{contributor: contributor, conversation: conversation, deep: deep, standard: standard}
+
+        %{
+          contributor: contributor,
+          conversation: conversation,
+          deep: deep,
+          standard: standard
+        }
 
       refs == [ref] and is_map_key(repositories, ref) ->
         repository = Map.fetch!(repositories, ref)
@@ -422,6 +428,31 @@ defmodule Ryker.Runtime.Assembly do
         |> Map.put(:repository_ref, ref)
     }
   end
+
+  # Only an explicit request on this repository gets its review recipe. Keep
+  # the ordinary profile's environment, companions and read-only boundaries.
+  defp review_work_profile(%{work_profile: %{policies: classes} = profile}, ref, policies) do
+    primary = if Map.has_key?(classes, ref), do: ref, else: hd(profile.repositories)
+
+    review =
+      policy(policies, :code_review, :environment, profile.environment_ref, primary) ||
+        if(length(profile.repositories) == 1,
+          do: policy(policies, :code_review, :repository, primary)
+        )
+
+    if review && Map.has_key?(classes, primary) do
+      pinned = class_policy(review)
+      review_classes = %{conversational: pinned, standard: pinned, deep: pinned}
+      %{profile | policies: Map.replace!(classes, primary, review_classes)}
+    end
+  end
+
+  defp review_work_profile(%{work_profile: %{repository_ref: ref} = profile}, ref, policies) do
+    if review = policy(policies, :code_review, :repository, ref),
+      do: Map.merge(profile, class_profile(review, review, review))
+  end
+
+  defp review_work_profile(_entry, _ref, _policies), do: nil
 
   defp class_profile(conversation, standard, deep) do
     %{
@@ -808,21 +839,21 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _environments),
+  defp github(_bootstrap, %{github: %{enabled: false}}, _repositories, _environments, _policies),
     do: {nil, nil}
 
   # Credentials do not enable an integration and must not silently rebind one.
   # A connection saved for one app with the deployment holding another's key is
   # a mismatch an operator has to resolve, not a component that quietly does
   # not start: GitHub is left out, and says which credential.
-  defp github(bootstrap, settings, repositories, environments) do
+  defp github(bootstrap, settings, repositories, environments, policies) do
     with {:ok, private_key} <- github_credential(:github_private_key),
          {:ok, signer} <- app_signer(settings.github.app_id, private_key),
          {:ok, webhook_secret} <- github_credential(:github_webhook),
          {:ok, github} <-
            isolated(:github, fn ->
              github =
-               github_runtime(bootstrap, settings, repositories, environments, %{
+               github_runtime(bootstrap, settings, repositories, environments, policies, %{
                  signer: signer,
                  webhook_secret: webhook_secret
                })
@@ -853,7 +884,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp github_runtime(bootstrap, settings, repositories, environments, credentials) do
+  defp github_runtime(bootstrap, settings, repositories, environments, policies, credentials) do
     %{signer: signer, webhook_secret: webhook_secret} = credentials
     defaults = Defaults.fetch!(:github)
     api_url = settings.github.api_url
@@ -865,7 +896,8 @@ defmodule Ryker.Runtime.Assembly do
       Map.new(settings.github_bindings, fn binding ->
         entry = github_entry(binding.repository_ref, settings, repositories, environments)
 
-        {binding.name, github_binding(binding, api_url, defaults, settings.repositories, entry)}
+        {binding.name,
+         github_binding(binding, api_url, defaults, settings.repositories, entry, policies)}
       end)
 
     task_policies = task_entries(settings, repositories, environments)
@@ -1058,7 +1090,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp github_binding(binding, api_url, defaults, repositories, entry) do
+  defp github_binding(binding, api_url, defaults, repositories, entry, policies) do
     repository =
       Enum.find(repositories, &(&1.ref == binding.repository_ref)) ||
         raise ArgumentError, "github binding names an unknown repository"
@@ -1117,6 +1149,7 @@ defmodule Ryker.Runtime.Assembly do
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
+        review_work_profile: review_work_profile(entry, binding.repository_ref, policies),
         work_profile: entry && entry.work_profile
       })
 

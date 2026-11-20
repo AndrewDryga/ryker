@@ -13,11 +13,20 @@ defmodule Ryker.CoopFleet.JobTemplates do
     :schedule_governed,
     :schedule_read_only
   ]
-  @repository [:conversational, :contributor, :deep, :knowledge, :schedule, :standard]
-  @environment [:conversational, :contributor, :deep, :standard]
+  @repository [
+    :code_review,
+    :conversational,
+    :contributor,
+    :deep,
+    :knowledge,
+    :schedule,
+    :standard
+  ]
+  @environment [:code_review, :conversational, :contributor, :deep, :standard]
   @models %{
     admission: :routing_models,
     conversational: :conversation_models,
+    code_review: :standard_models,
     standard: :standard_models,
     # Reading a repository to write its RYKER.md is an ordinary task there.
     knowledge: :standard_models,
@@ -83,6 +92,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
     repository =
       for repository <- repositories,
           purpose <- @repository,
+          purpose != :code_review or is_binary(Map.get(snapshot.work, :code_review_preset)),
           do: template(snapshot.work, purpose, :repository, repository.ref, "", [repository.ref])
 
     # Work in an environment may change any of its read and write
@@ -95,7 +105,8 @@ defmodule Ryker.CoopFleet.JobTemplates do
           refs = Settings.Environment.repository_refs(environment),
           length(refs) > 1 and Enum.all?(refs, &MapSet.member?(available, &1)),
           primary <- Settings.Environment.writable_refs(environment),
-          purpose <- @environment do
+          purpose <- @environment,
+          purpose != :code_review or is_binary(Map.get(snapshot.work, :code_review_preset)) do
         template(snapshot.work, purpose, :environment, environment.ref, primary, [
           primary | List.delete(refs, primary)
         ])
@@ -130,7 +141,16 @@ defmodule Ryker.CoopFleet.JobTemplates do
         "max_patch_bytes" => 1_048_576
       }
     }
+    |> preset_selection(work, purpose)
   end
+
+  defp preset_selection(execution, %{contributor_preset: name}, :contributor)
+       when is_binary(name), do: Map.put(execution, "preset_name", name)
+
+  defp preset_selection(execution, %{code_review_preset: name}, :code_review)
+       when is_binary(name), do: Map.put(execution, "preset_name", name)
+
+  defp preset_selection(execution, _work, _purpose), do: execution
 
   # A knowledge run reads a whole repository with nobody watching, and any
   # file in it can tell the model to fetch or send something, which the open

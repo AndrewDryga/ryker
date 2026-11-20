@@ -443,7 +443,7 @@ defmodule Ryker.GitHub.Router do
       case Ingress.Inbox.record(input,
              engagement_receipt: %{"reason" => Atom.to_string(reason)},
              revision_ties: :receipt_order,
-             work_profile: binding.work_profile
+             work_profile: Engagement.work_profile(reason, input, binding, options.bot_login)
            ) do
         {:ok, receipt} ->
           result = acknowledge_review_label(binding, input, options)

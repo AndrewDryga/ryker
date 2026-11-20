@@ -24,13 +24,15 @@ defmodule Ryker.GitHub.Binding do
     :repository_full_name,
     :repository_id,
     :ryker_actor_id,
+    :review_work_profile,
     :work_profile
   ]
-  @required_fields @fields -- [:action_grants, :max_body_bytes, :work_profile]
+  @required_fields @fields --
+                     [:action_grants, :max_body_bytes, :review_work_profile, :work_profile]
   @action_grants ~w(read review rerun_ci cancel_ci approve)
   @name_regex ~r/\A[a-z][a-z0-9_-]{0,63}\z/
 
-  @enforce_keys @fields
+  @enforce_keys @fields -- [:review_work_profile]
   defstruct @fields
 
   @type t :: %__MODULE__{
@@ -41,6 +43,7 @@ defmodule Ryker.GitHub.Binding do
           repository_full_name: String.t(),
           repository_id: pos_integer(),
           ryker_actor_id: pos_integer(),
+          review_work_profile: Ingress.WorkProfile.t() | nil,
           work_profile: Ingress.WorkProfile.t() | nil
         }
 
@@ -49,7 +52,13 @@ defmodule Ryker.GitHub.Binding do
     with {:ok, attributes} <- normalize_attributes(attributes),
          {:ok, work_profile} <-
            Ingress.WorkProfile.prepare(Map.get(attributes, :work_profile)),
-         attributes <- Map.put(attributes, :work_profile, work_profile),
+         {:ok, review_work_profile} <-
+           Ingress.WorkProfile.prepare(Map.get(attributes, :review_work_profile)),
+         attributes <-
+           Map.merge(attributes, %{
+             work_profile: work_profile,
+             review_work_profile: review_work_profile
+           }),
          binding <- struct!(__MODULE__, attributes),
          :ok <- validate(binding) do
       {:ok, binding}

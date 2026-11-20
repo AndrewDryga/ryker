@@ -87,6 +87,36 @@ defmodule Ryker.GitHub.Engagement do
   def review_requested?(event_name, payload, _binding),
     do: Labels.review_request?(event_name, payload)
 
+  @doc "The operator-selected review profile for an authorized review request on this pull request."
+  def work_profile(_reason, _input, %{review_work_profile: nil} = binding, _login),
+    do: binding.work_profile
+
+  def work_profile(:review_request, _input, binding, _login), do: binding.review_work_profile
+
+  def work_profile(reason, %{content: content} = input, binding, login)
+      when reason in [:mention, :continuation] and is_binary(login) do
+    pull_comment? =
+      content["event_name"] == "pull_request_review_comment" or
+        (content["event_name"] == "issue_comment" and
+           is_map(get_in(content, ["payload", "issue", "pull_request"])))
+
+    if pull_comment? and mentioned?(input, login) and
+         addressed_review?(GitHubInput.body(content), login),
+       do: binding.review_work_profile,
+       else: binding.work_profile
+  end
+
+  def work_profile(_reason, _input, binding, _login), do: binding.work_profile
+
+  defp addressed_review?(text, login) do
+    # A question about an existing review uses normal routing. The new comment
+    # has to address the App and ask it to perform a review.
+    pattern =
+      ~r/^\s*@#{Regex.escape(login)}(?:\[bot\])?[, :]\s*(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:re-?review|review)\b/im
+
+    Regex.match?(pattern, strip_quoted_and_code(text))
+  end
+
   # An edit, deletion, or redelivery of an item Ryker already accepted must
   # reach the same durable input lineage even before Admission has opened an
   # episode. This is deliberately limited to the exact source item.

@@ -7,9 +7,11 @@ defmodule Ryker.CoopFleet.JobPreset do
   @role_name ~r/\A[a-z][a-z0-9-]{0,63}\z/
   @target ~r/\A(?:codex|claude)(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?(?:\/(?:low|medium|high|xhigh))?@[a-z0-9][a-z0-9_-]{0,63}\z/
 
+  def name?(name), do: matches?(name, @name)
+
   def valid?(%{"preset" => preset, "targets" => leads, "repository_read_only" => read_only}) do
     Maps.exact_keys?(preset, ~w(version name lead_prompt roles)) and
-      preset["version"] === 1 and matches?(preset["name"], @name) and
+      preset["version"] === 1 and name?(preset["name"]) and
       prompt?(preset["lead_prompt"]) and targets?(leads) and
       roles?(preset["roles"], leads, read_only)
   end

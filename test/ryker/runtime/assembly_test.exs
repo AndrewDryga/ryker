@@ -972,6 +972,26 @@ defmodule Ryker.Runtime.AssemblyTest do
   # placed in it, routing is not offered it, and a GitHub event about it runs
   # with the environment's default as the working copy. Made read and write
   # again, it can be the working copy again.
+  test "a review recipe keeps the GitHub binding's exact work environment and repository" do
+    settings = connected!()
+    assert {:ok, ordinary} = Assembly.build(bootstrap(), settings)
+    binding = ordinary.github.server.bindings["ryker-app"]
+    assert is_nil(binding.review_work_profile)
+
+    selected = put_in(settings.work.code_review_preset, "review")
+    assert {:ok, configured} = Assembly.build(bootstrap(), selected)
+    reviewed = configured.github.server.bindings["ryker-app"]
+    assert reviewed.work_profile == binding.work_profile
+    profile = reviewed.review_work_profile
+    assert profile.environment_ref == binding.work_profile.environment_ref
+    assert profile.repositories == binding.work_profile.repositories
+    ref = hd(profile.repositories)
+    assert {:ok, first} = Ryker.Ingress.WorkProfile.policy_for(profile, :conversational, ref)
+    assert {:ok, ^first} = Ryker.Ingress.WorkProfile.policy_for(profile, :deep, ref)
+    assert String.ends_with?(first.name, "-code-review")
+    assert first.repository_ref == ref
+  end
+
   test "a repository's access reaches the workspace every session in its environment mounts" do
     settings = connected!()
 

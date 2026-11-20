@@ -123,6 +123,11 @@ defmodule Ryker.ControlPlane.SettingsView do
       {:error, :settings_unavailable}
   end
 
+  @doc "The approved presets and accounts shown on the Models form."
+  def with_model_presets(view) do
+    Map.put(view, :model_presets, CoopFleet.model_presets(view.snapshot.work.model_accounts))
+  end
+
   @doc "Whether a settings read found the GitHub App ready to use."
   @spec github_ready?({:ok, t()} | {:error, term()} | nil) :: boolean()
   def github_ready?({:ok, %{github_connection: :ready}}), do: true

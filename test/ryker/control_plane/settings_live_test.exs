@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   import Phoenix.LiveViewTest
   alias Plug.Conn.Query
   alias Ryker.Accounting.Execution
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Fixtures.Answers
@@ -1401,6 +1402,69 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(view, "[role=alert]")
     assert Repo.aggregate(Installation, :count) == 1
     assert {:ok, %{text: "Existing guidance"}} = Ryker.Instructions.get(:global)
+  end
+
+  @tag :tmp_dir
+  test "review and contributor presets save independently and keep a missing selection visible",
+       %{tmp_dir: root} do
+    snapshot = initialize!()
+    on_exit(fn -> File.rm_rf!(root) end)
+    Config.put_override(:coop_job_presets_dir, root)
+    form_id = "#settings-other_models-form"
+    {:ok, empty, _} = open("/settings/models")
+
+    assert has_element?(
+             empty,
+             "#{form_id} select[name=code_review_preset] option",
+             "Use current routing"
+           )
+
+    assert has_element?(empty, "#{form_id} select[name='contributor_models[0][model]']")
+
+    {:ok, _} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "claude@review"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    %{"job" => job} =
+      "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
+
+    recipe = Map.take(job, ["preset", "targets"])
+    File.write!(Path.join(root, "review.json"), Jason.encode!(recipe))
+
+    writer =
+      recipe
+      |> put_in(["preset", "name"], "writer")
+      |> update_in(["preset", "roles"], fn [role] -> [Map.put(role, "mode", "delegate")] end)
+
+    File.write!(Path.join(root, "writer.json"), Jason.encode!(writer))
+
+    {:ok, view, _} = open("/settings/models")
+    refute has_element?(view, "#{form_id} select[name=code_review_preset] option[value=writer]")
+    selected = %{"contributor_preset" => "writer", "code_review_preset" => "review"}
+    view |> form(form_id, selected) |> render_change()
+    assert has_element?(view, "#{form_id} details summary", "Lead")
+    refute has_element?(view, "#{form_id} select[name='contributor_models[0][model]']")
+    view |> form(form_id, selected) |> render_submit()
+    refute has_element?(view, "#{form_id} .settings-error"), render(view |> element(form_id))
+    saved = Settings.fetch!().work
+    assert {saved.code_review_preset, saved.contributor_preset} == {"review", "writer"}
+    assert saved.contributor_models == snapshot.work.contributor_models
+
+    File.rm!(Path.join(root, "writer.json"))
+    {:ok, missing, _} = open("/settings/models")
+
+    assert has_element?(
+             missing,
+             "#{form_id} select[name=contributor_preset] option[selected]",
+             "writer (unavailable)"
+           )
+
+    missing |> form(form_id, %{"contributor_preset" => ""}) |> render_submit()
+    saved = Settings.fetch!().work
+    assert {saved.code_review_preset, saved.contributor_preset} == {"review", nil}
   end
 
   test "each kind of work has its own models, chosen by model, effort and account" do

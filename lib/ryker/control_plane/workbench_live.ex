@@ -1928,6 +1928,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     end
   end
 
+  defp model_presets(:model, {:ok, view}), do: {:ok, SettingsView.with_model_presets(view)}
+
+  defp model_presets(_section, settings), do: settings
+
   defp repository_scope(socket) do
     {:ok, view} = socket.assigns.settings
     RepositoryChoices.scope(view, actor(socket))
@@ -1937,7 +1941,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # are one native page family, with a page of its own for each form that adds
   # or edits one thing on them; the route map lets through only these.
   defp load_settings(socket, options, section, form) do
-    settings = options.projection.settings.()
+    settings = model_presets(section, options.projection.settings.())
 
     assign(socket,
       native: :settings,

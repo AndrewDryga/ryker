@@ -1,6 +1,7 @@
 defmodule Ryker.CoopFleet.JobAuthorityTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
+  alias Ryker.Config
   alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -84,6 +85,31 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
         snapshot
       end
 
+    snapshot =
+      if context[:contributor_preset] do
+        on_exit(fn -> File.rm_rf!(context.tmp_dir) end)
+        Config.put_override(:coop_job_presets_dir, context.tmp_dir)
+
+        %{"job" => job} =
+          "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
+
+        File.write!(
+          Path.join(context.tmp_dir, "review.json"),
+          Jason.encode!(Map.take(job, ["targets", "preset"]))
+        )
+
+        {:ok, saved} =
+          Settings.save_work(
+            %{contributor_preset: "review", model_accounts: ["codex@default", "claude@review"]},
+            snapshot.installation.revision,
+            @actor
+          )
+
+        saved
+      else
+        snapshot
+      end
+
     template =
       Enum.find(
         JobTemplates.from_settings(snapshot),
@@ -160,6 +186,34 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              JobAuthority.ensure_pinned(Repo.get!(Session, session.id), nil, fn _, _, _ ->
                flunk("refetched a frozen job")
              end)
+  end
+
+  @tag :tmp_dir
+  @tag :contributor_preset
+  test "confirmed contributor work keeps its authorized recipe when the catalog changes", %{
+    session: session,
+    tmp_dir: root
+  } do
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, "/private/source", &prepare/3, NoRuntimeReader)
+
+    assert pinned.worker_job_document["preset"]["name"] == "review"
+    assert pinned.worker_job_document["targets"] == ["codex:gpt-6-sol@default"]
+    refute pinned.worker_job_document["repository_read_only"]
+    assert pinned.worker_job_document["source"]["repository_ref"] == "app"
+    assert pinned.worker_job_document["check"]["argv"] == ["make", "dev-check"]
+    File.rm!(Path.join(root, "review.json"))
+
+    assert {:ok, resumed} =
+             JobAuthority.ensure_pinned(
+               Repo.get!(Session, session.id),
+               "/private/source",
+               &prepare/3,
+               NoRuntimeReader
+             )
+
+    assert resumed.worker_job_document == pinned.worker_job_document
+    assert resumed.worker_job_digest == pinned.worker_job_digest
   end
 
   # Coop's job-setup:2 runs only the check a job names (Coop 33ea84fe): the parent's `gate:`

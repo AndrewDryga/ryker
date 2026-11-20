@@ -164,6 +164,12 @@ defmodule Ryker.Work.FailureCause do
     # A task keeps the settings it was admitted with. The tenant task stopped on
     # tenantcorp/tenant-core could not run again once tenant-core was taken out
     # of its environment (2026-10-03), and its page named no cause.
+    {"coop_job_preset",
+     %{
+       cause: "The selected Coop preset could not be loaded for this job.",
+       next_step:
+         "Open Settings → Models. Restore the named preset and its model accounts, or choose an available preset for this kind of work."
+     }},
     {"coop_worker_job_settings_unavailable",
      %{
        cause:

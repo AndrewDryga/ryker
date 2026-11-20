@@ -16,6 +16,8 @@ defmodule Ryker.Settings.Work.Changeset do
             :workspace_ref,
             :ready_routing_sessions,
             :ready_work_sessions,
+            :contributor_preset,
+            :code_review_preset,
             :model_accounts | @model_fields
           ] ++
             @local_routing_fields
@@ -49,6 +51,16 @@ defmodule Ryker.Settings.Work.Changeset do
     |> validate_models(work, snapshot)
     |> validate_shared_accounts()
     |> validate_local_routing()
+  end
+
+  def check_presets(changeset, results) do
+    Enum.reduce(results, changeset, fn
+      {field, {:error, {:coop_job_preset, _name, reason}}}, acc ->
+        add_error(acc, field, "is unavailable", validation: reason)
+
+      {_field, {:ok, _recipe}}, acc ->
+        acc
+    end)
   end
 
   # An endpoint or a model is checked when this save changes it; comparing is

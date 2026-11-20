@@ -44,6 +44,14 @@ defmodule Ryker.Work.FailureCauseTest do
 
   # A missing test dependency must name the project file to fix instead of
   # leaving a stopped task with the generic "could not confirm why" message.
+  test "a missing preset points to the saved choice and required accounts" do
+    detail = ErrorDetail.detail({:coop_job_preset, "review", :account_unavailable})
+    assert %{cause: cause, next_step: next_step} = FailureCause.explain(detail)
+    assert cause =~ "selected Coop preset"
+    assert next_step =~ "Settings → Models"
+    assert next_step =~ "model accounts"
+  end
+
   test "a project setup refusal tells the operator which declaration needs fixing" do
     for {path, reason, explanation} <- [
           {"compose.test.yml", :not_found, "missing from the task's source commit"},
