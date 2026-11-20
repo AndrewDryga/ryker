@@ -56,6 +56,9 @@ defmodule Ryker.Work.FailureCause do
     "invalid_yaml" => "is not valid project YAML"
   }
 
+  # Coop's words, on capture and on restore, for a default branch it could not check.
+  @default_branch_unchecked "could not be refreshed"
+
   # The saved error names one of these conditions somewhere in its term, and
   # each says the same thing wherever it nests. `depends` says what a retry
   # depends on, where the generic "the condition named above" would mislead.
@@ -140,6 +143,29 @@ defmodule Ryker.Work.FailureCause do
          "Ryker already ran it again over about an hour. Run it again. If it stops the same " <>
            "way, the saved error has what the worker reported.",
        depends: "It works once whatever stopped the model's software passes."
+     }},
+    # Coop answers 503 when it could not check the job's default branch, which a checkpoint of
+    # work rebased onto that branch needs, both to save one and to restore one. Saved under its
+    # key, the answer changes only for a new key, which a retry of this task uses.
+    {@default_branch_unchecked,
+     %{
+       cause:
+         "The worker couldn't check the repository's default branch just now, which it " <>
+           "needs to save or restore this task's working copy.",
+       next_step:
+         "Try again in a few minutes. If it stops the same way, check that the worker can " <>
+           "reach GitHub and that the GitHub App can still read the repository.",
+       depends: "It works once the worker can check the default branch again."
+     }},
+    {"coop_upgrade_required, :checkpoint_upstream",
+     %{
+       cause:
+         "The task's saved working copy was rebased onto a newer commit of the default " <>
+           "branch, and the worker holding the task runs a Coop version that can't restore " <>
+           "such a copy, so Ryker didn't send it there.",
+       next_step:
+         "Upgrade Coop on that worker to a release that advertises checkpoint-upstream, " <>
+           "then retry this task."
      }},
     {"coop_worker_capacity_unavailable",
      %{
@@ -339,6 +365,11 @@ defmodule Ryker.Work.FailureCause do
   """
   @spec checkpoint_unsupported?(String.t() | nil) :: boolean()
   def checkpoint_unsupported?(detail), do: detail in @checkpoint_unsupported
+
+  @doc "Whether Coop refused a checkpoint save or restore because it could not check the default branch."
+  @spec default_branch_unchecked?(String.t() | nil) :: boolean()
+  def default_branch_unchecked?(detail),
+    do: is_binary(detail) and String.contains?(detail, @default_branch_unchecked)
 
   defp coop_failure(detail) do
     cond do

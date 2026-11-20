@@ -1401,6 +1401,53 @@ defmodule Ryker.Work.ExecutorTest do
     assert state.validations == []
   end
 
+  # Coop after 15.0.0 answers a capture 503 when it could not check the default branch, and
+  # keeps that answer under the key: "retry with a new idempotency key". Retried under the
+  # same key, every attempt replayed the saved 503 until the task stopped for a person.
+  test "a capture refused for an unchecked default branch is retried under a new key" do
+    {claim, fake} = completed_runner_wait!("checkpoint-default-branch")
+
+    refusal =
+      {:coop_error, 503, "repository_unavailable",
+       "workspace checkpoint contains a credential past the session base, and the job's default branch could not be refreshed to check whether it came from there; retry with a new idempotency key"}
+
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, refusal))
+
+    assert {:ok, {:deferred, _reason}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "checkpoint-default-branch",
+               executor_options: options(fake),
+               max_attempts: 8
+             )
+
+    waiting = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert waiting.status == :pending
+    assert waiting.checkpoint_retry_generation == claim.turn.checkpoint_retry_generation + 1
+    assert waiting.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+    old_key = OperationKeys.checkpoint(claim.turn)
+    assert OperationKeys.checkpoint(waiting) != old_key
+    assert FakeAPI.state(fake).checkpoint_results[old_key] == {:error, refusal}
+
+    waiting
+    |> Ecto.Changeset.change(next_attempt_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    |> Repo.update!()
+
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, nil))
+    assert {:ok, resumed} = Custody.claim_next("checkpoint-default-branch-resume", 60, :work)
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Dispatcher.run_claim(resumed,
+               worker_ref: "checkpoint-default-branch-resume",
+               executor_options: options(fake),
+               max_attempts: 8
+             )
+
+    state = FakeAPI.state(fake)
+    assert state.checkpoint_keys == [old_key, OperationKeys.checkpoint(waiting)]
+    assert state.submit_count == 0
+    assert state.create_count == 0
+  end
+
   test "an unproven checkpoint outcome retains its key and its completed answer" do
     {claim, fake} = completed_runner_wait!("checkpoint-uncertain-capacity")
     key = OperationKeys.checkpoint(claim.turn)

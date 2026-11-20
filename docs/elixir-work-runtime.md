@@ -116,6 +116,14 @@ tools own durable records. The generic Delivery module owns external message cus
   get no check, so their review is not publishable. Retained jobs without `runtime` are not
   retrofitted with it. Normal source-freshness handling keeps their original runtime and
   environment authority; resuming them cannot grant project services or another toolchain.
+- A checkpoint of work rebased onto a newer default-branch commit names that commit as
+  `upstream_revision` in its bundle manifest, and only a worker advertising
+  `checkpoint-upstream:1` restores it. A replacement session is placed before its bundle is read,
+  so a restore of such a bundle on a worker without the capability is refused before the worker
+  receives it (`coop_upgrade_required`, naming the worker to upgrade); a bundle without the field
+  restores on any worker. A capture or restore Coop answers `503 repository_unavailable` ("could
+  not be refreshed") runs again only under a new key: capture advances its checkpoint retry
+  generation, and a restore stops so the task's retry places a new session.
 - Version-1 jobs are refused. The move to version 2 carried the sessions that still held one
   until 2026-10-08, when the last were closed; sessions retained from then are cleaned up as any
   other, since a cleanup receipt is checked against the stored job whatever its version.

@@ -26,7 +26,9 @@ defmodule Ryker.Publication.Custody do
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
   @checkpointed_candidate ~w(repository_ref base_revision committed_revision candidate_tree_sha256)
-  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch publication_authorization_revoked publication_push_outcome_unverified)
+  # Refusals a first draft recovers from only on a new branch, by Update.
+  @new_branch_refusals ~w(publication_authorization_revoked publication_branch_has_closed_pull_request publication_refused)
+  @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch publication_authorization_revoked publication_push_outcome_unverified publication_branch_has_closed_pull_request publication_refused)
   @request_fields [:actor_ref, :occurred_at, :record_ref, :request_ref, :target]
   @approval_fields [:actor_ref, :approval_ref, :occurred_at, :publication_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -866,15 +868,19 @@ defmodule Ryker.Publication.Custody do
   # replays the refusal. A first draft has no remote head to reconcile, and Discard was the only way
   # out of a change a person had approved (2026-09-30). Update asks again from a fresh review under
   # new keys; the draft then needs its confirmation again unless the task's grant covers it.
+  # A branch with someone else's closed pull request, and a refusal Coop added after this
+  # version, end the same way, and Coop's answer to both is a new branch: the next recovery
+  # generation names one (`Ryker.Publication.Request`).
   defp recovery_attributes(
          %Publication{
            status: :publish_pending,
-           last_error_code: "publication_authorization_revoked",
+           last_error_code: code,
            recovery_generation: generation
          } = publication,
          :update,
          now
-       ) do
+       )
+       when code in @new_branch_refusals do
     {:ok,
      publication
      |> fresh_review_attributes(now)

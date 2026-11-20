@@ -44,4 +44,13 @@ defmodule Ryker.CoopFleet.Worker do
   """
   @spec heartbeat_seconds() :: pos_integer()
   def heartbeat_seconds, do: 60
+
+  @doc "Whether the worker's last poll advertised capability `name` at exactly `version`."
+  @spec advertises?(t(), String.t(), String.t()) :: boolean()
+  def advertises?(%__MODULE__{capabilities: capabilities}, name, version)
+      when is_list(capabilities) do
+    Enum.any?(capabilities, &(is_map(&1) and &1["name"] == name and &1["version"] == version))
+  end
+
+  def advertises?(_worker, _name, _version), do: false
 end

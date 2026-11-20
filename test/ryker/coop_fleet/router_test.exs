@@ -6,7 +6,7 @@ defmodule Ryker.CoopFleet.RouterTest do
   import Plug.Test
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CoopFleet.{Bodies, Checkpoints, ControlPlane, Enrollment, JobSpec, Placement}
-  alias Ryker.CoopFleet.{Router, SourceGrants, WorkspaceCheckpointTransfer}
+  alias Ryker.CoopFleet.{Router, SourceGrants, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -699,6 +699,103 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert ControlPlane.portable_workspace(source, requirements, options[:body_root]) == nil
     File.rename!(data_path <> ".held", data_path)
 
+    restore = replacement_restore!(command, transfer, checkpoint, bundle)
+
+    # Enqueue is durable, but no command goes out while its large body is absent.
+    assert {:ok, %{"commands" => []}} =
+             ControlPlane.handle_poll_certificate(
+               certificate,
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    assert Checkpoints.prepare_restore(restore, options) == :ok
+
+    assert {:ok, %{"commands" => [wire]}} =
+             ControlPlane.handle_poll_certificate(
+               certificate,
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    assert wire["kind"] == "api_request"
+    assert wire["payload"]["path"] == "/v1/sessions/replacement/workspace/restore"
+    assert wire["payload"]["body_ref"] == Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
+
+    download =
+      :get
+      |> conn("/v1/coop-workers/commands/#{restore.id}/request-body")
+      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
+      |> Router.call(options)
+
+    assert download.status == 200
+    assert download.resp_body == bundle
+
+    changed = put_in(response, ["checkpoint", "candidate_tree_sha256"], String.duplicate("a", 64))
+
+    assert Checkpoints.capture(command.session_id, command.idempotency_key, changed, options) ==
+             {:error, :checkpoint_not_authorized}
+  end
+
+  # Coop 15.0.0 and older answer 500 to a bundle naming `upstream_revision`, on
+  # every attempt and without saying why. Ryker read the bundle before it sent it
+  # and placed the session before it read the bundle, so the refusal is Ryker's,
+  # made before the worker can take the body, and names the worker to upgrade.
+  test "a checkpoint rebased onto a newer default branch is restored only on a worker that advertises checkpoint-upstream" do
+    certificate = authorize_and_poll!()
+
+    command =
+      command!(certificate, "checkpoint_workspace", %{
+        "coop_session_id" => "coop-session-1",
+        "expected_revision" => 4,
+        "repository_ref" => "ryker"
+      })
+
+    {checkpoint, bundle} =
+      WorkspaceCheckpointFixture.build(%{
+        session_ref: command.session_id,
+        placement_generation: command.placement_generation,
+        upstream_revision: String.duplicate("7", 40)
+      })
+
+    {result, options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
+    assert {:ok, %{"transfer_id" => transfer_id}} = result
+    transfer = Repo.get!(WorkspaceCheckpointTransfer, transfer_id)
+    restore = replacement_restore!(command, transfer, checkpoint, bundle)
+
+    assert Checkpoints.prepare_restore(restore, options) ==
+             {:error, {:coop_upgrade_required, :checkpoint_upstream, restore.worker_id}}
+
+    assert {:ok, %{"commands" => []}} =
+             ControlPlane.handle_poll_certificate(
+               certificate,
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    refute File.exists?(Path.join([options[:body_root], restore.id, "request"]))
+
+    Repo.get!(Worker, restore.worker_id)
+    |> Ecto.Changeset.change(capabilities: [%{"name" => "checkpoint-upstream", "version" => "1"}])
+    |> Repo.update!()
+
+    assert Checkpoints.prepare_restore(restore, options) == :ok
+
+    assert {:ok, %{"commands" => [wire]}} =
+             ControlPlane.handle_poll_certificate(
+               certificate,
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    assert wire["payload"]["path"] == "/v1/sessions/replacement/workspace/restore"
+  end
+
+  # The source session's placement ends and a replacement session of the same
+  # task, placed on the same worker, is asked to restore the saved checkpoint.
+  defp replacement_restore!(command, transfer, checkpoint, bundle) do
+    source = Repo.get!(Session, command.session_id)
+
     Repo.get!(Placement, command.placement_id)
     |> Ecto.Changeset.change(state: :replaced)
     |> Repo.update!()
@@ -757,40 +854,7 @@ defmodule Ryker.CoopFleet.RouterTest do
                "restore:#{Ecto.UUID.generate()}"
              )
 
-    # Enqueue is durable, but no command goes out while its large body is absent.
-    assert {:ok, %{"commands" => []}} =
-             ControlPlane.handle_poll_certificate(
-               certificate,
-               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
-               options
-             )
-
-    assert Checkpoints.prepare_restore(restore, options) == :ok
-
-    assert {:ok, %{"commands" => [wire]}} =
-             ControlPlane.handle_poll_certificate(
-               certificate,
-               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
-               options
-             )
-
-    assert wire["kind"] == "api_request"
-    assert wire["payload"]["path"] == "/v1/sessions/replacement/workspace/restore"
-    assert wire["payload"]["body_ref"] == Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
-
-    download =
-      :get
-      |> conn("/v1/coop-workers/commands/#{restore.id}/request-body")
-      |> put_peer_data(%{address: {127, 0, 0, 1}, port: 1234, ssl_cert: certificate})
-      |> Router.call(options)
-
-    assert download.status == 200
-    assert download.resp_body == bundle
-
-    changed = put_in(response, ["checkpoint", "candidate_tree_sha256"], String.duplicate("a", 64))
-
-    assert Checkpoints.capture(command.session_id, command.idempotency_key, changed, options) ==
-             {:error, :checkpoint_not_authorized}
+    restore
   end
 
   # The session holds the frozen job its worker runs, and that job's digest.

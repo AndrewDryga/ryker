@@ -16,6 +16,7 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.Repo
   alias Ryker.StateTools
   alias Ryker.Work
+  require Logger
 
   @fields [:bridge, :bridge_options, :source_root]
   @option_keys [
@@ -733,7 +734,7 @@ defmodule Ryker.CoopFleet.Client do
            "resource_type" => "publication",
            "resource_id" => session_id
          },
-         "publication" => %{"status" => "refused", "error_code" => code}
+         "publication" => %{"status" => "refused", "error_code" => code} = publication
        }) do
     case code do
       "publication_branch_changed" ->
@@ -754,8 +755,18 @@ defmodule Ryker.CoopFleet.Client do
       "publication_push_outcome_unverified" ->
         {:error, :publication_push_outcome_unverified}
 
-      _unknown ->
-        {:error, {:coop_protocol_error, :publication_refusal}}
+      "publication_branch_has_closed_pull_request" ->
+        {:error, closed_pull_request(publication["closed_pull_request"])}
+
+      # Coop's contract (MIGRATING.md, after 15.0.0): a refusal code the
+      # controller does not know is final. It was read as a protocol error and
+      # sent again three times, each replaying the same saved refusal.
+      unknown ->
+        Logger.warning(
+          "Coop refused a publication with an unrecognized code: #{inspect(unknown, limit: 4, printable_limit: 120)}"
+        )
+
+        {:error, {:publication_refused, refusal_code(unknown)}}
     end
   end
 
@@ -785,6 +796,27 @@ defmodule Ryker.CoopFleet.Client do
 
   defp publication_result(_client, _command, _session_id, _response),
     do: {:error, {:coop_protocol_error, :publication_resource}}
+
+  # GitHub lists a pull request on the draft's branch that someone else opened
+  # and closed; Coop never pushes to such a branch. The refusal is final either
+  # way, and names the pull request when Coop's answer does.
+  defp closed_pull_request(%{"number" => number, "url" => url})
+       when is_integer(number) and number > 0 and is_binary(url) and byte_size(url) <= 1_024 do
+    if Regex.match?(
+         ~r{\Ahttps://[A-Za-z0-9.-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+\z},
+         url
+       ),
+       do: {:publication_branch_has_closed_pull_request, number, url},
+       else: {:publication_branch_has_closed_pull_request, number, nil}
+  end
+
+  defp closed_pull_request(_closed), do: :publication_branch_has_closed_pull_request
+
+  defp refusal_code(code) when is_binary(code) do
+    if Regex.match?(~r/\A[a-z0-9_]{1,80}\z/, code), do: code, else: "unrecognized"
+  end
+
+  defp refusal_code(_code), do: "unrecognized"
 
   defp publication_operation(client, placement, command, session_id, %{
          "id" => operation_id,
@@ -1364,10 +1396,15 @@ defmodule Ryker.CoopFleet.Client do
   # fence too failed the stop on every attempt for eleven hours (2026-10-09).
   # So does one created without the checkpoint its workspace needed: its stop
   # asked for the checkpoint again on every attempt, and its card read
-  # "Stopping" for good (2026-10-09).
+  # "Stopping" for good (2026-10-09). A restore Coop refused because it could not
+  # check the default branch, and one Ryker kept from a worker that cannot restore
+  # its checkpoint, leave the same unused session: under the same key each would
+  # only answer the same way again.
   defp fenced_workspace(client, command, operation, key) do
     case ensure_reconciled_workspace(client, command, operation, key) do
       {:error, {:coop_error, 409, "invalid_session_state", _detail}} -> :ok
+      {:error, {:coop_error, 503, "repository_unavailable", _detail}} -> :ok
+      {:error, {:coop_upgrade_required, :checkpoint_upstream, _worker_id}} -> :ok
       {:error, {:coop_workspace_checkpoint_required, _session_id, _generation}} -> :ok
       result -> result
     end

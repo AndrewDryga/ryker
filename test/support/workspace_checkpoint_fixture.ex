@@ -51,6 +51,12 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
       "gate_receipt" => nil
     }
 
+    manifest =
+      case Map.fetch(attributes, :upstream_revision) do
+        {:ok, upstream} -> Map.put(manifest, "upstream_revision", upstream)
+        :error -> manifest
+      end
+
     bundle =
       tar([
         {"manifest.json", Jason.encode!(manifest)},

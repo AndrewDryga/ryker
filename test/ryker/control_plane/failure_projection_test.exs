@@ -47,6 +47,35 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     refute inspect(explanation) =~ "keeps retrying"
   end
 
+  # Coop after 15.0.0 refuses a branch someone else's closed pull request is on, naming it, and
+  # tells a controller to treat any code it does not know as final. Either way the answer is a
+  # new branch, and a page promising a retry would have a person wait for nothing.
+  test "a closed pull request on the branch is named, and an unknown refusal promises no retry" do
+    url = "https://github.com/example/repo/pull/3"
+    detail = Ryker.ErrorDetail.detail({:publication_branch_has_closed_pull_request, 3, url})
+
+    row = %{
+      kind: "publication",
+      summary: "publication_branch_has_closed_pull_request",
+      diagnosis: Ryker.Operator.FailureDetail.facts(detail),
+      source: "ryker",
+      attempt_count: 1
+    }
+
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :fix_first
+    assert explanation.summary =~ "closed pull request #3 (#{url})"
+    assert inspect(explanation) =~ "new branch"
+
+    unnamed = FailureExplanation.explain(%{row | diagnosis: nil})
+    assert unnamed.summary =~ "already has a closed pull request that Ryker did not open"
+
+    unknown = FailureExplanation.explain(%{row | summary: "publication_refused", diagnosis: nil})
+    assert unknown.outlook == :fix_first
+    assert inspect(unknown) =~ "new branch"
+    refute inspect(unknown) =~ "keeps retrying"
+  end
+
   # Andrew, 2026-10-03, of a failure page: it "doesn't tell what was the issue, show an error". A
   # cause Ryker has no words for said "The Technical details keep its code" after Technical
   # details were gone; it now shows the saved code itself, and only ever a code.

@@ -312,11 +312,12 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
       # A transient transport failure, in contrast, is not a terminal operation.
       state =
         case result do
-          {:error, {:coop_error, _status, "storage_unavailable", detail}} ->
+          {:error, {:coop_error, _status, code, detail}}
+          when code in ["storage_unavailable", "repository_unavailable"] ->
             operation = %{
               "method" => "CheckpointWorkspace",
               "state" => "failed",
-              "error_code" => "storage_unavailable",
+              "error_code" => code,
               "error_detail" => detail
             }
 

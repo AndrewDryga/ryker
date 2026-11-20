@@ -17,11 +17,36 @@ defmodule Ryker.Operator.FailureDetail do
         %{http_status: String.to_integer(status), code: code}
 
       _unrecognized ->
-        Ryker.PublicationRetry.facts(detail)
+        Ryker.PublicationRetry.facts(detail) || closed_pull_request_facts(detail)
     end
   end
 
   def facts(_detail), do: nil
+
+  defp closed_pull_request_facts(detail) do
+    case closed_pull_request(detail) do
+      nil -> nil
+      closed -> %{closed_pull_request: closed}
+    end
+  end
+
+  # Coop's `closed_pull_request`, as `Ryker.CoopFleet.Client` saved it: a number and a GitHub
+  # pull request URL, both checked before they were saved, and checked again here because the
+  # detail is free text.
+  @closed_pull_request ~r<\A\{:publication_branch_has_closed_pull_request, ([1-9][0-9]{0,9}), (?:"(https://[A-Za-z0-9.-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+)"|nil)\}\z>
+
+  @doc "The closed pull request a `publication_branch_has_closed_pull_request` refusal named, or nil."
+  @spec closed_pull_request(String.t() | nil) ::
+          %{number: pos_integer(), url: String.t() | nil} | nil
+  def closed_pull_request(detail) when is_binary(detail) and byte_size(detail) <= 1_200 do
+    case Regex.run(@closed_pull_request, detail) do
+      [_, number] -> %{number: String.to_integer(number), url: nil}
+      [_, number, url] -> %{number: String.to_integer(number), url: url}
+      nil -> nil
+    end
+  end
+
+  def closed_pull_request(_detail), do: nil
 
   @spec project(String.t() | nil) :: String.t() | nil
   def project(nil), do: nil

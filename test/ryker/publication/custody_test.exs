@@ -874,7 +874,8 @@ defmodule Ryker.Publication.CustodyTest do
     assert updated.approval_ref == nil
   end
 
-  for code <- ~w(publication_pull_request_mismatch publication_authorization_revoked) do
+  for code <-
+        ~w(publication_pull_request_mismatch publication_authorization_revoked publication_branch_has_closed_pull_request publication_refused) do
     @terminal_code code
     test "#{code} stops retries and remains discardable without update identity" do
       reviewed = reviewed_publication!("discard-unreconciled-first-publish", true)
@@ -929,30 +930,41 @@ defmodule Ryker.Publication.CustodyTest do
   # the grant still demanded the review's lapsed placement. Neither had a pull request head to
   # update, so Discard was the only way out of a change Andrew had approved. A refused grant ends
   # that publish attempt; reviewing again starts a new one under new keys.
-  test "a refused publication grant can be reviewed again without a pull request head" do
-    %{publication: approved} = PublicationFixture.approved!("refused-grant-update")
-    assert {:ok, claim} = PublicationCustody.claim_next("publication:refused-grant", 60)
-    assert claim.publication.id == approved.id
+  #
+  # Coop answers a branch with someone else's closed pull request, and a refusal code this
+  # Ryker does not know, the same way: final, publish to a new branch. The next recovery
+  # generation names a new branch (`Ryker.Publication.Request`).
+  for code <-
+        ~w(publication_authorization_revoked publication_branch_has_closed_pull_request publication_refused) do
+    @new_branch_code code
+    test "#{code} can be reviewed again onto a new branch without a pull request head" do
+      %{publication: approved} =
+        PublicationFixture.approved!("refused-update-#{@new_branch_code}")
 
-    assert {:ok, refused} =
-             PublicationCustody.defer(
-               approved.ref,
-               claim.lease_ref,
-               60,
-               "publication_authorization_revoked",
-               "The worker refused publication."
-             )
+      assert {:ok, claim} = PublicationCustody.claim_next("publication:refused-grant", 60)
+      assert claim.publication.id == approved.id
 
-    assert is_nil(refused.expected_remote_head_sha)
+      assert {:ok, refused} =
+               PublicationCustody.defer(
+                 approved.ref,
+                 claim.lease_ref,
+                 60,
+                 @new_branch_code,
+                 "The worker refused publication."
+               )
 
-    assert {:ok, %{publication: updated}} =
-             PublicationCustody.recover(refused.ref, :update, refused.recovery_generation)
+      assert is_nil(refused.expected_remote_head_sha)
 
-    assert updated.status == :review_pending
-    assert updated.review_generation == refused.review_generation + 1
-    assert updated.approval_ref == nil
-    assert updated.review_document == nil
-    assert updated.last_error_code == nil
+      assert {:ok, %{publication: updated}} =
+               PublicationCustody.recover(refused.ref, :update, refused.recovery_generation)
+
+      assert updated.status == :review_pending
+      assert updated.review_generation == refused.review_generation + 1
+      assert updated.recovery_generation == refused.recovery_generation + 1
+      assert updated.approval_ref == nil
+      assert updated.review_document == nil
+      assert updated.last_error_code == nil
+    end
   end
 
   test "operator discard preserves an unapproved review outcome as evidence" do

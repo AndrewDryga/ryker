@@ -1109,7 +1109,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # A worker that could not be reached, answered too slowly or failed with a
   # server error is a question of whether a worker reports now; a refusal the
   # worker named is not, whatever the fleet looks like.
-  defp work_cause(%{stop_code: "work_retry_exhausted:" <> inner} = row, _brief)
+  defp work_cause(%{stop_code: "work_retry_exhausted:" <> inner} = row, brief)
        when inner in [
               "coop_unavailable",
               "coop_transport_error",
@@ -1121,6 +1121,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "coop_worker_command_timeout" ->
           {"The worker did not take or finish its commands in time.",
            "Each time Ryker gave the worker the task's next step, the worker did not pick it up or finish it in time."}
+
+        # A server error the worker named, such as a default branch it could not check, is
+        # said in its own words.
+        "coop_error" when brief.explained == true ->
+          {brief.cause, brief.next_step}
 
         "coop_error" ->
           {"The worker kept failing with a server error.",
@@ -2479,6 +2484,40 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "Ryker could not confirm it may publish this reviewed change, so it did not publish it.",
       :fix_first,
       "Automatic retries have stopped. Review latest state on the task checks the change again before a new draft, or discard it."
+    )
+  end
+
+  # Coop never pushes to a branch whose pull request someone else opened, even
+  # once it is closed, and names the newest such pull request.
+  defp publication_cause(%{summary: "publication_branch_has_closed_pull_request"} = row) do
+    closed =
+      case row[:diagnosis] do
+        %{closed_pull_request: %{number: number, url: url}} when is_binary(url) ->
+          "pull request ##{number} (#{url})"
+
+        %{closed_pull_request: %{number: number}} ->
+          "pull request ##{number}"
+
+        _unnamed ->
+          "pull request"
+      end
+
+    cause(
+      "The draft's branch already has a closed #{closed} that Ryker did not open.",
+      "Someone else opened that pull request from the branch Ryker chose for this draft, and it was closed. Ryker never reuses such a branch, so it opened no pull request.",
+      :fix_first,
+      "Automatic retries have stopped. Review latest state on the task publishes the change on a new branch, or discard it."
+    )
+  end
+
+  # Coop refused with a code this version of Ryker does not know. Coop's rule
+  # for that is a final refusal, and its answer is a new branch.
+  defp publication_cause(%{summary: "publication_refused"}) do
+    cause(
+      "The worker refused to publish this change, for a reason this version of Ryker doesn't recognise.",
+      "The worker finished the publish as refused. Asking again with the same request gets the same answer, so Ryker stopped. Ryker's log names the worker's reason.",
+      :fix_first,
+      "Automatic retries have stopped. Review latest state on the task publishes the change on a new branch, or discard it."
     )
   end
 

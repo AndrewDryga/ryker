@@ -117,6 +117,34 @@ defmodule Ryker.Work.FailureCauseTest do
     end
   end
 
+  # Coop after 15.0.0 answers 503 when it could not check the default branch a rebased
+  # checkpoint needs, on save and on restore. Spent, the retries read "the worker kept failing
+  # with a server error", and a worker too old to restore such a checkpoint said nothing at all.
+  test "an unchecked default branch and a worker too old for a rebased checkpoint say so" do
+    for coop_detail <- [
+          "workspace checkpoint contains a credential past the session base, and the job's default branch could not be refreshed to check whether it came from there; retry with a new idempotency key",
+          "checkpoint needs upstream commit #{String.duplicate("7", 40)} from the job's source, which could not be refreshed"
+        ] do
+      reason = {:work_retry_exhausted, {:coop_error, 503, "repository_unavailable", coop_detail}}
+      detail = "work_retry_exhausted: " <> inspect(reason)
+
+      assert %{cause: cause, next_step: next_step} = FailureCause.explain(detail)
+      assert cause =~ "couldn't check the repository's default branch"
+      assert next_step =~ "Try again in a few minutes"
+      assert FailureCause.default_branch_unchecked?(detail)
+    end
+
+    refute FailureCause.default_branch_unchecked?(nil)
+
+    detail =
+      "coop_upgrade_required: " <>
+        inspect({:coop_upgrade_required, :checkpoint_upstream, "worker-a"})
+
+    assert %{cause: cause, next_step: next_step} = FailureCause.explain(detail)
+    assert cause =~ "can't restore such a copy"
+    assert next_step =~ "Upgrade Coop on that worker"
+  end
+
   test "a submit to a session whose budget is spent reads as the worker's refusal" do
     detail =
       inspect({:coop_error, 409, "budget_exhausted", "the session's turn budget is spent"})

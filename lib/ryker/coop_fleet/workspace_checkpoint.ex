@@ -88,15 +88,35 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
     with :ok <-
            manifest_exact_fields(
              manifest,
-             @manifest_fields ++ ~w(repository tracked_tree),
+             @manifest_fields ++ ~w(repository tracked_tree) ++ upstream_field(manifest),
              :fields
            ),
          :ok <- manifest_revision(manifest["tracked_tree"]),
+         :ok <- manifest_upstream(manifest),
          {:ok, content} <- manifest_entry(manifest["repository"], "repository.tar"),
          do: {:ok, "repository", content}
   end
 
   defp manifest_content(_manifest), do: bundle_error(:version)
+
+  # Coop names the newer default-branch commit the work was rebased onto, whose
+  # history the restoring worker fetches itself instead of reading it from the
+  # bundle. Only a worker advertising `checkpoint-upstream:1` can restore such a
+  # bundle (`upstream?/1`). The field is optional and never the base itself.
+  defp upstream_field(manifest),
+    do: if(Map.has_key?(manifest, "upstream_revision"), do: ["upstream_revision"], else: [])
+
+  defp manifest_upstream(%{"upstream_revision" => upstream} = manifest) do
+    if GitObject.id?(upstream) and upstream != manifest["base_revision"],
+      do: :ok,
+      else: bundle_error(:upstream_revision)
+  end
+
+  defp manifest_upstream(_manifest), do: :ok
+
+  @doc "Whether a decoded bundle manifest names an upstream commit, which only a worker with `checkpoint-upstream:1` restores."
+  @spec upstream?(map()) :: boolean()
+  def upstream?(manifest), do: is_map_key(manifest, "upstream_revision")
 
   @spec validate_pair(map(), map()) :: :ok | {:error, term()}
   def validate_pair(%{} = checkpoint, %{} = manifest) do

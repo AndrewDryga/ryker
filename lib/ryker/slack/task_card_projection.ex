@@ -24,6 +24,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   # Why a refused grant stopped the draft, in words: the card said "needs operator attention:
   # `publication_authorization_revoked`" (2026-09-30). The recovery is on the card itself.
   @refused_grant "Ryker couldn't get permission to publish this reviewed change."
+  # Refusals a new branch answers: Update publishes there (`Ryker.Publication.Custody`).
+  @new_branch_refusals ~w(publication_authorization_revoked publication_branch_has_closed_pull_request publication_refused)
   # The card printed `:publication_existing_pull_request_changed` once a draft was closed on
   # GitHub while Ryker updated it (manual test, 2026-10-01). These are the Failures page's words.
   @changed_on_github "Someone changed this draft's branch or pull request on GitHub, so Ryker stopped to avoid overwriting their work."
@@ -426,6 +428,14 @@ defmodule Ryker.Slack.TaskCardProjection do
        ),
        do: @refused_grant
 
+  defp public_error(
+         %Publication.Publication{last_error_code: "publication_branch_has_closed_pull_request"} =
+           publication,
+         _turn,
+         _hold
+       ),
+       do: closed_pull_request(publication)
+
   defp public_error(%Publication.Publication{last_error_code: code}, _turn, _hold)
        when code in @publication_conflicts,
        do: @changed_on_github
@@ -457,6 +467,18 @@ defmodule Ryker.Slack.TaskCardProjection do
   # and the card then printed Ryker's own error code, but a Slack card carries
   # no codes (Andrew, 2026-09-30): it says where the cause is written.
   defp attention(statement), do: "#{statement}. The cause is on Ryker's Failures page."
+
+  # Coop names the newest pull request someone else opened and closed on the
+  # draft's branch; Ryker checked its number and URL when it saved them.
+  defp closed_pull_request(%Publication.Publication{last_error_detail: detail}) do
+    closed =
+      case Ryker.Operator.FailureDetail.closed_pull_request(detail) do
+        %{number: number} -> "closed pull request ##{number}"
+        nil -> "closed pull request"
+      end
+
+    "This draft's branch already has a #{closed} that Ryker didn't open, so Ryker won't use it. Update publishes the change on a new branch."
+  end
 
   defp neutral(projection) do
     task = projection.document["task_card"]
@@ -664,6 +686,15 @@ defmodule Ryker.Slack.TaskCardProjection do
        ),
        do: @refused_grant
 
+  defp action_needed(
+         _episode,
+         _turn,
+         _records,
+         %Publication.Publication{last_error_code: "publication_branch_has_closed_pull_request"} =
+           publication
+       ),
+       do: closed_pull_request(publication)
+
   defp action_needed(_episode, _turn, _records, %Publication.Publication{last_error_code: code})
        when code in @publication_conflicts,
        do: @changed_on_github
@@ -832,10 +863,11 @@ defmodule Ryker.Slack.TaskCardProjection do
   # review can (`Ryker.Publication.Custody`). The card offered Retry here until 2026-09-30.
   defp publication_controls(%Publication.Publication{
          status: :publish_pending,
-         last_error_code: "publication_authorization_revoked",
+         last_error_code: code,
          pull_request_number: number,
          pull_request_url: url
-       }) do
+       })
+       when code in @new_branch_refusals do
     if is_integer(number) and is_binary(url),
       do: ["open", "update", "discard"],
       else: ["update", "discard"]

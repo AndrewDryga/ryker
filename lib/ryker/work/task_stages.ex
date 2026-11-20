@@ -249,6 +249,38 @@ defmodule Ryker.Work.TaskStages do
     row("draft_pr", "stopped", detail: detail, url: publication.pull_request_url)
   end
 
+  # Coop refused the draft's branch for good: someone else's closed pull request
+  # is on it, or a refusal this Ryker does not know. Neither is "creating the draft".
+  defp draft_pr(
+         %{
+           publication: %Publication.Publication{
+             status: :publish_pending,
+             last_error_code: "publication_branch_has_closed_pull_request",
+             last_error_detail: detail
+           }
+         },
+         _stale?
+       ) do
+    case Ryker.Operator.FailureDetail.closed_pull_request(detail) do
+      %{number: number, url: url} ->
+        row("draft_pr", "stopped", detail: "branch has closed ##{number}", url: url)
+
+      nil ->
+        row("draft_pr", "stopped", detail: "branch has a closed pull request")
+    end
+  end
+
+  defp draft_pr(
+         %{
+           publication: %Publication.Publication{
+             status: :publish_pending,
+             last_error_code: "publication_refused"
+           }
+         },
+         _stale?
+       ),
+       do: row("draft_pr", "stopped", detail: "refused by the worker")
+
   defp draft_pr(
          %{
            publication:

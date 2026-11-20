@@ -2,6 +2,7 @@ defmodule Ryker.CoopFleet.ClientTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query, only: [from: 2]
+  import ExUnit.CaptureLog
   alias Ryker.{Artifacts, CanonicalJSON, Instructions}
   alias Ryker.CoopFleet.Bodies
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, JobSpec, Placement, Worker}
@@ -676,23 +677,29 @@ defmodule Ryker.CoopFleet.ClientTest do
       "state" => "open"
     })
 
-    Process.put(
-      :coop_fleet_ensure_workspace_result,
-      {:error,
-       {:coop_error, 409, "invalid_session_state",
-        "workspace task requires an unused writable open session"}}
-    )
+    # A restore Coop could not check the default branch for, and one Ryker kept from a
+    # worker too old for a rebased checkpoint, leave the same unused session; under the same
+    # key each only answers the same way again.
+    for refusal <- [
+          {:coop_error, 409, "invalid_session_state",
+           "workspace task requires an unused writable open session"},
+          {:coop_error, 503, "repository_unavailable",
+           "checkpoint needs upstream commit #{String.duplicate("7", 40)} from the job's source, which could not be refreshed"},
+          {:coop_upgrade_required, :checkpoint_upstream, "worker-a"}
+        ] do
+      Process.put(:coop_fleet_ensure_workspace_result, {:error, refusal})
 
-    assert {:ok, %{"resource_id" => "remote:created-then-refused", "state" => "succeeded"}} =
-             Client.fence_create_session(
-               client,
-               key,
-               session.policy,
-               offer,
-               session.repository_source
-             )
+      assert {:ok, %{"resource_id" => "remote:created-then-refused", "state" => "succeeded"}} =
+               Client.fence_create_session(
+                 client,
+                 key,
+                 session.policy,
+                 offer,
+                 session.repository_source
+               )
 
-    assert_received {:fleet_command, _, "ensure_workspace", _, _, _}
+      assert_received {:fleet_command, _, "ensure_workspace", _, _, _}
+    end
   end
 
   test "unplaced terminal commands cannot have missing receipts or partial placement identity", %{
@@ -1885,6 +1892,79 @@ defmodule Ryker.CoopFleet.ClientTest do
              "publish:malformed",
              publication_body()
            ) == {:error, {:coop_protocol_error, :publication_resource}}
+
+    refute_receive {:fleet_command, _, _, _, _, _}
+  end
+
+  # Coop after 15.0.0: a branch whose pull request someone else opened and closed is refused
+  # with that pull request named, and any refusal code a controller does not know is final.
+  # Read as a protocol error, an unknown code was published three more times, each replaying
+  # the same saved refusal.
+  test "a closed pull request on the branch and an unknown refusal are final answers",
+       %{client: client, session: session} do
+    session = bind_session!(session, "publication-closed")
+    owner = uncertain_review!(session, "publication-closed")
+    url = "https://github.com/example/repo/pull/3"
+
+    publish = fn publication, key ->
+      Process.put(
+        :coop_fleet_await_result,
+        {:ok, Map.put(publication_response(session), "publication", publication)}
+      )
+
+      Client.publish_review(
+        client,
+        session.coop_session_id,
+        owner.idempotency_key,
+        "review-op",
+        key,
+        publication_body()
+      )
+    end
+
+    closed = %{
+      "status" => "refused",
+      "error_code" => "publication_branch_has_closed_pull_request",
+      "closed_pull_request" => %{"number" => 3, "url" => url},
+      "a_later_field" => true
+    }
+
+    assert publish.(closed, "publish:closed") ==
+             {:error, {:publication_branch_has_closed_pull_request, 3, url}}
+
+    assert publish.(
+             put_in(closed, ["closed_pull_request", "url"], "javascript:alert(1)"),
+             "publish:odd-url"
+           ) ==
+             {:error, {:publication_branch_has_closed_pull_request, 3, nil}}
+
+    assert publish.(Map.delete(closed, "closed_pull_request"), "publish:unnamed") ==
+             {:error, :publication_branch_has_closed_pull_request}
+
+    log =
+      capture_log(fn ->
+        assert publish.(
+                 %{"status" => "refused", "error_code" => "publication_new_reason"},
+                 "publish:unknown"
+               ) == {:error, {:publication_refused, "publication_new_reason"}}
+
+        assert publish.(%{"status" => "refused", "error_code" => "Not A Code!"}, "publish:odd") ==
+                 {:error, {:publication_refused, "unrecognized"}}
+      end)
+
+    assert log =~ "unrecognized code: \"publication_new_reason\""
+
+    for {reason, code} <- [
+          {{:publication_branch_has_closed_pull_request, 3, url},
+           "publication_branch_has_closed_pull_request"},
+          {{:publication_refused, "publication_new_reason"}, "publication_refused"}
+        ] do
+      assert Ryker.ErrorDetail.code(reason, :publication_failed) == code
+    end
+
+    assert Ryker.Operator.FailureDetail.closed_pull_request(
+             Ryker.ErrorDetail.detail({:publication_branch_has_closed_pull_request, 3, url})
+           ) == %{number: 3, url: url}
 
     refute_receive {:fleet_command, _, _, _, _, _}
   end

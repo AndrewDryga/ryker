@@ -385,8 +385,9 @@ defmodule Ryker.Work.Executor.Turns do
       {:ok, _invalid} ->
         {:error, {:coop_protocol_error, :workspace_checkpoint}}
 
-      {:error, {:coop_error, _status, "storage_unavailable", _detail} = reason} ->
-        reconcile_checkpoint_capacity(claim, settings, reason)
+      {:error, {:coop_error, _status, code, _detail} = reason}
+      when code in ["storage_unavailable", "repository_unavailable"] ->
+        reconcile_checkpoint_refusal(claim, settings, reason, code)
 
       {:error, reason} ->
         {:error, reason}
@@ -398,14 +399,16 @@ defmodule Ryker.Work.Executor.Turns do
 
   # A refused checkpoint is a terminal command. Reusing its key replays the
   # refusal forever; only a confirmed failure permits another checkpoint of
-  # the saved answer. Uncertain outcomes retain their original identity.
-  defp reconcile_checkpoint_capacity(claim, settings, reason) do
+  # the saved answer. Uncertain outcomes retain their original identity. Coop
+  # refuses for want of storage, or of a default branch it could not check
+  # (`repository_unavailable`, "retry with a new idempotency key").
+  defp reconcile_checkpoint_refusal(claim, settings, reason, code) do
     case Remote.operation_by_key(settings, OperationKeys.checkpoint(claim.turn)) do
       {:ok,
        %{
          "method" => "CheckpointWorkspace",
          "state" => "failed",
-         "error_code" => "storage_unavailable"
+         "error_code" => ^code
        }} ->
         with {:ok, _turn} <-
                Custody.advance_checkpoint(

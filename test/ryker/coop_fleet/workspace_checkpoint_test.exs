@@ -123,6 +123,48 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTest do
     end
   end
 
+  # Coop names the newer default-branch commit a rebased checkpoint left out as
+  # `upstream_revision` (Coop after 15.0.0). The manifest is read strictly on
+  # capture and on every restore, so an unknown key refused every such bundle;
+  # the field itself is held to Coop's own rule, and nothing else is let in.
+  test "bundle manifest takes an exact upstream revision and still refuses every other key" do
+    manifest = Jason.decode!(golden_manifest())
+    upstream = String.duplicate("7", 40)
+
+    for value <- [upstream, String.duplicate("8", 64)] do
+      assert {:ok, decoded} =
+               manifest
+               |> Map.put("upstream_revision", value)
+               |> Jason.encode!()
+               |> WorkspaceCheckpoint.decode_bundle_manifest()
+
+      assert decoded["upstream_revision"] == value
+      assert WorkspaceCheckpoint.upstream?(decoded)
+    end
+
+    assert {:ok, decoded} = WorkspaceCheckpoint.decode_bundle_manifest(golden_manifest())
+    refute WorkspaceCheckpoint.upstream?(decoded)
+
+    for value <- [
+          manifest["base_revision"],
+          String.slice(upstream, 0, 12),
+          String.upcase(String.duplicate("a", 40)),
+          String.duplicate("7", 41),
+          "",
+          nil,
+          1
+        ] do
+      assert WorkspaceCheckpoint.decode_bundle_manifest(
+               Jason.encode!(Map.put(manifest, "upstream_revision", value))
+             ) == {:error, {:invalid_workspace_checkpoint_bundle, :upstream_revision}}
+    end
+
+    for extra <- [%{"upstream_ref" => upstream}, %{"upstream_revision" => upstream, "extra" => 1}] do
+      assert WorkspaceCheckpoint.decode_bundle_manifest(Jason.encode!(Map.merge(manifest, extra))) ==
+               {:error, {:invalid_workspace_checkpoint_bundle, :fields}}
+    end
+  end
+
   test "bundle manifest rejects crossed paths, invalid modes, and malformed documents" do
     manifest = Jason.decode!(golden_manifest())
     first_task_path = get_in(manifest, ["task_projection", "files", Access.at(0), "path_b64"])

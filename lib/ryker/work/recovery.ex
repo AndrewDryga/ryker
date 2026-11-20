@@ -236,7 +236,7 @@ defmodule Ryker.Work.Recovery do
   end
 
   defp explanation(turn, false, true, _closed, _saved) do
-    {cause, step} = completion_failure(turn.last_error_code)
+    {cause, step} = completion_failure(turn.last_error_code, turn.last_error_detail)
 
     {"The worker finished, but saving its result stopped", cause,
      step <> " Then resume saving this result; do not rerun the completed task.", nil}
@@ -273,6 +273,18 @@ defmodule Ryker.Work.Recovery do
         {@unexplained_cause,
          "Read the saved answer and the error, fix what they point to, and keep any unfinished changes before trying again.",
          nil}
+    end
+  end
+
+  # A save Coop refused because it could not check the default branch is
+  # retried under a new key each time, and says so once those run out. Its code
+  # is only `work_retry_exhausted`, which says nothing.
+  defp completion_failure(code, detail) do
+    if FailureCause.default_branch_unchecked?(detail) do
+      {FailureCause.explain(detail).cause,
+       "Wait a few minutes, and check that the worker can reach GitHub and that the GitHub App can still read the repository."}
+    else
+      completion_failure(code)
     end
   end
 

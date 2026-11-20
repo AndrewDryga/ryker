@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Checkpoints do
   @moduledoc false
-  alias Ryker.CoopFleet.{Bodies, Bridge, Command, ControlPlane, Placement}
+  alias Ryker.CoopFleet.{Bodies, Bridge, Command, ControlPlane, Placement, Worker}
   alias Ryker.CoopFleet.{WorkspaceCheckpoint, WorkspaceCheckpointBundle}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.{Credentials, Repo, Secret}
@@ -196,12 +196,13 @@ defmodule Ryker.CoopFleet.Checkpoints do
   end
 
   defp copy_checkpoint_to_request(command, transfer, stream, options) do
-    with {:ok, _} <-
+    with {:ok, manifest} <-
            WorkspaceCheckpointBundle.validate_stream(
              transfer.descriptor,
              stream.(),
              credential_values()
-           ) do
+           ),
+         :ok <- restorable_on_worker(manifest, command.worker_id) do
       Bodies.put(
         options[:body_root],
         command.id,
@@ -210,6 +211,22 @@ defmodule Ryker.CoopFleet.Checkpoints do
         stream.(),
         options[:checkpoint_key]
       )
+    end
+  end
+
+  # A bundle rebased onto a newer default-branch commit names it as
+  # `upstream_revision`, and a worker without `checkpoint-upstream:1` (Coop
+  # 15.0.0 and older) answers such a restore 500 on every attempt. The session
+  # was placed when it was created, before its bundle was read, so the restore
+  # is refused here, before the worker can take its body, and says which
+  # worker needs upgrading.
+  defp restorable_on_worker(manifest, worker_id) do
+    worker = Repo.peek(Worker.Query.by_id(worker_id))
+
+    cond do
+      not WorkspaceCheckpoint.upstream?(manifest) -> :ok
+      worker && Worker.advertises?(worker, "checkpoint-upstream", "1") -> :ok
+      true -> {:error, {:coop_upgrade_required, :checkpoint_upstream, worker_id}}
     end
   end
 
