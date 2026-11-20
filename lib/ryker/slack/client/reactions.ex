@@ -33,6 +33,32 @@ defmodule Ryker.Slack.Client.Reactions do
     end
   end
 
+  @doc "Read the installed bot's own reaction to this exact message after a lost write response."
+  def reaction_present?(client, channel, timestamp, name, bot_user_ref) do
+    with :ok <- Fields.slack_id(channel),
+         :ok <- Fields.message_timestamp(timestamp),
+         :ok <- Fields.text(name),
+         :ok <- Fields.slack_id(bot_user_ref),
+         path = "/reactions.get?" <> URI.encode_query(channel: channel, timestamp: timestamp),
+         {:ok, response} <- Transport.request(client, :get, path, nil),
+         {:ok, body} <- Transport.response(response),
+         %{
+           "channel" => ^channel,
+           "type" => "message",
+           "message" => %{"ts" => ^timestamp} = message
+         } <- body,
+         reactions when is_list(reactions) <- Map.get(message, "reactions", []) do
+      {:ok,
+       Enum.any?(reactions, fn
+         %{"name" => ^name, "users" => users} when is_list(users) -> bot_user_ref in users
+         _ -> false
+       end)}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, {:slack_protocol_error, :reaction}}
+    end
+  end
+
   def remove_reaction(client, channel, message_ref, emoji_name) do
     with :ok <- Fields.text(channel),
          :ok <- Fields.text(message_ref),

@@ -366,9 +366,9 @@ defmodule Ryker.Retention.Data do
     horizon: :operational_data_seconds
   }
 
-  @delivered_routing_responses %{
+  @finished_routing_responses %{
     table: "delivery_routing_responses",
-    where: "status = 'delivered'",
+    where: "status IN ('delivered', 'superseded')",
     age: "updated_at",
     horizon: :operational_data_seconds
   }
@@ -556,7 +556,7 @@ defmodule Ryker.Retention.Data do
       AND input.updated_at < (SELECT clock_timestamp() - ($2 * interval '1 second'))
       AND NOT EXISTS (
         SELECT 1 FROM delivery_routing_responses response
-        WHERE response.input_id = input.id AND response.status <> 'delivered'
+        WHERE response.input_id = input.id AND response.status IN ('pending', 'blocked')
       )
       AND (
         input.episode_id IS NULL
@@ -784,7 +784,7 @@ defmodule Ryker.Retention.Data do
     worker_commands = prune_aged(@discarded_session_commands, settings)
     worker_events = prune_aged(@discarded_worker_events, settings)
     _non_work_sessions = execute_count(@prune_non_work_sessions, [cutoff])
-    routing_responses = prune_aged(@delivered_routing_responses, settings)
+    routing_responses = prune_aged(@finished_routing_responses, settings)
     _weekly_reports = prune_aged(@finished_weekly_reports, settings)
     feedback = prune_aged(@recorded_feedback, settings)
 
@@ -1044,7 +1044,7 @@ defmodule Ryker.Retention.Data do
     AND NOT EXISTS (
       SELECT 1 FROM ingress_inbox_entries input
       JOIN delivery_routing_responses response ON response.input_id = input.id
-      WHERE input.episode_id = episode.id AND response.status <> 'delivered'
+      WHERE input.episode_id = episode.id AND response.status IN ('pending', 'blocked')
     )
     AND NOT EXISTS (
       SELECT 1 FROM platform_actions action
@@ -1265,7 +1265,8 @@ defmodule Ryker.Retention.Data do
     {"coop_worker_commands", "session_id IN #{@episode_sessions}"},
     {"coop_session_placements", "session_id IN #{@episode_sessions}"},
     {"retention_operator_actions", "session_id IN #{@episode_sessions}"},
-    {"delivery_routing_responses", "input_id IN #{@episode_inputs} AND status = 'delivered'"},
+    {"delivery_routing_responses",
+     "input_id IN #{@episode_inputs} AND status IN ('delivered', 'superseded')"},
     {"ingress_inbox_entries", "episode_id IN #{@episode_ids}"},
     {"platform_actions", "episode_id IN #{@episode_ids} AND status = 'delivered'"},
     {"episode_work_turns", "episode_id IN #{@episode_ids} AND status = ANY($2)",

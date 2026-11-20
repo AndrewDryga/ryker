@@ -16,6 +16,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{Request, RoutingResponse}
+  alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Lease
   alias Ryker.Reference
@@ -158,6 +159,70 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
         |> Repo.update()
         |> unwrap_or_rollback(:delivery_renewal)
       end)
+    end
+  end
+
+  @doc "Reserve an unsent Slack response, or let an edit or deletion of its source supersede it."
+  def before_slack_write(claim) do
+    case check_source_revision(claim, :reserve) do
+      :reserved -> {:reserved, fn -> release_refused_slack_write(claim) end}
+      result -> result
+    end
+  end
+
+  @doc "Settle the unsent response after the publisher releases its lease guardian."
+  def supersede_unstarted(claim), do: check_source_revision(claim, :supersede)
+
+  defp check_source_revision(%{response: claimed, lease_ref: lease}, action) do
+    Repo.transaction(fn ->
+      destination = %{transport: claimed.transport, conversation_ref: claimed.conversation_ref}
+
+      with :ok <- Episodes.ConversationLock.lock(destination),
+           {:ok, response} <- leased_response(claimed.delivery_ref, lease, Repo.now!()),
+           {:ok, entry} <- Repo.fetch(Ingress.Inbox.Entry.Query.by_id(response.input_id)) do
+        latest = entry |> Ingress.Inbox.Entry.Query.newest_later_revision() |> Repo.one()
+        check_revision(response, latest, action)
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp check_revision(%{first_write_started_at: nil} = response, nil, :reserve) do
+    response |> RoutingResponse.Changeset.reserve_first_write(Repo.now!()) |> Repo.update!()
+    :reserved
+  end
+
+  # A later refusal cannot release the reservation of an earlier uncertain write.
+  defp check_revision(_response, nil, :reserve), do: :ok
+
+  defp check_revision(_response, nil, :supersede), do: Repo.rollback(:slack_write_recheck)
+
+  defp check_revision(%{first_write_started_at: at}, _revision, _action) when not is_nil(at),
+    do: Repo.rollback(:slack_write_awaiting_receipt)
+
+  defp check_revision(_response, _revision, :reserve),
+    do: Repo.rollback(:slack_thread_changed_before_write)
+
+  defp check_revision(response, revision, :supersede) do
+    response
+    |> RoutingResponse.Changeset.supersede(revision)
+    |> Repo.update!()
+    |> broadcast_routing_response_updated()
+
+    {:suppressed, "revision:#{revision}"}
+  end
+
+  defp release_refused_slack_write(%{response: claimed, lease_ref: lease}) do
+    case mutate_claim(claimed.delivery_ref, lease, fn response, _now ->
+           response |> RoutingResponse.Changeset.reserve_first_write(nil) |> Repo.update!()
+         end) do
+      {:ok, _response} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

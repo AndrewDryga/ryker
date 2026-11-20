@@ -21,7 +21,12 @@ defmodule Ryker.Delivery.RoutingResponse do
     field(:source_item_ref, :string)
     field(:document, CanonicalJSON.Type)
     field(:document_fingerprint, :string)
-    field(:status, Ecto.Enum, values: [:pending, :blocked, :delivered], default: :pending)
+
+    field(:status, Ecto.Enum,
+      values: [:pending, :blocked, :delivered, :superseded],
+      default: :pending
+    )
+
     field(:attempt_count, :integer, default: 0)
     field(:retry_generation, :integer, default: 0)
     field(:lease_ref, :string)
@@ -32,6 +37,8 @@ defmodule Ryker.Delivery.RoutingResponse do
     field(:last_error_detail, :string)
     field(:external_receipt, CanonicalJSON.Type)
     field(:external_receipt_fingerprint, :string)
+    field(:superseding_revision, :integer)
+    field(:first_write_started_at, :utc_datetime_usec)
     field(:delivered_at, :utc_datetime_usec)
 
     timestamps()

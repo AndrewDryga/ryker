@@ -50,6 +50,8 @@ defmodule Ryker.Slack.API do
 
   @callback add_reaction(term(), String.t(), String.t(), String.t()) ::
               :ok | {:error, term()}
+  @callback reaction_present?(term(), String.t(), String.t(), String.t(), String.t()) ::
+              {:ok, boolean()} | {:error, term()}
   @callback remove_reaction(term(), String.t(), String.t(), String.t()) ::
               :ok | {:error, term()}
 
@@ -106,6 +108,7 @@ defmodule Ryker.Slack.API do
                       update_message: 5,
                       read_messages: 4,
                       file_info: 2,
+                      reaction_present?: 5,
                       remove_reaction: 4,
                       set_thread_status: 4,
                       search_context: 3,

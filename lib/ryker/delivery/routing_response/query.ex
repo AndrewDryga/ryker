@@ -35,7 +35,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
           where:
             earlier.input_id == parent_as(:delivery_routing_responses).input_id and
               earlier.position < parent_as(:delivery_routing_responses).position and
-              earlier.status != :delivered,
+              earlier.status in [:pending, :blocked],
           select: 1
         )
       )
@@ -50,7 +50,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
     where(
       queryable,
       [delivery_routing_responses: r],
-      r.input_id == ^input_id and r.position > ^position and r.status != :delivered
+      r.input_id == ^input_id and r.position > ^position and r.status in [:pending, :blocked]
     )
   end
 

@@ -6,7 +6,7 @@ defmodule Ryker.Delivery.MessagePublisher do
 
   @callback publish_message(Request.t(), term()) :: {:ok, map()} | {:error, term()}
   @type before_write :: (String.t() ->
-                           {:reserved, (-> :ok | {:error, term()})} | {:error, term()})
+                           :ok | {:reserved, (-> :ok | {:error, term()})} | {:error, term()})
   @callback publish_message(Request.t(), term(), before_write()) ::
               {:ok, map()} | {:error, term()}
   @callback update_message(Request.t(), String.t(), map(), term()) :: :ok | {:error, term()}

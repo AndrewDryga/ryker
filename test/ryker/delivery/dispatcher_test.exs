@@ -263,6 +263,46 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert accepted.turn.delivery_document["outcome"]["artifact_refs"] == [ref]
   end
 
+  # An edit that arrived after routing but before delivery left the old reply and
+  # emoji eligible even though the edited message already owned its own decision.
+  test "an edited request supersedes its queued quick reply and reaction without writing to Slack" do
+    pending = reaction_pending!("quick-edited", "eyes", ["I'll check."])
+
+    {:ok, edited} =
+      Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "I've got it."},
+        event_kind: :edit,
+        event_ref: "Ev-quick-edit",
+        message_ref: "1787832001.000200",
+        occurred_at: DateTime.add(@now, 1),
+        revision: 2,
+        thread_ref: pending.thread_ref,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: revision}} = Inbox.record(edited)
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+    options = dispatcher_options(:routing, publisher)
+
+    for _position <- 1..2 do
+      assert {:ok, {:suppressed, :routing, _, _}} = Dispatcher.run_once(options)
+    end
+
+    assert Dispatcher.run_once(options) == {:ok, :idle}
+    assert Agent.get(publisher, & &1.calls) == []
+
+    for response <- Repo.all(RoutingResponse) do
+      assert response.status == :superseded
+      assert response.superseding_revision == revision.revision
+      refute response.external_receipt
+    end
+
+    assert Repo.get!(Inbox.Entry, pending.input_id).decision_action == :quick_reply
+    assert Repo.get!(Inbox.Entry, revision.id).status == :pending
+  end
+
   test "a reaction provider failure releases custody and retries the same immutable intent" do
     pending = reaction_pending!("reaction-retry", "rocket")
 
@@ -1241,7 +1281,7 @@ defmodule Ryker.Delivery.DispatcherTest do
   defp cited_refs(record, reaction),
     do: Enum.reject([record && record.ref, reaction && reaction.action_ref], &is_nil/1)
 
-  defp reaction_pending!(suffix, emoji_name) do
+  defp reaction_pending!(suffix, emoji_name, messages \\ nil) do
     event_ref = "Ev-#{suffix}"
 
     assert {:ok, input} =
@@ -1271,9 +1311,9 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     assert {:ok, decision} =
              Decision.parse(%{
-               "action" => "react",
+               "action" => if(messages, do: "quick_reply", else: "react"),
                "episode_ref" => nil,
-               "messages" => nil,
+               "messages" => messages,
                "reactions" => [emoji_name],
                "relation" => "unrelated",
                "repository" => nil,
@@ -1283,7 +1323,7 @@ defmodule Ryker.Delivery.DispatcherTest do
              })
 
     assert {:ok, _result} = Admission.commit(context, decision, "decision:#{suffix}")
-    Repo.get_by!(RoutingResponse, input_id: entry.id)
+    Repo.get_by!(RoutingResponse, input_id: entry.id, position: 1)
   end
 
   defp work_claim!(suffix) do

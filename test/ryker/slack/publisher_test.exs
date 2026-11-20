@@ -5,6 +5,15 @@ defmodule Ryker.Slack.PublisherTest do
   alias Ryker.Slack.Publisher
   alias Ryker.TestSupport.FakeSlackAPI
 
+  test "Slack reporting a partial internal failure preserves a first write's reservation" do
+    for code <- ["internal_error", "fatal_error", "request_timeout"] do
+      error = {:slack_api_error, code}
+
+      assert Publisher.classify_write_result({:error, error}) ==
+               {:error, {:delivery_uncertain, error}}
+    end
+  end
+
   test "a lost Slack post response reconciles the metadata marker exactly once" do
     {:ok, api} =
       FakeSlackAPI.start_link(

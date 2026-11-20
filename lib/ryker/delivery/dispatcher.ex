@@ -141,9 +141,14 @@ defmodule Ryker.Delivery.Dispatcher do
     }
   end
 
-  defp custody(%{response: response, lease_ref: lease_ref}, %{kind: :routing} = settings) do
+  defp custody(%{response: response, lease_ref: lease_ref} = claim, %{kind: :routing} = settings) do
     %{
       attempt_count: response.attempt_count,
+      before_write:
+        if(response.transport == "slack",
+          do: fn _ref -> RoutingResponseCustody.before_slack_write(claim) end
+        ),
+      suppress_unstarted: fn -> RoutingResponseCustody.supersede_unstarted(claim) end,
       kind: :routing,
       ref: response.delivery_ref,
       renew: fn ->

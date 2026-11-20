@@ -69,6 +69,21 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
     |> response_constraints()
   end
 
+  def reserve_first_write(response, at), do: change(response, first_write_started_at: at)
+
+  def supersede(response, revision) do
+    response
+    |> change(
+      status: :superseded,
+      superseding_revision: revision,
+      next_attempt_at: nil,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil
+    )
+    |> response_constraints()
+  end
+
   @spec defer(RoutingResponse.t(), map()) :: Ecto.Changeset.t()
   def defer(%RoutingResponse{} = response, attributes) do
     response

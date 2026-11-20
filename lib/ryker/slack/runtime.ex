@@ -207,6 +207,7 @@ defmodule Ryker.Slack.Runtime do
           workspace_ref => %{
             api: Client,
             client: settings.client,
+            bot_user_ref: settings.identity.bot_user_ref,
             workspace_url: configuration[:workspace_url]
           }
         }

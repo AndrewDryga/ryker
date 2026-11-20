@@ -92,6 +92,10 @@ defmodule Ryker.Slack.Client do
   defdelegate add_reaction(client, channel, message_ref, emoji_name), to: Reactions
 
   @impl true
+  defdelegate reaction_present?(client, channel, message_ref, emoji_name, bot_user_ref),
+    to: Reactions
+
+  @impl true
   defdelegate remove_reaction(client, channel, message_ref, emoji_name), to: Reactions
 
   # --- assistant ------------------------------------------------------------

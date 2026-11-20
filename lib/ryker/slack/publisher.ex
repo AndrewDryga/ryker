@@ -107,6 +107,59 @@ defmodule Ryker.Slack.Publisher do
   def publish_reaction(_request, _binding),
     do: {:error, {:invalid_slack_delivery, :reaction}}
 
+  @impl true
+  def publish_reaction(%Delivery.Request{kind: :reaction} = request, binding, check) do
+    with {:ok, target} <- Target.parse(request),
+         :ok <- destination_allowed(binding, target),
+         {:ok, api, client} <- client(binding, target.workspace_ref),
+         {:ok, _} <- fenced_reaction(api, client, target, request, binding, check) do
+      Work.DeliveryReceipt.new(
+        request.ref,
+        request.transport,
+        request.conversation_ref,
+        request.thread_ref,
+        target.message_ref
+      )
+    end
+  end
+
+  defp fenced_reaction(api, client, target, request, binding, check) do
+    result =
+      Delivery.MessagePublisher.with_reservation(fn -> check.(request.ref) end, fn ->
+        case publish_reaction_action(api, client, target, request.document) do
+          :ok -> {:ok, target.message_ref}
+          {:error, reason} -> classify_write_result({:error, reason})
+        end
+      end)
+
+    case result do
+      {:error, :slack_write_awaiting_receipt} ->
+        confirm_existing_reaction(api, client, target, request.document, binding)
+
+      settled ->
+        settled
+    end
+  end
+
+  defp confirm_existing_reaction(api, client, target, document, binding) do
+    with bot when is_binary(bot) <-
+           get_in(binding, [:workspaces, target.workspace_ref, :bot_user_ref]),
+         true <- function_exported?(api, :reaction_present?, 5),
+         {:ok, true} <-
+           api.reaction_present?(
+             client,
+             target.channel_ref,
+             target.message_ref,
+             document["emoji_name"],
+             bot
+           ) do
+      {:ok, target.message_ref}
+    else
+      {:error, reason} -> {:error, {:delivery_reconciliation_failed, reason}}
+      _ -> {:error, :slack_write_awaiting_receipt}
+    end
+  end
+
   defp publish_reaction_action(api, client, target, document) do
     case Map.get(document, "action", "add") do
       "add" ->
@@ -349,11 +402,8 @@ defmodule Ryker.Slack.Publisher do
     |> classify_write_result()
   end
 
-  # Slack answering is definite: an API error or a 4xx means nothing was
-  # posted, and a request the client refused to send never reached Slack. Only
-  # a call Slack did not answer (a lost socket, an unreadable reply, a 5xx) may
-  # have landed, and only the metadata walk on the next attempt can say. An
-  # upload Slack completed has landed, and the next attempt waits for its share.
+  # Slack documents that internal and fatal errors can follow a partial success.
+  # A lost connection, timeout, or ambiguous provider failure must retain its reservation.
   @doc "Classify a Slack write response by whether it could already have reached Slack."
   def classify_write_result({:ok, message_ref}), do: {:ok, message_ref}
 
@@ -362,6 +412,16 @@ defmodule Ryker.Slack.Publisher do
 
   def classify_write_result({:error, {:delivery_rate_limited, delay, error}}),
     do: {:error, {:delivery_rate_limited, delay, error}}
+
+  def classify_write_result({:error, {:slack_api_error, code}})
+      when code in ["fatal_error", "internal_error", "request_timeout"],
+      do: {:error, {:delivery_uncertain, {:slack_api_error, code}}}
+
+  def classify_write_result({:error, {:slack_http_error, 408, body}}),
+    do: {:error, {:delivery_uncertain, {:slack_http_error, 408, body}}}
+
+  def classify_write_result({:error, {:invalid_slack_render, field}}),
+    do: {:error, {:invalid_slack_render, field}}
 
   def classify_write_result({:error, {:slack_api_error, error}}),
     do: {:error, {:slack_api_error, error}}

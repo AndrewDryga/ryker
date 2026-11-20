@@ -1,9 +1,10 @@
 defmodule Ryker.Slack.ClientTest do
   use ExUnit.Case, async: true
   alias __MODULE__.FakeRequester
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.Delivery.{JSONClient, Request}
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.Users
+  alias Ryker.Slack.Publisher
 
   test "custom emoji discovery keeps names and aliases without image URLs" do
     {:ok, requester} =
@@ -416,6 +417,68 @@ defmodule Ryker.Slack.ClientTest do
 
     assert Client.open_view(client, "trigger.123", %{"type" => "home", "blocks" => []}) ==
              {:error, {:invalid_slack_api_request, :modal_view}}
+  end
+
+  test "a lost reaction receipt requires the installed bot on the exact Slack message" do
+    ts = "1787832001.000200"
+
+    response = fn channel, users ->
+      slack(%{
+        "type" => "message",
+        "channel" => channel,
+        "message" => %{"ts" => ts, "reactions" => [%{"name" => "eyes", "users" => users}]}
+      })
+    end
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response.("C123", ["UOTHER"]),
+        response.("C123", ["UBOT"]),
+        response.("COTHER", ["UBOT"])
+      ])
+
+    client = client(requester)
+    assert Client.reaction_present?(client, "C123", ts, "eyes", "UBOT") == {:ok, false}
+    assert Client.reaction_present?(client, "C123", ts, "eyes", "UBOT") == {:ok, true}
+
+    assert Client.reaction_present?(client, "C123", ts, "eyes", "UBOT") ==
+             {:error, {:slack_protocol_error, :reaction}}
+  end
+
+  test "recovery reads Slack without adding a withdrawn reaction on a history miss" do
+    ts = "1787832001.000200"
+    body = %{"channel" => "C123", "type" => "message", "message" => %{"ts" => ts}}
+    present = put_in(body["message"]["reactions"], [%{"name" => "eyes", "users" => ["UBOT"]}])
+    {:ok, requester} = FakeRequester.start([slack(body), slack(present)])
+
+    {:ok, request} =
+      Request.new(%{
+        transport: "slack",
+        kind: :reaction,
+        ref: "reaction:recovery",
+        conversation_ref: "slack:T123:C123",
+        thread_ref: nil,
+        source_item_ref: ts,
+        document: %{"emoji_name" => "eyes"}
+      })
+
+    binding = %{
+      workspaces: %{"T123" => %{api: Client, client: client(requester), bot_user_ref: "UBOT"}}
+    }
+
+    uncertain = fn _ref -> {:error, :slack_write_awaiting_receipt} end
+
+    assert Publisher.publish_reaction(request, binding, uncertain) ==
+             {:error, :slack_write_awaiting_receipt}
+
+    assert {:ok, receipt} = Publisher.publish_reaction(request, binding, uncertain)
+    assert receipt["message_ref"] == ts
+    requests = FakeRequester.requests(requester)
+    assert length(requests) == 2
+
+    assert Enum.all?(requests, fn {method, path, _, _} ->
+             method == :get and String.starts_with?(path, "/reactions.get?")
+           end)
   end
 
   test "Slack reactions are idempotent when the actor already reacted" do

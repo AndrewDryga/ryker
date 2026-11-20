@@ -112,6 +112,23 @@ defmodule Ryker.Delivery.Adapters do
     registration.message_publisher.publish_message(request, registration.binding)
   end
 
+  defp publish_request(
+         %Request{kind: :reaction, transport: "slack"} = request,
+         registration,
+         check
+       )
+       when is_function(check, 1) do
+    publisher = registration.reaction_publisher
+
+    if function_exported?(publisher, :publish_reaction, 3) do
+      publisher.publish_reaction(request, registration.binding, check)
+    else
+      Ryker.Delivery.MessagePublisher.with_reservation(fn -> check.(request.ref) end, fn ->
+        publisher.publish_reaction(request, registration.binding)
+      end)
+    end
+  end
+
   defp publish_request(%Request{kind: :reaction} = request, registration, _before_write) do
     registration.reaction_publisher.publish_reaction(request, registration.binding)
   end
