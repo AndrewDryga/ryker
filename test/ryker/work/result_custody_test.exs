@@ -823,6 +823,21 @@ defmodule Ryker.Work.ResultCustodyTest do
              "deadline_elapsed"
   end
 
+  test "the timeline retains the exact silent decision when there is no delivery document" do
+    # A completed request had no visible outcome because silent Work creates no outbox document.
+    work = bound_turn!("silent-timeline")
+    stage_candidate!(work)
+    reason = "This is an exact duplicate lifecycle revision."
+    assert {:ok, accepted} = accept!(work, result!(:none, nil, reason))
+    assert accepted.turn.delivery_document == nil
+
+    assert {:ok, snapshot} = Ryker.ControlPlane.EpisodeProjection.fetch(work.episode.key)
+    step = Enum.find(snapshot.trace.steps, &(&1.id == "turn-#{work.turn.id}-accepted"))
+    assert %{stage: "Result", summary: summary} = step
+    assert summary =~ reason
+    assert Enum.any?(step.details, &(&1.label == "Delivery" and &1.value == "none"))
+  end
+
   test "a deliberate no-delivery result advances already queued input without an outbox" do
     work = bound_turn!("silent-with-queue")
     stage_candidate!(work)

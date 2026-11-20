@@ -18,8 +18,22 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   alias Ryker.Work
 
   @doc "Each Work turn from queueing through its result and delivery."
-  def turn_steps(turns, sessions) do
+  def turn_steps(turns, sessions, events) do
     sessions_by_id = Map.new(sessions, &{&1.id, &1})
+
+    # Silent Work has no delivery document. The acceptance event retains the decision for
+    # this exact turn and result. A deferred publication still has its own delivery path.
+    silent_decisions =
+      for %{kind: :result_accepted, payload: payload} <- events,
+          %{
+            "delivery" => "none",
+            "decision_reason" => reason,
+            "expected_turn_ref" => turn_ref,
+            "result_ref" => result_ref
+          } <- [payload],
+          is_binary(reason) and reason != "publication_pending",
+          into: %{},
+          do: {{turn_ref, result_ref}, payload}
 
     turns
     |> Enum.with_index(1)
@@ -48,7 +62,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         )
 
       work = work_step(turn, ordinal)
-      answer = answer_steps(turn, ordinal)
+
+      decision =
+        turn.delivery_document || Map.get(silent_decisions, {turn.turn_ref, turn.result_ref})
+
+      answer = answer_steps(turn, ordinal, decision)
       outcome = delivery_step(turn)
 
       ([prepared, work] ++ answer ++ outcome)
@@ -86,9 +104,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     end
   end
 
-  defp answer_steps(turn, ordinal) do
+  defp answer_steps(turn, ordinal, decision) do
     validations = validation_steps(turn)
-    accepted = accepted_step(turn, ordinal)
+    accepted = accepted_step(turn, ordinal, decision)
     validations ++ Enum.reject([accepted], &is_nil/1)
   end
 
@@ -157,9 +175,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp validation_presentation("accept"), do: {"Answer validated", :good}
   defp validation_presentation(_), do: {"Response recorded", nil}
 
-  defp accepted_step(%Work.Turn{accepted_at: nil}, _ordinal), do: nil
+  defp accepted_step(%Work.Turn{accepted_at: nil}, _ordinal, _decision), do: nil
 
-  defp accepted_step(turn, ordinal) do
+  defp accepted_step(turn, ordinal, decision) do
     step(
       "turn-#{turn.id}-accepted",
       :answer,
@@ -171,14 +189,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         details:
           compact_details([
             {"Result", turn.result_ref, identifier: true},
-            {"Delivery", delivery_kind(turn.delivery_document)},
+            {"Delivery", delivery_kind(decision)},
             {"Artifacts", outcome_count(turn.delivery_document, "artifact_refs")},
             {"Records", outcome_count(turn.delivery_document, "record_refs")},
             {"Outcome", get_in(turn.delivery_document || %{}, ["outcome", "state"])}
           ]),
         stage: "Result",
         state: "accepted",
-        summary: delivery_summary(turn.delivery_document),
+        summary: delivery_summary(decision),
         title: "Run #{ordinal} answer accepted",
         tone: :good
       }

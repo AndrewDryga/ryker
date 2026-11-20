@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
           inputs: inputs
         })
       )
-      |> Kernel.++(EpisodeTrace.Work.turn_steps(turns, sessions))
+      |> Kernel.++(EpisodeTrace.Work.turn_steps(turns, sessions, events))
       |> Kernel.++(activity)
       |> Kernel.++(EpisodeTrace.Work.slack_status_steps(episode.id))
       |> Kernel.++(EpisodeTrace.Work.record_steps(records))

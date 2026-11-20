@@ -23,6 +23,37 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
   @received ~U[2026-09-04 22:51:44.000000Z]
 
+  test "an unrelated decision or deferred publication does not turn a historical result into silence" do
+    turn = %Turn{
+      id: Ecto.UUID.generate(),
+      turn_ref: "turn:one",
+      result_ref: "result:one",
+      accepted_at: @received,
+      inserted_at: @received
+    }
+
+    for {turn_ref, result_ref, reason} <- [
+          {"turn:one", "result:one", "publication_pending"},
+          {"turn:two", "result:one", "The other request was withdrawn."},
+          {"turn:one", "result:two", "The other result was withdrawn."}
+        ] do
+      event = %{
+        kind: :result_accepted,
+        payload: %{
+          "expected_turn_ref" => turn_ref,
+          "result_ref" => result_ref,
+          "delivery" => "none",
+          "decision_reason" => reason
+        }
+      }
+
+      steps = EpisodeTrace.Work.turn_steps([turn], [], [event])
+      accepted = Enum.find(steps, &(&1.stage == "Result"))
+      refute Enum.any?(accepted.details, &(&1.label == "Delivery"))
+      assert accepted.summary == "Accepted result recorded."
+    end
+  end
+
   test "an attempt counter without a validation receipt cannot invent an undated response event" do
     # A retained production turn had attempt 1 but no verdict/history. Two
     # invented 'Response recorded' cards appeared after all dated cleanup,
@@ -36,7 +67,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     }
 
     for intent <- [nil, %{}] do
-      steps = EpisodeTrace.Work.turn_steps([%{turn | validation_intent: intent}], [])
+      steps = EpisodeTrace.Work.turn_steps([%{turn | validation_intent: intent}], [], [])
       refute Enum.any?(steps, &String.contains?(&1.id, "-validation-"))
     end
 
@@ -50,6 +81,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
             | validation_intent: %{"verdict" => "reject", "violations" => ["Missing evidence"]}
           }
         ],
+        [],
         []
       )
 
