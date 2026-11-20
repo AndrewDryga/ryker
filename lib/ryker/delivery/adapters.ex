@@ -25,14 +25,15 @@ defmodule Ryker.Delivery.Adapters do
 
   def new(_registrations), do: {:error, {:invalid_delivery_adapters, :registrations}}
 
-  @spec publish(Request.t(), map()) :: {:ok, map()} | {:error, term()}
-  def publish(%Request{} = request, registrations) when is_map(registrations) do
+  def publish(request, registrations, before_write \\ nil)
+
+  def publish(%Request{} = request, registrations, before_write) when is_map(registrations) do
     with {:ok, registration} <- fetch_registration(registrations, request.transport) do
-      publish_request(request, registration)
+      publish_request(request, registration, before_write)
     end
   end
 
-  def publish(_request, _registrations),
+  def publish(_request, _registrations, _before_write),
     do: {:error, {:invalid_delivery_adapters, :request}}
 
   @spec update_message(Request.t(), String.t(), map(), map()) :: :ok | {:error, term()}
@@ -89,11 +90,29 @@ defmodule Ryker.Delivery.Adapters do
     end
   end
 
-  defp publish_request(%Request{kind: :message} = request, registration) do
+  defp publish_request(
+         %Request{kind: :message, transport: "slack"} = request,
+         registration,
+         check
+       )
+       when is_function(check, 1) do
+    publisher = registration.message_publisher
+
+    if function_exported?(publisher, :publish_message, 3) do
+      publisher.publish_message(request, registration.binding, check)
+    else
+      # An opaque binding belongs to its publisher. Fence its single publish call here.
+      Ryker.Delivery.MessagePublisher.with_reservation(fn -> check.(request.ref) end, fn ->
+        publisher.publish_message(request, registration.binding)
+      end)
+    end
+  end
+
+  defp publish_request(%Request{kind: :message} = request, registration, _check) do
     registration.message_publisher.publish_message(request, registration.binding)
   end
 
-  defp publish_request(%Request{kind: :reaction} = request, registration) do
+  defp publish_request(%Request{kind: :reaction} = request, registration, _before_write) do
     registration.reaction_publisher.publish_reaction(request, registration.binding)
   end
 end

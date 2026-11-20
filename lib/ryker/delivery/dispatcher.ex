@@ -304,7 +304,7 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp publish_with_lease(request, custody, settings) do
     LeasedCall.run(
-      fn -> publish(request, delivery_adapters(request, custody, settings.adapters)) end,
+      fn -> publish_delivery(request, settings.adapters, Map.get(custody, :before_write)) end,
       custody.renew,
       settings.lease_seconds,
       :delivery_publisher_exit
@@ -316,22 +316,8 @@ defmodule Ryker.Delivery.Dispatcher do
          do: {:reserved, fn -> Work.Custody.release_refused_slack_write(claim, ref) end}
   end
 
-  defp delivery_adapters(
-         %Request{transport: "slack"},
-         %{before_write: check},
-         %{"slack" => adapter} = adapters
-       )
-       when is_function(check, 1) do
-    Map.put(adapters, "slack", %{
-      adapter
-      | binding: Map.put(adapter.binding, :before_message_write, check)
-    })
-  end
-
-  defp delivery_adapters(_request, _custody, adapters), do: adapters
-
-  defp publish(request, adapters) do
-    Adapters.publish(request, adapters)
+  defp publish_delivery(request, adapters, before_write) do
+    Adapters.publish(request, adapters, before_write)
   catch
     kind, reason -> {:error, {:delivery_publisher_crashed, kind, reason}}
   end

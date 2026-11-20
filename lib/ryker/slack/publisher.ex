@@ -44,6 +44,11 @@ defmodule Ryker.Slack.Publisher do
   def publish_message(_request, _binding),
     do: {:error, {:invalid_slack_delivery, :message}}
 
+  @impl true
+  def publish_message(request, binding, before_write) do
+    publish_message(request, Map.put(binding, :before_message_write, before_write))
+  end
+
   defp materialize_mentions(
          %Delivery.Request{document: %{"emisar_approval_statuses" => _}} = request,
          _binding
@@ -125,23 +130,6 @@ defmodule Ryker.Slack.Publisher do
 
   defp before_message_write(_binding, _ref), do: :ok
 
-  defp write_message(reserve, write) do
-    case reserve.() do
-      :ok -> write.()
-      {:reserved, release} -> settle_reservation(write.(), release)
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp settle_reservation({:error, {kind, detail}}, _release)
-       when kind in [:delivery_uncertain, :delivery_share_pending], do: {:error, {kind, detail}}
-
-  defp settle_reservation({:error, _definite} = error, release) do
-    with :ok <- release.(), do: error
-  end
-
-  defp settle_reservation(result, _release), do: result
-
   defp reconcile_message(api, client, request, target, before_write) do
     if request.artifacts == [],
       do: reconcile_plain_message(api, client, request, target, before_write),
@@ -154,7 +142,9 @@ defmodule Ryker.Slack.Publisher do
         {:ok, message_ref}
 
       :not_found ->
-        write_message(before_write, fn -> post_message(api, client, request, target) end)
+        Delivery.MessagePublisher.with_reservation(before_write, fn ->
+          post_message(api, client, request, target)
+        end)
 
       {:error, reason} ->
         {:error, {:delivery_reconciliation_failed, reason}}
@@ -204,7 +194,9 @@ defmodule Ryker.Slack.Publisher do
         {:error, {:delivery_share_pending, request.upload_refs}}
 
       :not_found ->
-        write_message(before_write, fn -> upload_files(api, client, request, target, files) end)
+        Delivery.MessagePublisher.with_reservation(before_write, fn ->
+          upload_files(api, client, request, target, files)
+        end)
 
       {:error, reason} ->
         {:error, {:delivery_reconciliation_failed, reason}}
