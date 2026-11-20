@@ -16,6 +16,7 @@ defmodule Ryker.Episodes.Event do
         :wait_resumed,
         :result_accepted,
         :delivery_confirmed,
+        :delivery_suppressed,
         :episode_cancelled,
         :reaction_recorded
       ]

@@ -7,7 +7,8 @@ defmodule Ryker.Episodes.Reducer do
   """
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Command.{AcceptResult, AdmitInput, CancelEpisode, ConfirmDelivery}
-  alias Ryker.Episodes.Command.{RecordReaction, ResumeWait, StartWait, TransferOwner}
+  alias Ryker.Episodes.Command.{RecordReaction, ResumeWait, StartWait}
+  alias Ryker.Episodes.Command.{SuppressDelivery, TransferOwner}
   alias Ryker.Episodes.{Episode, Event, Transition}
 
   # One admitted command may carry the full 64 KiB kernel envelope. Two fit
@@ -194,6 +195,21 @@ defmodule Ryker.Episodes.Reducer do
          :ok <- next_turn_if_queued(episode, command.delivery, command.next_turn_ref) do
       episode = accept_result(episode, command)
       append(episode, command, :result_accepted)
+    end
+  end
+
+  defp decide_existing(%Episode{} = episode, %SuppressDelivery{} = command) do
+    if episode.owner_kind == :delivery and episode.owner_ref == command.expected_delivery_ref do
+      episode
+      |> Map.merge(%{
+        owner_kind: :turn,
+        owner_ref: command.next_turn_ref,
+        active_input_refs: command.input_refs,
+        semantic_version: episode.semantic_version + 1
+      })
+      |> append(command, :delivery_suppressed)
+    else
+      stale_delivery(episode, command)
     end
   end
 

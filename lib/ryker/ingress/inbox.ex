@@ -778,8 +778,14 @@ defmodule Ryker.Ingress.Inbox do
   defp receive_observation(_receipt), do: :ok
 
   defp record_batch_locked(inputs, settings) do
-    case lock_batch(inputs, settings) do
-      :ok -> Enum.map(inputs, &record_one_locked!(&1, settings))
+    conversations =
+      for %{source: %{kind: "slack"}, actor: %{kind: :user}} = input <- inputs,
+          do: input.destination
+
+    with :ok <- Episodes.ConversationLock.lock_many(conversations),
+         :ok <- lock_batch(inputs, settings) do
+      Enum.map(inputs, &record_one_locked!(&1, settings))
+    else
       {:error, reason} -> Repo.rollback(reason)
     end
   end

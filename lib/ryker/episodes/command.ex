@@ -123,6 +123,19 @@ defmodule Ryker.Episodes.Command do
           }
   end
 
+  defmodule SuppressDelivery do
+    @moduledoc false
+    @enforce_keys [
+      :episode_key,
+      :expected_delivery_ref,
+      :next_turn_ref,
+      :occurred_at,
+      :input_refs
+    ]
+    defstruct @enforce_keys
+    @type t :: %__MODULE__{}
+  end
+
   defmodule ConfirmDelivery do
     @moduledoc false
     @enforce_keys [:episode_key, :expected_delivery_ref, :occurred_at]
@@ -186,6 +199,7 @@ defmodule Ryker.Episodes.Command do
           | ResumeWait.t()
           | AcceptResult.t()
           | ConfirmDelivery.t()
+          | SuppressDelivery.t()
           | CancelEpisode.t()
           | RecordReaction.t()
 
@@ -233,6 +247,10 @@ defmodule Ryker.Episodes.Command do
       | next_wait: normalize_wait(command.next_wait),
         occurred_at: normalize_datetime(command.occurred_at)
     }
+  end
+
+  defp normalize(%SuppressDelivery{} = command) do
+    %{command | occurred_at: normalize_datetime(command.occurred_at)}
   end
 
   defp normalize(%CancelEpisode{} = command) do
@@ -361,6 +379,18 @@ defmodule Ryker.Episodes.Command do
       else: document
   end
 
+  def document(%SuppressDelivery{} = command) do
+    %{
+      "kind" => "suppress_delivery",
+      "episode_key" => command.episode_key,
+      "expected_delivery_ref" => command.expected_delivery_ref,
+      "next_turn_ref" => command.next_turn_ref,
+      "input_refs" => command.input_refs,
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
+      "reason" => "thread_updated_before_first_write"
+    }
+  end
+
   def document(%CancelEpisode{} = command) do
     %{
       "cancel_ref" => command.cancel_ref,
@@ -396,6 +426,7 @@ defmodule Ryker.Episodes.Command do
   def kind(%StartWait{}), do: "start_wait"
   def kind(%ResumeWait{}), do: "resume_wait"
   def kind(%AcceptResult{}), do: "accept_result"
+  def kind(%SuppressDelivery{}), do: "suppress_delivery"
   def kind(%ConfirmDelivery{}), do: "confirm_delivery"
   def kind(%CancelEpisode{}), do: "cancel_episode"
   def kind(%RecordReaction{}), do: "record_reaction"
@@ -419,6 +450,9 @@ defmodule Ryker.Episodes.Command do
   defp identity(%AcceptResult{} = command) do
     [command.episode_key, command.result_ref]
   end
+
+  defp identity(%SuppressDelivery{} = command),
+    do: [command.episode_key, command.expected_delivery_ref]
 
   defp identity(%ConfirmDelivery{} = command) do
     [command.episode_key, command.expected_delivery_ref]
@@ -520,6 +554,18 @@ defmodule Ryker.Episodes.Command do
       {valid_next_wait?(command.next_wait), :next_wait},
       {is_nil(command.next_wait) or command.delivery == :none, :next_wait},
       {is_nil(command.next_turn_ref) or is_nil(command.next_wait), :continuation},
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
+    ])
+  end
+
+  defp validate(%SuppressDelivery{} = command) do
+    validate_fields([
+      {reference?(command.episode_key), :episode_key},
+      {reference?(command.expected_delivery_ref), :expected_delivery_ref},
+      {reference?(command.next_turn_ref), :next_turn_ref},
+      {is_list(command.input_refs) and
+         Enum.uniq(command.input_refs) == command.input_refs and
+         Enum.all?(command.input_refs, &reference?/1), :input_refs},
       {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end

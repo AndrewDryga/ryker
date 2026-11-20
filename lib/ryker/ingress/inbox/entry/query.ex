@@ -43,6 +43,24 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
+  @doc "Human Slack revisions received in the same thread and execution mode since the opening input."
+  def thread_updates(%Entry{} = opening, count) do
+    thread =
+      all()
+      |> by_conversation(opening.destination_conversation_ref)
+      |> by_thread_ref(opening.destination_thread_ref)
+
+    from(e in thread,
+      where: [source_kind: "slack", destination_transport: "slack", actor_kind: :user],
+      where: [source_ref: ^opening.source_ref, execution_mode: ^opening.execution_mode],
+      where: e.event_kind in [:message, :edit, :delete] and e.status != :superseded,
+      where: is_nil(e.operational_pruned_at),
+      where: e.inserted_at >= ^opening.inserted_at and e.id != ^opening.id,
+      order_by: [desc: e.inserted_at, desc: e.id],
+      limit: ^count
+    )
+  end
+
   @doc "The messages that opened the threads `thread_refs` names."
   def thread_openings(queryable, thread_refs),
     do: where(queryable, [ingress_inbox_entries: e], e.source_item_ref in ^thread_refs)

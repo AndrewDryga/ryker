@@ -22,6 +22,96 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Work.Custody.Cancellation
   alias Ryker.Work.{DeliveryReceipt, Turn}
 
+  @doc "Reserve a first Slack write under the same lock as ingress."
+  def begin_slack_write(claim, ref), do: with_slack_delivery(claim, ref, :reserve)
+
+  @doc "Return a stale, unsent reply to Work once its publisher has released the lease guardian."
+  def suppress_unstarted_slack_write(claim, ref), do: with_slack_delivery(claim, ref, :suppress)
+
+  defp with_slack_delivery(%{episode: identity, turn: claimed, lease_ref: lease}, ref, action) do
+    destination = %{transport: "slack", conversation_ref: identity.destination_conversation_ref}
+
+    Repo.transaction(fn ->
+      with :ok <- Episodes.ConversationLock.lock(destination),
+           {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(identity.key),
+           {:ok, _session, turn} <-
+             fetch_and_lock_turn_after_episode(episode.id, claimed.turn_ref),
+           :ok <- current_turn_lease(turn, lease, Repo.now!()),
+           :ok <- current_delivery_owner(episode, turn),
+           :ok <- delivery_pending(turn),
+           :ok <- delivery_receipt_unset(turn),
+           true <- turn.delivery_ref == ref do
+        check_thread(episode, turn, action)
+      else
+        false -> Repo.rollback(:work_delivery_not_pending)
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> case do
+      {:ok, outcome} -> outcome
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Clear only this first write reservation when Slack definitively refused the call."
+  def release_refused_slack_write(%{episode: episode, turn: claimed, lease_ref: lease}, ref) do
+    case Repo.transaction(fn -> release_reservation(episode.id, claimed.turn_ref, lease, ref) end) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp release_reservation(episode_id, turn_ref, lease, ref) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease)
+
+    if turn.delivery_ref == ref and turn.slack_write_lease_ref == lease do
+      turn |> Turn.Changeset.release_slack_write() |> Repo.update!()
+    end
+  end
+
+  defp check_thread(episode, turn, action) do
+    case Ryker.Work.ThreadUpdates.verify(episode, turn) do
+      :ok when action == :suppress ->
+        Repo.rollback(:slack_write_recheck)
+
+      :ok ->
+        if is_nil(turn.slack_write_started_at) do
+          turn
+          |> Turn.Changeset.begin_slack_write(Repo.now!())
+          |> Repo.update()
+          |> unwrap_or_rollback(:work_delivery)
+        end
+
+        :ok
+
+      {:error, :work_validation_state_changed} when not is_nil(turn.slack_write_started_at) ->
+        Repo.rollback(:slack_write_awaiting_receipt)
+
+      {:error, :work_validation_state_changed} when action == :reserve ->
+        Repo.rollback(:slack_thread_changed_before_write)
+
+      {:error, :work_validation_state_changed} ->
+        suppress_before_write(episode, turn)
+    end
+  end
+
+  defp suppress_before_write(episode, turn) do
+    command = %Episodes.Command.SuppressDelivery{
+      episode_key: episode.key,
+      expected_delivery_ref: turn.delivery_ref,
+      input_refs: turn.selected_input_refs || [],
+      next_turn_ref: "turn:thread-updated:#{turn.id}",
+      occurred_at: Repo.now!()
+    }
+
+    with {:ok, [_transition]} <- Episodes.apply_batch_in_transaction([command]),
+         {:ok, _settled} <- persist_update(Turn.Changeset.suppress_delivery(turn), :work_delivery) do
+      {:suppressed, command.next_turn_ref}
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   @doc false
   @spec confirm_delivery(
           Ecto.UUID.t(),

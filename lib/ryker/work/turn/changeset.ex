@@ -90,9 +90,16 @@ defmodule Ryker.Work.Turn.Changeset do
         submission: submission,
         submission_fingerprint: fingerprint,
         selected_input_refs: normalize_refs(Keyword.get(evidence, :selected_input_refs)),
+        thread_receipt: Keyword.get(evidence, :thread_receipt),
         selection_ledger: normalize_ledger(Keyword.get(evidence, :selection_ledger))
       },
-      [:submission, :submission_fingerprint, :selected_input_refs, :selection_ledger]
+      [
+        :submission,
+        :submission_fingerprint,
+        :selected_input_refs,
+        :selection_ledger,
+        :thread_receipt
+      ]
     )
     |> validate_required([:submission, :submission_fingerprint])
     |> validate_length(:submission_fingerprint, is: 64, count: :codepoints)
@@ -111,6 +118,8 @@ defmodule Ryker.Work.Turn.Changeset do
       submission: nil,
       submission_fingerprint: nil,
       selected_input_refs: nil,
+      thread_receipt: nil,
+      thread_update_checkpoint: nil,
       selection_ledger: nil
     )
     |> work_constraints()
@@ -209,6 +218,27 @@ defmodule Ryker.Work.Turn.Changeset do
     |> validate_required([:session_id])
     |> foreign_key_constraint(:session_id, name: :episode_work_turn_session_episode_fkey)
     |> work_constraints()
+  end
+
+  def expose_thread_updates(turn, checkpoint),
+    do: change(turn, thread_update_checkpoint: checkpoint)
+
+  def begin_slack_write(turn, now),
+    do: change(turn, slack_write_started_at: now, slack_write_lease_ref: turn.lease_ref)
+
+  def release_slack_write(turn),
+    do: change(turn, slack_write_started_at: nil, slack_write_lease_ref: nil)
+
+  def suppress_delivery(turn) do
+    change(turn,
+      status: :superseded,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil,
+      last_error_code: "thread_updated_before_first_write",
+      last_error_detail: "The thread changed before Slack received this reply."
+    )
   end
 
   @spec renew(Turn.t(), DateTime.t()) :: Ecto.Changeset.t()

@@ -63,6 +63,10 @@ defmodule Ryker.Work.Turn do
     field(:remote_operation_revision, :integer)
     field(:result_ref, :string)
     field(:delivery_ref, :string)
+    field(:slack_write_started_at, :utc_datetime_usec)
+    field(:slack_write_lease_ref, :string)
+    field(:thread_receipt, Ryker.CanonicalJSON.Type)
+    field(:thread_update_checkpoint, Ryker.CanonicalJSON.Type)
     field(:delivery_document, Ryker.CanonicalJSON.Type)
     field(:delivery_target, Ryker.CanonicalJSON.Type)
     field(:delivery_fingerprint, :string)
@@ -152,6 +156,10 @@ defmodule Ryker.Work.Turn do
           remote_operation_revision: pos_integer() | nil,
           result_ref: String.t() | nil,
           delivery_ref: String.t() | nil,
+          slack_write_started_at: DateTime.t() | nil,
+          slack_write_lease_ref: String.t() | nil,
+          thread_receipt: map() | nil,
+          thread_update_checkpoint: map() | nil,
           delivery_document: map() | nil,
           delivery_target: map() | nil,
           delivery_fingerprint: String.t() | nil,

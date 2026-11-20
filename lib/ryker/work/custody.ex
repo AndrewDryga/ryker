@@ -342,6 +342,13 @@ defmodule Ryker.Work.Custody do
               ),
               to: Turns
 
+  @doc "Starts or suppresses an unsent Slack reply under the current delivery lease."
+  defdelegate begin_slack_write(claim, delivery_ref), to: Delivery
+
+  defdelegate suppress_unstarted_slack_write(claim, delivery_ref), to: Delivery
+
+  defdelegate release_refused_slack_write(claim, delivery_ref), to: Delivery
+
   @doc """
   Atomically records one reconciled external delivery and advances the episode.
   """

@@ -257,7 +257,7 @@ defmodule Ryker.Work.Executor do
            [state_tool_capabilities: settings.state_tool_capabilities, workspace: workspace]
            |> maybe_submission_option(:platform_tools, settings.platform_tools)
            |> maybe_submission_option(:connected, settings.connected),
-         {:ok, %{submission: submission, ledger: ledger}} <-
+         {:ok, %{submission: submission, ledger: ledger, thread_receipt: receipt}} <-
            SubmissionBuilder.prepare(claim, submission_options),
          {:ok, turn} <-
            Custody.freeze_submission(
@@ -268,6 +268,7 @@ defmodule Ryker.Work.Executor do
              # Exactly the refs the builder required present and selected, and
              # the counts it measured while selecting them.
              selected_input_refs: Enum.uniq(claim.episode.active_input_refs),
+             thread_receipt: receipt,
              selection_ledger: ledger
            ) do
       {:ok, %{claim | turn: turn}}

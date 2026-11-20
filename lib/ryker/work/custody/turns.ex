@@ -34,7 +34,7 @@ defmodule Ryker.Work.Custody.Turns do
          :ok <- reference(lease_ref, :lease_ref),
          {:ok, submission} <- Submission.prepare(submission) do
       fingerprint = Submission.fingerprint(submission)
-      evidence = Keyword.take(options, [:selected_input_refs, :selection_ledger])
+      evidence = Keyword.take(options, [:selected_input_refs, :selection_ledger, :thread_receipt])
 
       Repo.transaction(fn ->
         freeze_locked(episode_id, turn_ref, lease_ref, submission, fingerprint, evidence)
@@ -121,6 +121,11 @@ defmodule Ryker.Work.Custody.Turns do
   defp record_final_validation(turn, %{"verdict" => "accept"}) do
     episode = Repo.fetch!(Episodes.Episode.Query.by_id(turn.episode_id))
 
+    case Ryker.Work.ThreadUpdates.verify(episode, turn) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
     ledger_sha256 =
       ValidationSnapshot.ledger_sha256(episode.id, episode.semantic_version, turn.id)
 
@@ -151,7 +156,7 @@ defmodule Ryker.Work.Custody.Turns do
          turn.final_preflight_continuity_sha256 == continuity_sha256 and
          turn.final_preflight_ledger_sha256 == ledger_sha256 and
          turn.final_preflight_semantic_version == episode.semantic_version,
-       do: :ok,
+       do: Ryker.Work.ThreadUpdates.verify(episode, turn),
        else: {:error, :work_validation_state_changed}
   end
 

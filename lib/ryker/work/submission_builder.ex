@@ -29,7 +29,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   @retained_cases 3
   @maximum_context_bytes 160 * 1_024
   @input_content_bytes 1_024
-  @optional_notes ~w(related_outcomes observations knowledge)
+  @optional_notes ~w(thread_updates related_outcomes observations knowledge)
 
   @doc """
   The frozen submission plus the ledger of what this turn actually selected.
@@ -42,7 +42,8 @@ defmodule Ryker.Work.SubmissionBuilder do
   identical with or without it.
   """
   @spec prepare(%{episode: Episodes.Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
-          {:ok, %{submission: Submission.t(), ledger: map()}} | {:error, term()}
+          {:ok, %{submission: Submission.t(), ledger: map(), thread_receipt: map() | nil}}
+          | {:error, term()}
   def prepare(claim, options \\ [])
 
   def prepare(
@@ -65,6 +66,7 @@ defmodule Ryker.Work.SubmissionBuilder do
            context_metadata(episode, session, snapshot.active, contract.mode, options),
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
+         {receipt, context} = Map.pop(context, "thread_receipt"),
          {:ok, submission} <-
            Submission.new(
              context,
@@ -73,7 +75,12 @@ defmodule Ryker.Work.SubmissionBuilder do
              contract.contract_version,
              model_artifact_refs(context)
            ) do
-      {:ok, %{submission: submission, ledger: ledger(context, snapshot, eligible)}}
+      {:ok,
+       %{
+         submission: submission,
+         ledger: ledger(context, snapshot, eligible),
+         thread_receipt: receipt
+       }}
     end
   end
 
@@ -290,6 +297,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     end
   end
 
+  defp note_path("thread_updates"), do: ["thread_updates"]
   defp note_path("related_outcomes"), do: ["related_outcomes"]
   defp note_path(key), do: ["operator_context", "continuity", key]
 
@@ -352,6 +360,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         "repository_ref" => session.repository_ref,
         "related_outcomes" => Records.Outcomes.recall(episode, session.repository_ref)
       }
+      |> Ryker.Work.ThreadUpdates.put(episode, snapshot)
       |> maybe_put_repository_knowledge(session.repository_ref)
       |> put_prior_outcome(previous, episode, session)
       |> Map.merge(metadata)
@@ -492,6 +501,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         "records" => Enum.map(records, &record_document/1),
         "repository_ref" => session.repository_ref
       }
+      |> Ryker.Work.ThreadUpdates.put(episode, snapshot)
       |> maybe_put_repository_knowledge(session.repository_ref)
 
     {context, eligible} = context |> Map.merge(metadata) |> fit_optional_notes()

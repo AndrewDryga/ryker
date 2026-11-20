@@ -26,6 +26,7 @@ defmodule Ryker.Delivery.Dispatcher do
           {:ok,
            :idle
            | {:delivered, kind(), String.t()}
+           | {:suppressed, kind(), String.t(), String.t()}
            | {:deferred, kind(), String.t(), term()}
            | {:blocked, kind(), String.t(), term()}}
           | {:error, term()}
@@ -112,6 +113,14 @@ defmodule Ryker.Delivery.Dispatcher do
 
     %{
       attempt_count: turn.delivery_attempt_count,
+      before_write:
+        if(
+          is_map(turn.thread_receipt),
+          do: &slack_write_reservation(claim, &1)
+        ),
+      suppress_unstarted: fn ->
+        Work.Custody.suppress_unstarted_slack_write(claim, turn.delivery_ref)
+      end,
       kind: :message,
       ref: turn.delivery_ref,
       renew: fn ->
@@ -295,17 +304,48 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp publish_with_lease(request, custody, settings) do
     LeasedCall.run(
-      fn -> publish(request, settings.adapters) end,
+      fn -> publish(request, delivery_adapters(request, custody, settings.adapters)) end,
       custody.renew,
       settings.lease_seconds,
       :delivery_publisher_exit
     )
   end
 
+  defp slack_write_reservation(claim, ref) do
+    with :ok <- Work.Custody.begin_slack_write(claim, ref),
+         do: {:reserved, fn -> Work.Custody.release_refused_slack_write(claim, ref) end}
+  end
+
+  defp delivery_adapters(
+         %Request{transport: "slack"},
+         %{before_write: check},
+         %{"slack" => adapter} = adapters
+       )
+       when is_function(check, 1) do
+    Map.put(adapters, "slack", %{
+      adapter
+      | binding: Map.put(adapter.binding, :before_message_write, check)
+    })
+  end
+
+  defp delivery_adapters(_request, _custody, adapters), do: adapters
+
   defp publish(request, adapters) do
     Adapters.publish(request, adapters)
   catch
     kind, reason -> {:error, {:delivery_publisher_crashed, kind, reason}}
+  end
+
+  defp handle_error(
+         %{before_write: check} = custody,
+         :slack_thread_changed_before_write,
+         settings
+       )
+       when is_function(check, 1) do
+    case custody.suppress_unstarted.() do
+      {:suppressed, next_ref} -> {:ok, {:suppressed, custody.kind, custody.ref, next_ref}}
+      {:error, reason} -> handle_error(custody, reason, settings)
+    end
   end
 
   defp handle_error(custody, reason, settings) do

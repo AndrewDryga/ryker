@@ -133,6 +133,226 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert named["context"]["episode_title"] == "Investigate checkout 502s"
   end
 
+  test "a received human handoff reaches the briefing without becoming an authorized input" do
+    # A teammate took over setup before Work started. Ryker missed the handoff,
+    # repeated setup instructions and offered unrelated work in its reply.
+    thread = "1787832000.000100"
+
+    {request, _} = record_thread_message("Which URL do I use?", thread, nil, "UASK")
+
+    claim =
+      claim_episode_payload!("handoff", Ryker.Ingress.Input.document(request),
+        destination: request.destination
+      )
+
+    {_, handoff} = record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+    record_thread_message("Separate conversation", "1787832002.000100", nil, "UHELP")
+
+    assert {:ok, submission} = Inspectors.submission(claim)
+    assert [update] = submission["context"]["thread_updates"]
+    assert update["text"] == "I’m doing it rn"
+    assert update["actor_ref"] == handoff.actor_ref
+    assert update["input_id"] == handoff.id
+    assert update["revision"] == handoff.revision
+    assert [original] = submission["context"]["inputs"]["items"]
+    assert original["content"]["content"]["text"] == "Which URL do I use?"
+    refute submission["prompt"] =~ "Separate conversation"
+
+    # Even a briefing containing only observational context must retain its
+    # source. An edited or invented handoff cannot authorize disclosure.
+    observed = %{"context" => %{"thread_updates" => [update]}}
+    alias Ryker.Knowledge.KnowledgeSnapshot
+    assert KnowledgeSnapshot.authorize_submission(claim.episode, claim.session, observed) == :ok
+
+    forged =
+      put_in(observed, ["context", "thread_updates"], [%{update | "text" => "Different words"}])
+
+    assert {:error, _} =
+             KnowledgeSnapshot.authorize_submission(claim.episode, claim.session, forged)
+  end
+
+  test "a handoff received after final validation holds the unsent answer for reconsideration" do
+    # The original takeover was routed quietly before a stale setup reply landed.
+    thread = "1787832000.000100"
+    {request, _} = record_thread_message("Which URL do I use?", thread, nil, "UASK")
+
+    claim =
+      claim_episode_payload!("late-handoff", Ryker.Ingress.Input.document(request),
+        destination: request.destination
+      )
+
+    assert {:ok, %{submission: submission, ledger: ledger, thread_receipt: receipt}} =
+             SubmissionBuilder.prepare(claim)
+
+    bind_remote_turn!(claim, submission, selection_ledger: ledger, thread_receipt: receipt)
+    candidate = ~s({"delivery":"reply"})
+    hash = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               hash,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:none, nil, "No other work.")
+
+    assert {:ok, _} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               hash,
+               1,
+               :accept,
+               result
+             )
+
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+
+    assert Custody.accept_result(
+             claim.episode.id,
+             claim.episode.key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             hash,
+             1,
+             "validation:late-handoff"
+           ) == {:error, :work_validation_state_changed}
+
+    assert is_nil(Repo.get!(Ryker.Work.Turn, claim.turn.id).result_ref)
+  end
+
+  test "a changed thread retires an unsent reply and restores the question to a new turn" do
+    # The draft can already have a saved result when its author is overtaken.
+    {_accepted, thread} = pending_thread_reply!()
+    assert {:ok, claim} = Custody.claim_next("worker:slack-delivery", 60, :delivery)
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+
+    assert Custody.begin_slack_write(
+             %{claim | lease_ref: Ecto.UUID.generate()},
+             claim.turn.delivery_ref
+           ) == {:error, :work_lease_lost}
+
+    assert Custody.begin_slack_write(claim, claim.turn.delivery_ref) ==
+             {:error, :slack_thread_changed_before_write}
+
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).status == :delivery_pending
+
+    assert {:suppressed, next_ref} =
+             Custody.suppress_unstarted_slack_write(claim, claim.turn.delivery_ref)
+
+    old = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert old.status == :superseded
+    assert old.result_ref == claim.turn.result_ref
+    assert is_nil(old.external_receipt)
+    assert is_nil(old.delivered_at)
+    assert {:ok, next} = Custody.claim_next("worker:reconsider", 60)
+    assert next.turn.turn_ref == next_ref
+    assert next.episode.active_input_refs == claim.turn.selected_input_refs
+    assert {:ok, submission} = Inspectors.submission(next)
+    assert [%{"text" => "I’m doing it rn"}] = submission["context"]["thread_updates"]
+  end
+
+  test "a Slack write already started remains reconcilable after a new message arrives" do
+    {_accepted, thread} = pending_thread_reply!()
+    assert {:ok, claim} = Custody.claim_next("worker:slack-delivery", 60, :delivery)
+    assert Custody.begin_slack_write(claim, claim.turn.delivery_ref) == :ok
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).slack_write_started_at
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+
+    assert Custody.begin_slack_write(claim, claim.turn.delivery_ref) ==
+             {:error, :slack_write_awaiting_receipt}
+
+    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).status == :delivery_pending
+  end
+
+  test "a definite Slack refusal lets an unsent answer retire after a handoff" do
+    {_accepted, thread} = pending_thread_reply!()
+    assert {:ok, claim} = Custody.claim_next("worker:rate-limited", 60, :delivery)
+    assert Custody.begin_slack_write(claim, claim.turn.delivery_ref) == :ok
+    assert Custody.release_refused_slack_write(claim, claim.turn.delivery_ref) == :ok
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+
+    assert Custody.begin_slack_write(claim, claim.turn.delivery_ref) ==
+             {:error, :slack_thread_changed_before_write}
+
+    assert {:suppressed, _next} =
+             Custody.suppress_unstarted_slack_write(claim, claim.turn.delivery_ref)
+  end
+
+  test "Slack dispatch suppresses a superseded answer before its first write" do
+    {accepted, thread} = pending_thread_reply!()
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+    {:ok, api} = Ryker.TestSupport.FakeSlackAPI.start_link([])
+
+    adapter = %{
+      binding: %{
+        workspaces: %{"TWORKTHREAD" => %{api: Ryker.TestSupport.FakeSlackAPI, client: api}}
+      },
+      message_publisher: Ryker.Slack.Publisher,
+      reaction_publisher: Ryker.Slack.Publisher
+    }
+
+    assert {:ok, {:suppressed, :message, ref, next}} =
+             Ryker.Delivery.Dispatcher.run_once(
+               kind: :message,
+               worker_ref: "worker:dispatch",
+               adapters: %{"slack" => adapter}
+             )
+
+    assert ref == accepted.turn.delivery_ref
+    assert Ryker.TestSupport.FakeSlackAPI.state(api).posts == []
+    assert {:ok, replacement} = Custody.claim_next("worker:reconsider", 60)
+    assert replacement.turn.turn_ref == next
+  end
+
+  test "the running session receives a later handoff on a tool response and can replay it" do
+    thread = "1787832000.000100"
+    {request, _} = record_thread_message("Which URL do I use?", thread, nil, "UASK")
+
+    claim =
+      claim_episode_payload!("tool-handoff", Ryker.Ingress.Input.document(request),
+        destination: request.destination
+      )
+
+    assert {:ok, %{submission: submission, ledger: ledger, thread_receipt: receipt}} =
+             SubmissionBuilder.prepare(claim)
+
+    bind_remote_turn!(claim, submission, selection_ledger: ledger, thread_receipt: receipt)
+
+    binding = %{
+      claim
+      | session: Repo.get!(Ryker.Work.Session, claim.session.id),
+        turn: Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    }
+
+    refute Ryker.Work.ThreadUpdates.for_tool(binding, 1)
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+
+    assert [%{"text" => "I’m doing it rn"}] =
+             updates = Ryker.Work.ThreadUpdates.for_tool(binding, 2)
+
+    assert ^updates = Ryker.Work.ThreadUpdates.for_tool(binding, 2)
+    refute Ryker.Work.ThreadUpdates.for_tool(binding, 3)
+    saved = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert saved.submission == submission
+    assert Ryker.Work.ThreadUpdates.verify(claim.episode, saved) == :ok
+    assert KnowledgeSnapshot.authorize_session(claim.episode, binding.session) == :ok
+
+    # A lost response can be retried after another message arrives. Replay only its own disclosure.
+    record_thread_message("Which URL do I use?", "1787832002.000100", thread, "UASK")
+    assert ^updates = Ryker.Work.ThreadUpdates.for_tool(binding, 2)
+
+    assert Ryker.Work.ThreadUpdates.verify(claim.episode, saved) ==
+             {:error, :work_validation_state_changed}
+  end
+
   test "the first turn is a self-contained universal briefing with one attached final schema" do
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
     claim = claim_episode!("full-briefing", initial)
@@ -1958,13 +2178,93 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              |> Repo.insert()
   end
 
-  defp bind_remote_turn!(claim, submission) do
+  defp pending_thread_reply! do
+    thread = "1787832000.000100"
+    {request, _} = record_thread_message("Which URL do I use?", thread, nil, "UASK")
+
+    claim =
+      claim_episode_payload!("accepted-handoff", Ryker.Ingress.Input.document(request),
+        destination: request.destination
+      )
+
+    assert {:ok, %{submission: submission, ledger: ledger, thread_receipt: receipt}} =
+             SubmissionBuilder.prepare(claim)
+
+    bind_remote_turn!(claim, submission,
+      thread_receipt: receipt,
+      selection_ledger: ledger,
+      selected_input_refs: claim.episode.active_input_refs
+    )
+
+    candidate = ~s({"delivery":"reply"})
+    hash = :crypto.hash(:sha256, candidate) |> Base.encode16(case: :lower)
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               candidate,
+               hash,
+               1
+             )
+
+    assert {:ok, result} = Result.new(:reply, %{"message" => "Setup instructions"})
+
+    assert {:ok, _} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               hash,
+               1,
+               :accept,
+               result
+             )
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               claim.episode.id,
+               claim.episode.key,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               hash,
+               1,
+               "validation:accepted-handoff"
+             )
+
+    {accepted, thread}
+  end
+
+  defp record_thread_message(text, message, parent, actor) do
+    {:ok, input} =
+      Ryker.Slack.Input.new(%{
+        actor: %{kind: :user, ref: actor},
+        channel_ref: "CWORKTHREAD",
+        content: %{"text" => text},
+        event_kind: :message,
+        event_ref: "Ev-" <> message,
+        message_ref: message,
+        occurred_at: @now,
+        revision: 1,
+        thread_ref: parent,
+        workspace_ref: "TWORKTHREAD"
+      })
+
+    assert {:ok, %{entry: entry}} = Ryker.Ingress.Inbox.record(input)
+    {input, entry}
+  end
+
+  defp bind_remote_turn!(claim, submission, options \\ []) do
     assert {:ok, frozen} =
              Custody.freeze_submission(
                claim.episode.id,
                claim.turn.turn_ref,
                claim.lease_ref,
-               submission
+               submission,
+               options
              )
 
     assert KnowledgeSnapshot.expose_submission(%{claim | turn: frozen}) == :ok

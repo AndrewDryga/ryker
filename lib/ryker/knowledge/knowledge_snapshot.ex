@@ -251,7 +251,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp document_context!(%Episodes.Episode{} = destination, %Work.Session{} = session, documents) do
     {derived, ordinary} = Enum.split_with(documents, &Records.DerivedContext.derived?/1)
     {guidance, ordinary} = Enum.split_with(ordinary, &(&1["kind"] == "guidance"))
+    {updates, ordinary} = Enum.split_with(ordinary, &(&1["kind"] == "thread_update"))
     {inputs, memory_documents} = Enum.split_with(ordinary, &(&1["kind"] == "work_input"))
+    update_sources = Enum.map(updates, &Work.ThreadUpdates.sources(&1["update"], destination))
 
     case Records.DerivedContext.resolve(derived, destination, session.repository_ref, session) do
       {:ok, inherited} ->
@@ -265,7 +267,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
           |> Enum.map(&Learning.LearningSources.document_sources/1)
           |> Learning.LearningSources.merge()
 
-        memories = Learning.LearningSources.merge([inherited.sources, direct_memories])
+        memories =
+          Learning.LearningSources.merge([inherited.sources, direct_memories | update_sources])
 
         sources = Learning.LearningSources.merge([inputs, memories])
 
@@ -715,7 +718,11 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
     guidance = get_in(briefing, ["operator_context", "guidance"]) || []
 
+    updates =
+      Enum.map(briefing["thread_updates"] || [], &%{"kind" => "thread_update", "update" => &1})
+
     (work_input_documents(briefing) ++
+       updates ++
        guidance ++ memory ++ Records.DerivedContext.submission_documents(briefing))
     |> Enum.reject(&is_nil/1)
   end

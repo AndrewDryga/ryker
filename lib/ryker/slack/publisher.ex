@@ -26,7 +26,10 @@ defmodule Ryker.Slack.Publisher do
          {:ok, target} <- Target.parse(request),
          :ok <- destination_allowed(binding, target),
          {:ok, api, client} <- client(binding, target.workspace_ref),
-         {:ok, message_ref} <- reconcile_message(api, client, request, target),
+         {:ok, message_ref} <-
+           reconcile_message(api, client, request, target, fn ->
+             before_message_write(binding, request.ref)
+           end),
          :ok <- point_other_threads(binding, request, target, message_ref) do
       Work.DeliveryReceipt.new(
         request.ref,
@@ -118,19 +121,40 @@ defmodule Ryker.Slack.Publisher do
     end
   end
 
-  defp reconcile_message(api, client, request, target) do
-    if request.artifacts == [],
-      do: reconcile_plain_message(api, client, request, target),
-      else: reconcile_file_message(api, client, request, target)
+  defp before_message_write(%{before_message_write: check}, ref), do: check.(ref)
+
+  defp before_message_write(_binding, _ref), do: :ok
+
+  defp write_message(reserve, write) do
+    case reserve.() do
+      :ok -> write.()
+      {:reserved, release} -> settle_reservation(write.(), release)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp reconcile_plain_message(api, client, request, target) do
+  defp settle_reservation({:error, {kind, detail}}, _release)
+       when kind in [:delivery_uncertain, :delivery_share_pending], do: {:error, {kind, detail}}
+
+  defp settle_reservation({:error, _definite} = error, release) do
+    with :ok <- release.(), do: error
+  end
+
+  defp settle_reservation(result, _release), do: result
+
+  defp reconcile_message(api, client, request, target, before_write) do
+    if request.artifacts == [],
+      do: reconcile_plain_message(api, client, request, target, before_write),
+      else: reconcile_file_message(api, client, request, target, before_write)
+  end
+
+  defp reconcile_plain_message(api, client, request, target, before_write) do
     case find_message(api, client, request, target) do
       {:ok, message_ref} ->
         {:ok, message_ref}
 
       :not_found ->
-        post_message(api, client, request, target)
+        write_message(before_write, fn -> post_message(api, client, request, target) end)
 
       {:error, reason} ->
         {:error, {:delivery_reconciliation_failed, reason}}
@@ -166,7 +190,7 @@ defmodule Ryker.Slack.Publisher do
   # attempt that uploaded them without seeing the share yet left their ids in
   # the request, so this one waits for that share: a retry that found no share
   # uploaded the images a second time (2026-10-04 review).
-  defp reconcile_file_message(api, client, request, target) do
+  defp reconcile_file_message(api, client, request, target, before_write) do
     files = prepare_files(request)
     filenames = Enum.map(files, & &1.filename)
 
@@ -180,7 +204,7 @@ defmodule Ryker.Slack.Publisher do
         {:error, {:delivery_share_pending, request.upload_refs}}
 
       :not_found ->
-        upload_files(api, client, request, target, files)
+        write_message(before_write, fn -> upload_files(api, client, request, target, files) end)
 
       {:error, reason} ->
         {:error, {:delivery_reconciliation_failed, reason}}
@@ -293,7 +317,16 @@ defmodule Ryker.Slack.Publisher do
          {:ok, target} <- Target.parse(note),
          :ok <- destination_allowed(binding, target),
          {:ok, api, client} <- client(binding, target.workspace_ref) do
-      reconcile_plain_message(api, client, note, target)
+      reconcile_plain_message(api, client, note, target, fn ->
+        before_note(binding, request.ref)
+      end)
+    end
+  end
+
+  defp before_note(binding, ref) do
+    case before_message_write(binding, ref) do
+      {:reserved, _release} -> :ok
+      other -> other
     end
   end
 

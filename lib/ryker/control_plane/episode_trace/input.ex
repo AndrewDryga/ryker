@@ -353,6 +353,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp kernel_stage(:owner_transferred), do: "Custody"
   defp kernel_stage(:result_accepted), do: "Result"
+  defp kernel_stage(:delivery_suppressed), do: "Delivery"
   defp kernel_stage(:delivery_confirmed), do: "Delivery"
   defp kernel_stage(:reaction_recorded), do: "Feedback"
   defp kernel_stage(:episode_cancelled), do: "Cancellation"
@@ -419,6 +420,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp lifecycle_summary(:result_accepted, _payload),
     do: "Ryker checked the answer and accepted it."
+
+  defp lifecycle_summary(:delivery_suppressed, _payload),
+    do: "The thread changed before the reply was sent. The question returned to Work."
 
   defp lifecycle_summary(:delivery_confirmed, _payload), do: "Delivery was confirmed."
 

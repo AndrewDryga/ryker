@@ -149,6 +149,9 @@ defmodule Ryker.Work.Dispatcher do
   defp execution_failure(claim, :work_knowledge_context_stale = reason, settings),
     do: rerun_stale_context(claim, reason, settings)
 
+  defp execution_failure(claim, :work_validation_state_changed = reason, settings),
+    do: rerun_stale_context(claim, reason, settings)
+
   defp execution_failure(claim, :work_wait_state_changed = reason, settings),
     do: rerun_stale_context(claim, reason, settings)
 

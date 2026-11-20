@@ -14,6 +14,8 @@ defmodule Ryker.Delivery.Retry do
   retry cannot change.
   """
   @spec retryable?(term()) :: boolean()
+  def retryable?(:slack_write_recheck), do: true
+  def retryable?(:slack_write_awaiting_receipt), do: true
   def retryable?({:delivery_credentials_unavailable, _reason}), do: true
   def retryable?({:delivery_publisher_crashed, _kind, _reason}), do: true
   def retryable?({:delivery_publisher_exit, _reason}), do: true

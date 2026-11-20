@@ -27,6 +27,28 @@ defmodule Ryker.Slack.PublisherTest do
     assert state.finds == 2
   end
 
+  test "a superseded Slack draft never posts, and a known post still reconciles" do
+    # A teammate can take over after acceptance but before the first post.
+    {:ok, api} = FakeSlackAPI.start_link(lose: [:post_message])
+    request = message_request()
+    allowed = publisher_binding(api)
+
+    held =
+      Map.put(allowed, :before_message_write, fn _ref ->
+        {:error, :work_validation_state_changed}
+      end)
+
+    assert Publisher.publish_message(request, held) == {:error, :work_validation_state_changed}
+    assert FakeSlackAPI.state(api).posts == []
+
+    assert Publisher.publish_message(request, allowed) ==
+             {:error, {:delivery_uncertain, :socket_closed}}
+
+    assert {:ok, receipt} = Publisher.publish_message(request, held)
+    assert receipt["delivery_ref"] == request.ref
+    assert length(FakeSlackAPI.state(api).posts) == 1
+  end
+
   # The tenant install, 2026-10-13: two questions in two threads were answered in the second one's
   # thread only, and the first read as if Ryker had ignored it. The answer is posted once, and
   # each other thread it answers gets a short note linking to it. A retry finds both and posts

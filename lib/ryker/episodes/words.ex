@@ -38,6 +38,7 @@ defmodule Ryker.Episodes.Words do
   def lifecycle_title(:event_wait_started), do: "Waiting for an event"
   def lifecycle_title(:wait_resumed), do: "Picked up again after waiting"
   def lifecycle_title(:result_accepted), do: "Answer accepted"
+  def lifecycle_title(:delivery_suppressed), do: "Held the reply after the thread changed"
   def lifecycle_title(:delivery_confirmed), do: "Delivery confirmed"
   def lifecycle_title(:episode_cancelled), do: "Request stopped"
   def lifecycle_title(:reaction_recorded), do: "Reaction recorded"
