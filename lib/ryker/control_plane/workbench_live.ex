@@ -1720,7 +1720,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     with {:ok, key} <- options.projection.request_key.(socket.assigns.params["id"]),
          {:ok, episode} <- options.projection.episode.(key, disclosed),
-         {:ok, timeline} <- options.projection.model_timeline.(key, timeline_params) do
+         {:ok, timeline} <- timeline_history(socket, options.projection, key, timeline_params) do
       assign(socket,
         native: :episode,
         page_title: "Timeline",
@@ -2564,6 +2564,17 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     do: options.projection.settings.()
 
   defp header_settings(_path, _options), do: nil
+
+  # The HTTP render already carries the real request, outcome and plan. The browser's
+  # immediately following join builds the expensive history once, with current evidence.
+  defp timeline_history(socket, projection, key, params) do
+    explicit_history? =
+      Enum.any?(~w(events calls attempt responses_page), &Map.has_key?(params, &1))
+
+    if connected?(socket) or explicit_history?,
+      do: projection.model_timeline.(key, params),
+      else: {:ok, :connecting}
+  end
 
   defp load_unassigned_input(%{assigns: %{params: %{"id" => id}}} = socket, options)
        when is_binary(id) do

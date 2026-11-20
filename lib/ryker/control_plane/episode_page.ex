@@ -27,21 +27,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
         assigns.snapshot[:related_episodes] || %{items: [], truncated: false}
       )
 
-    chapters = chapters(assigns.snapshot, assigns.timeline)
-
     assigns =
-      assign(
-        assigns,
-        :timeline_groups,
-        timeline_groups(
-          chapters,
-          if(assigns.snapshot[:task], do: "The task"),
-          feedback_groups(
-            assigns.snapshot[:feedback] || [],
-            assigns.snapshot[:self_analysis] || []
-          )
-        )
-      )
+      assign(assigns, :timeline_groups, groups_for_page(assigns.snapshot, assigns.timeline))
 
     assigns =
       assigns
@@ -613,6 +600,30 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # result share their id's stem; a cleanup is one session's.
   defp occurrence(%{occurrence: key}) when not is_nil(key), do: key
   defp occurrence(%{id: id}), do: String.replace_suffix(id, "-result", "")
+
+  defp groups_for_page(_snapshot, :connecting), do: []
+
+  defp groups_for_page(snapshot, timeline) do
+    timeline_groups(
+      chapters(snapshot, timeline),
+      if(snapshot[:task], do: "The task"),
+      feedback_groups(snapshot[:feedback] || [], snapshot[:self_analysis] || [])
+    )
+  end
+
+  defp execution_timeline(%{timeline: :connecting} = assigns) do
+    ~H"""
+    <section
+      id="execution-timeline"
+      class="case-timeline"
+      aria-label="Execution timeline"
+      aria-busy="true"
+    >
+      <p role="status">Loading timeline…</p>
+      <a href={base(@snapshot) <> "?events=1#execution-timeline"}>Read full history</a>
+    </section>
+    """
+  end
 
   defp execution_timeline(assigns) do
     ~H"""

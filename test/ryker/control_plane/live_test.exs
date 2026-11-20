@@ -2089,6 +2089,35 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute render(view) =~ source
   end
 
+  test "a cold timeline shows its request before the live connection builds its history once" do
+    # Rendering thousands of history nodes twice pushed populated direct navigations past two seconds.
+    {:ok, %{episode: episode}} = Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
+    path = "/timeline/" <> episode.id
+    response = get(signed_in_conn() |> Map.put(:host, "localhost"), path)
+    initial = response |> html_response(200) |> LazyHTML.from_document()
+    assert [_] = LazyHTML.query(initial, ".episode-page-intro h1") |> Enum.to_list()
+    assert [_] = LazyHTML.query(initial, "#execution-timeline[aria-busy=true]") |> Enum.to_list()
+    assert Enum.empty?(LazyHTML.query(initial, "#execution-timeline .case-event"))
+
+    direct = LazyHTML.query(initial, "#execution-timeline a") |> LazyHTML.attribute("href")
+    assert [history] = direct
+
+    full =
+      get(
+        signed_in_conn() |> Map.put(:host, "localhost"),
+        URI.to_string(%{URI.parse(history) | fragment: nil})
+      )
+
+    static_history = full |> html_response(200) |> LazyHTML.from_document()
+
+    assert LazyHTML.query(static_history, "#execution-timeline .case-event") |> LazyHTML.text() =~
+             "Message added"
+
+    {:ok, view, _html} = live(response)
+    assert has_element?(view, "#execution-timeline .case-event", "Message added")
+    refute has_element?(view, "#execution-timeline[aria-busy=true]")
+  end
+
   test "an episode has one continuous execution document without a duplicate request page" do
     {:ok, %{episode: episode}} =
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
