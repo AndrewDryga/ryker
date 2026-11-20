@@ -92,6 +92,7 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
       progress_text: IssueMessages.status(progress),
       history_before: if(length(plans) == 10, do: List.last(plans).revision),
       plan: plan,
+      implementation: implementation(workflow, plan),
       expected: %{
         "revision" => workflow.revision,
         "plan_id" => workflow.current_plan_id,
@@ -99,6 +100,20 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
         "issue_digest" => GitHub.IssueSnapshot.digest(issue)
       }
     }
+  end
+
+  defp implementation(_workflow, nil), do: nil
+
+  defp implementation(workflow, plan) do
+    query =
+      workflow.id
+      |> IssueRequest.Query.by_workflow_id()
+      |> IssueRequest.Query.plan_implementation(plan.id)
+
+    case Repo.peek(query) do
+      nil -> nil
+      request -> IssueProgress.read(request)
+    end
   end
 
   defp current_request(nil), do: nil
@@ -128,7 +143,7 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
 
       case Repo.fetch(
              IssueRequest.Query.by_workflow_id(workflow.id)
-             |> IssueRequest.Query.by_request_key(key)
+             |> IssueRequest.Query.approved_work(kind, expected, issue, key)
            ) do
         {:ok, request} -> %{request: request, status: :duplicate}
         {:error, :not_found} -> start_new!(access, issue, workflow, kind, expected, key)

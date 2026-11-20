@@ -114,7 +114,7 @@ defmodule Ryker.ControlPlane.IssuePlans do
       action_path,
       "\">",
       fields(action_path, snapshot),
-      controls(view.plan, view.progress),
+      controls(view.plan, view.progress, view.implementation),
       "</form>",
       history(view, action_path),
       "</div><script type=\"module\" src=\"",
@@ -209,26 +209,44 @@ defmodule Ryker.ControlPlane.IssuePlans do
     ]
   end
 
-  defp controls(_plan, %{"status" => status})
+  defp controls(_plan, %{"status" => status}, _implementation)
        when status in ~w(queued planning preparing building checking needs_attention needs_input) do
     "<p>Work is already in progress. Follow its status above before starting another action.</p>"
   end
 
-  defp controls(nil, _progress),
+  defp controls(nil, _progress, _implementation),
     do: [
       "<button class=\"ui-button primary\" type=\"submit\" name=\"action\" value=\"make_plan\">Make a plan</button> ",
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"build_issue\">Build this</button> ",
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"triage_issue\">Triage this issue</button>"
     ]
 
-  defp controls(plan, _progress),
+  defp controls(plan, _progress, implementation),
     do: [
-      "<button class=\"ui-button primary\" type=\"submit\" data-implement-plan name=\"action\" value=\"implement_plan\">Implement plan · version ",
-      to_string(plan.revision),
-      "</button> ",
+      implementation_action(plan, implementation),
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"make_plan\">Make a new plan</button> ",
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"triage_issue\">Triage this issue</button>"
     ]
+
+  defp implementation_action(plan, nil),
+    do: [
+      "<button class=\"ui-button primary\" type=\"submit\" data-implement-plan name=\"action\" value=\"implement_plan\">Implement plan · version ",
+      to_string(plan.revision),
+      "</button> "
+    ]
+
+  defp implementation_action(plan, %{"url" => url}) do
+    [
+      "<a class=\"ui-button secondary\" href=\"",
+      PublicPage.escape(url),
+      "\">View pull request for version ",
+      to_string(plan.revision),
+      "</a> "
+    ]
+  end
+
+  defp implementation_action(_plan, _existing),
+    do: "<p>This plan version has already been approved.</p>"
 
   defp history(view, path) do
     versions = Enum.reject(view.plans, &(&1.id == view.workflow.current_plan_id))

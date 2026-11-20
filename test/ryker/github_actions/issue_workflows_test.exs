@@ -223,6 +223,71 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
     assert saved.outcome == %{"status" => "plan_ready", "plan_id" => plan.id}
   end
 
+  test "reopening a completed plan reuses its original implementation and pull request",
+       %{access: access, issue: issue} do
+    # Reopening the same saved version after its draft PR was ready queued
+    # another build. Refreshing changes the page's request ID, not the plan.
+    {source, _} = planning!(access, issue)
+
+    {:ok, _plan} =
+      IssueWorkflows.save(
+        source.binding,
+        source.arguments["source_event_ref"],
+        "Handle empty input."
+      )
+
+    first_page = IssueWorkflows.view(access, issue)
+
+    {:ok, %{request: first}} =
+      IssueWorkflows.start(access, issue, :implement_plan, first_page.expected)
+
+    outcome = %{"status" => "published", "terminal" => true, "url" => issue["url"] <> "/pull/8"}
+    Repo.update!(IssueRequest.Changeset.finish(first, outcome, Repo.now!()))
+
+    refreshed = IssueWorkflows.view(access, issue)
+    assert refreshed.implementation == outcome
+    assert refreshed.expected["request_id"] != first_page.expected["request_id"]
+
+    assert {:ok, %{status: :duplicate, request: duplicate}} =
+             IssueWorkflows.start(access, issue, :implement_plan, refreshed.expected)
+
+    assert duplicate.id == first.id
+    assert duplicate.outcome == outcome
+    assert IssueWorkflows.view(access, issue).progress == outcome
+  end
+
+  test "a completed direct build is reused after the issue gains a progress comment",
+       %{access: access, issue: issue} do
+    page = IssueWorkflows.view(access, issue)
+    {:ok, %{request: first}} = IssueWorkflows.start(access, issue, :build_issue, page.expected)
+    outcome = %{"status" => "published", "terminal" => true}
+    Repo.update!(IssueRequest.Changeset.finish(first, outcome, Repo.now!()))
+
+    newer = %{issue | "updated_at" => "2026-11-19T20:00:00Z"}
+
+    assert {:ok, %{status: :duplicate, request: same}} =
+             IssueWorkflows.start(
+               access,
+               newer,
+               :build_issue,
+               IssueWorkflows.view(access, newer).expected
+             )
+
+    assert same.id == first.id
+
+    changed = %{newer | "body" => "Also handle an empty filter."}
+
+    assert {:ok, %{status: :recorded, request: other}} =
+             IssueWorkflows.start(
+               access,
+               changed,
+               :build_issue,
+               IssueWorkflows.view(access, changed).expected
+             )
+
+    assert other.id != first.id
+  end
+
   test "edits append versions while an accepted build keeps exactly its approved brief",
        %{access: access, issue: issue} do
     {source, _request} = planning!(access, issue)
