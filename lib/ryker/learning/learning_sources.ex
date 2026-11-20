@@ -51,6 +51,14 @@ defmodule Ryker.Learning.LearningSources do
     end
   end
 
+  @doc "Terminal receipts of an already canonical source list, or nil for invalid history."
+  def canonical_roots(sources) do
+    case resolve([sources]) do
+      {^sources, roots} -> roots
+      _ -> nil
+    end
+  end
+
   defp resolve(groups) when is_list(groups) do
     with true <- Enum.all?(groups, &is_list/1),
          sources = List.flatten(groups),
@@ -146,8 +154,12 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def oldest(sources, fallback \\ nil) do
-    sources = expand(sources) || []
-    dates = for source <- sources, valid_shape?(source), do: retained_at(source)
+    oldest_from_roots(expand(sources) || [], fallback)
+  end
+
+  @doc "Oldest receipt time when the caller has already resolved the terminal roots."
+  def oldest_from_roots(roots, fallback) do
+    dates = for source <- roots, valid_shape?(source), do: retained_at(source)
     dates = if fallback, do: [fallback | dates], else: dates
     Enum.min(dates, DateTime, fn -> nil end)
   end

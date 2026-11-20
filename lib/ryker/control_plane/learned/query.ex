@@ -84,16 +84,16 @@ defmodule Ryker.ControlPlane.Learned.Query do
 
   @doc """
   When the latest of the exact retained source revisions `roots` names was
-  said, `roots` being the canonical JSON of a summary's dependencies. A source
+  said, `roots` being the canonical JSON of already expanded terminal receipts. A source
   edited since must not substitute today's message time.
   """
   def latest_source_at(roots) do
-    # Expand this summary's frozen receipts once and probe only the named rows.
+    # Probe only the rows named by the resolved frozen receipts.
     # The lateral boundary keeps a broad table scan out of a short receipt list.
     from(
       source in fragment(
         """
-        SELECT matched.occurred_at FROM ryker_learning_roots(?::text) root
+        SELECT matched.occurred_at FROM jsonb_array_elements(?::text::jsonb) root
         JOIN LATERAL (
           SELECT o.occurred_at FROM conversation_observations o
           WHERE o.id = CASE WHEN pg_input_is_valid(root->>'observation_id', 'uuid')

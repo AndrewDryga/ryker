@@ -52,6 +52,28 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
            plan
   end
 
+  test "a saved summary resolves a shared source graph only once for its details" do
+    # The same frozen references were expanded separately for counts, expiry,
+    # the recall warning and the evidence clock on both visits to the page.
+    {:ok, %{episode: episode}} = Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
+    {entry, %{"source_ref" => "knowledge:" <> id}} = Ryker.Fixtures.Knowledge.learn!(episode)
+    topic = Repo.get!(Ryker.Knowledge.ConversationKnowledge, id)
+    reference = LearningSources.knowledge_reference(id, topic.source_generation, topic.version)
+    summary = summary!([reference])
+
+    {page, statements} =
+      Ryker.QueryWork.statements(fn ->
+        ConversationMemory.project(%{"kind" => "context", "item" => summary.id})
+      end)
+
+    assert [item] = page.items
+    assert item.source_count == 1
+    assert item.source_at == entry.occurred_at
+    assert item.expires_at != nil
+    assert item.recall_warning == nil
+    assert Enum.count(statements, &String.contains?(&1.sql, "ryker_learning_roots(")) == 1
+  end
+
   test "the conversation summaries directory does not resolve detail-only message times" do
     # A populated directory took 37 seconds to connect. Rows show their update
     # time; resolving the latest source for every row delayed both renders.

@@ -191,12 +191,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp listed_item(%Continuity.ConversationSummary{} = row, lookup, secrets, _sources) do
-    count = row.source_dependencies |> source_ids() |> length()
-
-    Map.merge(item(row, lookup, secrets), %{
-      source_count: count,
-      source_path: source_path("context", row.id, count)
-    })
+    item(row, lookup, secrets)
   end
 
   defp listed_item(row, lookup, secrets, _sources), do: item(row, lookup, secrets)
@@ -347,16 +342,16 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp source_parent(_, _), do: nil
 
   defp source_ids(dependencies) do
-    case Learning.LearningSources.expand(dependencies) do
-      roots when is_list(roots) ->
-        roots
-        |> Enum.map(&selected_id(&1["observation_id"]))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq()
+    dependencies |> Learning.LearningSources.expand() |> observation_ids()
+  end
 
-      _ ->
-        []
-    end
+  defp observation_ids(nil), do: []
+
+  defp observation_ids(roots) do
+    roots
+    |> Enum.map(&selected_id(&1["observation_id"]))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   @doc "Where one learned topic opens: its full text, history and sources."
@@ -432,14 +427,26 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp item(%Continuity.ConversationSummary{} = summary, lookup, secrets) do
-    view = Map.merge(base(summary, lookup), preview(summary, secrets))
+    roots = Learning.LearningSources.canonical_roots(summary.source_dependencies)
+    warning = summary_history_warning(summary.source_dependencies, roots)
 
-    %{
-      view
-      | expires_at: if(is_nil(view.recall_warning), do: view.expires_at),
-        source_at:
-          if(is_nil(view.recall_warning), do: summary_source_at(summary.source_dependencies))
-    }
+    # Even an unordered historical receipt list can link to inspectable evidence.
+    ids =
+      if is_nil(roots), do: source_ids(summary.source_dependencies), else: observation_ids(roots)
+
+    count = length(ids)
+
+    expiry =
+      if is_nil(warning),
+        do: expires_at(Learning.LearningSources.oldest_from_roots(roots, summary.updated_at))
+
+    base(summary, lookup, expiry)
+    |> Map.merge(summary_preview(summary, secrets, warning))
+    |> Map.merge(%{
+      source_at: if(is_nil(warning), do: summary_source_at(roots)),
+      source_count: count,
+      source_path: source_path("context", summary.id, count)
+    })
   end
 
   defp preview(%Knowledge.ConversationKnowledge{} = knowledge, secrets) do
@@ -457,9 +464,19 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp preview(%Continuity.ConversationSummary{} = summary, secrets) do
+    sources = summary.source_dependencies
+
+    summary_preview(
+      summary,
+      secrets,
+      summary_history_warning(sources, Learning.LearningSources.canonical_roots(sources))
+    )
+  end
+
+  defp summary_preview(summary, secrets, warning) do
     Map.merge(continuity_state(summary.state, secrets), %{
       source: nil,
-      recall_warning: summary_history_warning(summary.source_dependencies),
+      recall_warning: warning,
       maintenance_error: LearningActivity.error(summary.compaction_error_code),
       maintenance_retry_at: summary.compaction_retry_at
     })
@@ -497,10 +514,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         do: {label, values}
   end
 
-  defp summary_history_warning(sources) do
+  defp summary_history_warning(sources, roots) do
     cond do
       not Learning.LearningSources.sourced?(sources) -> :missing_source_history
-      Learning.LearningSources.merge([sources]) != sources -> :invalid_source_history
+      is_nil(roots) -> :invalid_source_history
       true -> nil
     end
   end
