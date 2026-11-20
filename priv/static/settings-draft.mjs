@@ -71,9 +71,12 @@ export function createSettingsGuard(root, push, environment = {}) {
       for (const node of record.addedNodes || []) {
         if (!node.matches?.(".settings-error")) continue
         const field = node.closest(".settings-field")
-        if (field && field === node.ownerDocument.activeElement?.closest(".settings-field")) {
-          node.scrollIntoView({block: "nearest", inline: "nearest"})
-        }
+        // LiveView restores keyboard focus after applying the response patch.
+        node.ownerDocument.defaultView.requestAnimationFrame(() => {
+          if (field && field === node.ownerDocument.activeElement?.closest(".settings-field")) {
+            node.scrollIntoView({block: "nearest", inline: "nearest"})
+          }
+        })
       }
       const form = record.target
       if (record.type === "attributes" && record.oldValue === "true" && form.dataset?.draft &&

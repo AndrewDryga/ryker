@@ -214,8 +214,14 @@ test("a new validation error stays in view beside the field the operator is edit
     scrollIntoView: options => calls.push(options)
   }
   const addFeedback = activeField => {
-    feedback.ownerDocument = {activeElement: {closest: () => activeField}}
+    let frame
+    feedback.ownerDocument = {
+      activeElement: null,
+      defaultView: {requestAnimationFrame: callback => { frame = callback }}
+    }
     f.mutate([{type: "childList", target: field, addedNodes: [feedback]}])
+    feedback.ownerDocument.activeElement = {closest: () => activeField}
+    frame?.()
   }
   addFeedback(otherField)
   assert.deepEqual(calls, [])
