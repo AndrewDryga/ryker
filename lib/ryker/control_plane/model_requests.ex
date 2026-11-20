@@ -305,7 +305,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp admission_events(entry, attempt, reading) do
     if briefed?(attempt),
       do: recorded_admission_events(entry, attempt, reading),
-      else: search_event(entry, attempt)
+      else: search_event(entry, attempt, reading)
   end
 
   # The deterministic question-card answer path never submitted a model call.
@@ -321,7 +321,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     failure = if attempt, do: reading.admission_failures[attempt.id]
     completed = admission_completed_at(attempt)
 
-    search_event(entry, attempt) ++
+    search_event(entry, attempt, reading) ++
       request_events(
         request,
         {:input, entry.id},
@@ -344,7 +344,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # newer attempt's search.
   defp search_event(
          %Ingress.Inbox.Entry{} = entry,
-         %Admission.Attempt{generation: generation} = attempt
+         %Admission.Attempt{generation: generation} = attempt,
+         reading
        )
        when generation == entry.execution_generation do
     case ContextSearch.present(entry.admission_context) do
@@ -354,6 +355,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       search ->
         at = attempt.inserted_at
         id = "search-#{entry.id}-#{generation}"
+        search = Map.put(search, :record_open, MapSet.member?(reading.opened, id <> "-record"))
 
         [
           %{
@@ -384,7 +386,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     end
   end
 
-  defp search_event(_entry, _attempt), do: []
+  defp search_event(_entry, _attempt, _reading), do: []
 
   # What a Work turn was sent was chosen before its briefing; the choice and
   # what it left out are their own card, first.

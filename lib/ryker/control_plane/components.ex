@@ -365,6 +365,11 @@ defmodule Ryker.ControlPlane.Components do
   attr(:note, :string, default: nil, doc: "What the block leaves out, such as Partial display")
   attr(:class, :any, default: nil)
 
+  attr(:opened, :boolean,
+    default: nil,
+    doc: "For on-demand records, whether this reader opened it"
+  )
+
   @doc """
   A JSON record Ryker kept, behind the source disclosure every raw record
   uses: the dark code surface, its format and size opposite the title, and a
@@ -373,9 +378,16 @@ defmodule Ryker.ControlPlane.Components do
   """
   def json_disclosure(assigns) do
     ~H"""
-    <.disclosure id={@id} label={@label} kind={:source} class={["json-disclosure", @class]}>
+    <.disclosure
+      id={@id}
+      label={@label}
+      kind={:source}
+      class={["json-disclosure", @class]}
+      data-artifact={if is_boolean(@opened), do: @id}
+    >
       <:meta>JSON · {Units.bytes(byte_size(@text))}{if @note, do: " · " <> @note}</:meta>
-      <.copy_block label="Copy JSON">
+      <p :if={@opened == false} class="artifact-loading">Loading…</p>
+      <.copy_block :if={@opened != false} label="Copy JSON">
         <pre class="model-document-text" tabindex="0">{@text}</pre>
       </.copy_block>
     </.disclosure>

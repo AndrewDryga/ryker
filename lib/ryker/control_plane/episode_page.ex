@@ -1878,6 +1878,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         id={@step.id <> "-record"}
         label={@step.search.record_label}
         text={@step.search.record}
+        opened={@step.search[:record_open]}
         class="search-record"
       />
       <a

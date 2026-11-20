@@ -273,6 +273,16 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     html = rendered(episode)
     assert Enum.count(LazyHTML.query(LazyHTML.from_document(html), ".search-method")) == 4
     card = html |> LazyHTML.from_document() |> LazyHTML.query("##{search}") |> LazyHTML.text()
+    # Populated timelines transferred the same closed 30 KiB raw receipt
+    # alongside each human-readable search card. Only the opened card needs it.
+    record = "search-#{entry.id}-1-record"
+    hidden = html |> LazyHTML.from_document() |> LazyHTML.query("##{record}")
+    assert LazyHTML.attribute(hidden, "data-artifact") == [record]
+    assert Enum.empty?(LazyHTML.query(hidden, "pre"))
+
+    opened = rendered(episode, %{"disclosed" => [record]}) |> LazyHTML.from_document()
+    assert opened |> LazyHTML.query("##{record} pre") |> LazyHTML.text() =~ "source_capacity"
+
     assert card =~ "Context search"
     assert card =~ "5 found, 2 offered"
     assert card =~ "Public channels Ryker is in: 3 conversations"
@@ -496,9 +506,9 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     Enum.find_value(timeline.items, %{}, &(&1[:source_kind] == :work && &1[:counts]))
   end
 
-  defp rendered(episode) do
+  defp rendered(episode, params \\ %{}) do
     {:ok, detail} = EpisodeProjection.fetch(episode.key)
-    {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
+    {:ok, timeline} = ModelRequests.timeline(episode.key, params)
 
     render_component(&EpisodePage.render/1,
       snapshot: detail,
