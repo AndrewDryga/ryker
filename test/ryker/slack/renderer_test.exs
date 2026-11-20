@@ -9,6 +9,31 @@ defmodule Ryker.Slack.RendererTest do
   # Every confirmed entity used to collapse to "*Automation confirmed*" plus its
   # title: the trigger, filter, delivery, expiry and the only way to remove it
   # were gone the moment an operator said yes.
+  test "repository guidance shows its exact proposed lifetime" do
+    for {deadline, words} <- [
+          {nil, "Until revoked"},
+          {"2099-01-12T10:00:00Z", "12 Jan 2099, 10:00 UTC"}
+        ] do
+      payload = %{
+        "expires_at" => deadline,
+        "repository" => "ryker",
+        "scope" => "repository",
+        "subject" => "Deployment workflow",
+        "summary" => "Make a PR and CI/CD will apply it.",
+        "text" => "Make a PR and CI/CD will apply it.",
+        "visibility" => "workspace"
+      }
+
+      assert {:ok, rendered} =
+               Renderer.render(%{
+                 "message" => "Repository guidance",
+                 "records" => [offer("guidance_offer", payload)]
+               })
+
+      assert rendered_words(rendered) =~ words
+    end
+  end
+
   test "a confirmed offer keeps the saved entity's full detail and its exact removal control" do
     captured = Jason.decode!(File.read!("testdata/work/terraform-automation-recovery.json"))
     proposal = hd(captured["automation_arguments"]["proposals"])

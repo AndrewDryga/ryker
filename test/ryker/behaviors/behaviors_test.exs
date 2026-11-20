@@ -34,6 +34,40 @@ defmodule Ryker.Behaviors.BehaviorsTest do
        |> DateTime.truncate(:second)
        |> Map.put(:microsecond, {0, 6})
 
+  test "confirmed repository guidance preserves open-ended, exact, and historical lifetimes" do
+    deadline = DateTime.add(@now, 12, :day) |> DateTime.to_iso8601()
+
+    cases = [
+      {"until-revoked", %{"expires_at" => nil}, nil},
+      {"specified-deadline", %{"expires_at" => deadline}, DateTime.add(@now, 12, :day)},
+      {"historical-duration", %{"expires_in" => "30d"}, DateTime.add(@now, 30, :day)}
+    ]
+
+    for {suffix, lifetime, expected} <- cases do
+      terms =
+        Map.merge(lifetime, %{
+          "scope" => "repository",
+          "repository" => "ryker",
+          "visibility" => "workspace"
+        })
+
+      fixture = delivered_offers!(suffix, "1787832000.000100", terms)
+
+      assert {:ok, %{behavior: behavior}} =
+               Behaviors.confirm(confirmation(fixture, fixture.guidance, suffix))
+
+      assert behavior.expires_at == expected
+      assert behavior.scope_kind == :repository
+      assert behavior.scope_ref == "ryker"
+
+      query =
+        Behavior.Query.by_id(behavior.id)
+        |> Behavior.Query.unexpired_at(DateTime.add(@now, 91, :day))
+
+      assert Repo.exists?(query) == is_nil(expected)
+    end
+  end
+
   # Rules, Instructions and the memory pages list confirmed behavior, and the
   # offer's record changes on its request's page. Until 2026-09-26 they heard
   # of it from a trigger's NOTIFY and a five-second poll; the context now
@@ -1396,7 +1430,11 @@ defmodule Ryker.Behaviors.BehaviorsTest do
            end) == {:ok, {:error, {:invalid_behavior_confirmation, :input_ref}}}
   end
 
-  defp delivered_offers!(suffix, delivery_thread_ref \\ "1787832000.000100") do
+  defp delivered_offers!(
+         suffix,
+         delivery_thread_ref \\ "1787832000.000100",
+         guidance_terms \\ %{}
+       ) do
     # Workspace and repository offers are confirmed only in a public channel.
     Repo.insert!(
       %ChannelMembership{
@@ -1465,16 +1503,24 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              )
 
     assert {:ok, guidance} =
-             Records.create(Records.token(claim.turn), "guidance", "guidance_offer", %{
-               "expires_in" => "30d",
-               "repository" => nil,
-               "scope" => "conversation",
-               "subject" => "terraform_review_style",
-               "summary" => "Lead with availability risk and drift.",
-               "text" =>
-                 "When reviewing Terraform here, lead with availability risk and drift, not resource counts.",
-               "visibility" => "conversation"
-             })
+             Records.create(
+               Records.token(claim.turn),
+               "guidance",
+               "guidance_offer",
+               guidance_payload(
+                 %{
+                   "expires_in" => "30d",
+                   "repository" => nil,
+                   "scope" => "conversation",
+                   "subject" => "terraform_review_style",
+                   "summary" => "Lead with availability risk and drift.",
+                   "text" =>
+                     "When reviewing Terraform here, lead with availability risk and drift, not resource counts.",
+                   "visibility" => "conversation"
+                 },
+                 guidance_terms
+               )
+             )
 
     assert {:ok, operator_guidance} =
              Records.create(Records.token(claim.turn), "operator-guidance", "guidance_offer", %{
@@ -1763,6 +1809,13 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       })
 
     turn |> Ecto.Changeset.change(submission: submission) |> Repo.update!()
+  end
+
+  defp guidance_payload(payload, terms) do
+    payload =
+      if Map.has_key?(terms, "expires_at"), do: Map.delete(payload, "expires_in"), else: payload
+
+    Map.merge(payload, terms)
   end
 
   defp confirmation(fixture, record, suffix) do

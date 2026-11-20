@@ -333,6 +333,12 @@ instructions and private or shared source conversations stay conversation-scoped
 scope is the saved scope; widening a named rule supersedes its exact prior revision while
 preserving its source audit. Guidance never grants action authority.
 
+An explicit repository correction is bound to the repository of the current request. It cannot
+be saved without that binding or widened from a private or shared source. Repository guidance
+lasts until revoked unless the person gives an exact deadline. Proposed guidance shows those
+terms before confirmation; an older dated offer keeps the duration it originally displayed.
+Saving a deployment workflow does not deploy anything or approve an infrastructure action.
+
 Console Pause, Resume and Delete confirmations apply to the displayed revision of a saved
 instruction or schedule. An edit before confirmation, including one committed while the action
 waits for its database lock, leaves the newer definition untouched and asks the operator to open

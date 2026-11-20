@@ -12,7 +12,27 @@ defmodule Ryker.Evals.WorldInputs do
   alias Ryker.Evals.WorldCase
   alias Ryker.Ingress.Input
   alias Ryker.Repo
+  alias Ryker.RepositoryKnowledge
   alias Ryker.Slack.ChannelMembership
+
+  @doc "Seeds the repository document that was present in the captured Work submission."
+  def seed_repository_knowledge(
+        %WorldCase{world: %{"repository_knowledge" => %{} = knowledge}},
+        now
+      ) do
+    Repo.insert!(%RepositoryKnowledge.Entry{
+      repository_ref: knowledge["repository"],
+      document: knowledge["content"],
+      document_commit: knowledge["source_commit"],
+      document_sha256: knowledge["sha256"],
+      document_by: :model,
+      document_at: now
+    })
+
+    :ok
+  end
+
+  def seed_repository_knowledge(_scenario, _now), do: :ok
 
   @doc """
   The scenario's inputs in execution order: its initial `input` events

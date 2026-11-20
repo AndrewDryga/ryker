@@ -149,6 +149,7 @@ defmodule Ryker.Evals.WorldJudgeCase do
       "source_events" => sanitize(inputs),
       "source_calls" => sanitize(report[:source_calls]),
       "state_calls" => sanitize(calls),
+      "worker_replacements" => sanitize(get_in(report, [:runtime, :worker_replacements]) || []),
       "routing" => sanitize(routing)
     }
   end

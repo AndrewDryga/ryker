@@ -36,7 +36,7 @@
       }
     }
   ],
-  "world": {"repositories": [], "tool_rules": [], "scheduled_events": []},
+  "world": {"interrupt_first_work_after_submit": true, "repositories": [], "tool_rules": [], "scheduled_events": []},
   "host_replay": {
     "model_events": [
       {

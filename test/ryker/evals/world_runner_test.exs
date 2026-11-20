@@ -27,6 +27,49 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
   @policy_digest String.duplicate("a", 64)
 
+  test "a captured repository document reaches Work unchanged before the first model turn" do
+    assert {:ok, source} = WorldCase.fetch("rivals-engineering-task-offer")
+    assert {:ok, ordinary} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
+    [repository] = source.world["repositories"]
+    content = "Make a PR and CI/CD will apply it."
+
+    knowledge = %{
+      "repository" => repository["ref"],
+      "source_commit" => repository["base_commit"],
+      "content" => content,
+      "sha256" => digest(content)
+    }
+
+    scenario = %{
+      ordinary
+      | path: source.path,
+        world:
+          ordinary.world
+          |> Map.put("repositories", source.world["repositories"])
+          |> Map.put("repository_knowledge", knowledge)
+    }
+
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    assert {:ok, _report} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               client: fake,
+               repository_ref: repository["ref"],
+               before_execute: captured_answer(fake),
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
+               worker_ref: "world-captured-repository-knowledge"
+             )
+
+    for submission <- FakeWorkCoopAPI.state(fake).submissions do
+      saved = Jason.decode!(submission.prompt)["work"]["repository_knowledge"]
+      assert saved == Map.drop(knowledge, ["repository"])
+    end
+  end
+
   test "model-world routing scenarios cannot silently use forced host routing" do
     {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
@@ -2300,6 +2343,42 @@ defmodule Ryker.Evals.WorldRunnerTest do
              )
 
     assert [%{artifacts: [%{ref: ^ref, sha256: ^digest}]}] = report.deliveries
+  end
+
+  test "the model-world judge receives evidence that the original worker died after submit" do
+    {:ok, scenario} = WorldCase.fetch("worker-loss-reconciles-frozen-turn")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
+
+    assert {:ok, report} =
+             WorldRunner.run(scenario,
+               api: FakeWorkCoopAPI,
+               client: fake,
+               before_execute: before_execute,
+               expectation_mode: :model_world,
+               policy: "world-eval-read-only",
+               policy_digest: @policy_digest,
+               worker_ref: "world-worker-loss",
+               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+             )
+
+    assert [delivery] = report.deliveries
+    assert delivery.document["message"] == "Your request was received."
+    assert length(FakeWorkCoopAPI.state(fake).submissions) == 1
+    {:ok, judged} = Ryker.Evals.WorldJudgeCase.new(scenario, report)
+    evidence = Jason.decode!(judged.prompt)["evidence"]
+
+    assert [
+             %{
+               "turn_id" => id,
+               "after_remote_submit" => true,
+               "reconciled_remote_turn_id" => remote
+             }
+           ] = evidence["worker_replacements"]
+
+    assert id == report.turn_id
+    assert is_binary(remote)
   end
 
   test "worker loss after remote submit is reconciled by a replacement process without a second turn" do

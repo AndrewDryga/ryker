@@ -11,6 +11,7 @@ defmodule Ryker.Evals.WorldCase do
   alias Ryker.Crypto
   alias Ryker.Evals.WorldMatch
   alias Ryker.Ingress.Input
+  alias Ryker.Maps
 
   @root "testdata/scenarios"
   @maximum_scenario_bytes 512 * 1_024
@@ -49,7 +50,7 @@ defmodule Ryker.Evals.WorldCase do
   @actor_fields ~w(actor_ref authority input_profile kind)
   @input_profile_fields ~w(actor event_kind occurred_at_source source source_capabilities)
   @actor_authorities ~w(
-    operator read_only repository_feedback repository_write_offer repository_write_start schedule_offer source_event
+    operator repository_operator read_only repository_feedback repository_write_offer repository_write_start schedule_offer source_event
   )
   @actor_kinds ~w(automation human)
 
@@ -175,7 +176,7 @@ defmodule Ryker.Evals.WorldCase do
   def answer_authorizer(%__MODULE__{actors: actors}) do
     operators =
       actors
-      |> Enum.filter(&(&1["authority"] == "operator"))
+      |> Enum.filter(&(&1["authority"] in ~w(operator repository_operator)))
       |> MapSet.new(&operator_identity/1)
 
     &MapSet.member?(operators, entry_identity(&1))
@@ -185,7 +186,7 @@ defmodule Ryker.Evals.WorldCase do
   def task_authorizer(%__MODULE__{} = scenario) do
     actors =
       scenario.actors
-      |> Enum.filter(&(&1["authority"] == "repository_write_start"))
+      |> Enum.filter(&(&1["authority"] in ~w(repository_write_start repository_operator)))
       |> MapSet.new(&operator_identity/1)
 
     repositories = MapSet.new(scenario.world["repositories"], & &1["ref"])
@@ -578,12 +579,38 @@ defmodule Ryker.Evals.WorldCase do
   defp profile_source_item_ref(_capabilities), do: "1788019200.000100"
 
   defp world(value, directory) do
-    with :ok <- exact_fields(value, @world_fields, :world),
+    with :ok <-
+           exact_fields(
+             value,
+             @world_fields,
+             ~w(repository_knowledge interrupt_first_work_after_submit),
+             :world
+           ),
+         true <-
+           Map.get(value, "interrupt_first_work_after_submit", false) in [true, false] or
+             {:error, :interrupt_first_work_after_submit},
          :ok <- repositories(value["repositories"], directory),
-         :ok <- tool_rules(value["tool_rules"]) do
+         :ok <- tool_rules(value["tool_rules"]),
+         :ok <- repository_knowledge(value["repository_knowledge"], value["repositories"]) do
       wait_wakeups(value["scheduled_events"])
     end
   end
+
+  defp repository_knowledge(nil, _repositories), do: :ok
+
+  defp repository_knowledge(
+         %{"repository" => ref, "source_commit" => commit, "content" => content, "sha256" => sha} =
+           knowledge,
+         [%{"ref" => ref, "base_commit" => commit}]
+       )
+       when is_binary(content) and byte_size(content) in 1..32_768 do
+    if Maps.exact_keys?(knowledge, ~w(repository source_commit content sha256)) and
+         Crypto.sha256_hex(content) == sha,
+       do: :ok,
+       else: {:error, :repository_knowledge}
+  end
+
+  defp repository_knowledge(_knowledge, _repositories), do: {:error, :repository_knowledge}
 
   defp wait_wakeups(values) do
     with :ok <- object_list(values, 2_048, :scheduled_events) do

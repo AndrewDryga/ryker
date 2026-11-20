@@ -1,0 +1,53 @@
+# On merge to main: auto-apply each workspace the merge touched. media
+# apps wait for a selected gcp-tenant-media apply; other workspaces run in parallel.
+# Path-filtered, so a `terraform/versions/**` bump rolls gcp-tenant + tenant-va1-apps
+# together; an app/env edit rolls just that workspace. va1-nodes is excluded
+# (manual — see its README).
+name: Terraform Apply
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect:
+    uses: ./.github/workflows/_tf-detect.yml
+
+  apply:
+    needs: detect
+    if: ${{ needs.detect.outputs.independent_workspaces != '[]' && needs.detect.outputs.independent_workspaces != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: ${{ fromJSON(needs.detect.outputs.independent_workspaces) }}
+    uses: ./.github/workflows/_tf-run.yml
+    with:
+      workspace: ${{ matrix.workspace }}
+      apply: true
+      organization: ${{ vars.TERRAFORM_CLOUD_ORGANIZATION }}
+    secrets:
+      terraform_cloud_token: ${{ secrets.TERRAFORM_CLOUD_TOKEN }}
+      media_slack_webhook_url: ${{ secrets.media_TERRAFORM_SLACK_WEBHOOK_URL }}
+
+  apply_media:
+    needs: detect
+    if: ${{ contains(fromJSON(needs.detect.outputs.workspaces), 'gcp-tenant-media') || (needs.detect.outputs.media_workspaces != '[]' && needs.detect.outputs.media_workspaces != '') }}
+    # Hold the prerequisite and its consumers together across adjacent merges.
+    # Keep every pending path-filtered run instead of losing another workspace's
+    # change when the newest pending merge replaces it.
+    concurrency:
+      group: tf-apply-media-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
+    uses: ./.github/workflows/_tf-apply-media.yml
+    with:
+      workspaces: ${{ needs.detect.outputs.workspaces }}
+      media_workspaces: ${{ needs.detect.outputs.media_workspaces }}
+      organization: ${{ vars.TERRAFORM_CLOUD_ORGANIZATION }}
+    secrets:
+      terraform_cloud_token: ${{ secrets.TERRAFORM_CLOUD_TOKEN }}
+      media_slack_webhook_url: ${{ secrets.media_TERRAFORM_SLACK_WEBHOOK_URL }}

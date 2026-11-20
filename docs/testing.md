@@ -254,6 +254,14 @@ drops, so no observation sees another's custody and a failed one never stops the
 An observation that passed drops its database; one that failed or faulted preserves it, and both
 the shard and the merged run name it at the end for custody inspection.
 
+A scenario may also capture the repository document supplied to its original Work turn in
+`world.repository_knowledge`. Its repository and source commit must match the single captured
+repository, its content is bounded to 32 KiB, and its SHA-256 must match. The runner seeds that
+frozen document into the observation database before Work starts; later human corrections belong
+in separate cases. A declared `repository_operator` combines operator guidance access with task
+start access to the captured repository only. That combined grant never extends to another actor
+or an uncaptured repository.
+
 Detailed reports are written mode `0600` under `$(EVAL_HISTORY)`, which defaults to
 `~/.local/state/ryker/eval-history`. Inspect the series with:
 

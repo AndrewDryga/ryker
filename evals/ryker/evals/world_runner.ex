@@ -77,7 +77,8 @@ defmodule Ryker.Evals.WorldRunner do
 
     world_started_at = Repo.now!()
 
-    with {:ok, adapters} <- WorldInputs.eval_adapters(delivery_agent),
+    with :ok <- WorldInputs.seed_repository_knowledge(scenario, world_started_at),
+         {:ok, adapters} <- WorldInputs.eval_adapters(delivery_agent),
          :ok <- WorldInputs.join_scenario_channels(inputs, world_started_at),
          {:ok, executions, skipped} <-
            WorldDriver.execute_inputs(

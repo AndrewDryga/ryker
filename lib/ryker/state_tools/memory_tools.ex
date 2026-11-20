@@ -41,18 +41,34 @@ defmodule Ryker.StateTools.MemoryTools do
 
   @spec propose_memory(map(), map()) :: {:ok, map()} | {:error, term()}
   def propose_memory(arguments, binding) do
-    with {:ok, expires_in} <- expiry(arguments["expires_at"]) do
-      memory_offer(arguments, binding, expires_in)
+    scope = effective_memory_scope(arguments["scope"], binding.episode)
+
+    with {:ok, lifetime} <- offer_lifetime(arguments, scope) do
+      memory_offer(arguments, binding, scope, lifetime)
     end
   end
 
-  defp memory_offer(arguments, binding, expires_in) do
-    scope = effective_memory_scope(arguments["scope"], binding.episode)
+  defp offer_lifetime(%{"kind" => "guidance", "expires_at" => nil}, "repository"),
+    do: {:ok, %{"expires_at" => nil}}
 
+  defp offer_lifetime(%{"kind" => "guidance", "expires_at" => value}, "repository") do
+    with {:ok, deadline} <- Ryker.UTCDateTime.parse(value),
+         :gt <- DateTime.compare(deadline, Repo.now!()) do
+      {:ok, %{"expires_at" => value}}
+    else
+      _invalid -> {:error, :invalid_arguments}
+    end
+  end
+
+  defp offer_lifetime(arguments, _scope) do
+    with {:ok, duration} <- expiry(arguments["expires_at"]),
+         do: {:ok, %{"expires_in" => duration}}
+  end
+
+  defp memory_offer(arguments, binding, scope, lifetime) do
     case arguments["kind"] do
       "guidance" ->
         payload = %{
-          "expires_in" => expires_in,
           "repository" => memory_repository(scope, binding),
           "scope" => memory_scope(scope),
           "subject" => arguments["subject"],
@@ -65,14 +81,13 @@ defmodule Ryker.StateTools.MemoryTools do
           binding,
           arguments,
           "guidance_offer",
-          payload
+          Map.merge(payload, lifetime)
         )
 
       "fact" ->
         scope = fact_reach(arguments["scope"], scope, binding.episode)
 
         payload = %{
-          "expires_in" => expires_in,
           "kind" => "entity_relationship",
           "repository" => memory_repository(scope, binding),
           "scope" => fact_scope(scope),
@@ -81,7 +96,7 @@ defmodule Ryker.StateTools.MemoryTools do
           "visibility" => fact_visibility(scope)
         }
 
-        create_memory_record(binding, arguments, "memory_offer", payload)
+        create_memory_record(binding, arguments, "memory_offer", Map.merge(payload, lifetime))
     end
   end
 

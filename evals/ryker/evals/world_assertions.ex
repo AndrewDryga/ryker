@@ -16,6 +16,10 @@ defmodule Ryker.Evals.WorldAssertions do
       evidence guidance_result coverage finding progress alert_assessment input_request event_wait memory_offer preference_offer
       guidance_offer
     ),
+    "repository_operator" => ~w(
+      evidence guidance_result coverage finding progress alert_assessment input_request event_wait
+      memory_offer preference_offer guidance_offer task_offer
+    ),
     "read_only" => ~w(evidence guidance_result coverage finding progress alert_assessment),
     "repository_feedback" =>
       ~w(evidence guidance_result coverage finding progress alert_assessment input_request),

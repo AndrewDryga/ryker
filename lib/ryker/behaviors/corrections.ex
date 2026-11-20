@@ -35,10 +35,10 @@ defmodule Ryker.Behaviors.Corrections do
                entry.destination_transport,
                entry.destination_conversation_ref
              ),
-           :ok <- authorize_scope(current.episode, arguments),
+           :ok <- authorize_scope(current, arguments),
            {:ok, assignment} <- assignment(current.episode.id, arguments["assignment_ref"]),
            {:ok, subject} <- replacement(current, entry, arguments),
-           :ok <- capacity(current.episode, subject, arguments),
+           :ok <- capacity(current, subject, arguments),
            {:ok, result} <- persist(current, entry, subject, assignment, arguments) do
         result
       else
@@ -202,14 +202,17 @@ defmodule Ryker.Behaviors.Corrections do
     existing =
       Behavior.Query.by_kind(:guidance)
       |> Behavior.Query.by_workspace(Episodes.Scope.workspace_ref(binding.episode))
-      |> Behavior.Query.scoped_to(scope_kind(arguments), scope_ref(binding.episode, arguments))
+      |> Behavior.Query.scoped_to(scope_kind(arguments), scope_ref(binding, arguments))
       |> Behavior.Query.by_identity_key(subject)
       |> Behavior.Query.by_status(:active)
 
     if Repo.exists?(existing), do: {:error, :correction_guidance_stale}, else: {:ok, subject}
   end
 
-  defp replacement_target(binding, %{"guidance_ref" => reference, "expected_revision" => revision})
+  defp replacement_target(
+         binding,
+         %{"guidance_ref" => reference, "expected_revision" => revision} = arguments
+       )
        when is_binary(reference) and is_integer(revision) do
     query =
       reference
@@ -219,7 +222,7 @@ defmodule Ryker.Behaviors.Corrections do
 
     case Repo.fetch(query) do
       {:ok, %Behavior{status: :active, revision: ^revision} = behavior} ->
-        if replacement_scope?(behavior, binding.episode) and
+        if replacement_scope?(behavior, binding, scope_kind(arguments)) and
              behavior.workspace_ref == Episodes.Scope.workspace_ref(binding.episode),
            do: {:ok, behavior.identity_key},
            else: {:error, :correction_unauthorized}
@@ -236,36 +239,46 @@ defmodule Ryker.Behaviors.Corrections do
   # Final outcomes carry at most 64 record references. Leave room for the
   # evidence and ordinary work, and bound retained correction briefing bytes.
   # The review-maintenance lock serializes concurrent changes to this scope.
-  defp capacity(episode, subject, arguments) do
+  defp capacity(binding, subject, arguments) do
+    episode = binding.episode
+
     existing =
       Behavior.Query.by_kind(:guidance)
       |> Behavior.Query.by_workspace(Episodes.Scope.workspace_ref(episode))
-      |> Behavior.Query.for_correction_capacity(episode, scope_kind(arguments))
+      |> Behavior.Query.for_correction_capacity(
+        scope_kind(arguments),
+        scope_ref(binding, arguments)
+      )
       |> Behavior.Query.by_status([:active, :disabled])
       |> Behavior.Query.unexpired()
       |> Repo.all()
       |> Enum.reject(fn behavior ->
         behavior.ref == arguments["guidance_ref"] or
           (behavior.identity_key == subject and behavior.scope_kind == scope_kind(arguments) and
-             behavior.scope_ref == scope_ref(episode, arguments))
+             behavior.scope_ref == scope_ref(binding, arguments))
       end)
       |> Enum.filter(
         &(is_map(&1.payload["correction_source"]) or
             List.wrap(&1.payload["requirements"]) != [])
       )
 
-    groups =
-      if scope_kind(arguments) == :workspace, do: capacity_groups(existing), else: [existing]
-
-    if Enum.all?(groups, &within_capacity?(&1, arguments)),
+    if Enum.all?(capacity_groups(existing), &within_capacity?(&1, arguments)),
       do: :ok,
       else: {:error, :correction_capacity_reached}
   end
 
   defp capacity_groups(existing) do
-    {wide, local} = Enum.split_with(existing, &(&1.scope_kind == :workspace))
-    [wide | local |> Enum.group_by(& &1.scope_ref) |> Map.values() |> Enum.map(&(wide ++ &1))]
+    by_scope = Enum.group_by(existing, & &1.scope_kind)
+    workspace = Map.get(by_scope, :workspace, [])
+    # A future turn can use one repository and one conversation at a time.
+    # Include both even when the current turn has no repository.
+    for repo <- local_groups(by_scope[:repository]),
+        conversation <- local_groups(by_scope[:conversation]),
+        do: workspace ++ repo ++ conversation
   end
+
+  defp local_groups(nil), do: [[]]
+  defp local_groups(behaviors), do: behaviors |> Enum.group_by(& &1.scope_ref) |> Map.values()
 
   defp within_capacity?(existing, arguments) do
     documents = [
@@ -286,14 +299,20 @@ defmodule Ryker.Behaviors.Corrections do
     operation = operation(entry, arguments)
 
     payload = %{
-      "expires_in" => "365d",
-      "repository" => nil,
+      "repository" =>
+        if(scope_kind(arguments) == :repository, do: binding.session.repository_ref),
       "scope" => Atom.to_string(scope_kind(arguments)),
       "subject" => subject,
       "summary" => String.slice(arguments["instruction"], 0, 500),
       "text" => arguments["instruction"],
-      "visibility" => Atom.to_string(scope_kind(arguments))
+      "visibility" =>
+        if(scope_kind(arguments) == :conversation, do: "conversation", else: "workspace")
     }
+
+    payload =
+      if scope_kind(arguments) == :repository,
+        do: Map.put(payload, "expires_at", arguments["expires_at"]),
+        else: Map.put(payload, "expires_in", "365d")
 
     with {:ok, record} <-
            Records.create(binding.state_token, operation, "guidance_offer", payload) do
@@ -345,32 +364,52 @@ defmodule Ryker.Behaviors.Corrections do
   end
 
   defp scope_kind(%{"scope" => "conversation"}), do: :conversation
-  defp scope_kind(_arguments), do: :workspace
+  defp scope_kind(%{"scope" => "repository"}), do: :repository
+  defp scope_kind(%{"scope" => "workspace"}), do: :workspace
 
-  defp scope_ref(episode, arguments) do
-    if scope_kind(arguments) == :workspace,
-      do: Episodes.Scope.workspace_ref(episode),
-      else: episode.destination_conversation_ref
-  end
-
-  defp authorize_scope(episode, arguments) do
-    if scope_kind(arguments) == :workspace do
-      Slack.ChannelFence.authorize_public_in_transaction(
-        episode.destination_transport,
-        episode.destination_conversation_ref
-      )
-    else
-      :ok
+  defp scope_ref(binding, arguments) do
+    case scope_kind(arguments) do
+      :workspace -> Episodes.Scope.workspace_ref(binding.episode)
+      :repository -> binding.session.repository_ref
+      :conversation -> binding.episode.destination_conversation_ref
     end
   end
 
-  defp replacement_scope?(%Behavior{scope_kind: :workspace} = behavior, episode),
-    do: behavior.scope_ref == Episodes.Scope.workspace_ref(episode)
+  defp authorize_scope(binding, arguments) do
+    cond do
+      scope_kind(arguments) == :repository and not is_binary(binding.session.repository_ref) ->
+        {:error, :correction_repository_required}
 
-  defp replacement_scope?(%Behavior{scope_kind: :conversation} = behavior, episode),
-    do: behavior.scope_ref == episode.destination_conversation_ref
+      scope_kind(arguments) != :repository and arguments["expires_at"] != nil ->
+        {:error, :correction_deadline_requires_repository}
 
-  defp replacement_scope?(_behavior, _episode), do: false
+      scope_kind(arguments) == :conversation ->
+        :ok
+
+      true ->
+        Slack.ChannelFence.authorize_public_in_transaction(
+          binding.episode.destination_transport,
+          binding.episode.destination_conversation_ref
+        )
+    end
+  end
+
+  defp replacement_scope?(
+         %Behavior{scope_kind: :repository, scope_ref: repository},
+         binding,
+         :repository
+       ),
+       do: repository == binding.session.repository_ref
+
+  defp replacement_scope?(_behavior, _binding, :repository), do: false
+
+  defp replacement_scope?(%Behavior{scope_kind: :workspace} = behavior, binding, _kind),
+    do: behavior.scope_ref == Episodes.Scope.workspace_ref(binding.episode)
+
+  defp replacement_scope?(%Behavior{scope_kind: :conversation} = behavior, binding, _kind),
+    do: behavior.scope_ref == binding.episode.destination_conversation_ref
+
+  defp replacement_scope?(_behavior, _binding, _kind), do: false
 
   defp supersede_replaced(%{"guidance_ref" => ref}, behavior) when is_binary(ref) do
     case Repo.fetch(Behavior.Query.by_ref(ref)) do

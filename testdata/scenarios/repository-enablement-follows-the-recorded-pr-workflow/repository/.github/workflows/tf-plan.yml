@@ -1,0 +1,52 @@
+# On every PR: a speculative (plan-only) TFC run for each workspace the PR
+# touches — the review surface. The plan link shows on the run; merging is the
+# single human approval. (Fast fmt lives in static_analysis.yml.)
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect:
+    uses: ./.github/workflows/_tf-detect.yml
+
+  plan:
+    needs: detect
+    if: ${{ needs.detect.outputs.workspaces != '[]' && needs.detect.outputs.workspaces != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: ${{ fromJSON(needs.detect.outputs.workspaces) }}
+    uses: ./.github/workflows/_tf-run.yml
+    with:
+      workspace: ${{ matrix.workspace }}
+      apply: false
+      organization: ${{ vars.TERRAFORM_CLOUD_ORGANIZATION }}
+    secrets:
+      terraform_cloud_token: ${{ secrets.TERRAFORM_CLOUD_TOKEN }}
+
+  gate:
+    name: gate
+    if: ${{ always() }}
+    needs: [detect, plan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful workspace plans
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          WORKSPACES: ${{ needs.detect.outputs.workspaces }}
+        run: |
+          set -euo pipefail
+
+          test "$DETECT_RESULT" = "success"
+          if [ "$WORKSPACES" = "[]" ]; then
+            test "$PLAN_RESULT" = "skipped"
+          else
+            test "$PLAN_RESULT" = "success"
+          fi

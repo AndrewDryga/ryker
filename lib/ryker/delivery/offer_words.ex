@@ -42,6 +42,11 @@ defmodule Ryker.Delivery.OfferWords do
   def shown_to(_scope, "workspace"), do: "Everyone in this workspace"
   def shown_to(_scope, _visibility), do: nil
 
+  @doc "The proposed expiry, preserving exact deadlines and historical duration terms."
+  def lifetime(%{"expires_at" => nil}), do: "Until revoked"
+  def lifetime(%{"expires_at" => deadline}), do: stamp(deadline)
+  def lifetime(payload), do: duration(payload["expires_in"])
+
   @doc ~s(A stored duration such as "90d" as "90 days".)
   @spec duration(String.t() | nil) :: String.t() | nil
   def duration(value) when is_binary(value) do

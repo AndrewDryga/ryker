@@ -456,6 +456,9 @@ defmodule Ryker.Behaviors do
 
   defp correction_payload(prepared, correction) when map_size(correction) == 0, do: prepared
 
+  defp correction_payload(%{scope_kind: :repository} = prepared, correction),
+    do: %{prepared | payload: Map.merge(prepared.payload, correction)}
+
   defp correction_payload(prepared, correction),
     do: %{prepared | expires_at: nil, payload: Map.merge(prepared.payload, correction)}
 
@@ -511,18 +514,24 @@ defmodule Ryker.Behaviors do
         :operator -> attributes.actor_ref
       end
 
-    {:ok,
-     %{
-       expires_at:
-         Records.OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
-       identity_key: identity_key,
-       kind: kind,
-       payload: payload,
-       scope_kind: scope_kind,
-       scope_ref: scope_ref,
-       workspace_ref: workspace
-     }}
+    with {:ok, expires_at} <- scoped_expiry(payload, attributes.occurred_at) do
+      {:ok,
+       %{
+         expires_at: expires_at,
+         identity_key: identity_key,
+         kind: kind,
+         payload: payload,
+         scope_kind: scope_kind,
+         scope_ref: scope_ref,
+         workspace_ref: workspace
+       }}
+    end
   end
+
+  defp scoped_expiry(%{"expires_at" => deadline}, now), do: source_event_expiry(deadline, now)
+
+  defp scoped_expiry(%{"expires_in" => duration}, now),
+    do: {:ok, Records.OfferConfirmation.expires_at(now, duration)}
 
   defp capacity(prepared) do
     now = Repo.now!()

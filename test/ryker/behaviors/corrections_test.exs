@@ -25,6 +25,90 @@ defmodule Ryker.Behaviors.CorrectionsTest do
     assert {"Expires", "No automatic expiry"} in card.details
   end
 
+  # A repository deployment instruction was lost after an engineer had to
+  # correct the proposed rollout. Only work on the bound repository should reuse it.
+  test "a repository correction requires a current repository and follows only that repository" do
+    path =
+      "testdata/scenarios/explicit-repository-workflow-correction-stays-until-revoked/scenario.json"
+
+    scenario = path |> File.read!() |> Jason.decode!()
+    [event] = scenario["events"]
+    correction = Corrections.correction!(text: event["payload"]["text"])
+
+    arguments =
+      correction.arguments |> Map.put("scope", "repository") |> Map.put("expires_at", nil)
+
+    assert {:error, _reason} = call(correction, arguments)
+
+    session =
+      correction.binding.session
+      |> Ecto.Changeset.change(repository_ref: "widget")
+      |> Repo.update!()
+
+    correction = put_in(correction.binding.session, session)
+    assert {:ok, saved} = call(correction, arguments)
+    assert saved["scope"] == "repository"
+    behavior = Repo.get_by!(Ryker.Behaviors.Behavior, ref: saved["behavior_ref"])
+    assert behavior.scope_ref == "widget"
+    assert behavior.expires_at == nil
+    episode = correction.claim.episode
+
+    assert [%{"behavior_ref" => ref}] =
+             Ryker.Behaviors.model_context(episode, nil, "widget")["guidance"]
+
+    assert ref == saved["behavior_ref"]
+    assert Ryker.Behaviors.model_context(episode, nil, "other")["guidance"] == []
+  end
+
+  test "repository corrections preserve exact deadlines and reject expired ones before saving" do
+    correction = Corrections.correction!()
+
+    session =
+      correction.binding.session
+      |> Ecto.Changeset.change(repository_ref: "widget")
+      |> Repo.update!()
+
+    correction = put_in(correction.binding.session, session)
+    deadline = DateTime.add(Repo.now!(), 12, :day)
+
+    arguments =
+      correction.arguments
+      |> Map.put("scope", "repository")
+      |> Map.put("expires_at", DateTime.to_iso8601(deadline))
+
+    assert {:ok, saved} = call(correction, arguments)
+    behavior = Repo.get_by!(Ryker.Behaviors.Behavior, ref: saved["behavior_ref"])
+    assert DateTime.compare(behavior.expires_at, deadline) == :eq
+    assert {:ok, duplicate} = call(correction, arguments)
+    assert duplicate["behavior_ref"] == saved["behavior_ref"]
+
+    expired =
+      arguments
+      |> Map.put("subject", "Expired deployment instruction")
+      |> Map.put("expires_at", DateTime.add(Repo.now!(), -1) |> DateTime.to_iso8601())
+
+    assert {:error, _reason} = call(correction, expired)
+    assert Repo.aggregate(Ryker.Behaviors.Behavior, :count) == 1
+  end
+
+  test "a private source cannot publish its correction as repository guidance" do
+    correction = Corrections.correction!(private: true)
+
+    session =
+      correction.binding.session
+      |> Ecto.Changeset.change(repository_ref: "widget")
+      |> Repo.update!()
+
+    correction = put_in(correction.binding.session, session)
+
+    arguments =
+      correction.arguments |> Map.put("scope", "repository") |> Map.put("expires_at", nil)
+
+    assert {:error, reason} = call(correction, arguments)
+    assert reason =~ "slack_channel_not_public"
+    assert Repo.aggregate(Ryker.Behaviors.Behavior, :count) == 0
+  end
+
   test "general corrections apply across workspace conversations without a human asker" do
     # Production saved a general infrastructure rule only in its thread, so
     # later health checks could repeat the same unwanted restore-drill work.

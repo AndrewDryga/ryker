@@ -531,7 +531,7 @@ defmodule Ryker.Slack.Renderer.Offers do
            {"Applies to",
             Delivery.OfferWords.applies_to(payload["scope"], payload["repository"])},
            {"Shown to", Delivery.OfferWords.shown_to(payload["scope"], payload["visibility"])},
-           {"Expires", Delivery.OfferWords.duration(payload["expires_in"])}
+           {"Expires", Delivery.OfferWords.lifetime(payload)}
          ]),
          behavior_actions(ref, "Remember this")
        ])

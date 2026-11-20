@@ -468,6 +468,14 @@ defmodule Ryker.Evals.WorldDriver do
   end
 
   defp execute_work(claim, scenario, settings, index, left) do
+    interrupt =
+      settings.expectation_mode == :model_world and index == 1 and
+        scenario.world["interrupt_first_work_after_submit"] == true
+
+    execute_claim(claim, settings, index, left, interrupt)
+  end
+
+  defp execute_claim(claim, settings, index, left, interrupt) do
     options = [
       executor_options: [
         api: settings.api,
@@ -485,7 +493,18 @@ defmodule Ryker.Evals.WorldDriver do
       worker_ref: "#{settings.worker_ref}:work:#{index}:#{5 - left}"
     ]
 
-    case WorkDispatcher.run_claim(claim, options) do
+    result =
+      if interrupt do
+        Ryker.Evals.WorldWorkerLoss.run(
+          claim,
+          options,
+          &execute_claim(&1, settings, index, left, false)
+        )
+      else
+        WorkDispatcher.run_claim(claim, options)
+      end
+
+    case result do
       {:ok, {:executed, execution}} ->
         {:ok, execution}
 
@@ -497,8 +516,10 @@ defmodule Ryker.Evals.WorldDriver do
 
         with {:ok, retried} <-
                Custody.claim_next("#{settings.worker_ref}:work:#{index}:#{6 - left}", 300, :work),
-             true <- not is_nil(retried) or {:error, :work_retry_not_claimable} do
-          execute_work(retried, scenario, settings, index, left - 1)
+             true <-
+               (retried && retried.turn.id == claim.turn.id) ||
+                 {:error, :work_retry_not_claimable} do
+          execute_claim(retried, settings, index, left - 1, interrupt)
         else
           {:error, reason} -> {:error, reason}
         end

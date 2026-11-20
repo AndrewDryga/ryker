@@ -228,6 +228,7 @@ defmodule Ryker.Evals.WorldEvidence do
       policy: settings.policy,
       policy_digest: settings.policy_digest,
       skipped_checkpoints: skipped,
+      worker_replacements: Enum.flat_map(executions, &Map.get(&1, :worker_replacements, [])),
       tool_catalog_sha256: settings.tool_catalog_sha256 || scenario.tool_catalog_digest,
       tool_names: settings.tool_names || catalog_tool_names(scenario.tool_catalog),
       turns:

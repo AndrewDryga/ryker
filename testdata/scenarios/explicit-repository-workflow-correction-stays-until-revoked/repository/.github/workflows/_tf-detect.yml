@@ -1,0 +1,110 @@
+# Reusable: map the changed files to the set of TFC workspaces that need a run,
+# using dorny/paths-filter. Each filter key is a TFC workspace name; its glob
+# list is the paths that should trigger it (own env dir + the shared things it
+# consumes — `terraform/versions/**` and any shared modules). dorny's `changes`
+# output is the JSON array of matched workspace names, which the caller fans a
+# matrix over.
+#
+# va1-nodes is DELIBERATELY ABSENT (no filter) — it's local-execution (ISO
+# builds + iDRAC over the OOB VLAN) and is applied by hand by an operator. So
+# is `terraform/modules/bare-metal/**` (used only by va1-nodes). See nodes/README.md.
+#
+# Over-triggering is a safe no-op (a run with no changes just succeeds), so a
+# shared module is listed under every consumer rather than risk under-triggering.
+name: detect-tf-workspaces
+
+on:
+  workflow_call:
+    outputs:
+      workspaces:
+        description: JSON array of changed TFC workspace names (never includes va1-nodes).
+        value: ${{ jobs.detect.outputs.workspaces }}
+      independent_workspaces:
+        description: Changed workspaces that do not consume the media GCP prerequisite.
+        value: ${{ jobs.detect.outputs.independent_workspaces }}
+      media_workspaces:
+        description: Changed media app workspaces that wait for their GCP prerequisite.
+        value: ${{ jobs.detect.outputs.media_workspaces }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      workspaces: ${{ steps.filter.outputs.changes }}
+      independent_workspaces: ${{ steps.apply_order.outputs.independent_workspaces }}
+      media_workspaces: ${{ steps.apply_order.outputs.media_workspaces }}
+    steps:
+      - uses: actions/checkout@9ef7c892c2b70f2f4e4880e79eee6dcf3a714381 # v7.0.1
+        with:
+          fetch-depth: 0 # push diffs need the base commit; PRs use the API
+      - uses: dorny/paths-filter@d969980317317fb4452e5f00d79276d4cb027e26 # v4.0.3
+        id: filter
+        with:
+          filters: |
+            gcp-tenant:
+              - 'terraform/environments/gcp/tenant/**'
+              - 'terraform/versions/**'
+              - 'terraform/modules/google-cloud/**'
+            gcp-tenant-media:
+              - 'terraform/environments/gcp/tenant-media/**'
+            bunnycdn-tenant:
+              - 'terraform/environments/bunnycdn/tenant/**'
+              - 'terraform/modules/bunnycdn/**'
+            sentry:
+              - 'terraform/environments/sentry/**'
+            tailscale-tenant:
+              - 'terraform/environments/tailscale/tenant/**'
+            betterstack-tenant:
+              - 'terraform/environments/betterstack/tenant/**'
+            cloudflare-tenant:
+              - 'terraform/environments/cloudflare/tenant/**'
+            cloudflare-media-apps:
+              - 'terraform/environments/cloudflare/media-apps/**'
+            tenant-va1-apps:
+              - 'terraform/environments/va1/tenant-apps/**'
+              - 'terraform/versions/**'
+              - 'terraform/modules/nomad/app/**'
+              - 'terraform/modules/nomad/redis/**'
+              - 'terraform/modules/pure/**'
+            va1-nats:
+              - 'terraform/environments/va1/nats/**'
+              - 'terraform/modules/nomad/nats/**'
+              - 'terraform/modules/pure/**'
+            va1-observability:
+              - 'terraform/environments/va1/observability/**'
+              - 'terraform/modules/pure/**'
+            va1-analytics:
+              - 'terraform/environments/va1/analytics/**'
+              - 'terraform/modules/pure/**'
+            media-apps-dev:
+              - 'terraform/environments/va1/media-apps-dev/**'
+              - 'terraform/environments/va1/scripts/migrate-supertokens-core-12.sql'
+              - 'terraform/modules/nomad/**'
+              - 'terraform/modules/pure/**'
+            media-apps-prod:
+              - 'terraform/environments/va1/media-apps-prod/**'
+              - 'terraform/environments/va1/scripts/migrate-supertokens-core-12.sql'
+              - 'terraform/modules/nomad/**'
+              - 'terraform/modules/pure/**'
+            va1-typesense:
+              - 'terraform/environments/va1/typesense/**'
+              - 'terraform/modules/nomad/typesense/**'
+              - 'terraform/modules/pure/**'
+            va1-postgres:
+              - 'terraform/environments/va1/postgres/**'
+              - 'terraform/modules/nomad/postgres/**'
+              - 'terraform/modules/pure/**'
+            va1-truenas:
+              - 'terraform/environments/va1/truenas/**'
+
+      - name: Group workspace applies by prerequisite
+        id: apply_order
+        env:
+          WORKSPACES_JSON: ${{ steps.filter.outputs.changes }}
+        run: |
+          set -euo pipefail
+          python3 scripts/tf-apply-workspaces "$WORKSPACES_JSON" >> "$GITHUB_OUTPUT"

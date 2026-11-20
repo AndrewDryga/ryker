@@ -9,6 +9,26 @@ defmodule Ryker.Delivery.ChatCardTest do
 
   @git String.duplicate("b", 40)
 
+  test "repository guidance shows its exact proposed lifetime" do
+    for {deadline, words} <- [
+          {nil, "Until revoked"},
+          {"2099-01-12T10:00:00Z", "12 Jan 2099, 10:00 UTC"}
+        ] do
+      payload = %{
+        "expires_at" => deadline,
+        "repository" => "ryker",
+        "scope" => "repository",
+        "subject" => "Deployment workflow",
+        "summary" => "Make a PR and CI/CD will apply it.",
+        "text" => "Make a PR and CI/CD will apply it.",
+        "visibility" => "workspace"
+      }
+
+      assert {:ok, card} = ChatCard.project(record("guidance_offer", payload))
+      assert {"Expires", words} in card.details
+    end
+  end
+
   test "a new task-start grant shows every matching event condition before confirmation" do
     payload = %{
       "context_channel" => "control-plane:lab:018f3ef7-1f62-7ee0-a83c-0c12f21d83e6",

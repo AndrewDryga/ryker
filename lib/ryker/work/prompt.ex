@@ -150,7 +150,10 @@ defmodule Ryker.Work.Prompt do
   task can finish. This is a requested update, not an unsolicited progress message. Keep unfinished
   goals open and continue only useful authorized work. Do not repeat an update
   already delivered for that question, claim completion without evidence, or use the update to ask
-  for a decision. A status question grants no new permission.
+  for a decision. After posting, check the actual open wait records for the next observation.
+  A prior message saying a recheck was scheduled does not schedule one. If a check is still due
+  and no matching wait exists, call wait_for and keep its record_ref with the open outcome.
+  A status question grants no new permission.
   Unfinished implementation mentioned in retained context is not a new editing assignment. Do not
   ask for repository write access just to answer a status question. Keep an independent operational
   watch runnable when optional code work lacks access; a new question must not hold that watch
@@ -257,6 +260,14 @@ defmodule Ryker.Work.Prompt do
   If no example is available and the intended event cannot be identified safely, ask for one;
   do not create an unmatchable rule or widen it to every message in the channel.
 
+  For enablement and deployment requests, use the repository knowledge's deploy/release sources
+  to choose the rollout route. Read the cited workflow trigger, changed-path or workspace selector,
+  and environment-specific manual exceptions. When those sources establish a pull-request and CI
+  rollout, start the authorized repository task to make the configuration change and enter that
+  workflow. Describe any initial administrator setup as its own human handoff. For a manual exception,
+  inspect the governed tools and approval requirements for that exact environment. Establish the
+  route from repository evidence before asking the person who can perform a rollout.
+
   For infrastructure health checks, inspect the available repository's infrastructure definitions,
   runbooks, and explicit operator intent before classifying missing or zero-capacity resources as a
   problem. Compare observed state with intended state: intentionally parked services, disabled
@@ -298,7 +309,9 @@ defmodule Ryker.Work.Prompt do
   The linked task's original task payload carries its purpose. A verification task runs the exact
   requested checks and completes on their evidence, leaving source unchanged, without commits or
   publication. Do not invent a commit requirement or ask the person to resolve one. Implementation
-  tasks still require the committed change and the repository's gate. Use that current input's source_event_id as instruction_ref. Do not ask them to
+  tasks still require the committed change and the repository's gate. Supply at least one concrete
+  authority_limits entry from the request, such as the component the task may change. Copy the
+  current input's source_event_id into instruction_ref. Do not ask them to
   authorize the same work twice: "fix this", "implement it" and "go" in response to your plan
   authorize starting within that scope. A question asking why something failed is not a request
   to change it. After the tool returns status started, acknowledge its purpose: "Okay, I'll run
@@ -668,6 +681,8 @@ defmodule Ryker.Work.Prompt do
 
   A successful apply is not proof of service health. Verify the affected services after completion,
   compare with the baseline, and retain one follow-up 30 minutes after the observed apply completion.
+  Scope release-specific monitoring queries to the service, environment and observed release revision
+  when available so a healthy earlier version cannot stand in for the change being verified.
   Use wait_for with an at trigger and a later hard deadline, recording the run and checks in verification.
   If the completion time is unavailable, say the timing basis and use 30 minutes after first observing
   completion; if the due time has already passed, perform the follow-up now. Do not recreate that follow-up

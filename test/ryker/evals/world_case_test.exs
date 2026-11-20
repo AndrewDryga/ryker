@@ -16,6 +16,83 @@ defmodule Ryker.Evals.WorldCaseTest do
     missing-project-many-candidates-narrow-first
   )
 
+  # The captured operator asked for a PR and a durable correction together;
+  # treating that person as only one authority falsely rejected the other.
+  test "a declared repository operator can save guidance and start work only in the captured repository" do
+    assert {:ok, scenario} =
+             WorldCase.fetch("explicit-repository-workflow-correction-stays-until-revoked")
+
+    [actor] = scenario.actors
+    scenario = %{scenario | actors: [Map.put(actor, "authority", "repository_operator")]}
+    profile = actor["input_profile"]
+
+    entry = %{
+      source_kind: profile["source"]["kind"],
+      source_ref: profile["source"]["ref"],
+      actor_kind: :user,
+      actor_ref: profile["actor"]["ref"]
+    }
+
+    assert WorldCase.answer_authorizer(scenario).(entry)
+
+    assert {:ok, %{repository_ref: "tenant-infra"}} =
+             WorldCase.task_authorizer(scenario).(entry, "tenant-infra")
+
+    other = %{entry | actor_ref: "someone-else"}
+    refute WorldCase.answer_authorizer(scenario).(other)
+
+    assert {:error, :task_instruction_not_authorized} ==
+             WorldCase.task_authorizer(scenario).(other, "tenant-infra")
+
+    assert {:error, :task_instruction_not_authorized} ==
+             WorldCase.task_authorizer(scenario).(entry, "another-repository")
+  end
+
+  test "a world case preserves only knowledge captured for its exact repository revision" do
+    {root, id, path} = copy_scenario_fixture!("rivals-engineering-task-offer")
+    doc = File.read!(path) |> Jason.decode!()
+    [repository] = doc["world"]["repositories"]
+
+    File.cp_r!(
+      Path.join([@scenario_root, id, repository["path"]]),
+      Path.join(Path.dirname(path), repository["path"])
+    )
+
+    on_exit(fn -> File.rm_rf!(root) end)
+    content = "Make a PR and CI/CD will apply it."
+
+    knowledge = %{
+      "repository" => repository["ref"],
+      "source_commit" => repository["base_commit"],
+      "content" => content,
+      "sha256" => digest(content)
+    }
+
+    File.write!(path, Jason.encode!(put_in(doc["world"]["repository_knowledge"], nil)))
+    assert {:ok, without_knowledge} = WorldCase.fetch(id, root)
+
+    assert Ryker.Evals.WorldInputs.seed_repository_knowledge(
+             without_knowledge,
+             DateTime.utc_now()
+           ) == :ok
+
+    captured = put_in(doc["world"]["repository_knowledge"], knowledge)
+    File.write!(path, Jason.encode!(captured))
+    assert {:ok, scenario} = WorldCase.fetch(id, root)
+    assert scenario.world["repository_knowledge"] == knowledge
+
+    for invalid <- [
+          Map.put(knowledge, "repository", "another-repo"),
+          Map.put(knowledge, "source_commit", String.duplicate("f", 40)),
+          Map.put(knowledge, "content", content <> " changed later")
+        ] do
+      File.write!(path, Jason.encode!(put_in(doc["world"]["repository_knowledge"], invalid)))
+
+      assert {:error, {:invalid_world_case, ^id, :repository_knowledge}} =
+               WorldCase.fetch(id, root)
+    end
+  end
+
   test "published-update evidence retains the mismatched commits and stale description beside current code" do
     assert {:ok, scenario} =
              WorldCase.fetch("published-update-survives-rebased-commit-and-stale-description")
@@ -154,7 +231,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 50
+    assert length(scenarios) == 53
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"
@@ -982,7 +1059,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   defp copy_scenario_fixture!(case_id \\ @health_scenario) do
     fixture =
-      Path.join(System.tmp_dir!(), "ryker-world-case-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "ryker-world-case-#{Ecto.UUID.generate()}")
 
     scenario_dir = Path.join(fixture, case_id)
     source = Path.join(@scenario_root, case_id)

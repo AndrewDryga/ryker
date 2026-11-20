@@ -1,0 +1,25 @@
+{
+  "provenance": {
+    "kind": "production",
+    "captured_at": "2026-11-19T18:32:00Z",
+    "episode_refs": [
+      "fec004e4-32cd-5851-b19b-3186fbb5469f"
+    ]
+  },
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "tenant Metabase is still off. The default hostname resolves and passes TLS from VA1, but the health endpoint returns 502 and Nomad shows no Metabase job. There’s no Terraform apply pending. [HTTPS check](https://emisar.dev/app/tenant-app/runs/992c17f9-bf8a-57f6-a6e0-7d4861aa7073) · [Terraform runs](https://emisar.dev/app/tenant-app/runs/9f8b8be1-60cd-5646-a13c-0dc514022054)\n\nWho can run the approved `va1-analytics` Terraform rollout and be ready to complete Metabase’s initial admin setup immediately afterward?",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [
+        "record:evidence:c03ec795416995d82e2291f4395ff553",
+        "record:evidence:6d3b676ecb96160bbc42d556718367fc",
+        "record:evidence:4b0ee261ff64ce59da7a26ce74fefd39",
+        "record:input_request:df3a74742f67a861418bf360b5ea2913"
+      ],
+      "state": "waiting_for_input"
+    },
+    "title": "Deploy tenant Metabase"
+  }
+}

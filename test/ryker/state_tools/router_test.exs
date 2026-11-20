@@ -2088,6 +2088,42 @@ defmodule Ryker.StateTools.RouterTest do
            ) == {:error, "unauthorized"}
   end
 
+  # A maintainer asked Ryker to remember the PR deployment workflow. Its repository
+  # proposal silently expired after 90 days despite the explicit null deadline.
+  test "repository deployment guidance retains its requested lifetime" do
+    joined_channel!("TSTATETOOLS", "C456", false)
+
+    claim =
+      claim!("repository-deployment-guidance", %{
+        destination: %{
+          conversation_ref: "slack:TSTATETOOLS:C456",
+          thread_ref: "1787832000.000100",
+          transport: "slack"
+        }
+      })
+
+    deadline = DateTime.utc_now() |> DateTime.add(12, :day) |> DateTime.to_iso8601()
+
+    for {subject, expiry} <- [{"deploy-pr", nil}, {"temporary-change-freeze", deadline}] do
+      assert {:ok, %{"proposal" => proposal}} =
+               Tools.call(
+                 "propose_memory",
+                 %{
+                   "expires_at" => expiry,
+                   "kind" => "guidance",
+                   "scope" => "repository",
+                   "subject" => subject,
+                   "value" => "Make a PR and CI/CD will apply it."
+                 },
+                 bound_options(claim)
+               )
+
+      assert proposal["repository"] == "ryker"
+      assert Map.fetch!(proposal, "expires_at") == expiry
+      refute Map.has_key?(proposal, "expires_in")
+    end
+  end
+
   test "memory proposals map every durable scope without widening repository authority" do
     joined_channel!("TSTATETOOLS", "C456", false)
 

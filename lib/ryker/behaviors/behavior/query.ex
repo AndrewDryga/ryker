@@ -81,14 +81,21 @@ defmodule Ryker.Behaviors.Behavior.Query do
   end
 
   @doc "The workspace and local rules whose combined applicable correction budget may change."
-  def for_correction_capacity(queryable, _episode, :workspace),
-    do: where(queryable, [operator_behaviors: b], b.scope_kind in [:workspace, :conversation])
+  def for_correction_capacity(queryable, :workspace, _ref) do
+    where(
+      queryable,
+      [operator_behaviors: b],
+      b.scope_kind in [:workspace, :conversation, :repository]
+    )
+  end
 
-  def for_correction_capacity(queryable, episode, _scope) do
-    by_any_scope(queryable, [
-      {:workspace, Ryker.Episodes.Scope.workspace_ref(episode)},
-      {:conversation, episode.destination_conversation_ref}
-    ])
+  def for_correction_capacity(queryable, kind, ref) when kind in [:conversation, :repository] do
+    where(
+      queryable,
+      [operator_behaviors: b],
+      b.scope_kind in [:workspace, :conversation, :repository] and
+        (b.scope_kind != ^kind or b.scope_ref == ^ref)
+    )
   end
 
   @doc "Scoped to any one of `scopes`, each a `{scope_kind, scope_ref}`."

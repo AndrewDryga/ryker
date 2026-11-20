@@ -207,13 +207,8 @@ defmodule Ryker.Records.RecordPayload do
   defp preference_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
 
   defp guidance_offer(%{} = payload) do
-    with :ok <-
-           exact_fields(
-             payload,
-             ~w(expires_in repository scope subject summary text visibility)
-           ),
+    with :ok <- guidance_lifetime(payload),
          :ok <- enum(payload["scope"], ~w(operator conversation repository workspace), :scope),
-         :ok <- enum(payload["expires_in"], ~w(7d 30d 90d 365d), :expires_in),
          :ok <- enum(payload["visibility"], ~w(private conversation workspace), :visibility),
          :ok <- text(payload["subject"], 120, :subject),
          :ok <- text(payload["summary"], 500, :summary),
@@ -226,6 +221,19 @@ defmodule Ryker.Records.RecordPayload do
   end
 
   defp guidance_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
+
+  defp guidance_lifetime(%{"scope" => "repository", "expires_at" => value} = payload) do
+    with :ok <-
+           exact_fields(payload, ~w(expires_at repository scope subject summary text visibility)),
+         {:ok, _deadline} <- optional_utc_datetime(value),
+         do: :ok
+  end
+
+  defp guidance_lifetime(payload) do
+    with :ok <-
+           exact_fields(payload, ~w(expires_in repository scope subject summary text visibility)),
+         do: enum(payload["expires_in"], ~w(7d 30d 90d 365d), :expires_in)
+  end
 
   defp standing_assignment_offer(%{"source_kind" => _source_kind} = payload) do
     with :ok <-

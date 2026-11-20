@@ -347,7 +347,7 @@ defmodule Ryker.Delivery.ChatCard do
         "Shown to",
         OfferWords.shown_to(chat_scope(payload["scope"]), chat_scope(payload["visibility"]))
       )
-      |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
+      |> optional_detail("Expires", OfferWords.lifetime(payload))
 
     common(
       record,
