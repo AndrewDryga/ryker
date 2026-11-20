@@ -33,6 +33,19 @@ defmodule Ryker.Admission do
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
+  @doc "The decision schema offered for this exact frozen routing context."
+  def output_schema(%Context{} = context) do
+    Decision.json_schema(
+      Ingress.Input.allowed_actions(context.input),
+      Ingress.Input.reaction_names(context.input),
+      is_binary(context.input_entry.repository_ref),
+      Enum.map(context.repository_choices, & &1["ref"]),
+      Context.sentiment_offered?(context)
+    )
+    |> Decision.observation_schema(context.input_entry)
+    |> Ryker.Admission.BatchRouting.schema(context.batch_inputs)
+  end
+
   @doc """
   Builds the routing context of pending message `input_ref` under the lease
   the caller holds: the message, its conversation, the candidate episodes it
@@ -282,6 +295,7 @@ defmodule Ryker.Admission do
   def validate(%Context{} = context, %Decision{} = decision) do
     with :ok <- reauthorize_work_scope(context),
          {:ok, decision} <- Decision.prepare(decision),
+         :ok <- Decision.validate_observation(context.input_entry, decision),
          :ok <- Ryker.Admission.BatchRouting.validate_selection(context, decision),
          :ok <- allowed_action(context.input, decision.action),
          :ok <- allowed_reactions(context.input, decision),

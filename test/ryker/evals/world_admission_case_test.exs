@@ -82,6 +82,15 @@ defmodule Ryker.Evals.WorldAdmissionCaseTest do
     assert WorldAdmissionCase.new(%{}) == {:error, {:invalid_world_admission, :context}}
   end
 
+  test "the evaluator offers the same Slack choices as production", %{context: context} do
+    id = Ecto.UUID.generate()
+    entry = %{context.input_entry | actor_kind: :user, slack_audience: :ambient}
+    context = %{context | input_entry: entry, batch_inputs: [%{"id" => id}]}
+    assert {:ok, eval} = WorldAdmissionCase.new(context)
+    assert eval.schema["properties"]["unrequested_observation"]["type"] == "boolean"
+    assert eval.schema["properties"]["same_request_inputs"]["items"]["enum"] == [id]
+  end
+
   test "a recorded valid decision keeps all fields, not a replay comparison", %{
     context: context,
     captured: captured

@@ -151,6 +151,12 @@ defmodule Ryker.Admission.Decision do
   defp observation(true, :start_episode, []), do: :ok
   defp observation(_, _, _), do: invalid(:unrequested_observation)
 
+  def validate_observation(_entry, %{unrequested_observation: false}), do: :ok
+  def validate_observation(%{slack_audience: :ambient, actor_kind: :user}, _decision), do: :ok
+
+  def validate_observation(_entry, _decision),
+    do: {:error, {:admission_rejected, :unrequested_observation}}
+
   def observation_schema(schema, %{slack_audience: :ambient, actor_kind: :user}) do
     put_in(schema, ["properties", "unrequested_observation"], %{
       "type" => "boolean",

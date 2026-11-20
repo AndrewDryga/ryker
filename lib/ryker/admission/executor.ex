@@ -515,16 +515,7 @@ defmodule Ryker.Admission.Executor do
   defp submit_turn(entry, session, context, key, settings) do
     prompt = context |> Prompt.build() |> Prompt.render()
 
-    schema =
-      Decision.json_schema(
-        Ingress.Input.allowed_actions(context.input),
-        Ingress.Input.reaction_names(context.input),
-        is_binary(entry.repository_ref),
-        Enum.map(context.repository_choices, & &1["ref"]),
-        Context.sentiment_offered?(context)
-      )
-      |> Decision.observation_schema(entry)
-      |> Admission.BatchRouting.schema(context.batch_inputs)
+    schema = Admission.output_schema(context)
 
     with :ok <- renew_lease(settings),
          {:ok, artifact} <-

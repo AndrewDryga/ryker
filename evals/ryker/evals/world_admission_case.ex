@@ -5,7 +5,6 @@ defmodule Ryker.Evals.WorldAdmissionCase do
   lane supplies the model; the case does not prescribe an expected route.
   """
   alias Ryker.Admission
-  alias Ryker.Ingress
 
   @enforce_keys [:context, :eval_id, :prompt, :schema]
   defstruct @enforce_keys
@@ -22,25 +21,12 @@ defmodule Ryker.Evals.WorldAdmissionCase do
 
   @spec new(Admission.Context.t()) :: {:ok, t()} | {:error, term()}
   def new(%Admission.Context{} = context) do
-    allowed_actions = Ingress.Input.allowed_actions(context.input)
-    reaction_names = Ingress.Input.reaction_names(context.input)
-    repository_bound? = is_binary(context.input_entry.repository_ref)
-    repository_refs = Enum.map(context.repository_choices, & &1["ref"])
-    sentiment_offered? = Admission.Context.sentiment_offered?(context)
-
     {:ok,
      %__MODULE__{
        context: context,
        eval_id: "world-admission:#{context.input_entry.id}",
        prompt: context |> Admission.Prompt.build() |> Admission.Prompt.render(),
-       schema:
-         Admission.Decision.json_schema(
-           allowed_actions,
-           reaction_names,
-           repository_bound?,
-           repository_refs,
-           sentiment_offered?
-         )
+       schema: Admission.output_schema(context)
      }}
   end
 
