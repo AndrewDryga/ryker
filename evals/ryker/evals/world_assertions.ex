@@ -72,6 +72,12 @@ defmodule Ryker.Evals.WorldAssertions do
     if Enum.any?(records, &recorded?(&1, tool, check)), do: [], else: [check]
   end
 
+  defp hard_failure(%{"kind" => "delivery_count", "count" => expected} = check, _, _, deliveries) do
+    if length(deliveries) == expected,
+      do: [],
+      else: [Map.put(check, "actual", length(deliveries))]
+  end
+
   defp hard_failure(%{"kind" => "started_tasks", "count" => expected} = check, records, _, _) do
     started =
       records

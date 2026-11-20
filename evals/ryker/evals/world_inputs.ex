@@ -145,6 +145,28 @@ defmodule Ryker.Evals.WorldInputs do
     end
   end
 
+  @doc "Record the captured thread updates between routing the owning input and preparing its Work briefing."
+  def receive_before_work(events, index, scenario, identity, started_at) do
+    events
+    |> Enum.with_index(1)
+    |> Enum.reduce_while(:ok, fn {event, offset}, :ok ->
+      with {:ok, input} <-
+             world_input(
+               event,
+               index,
+               scenario,
+               "#{identity}:received:#{offset}",
+               started_at,
+               event["payload"]
+             ),
+           {:ok, _} <- Ryker.Ingress.Inbox.record(input) do
+        {:cont, :ok}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   defp fixture_content(content, scenario, source_kind) do
     with false <- Map.has_key?(content, "world_fixture_context"),
          {:ok, captures} <- WorldCase.fixture_context(scenario),

@@ -1,0 +1,1 @@
+The messages retain their wording, source order and times from a November 19 Slack thread. People and destinations are pseudonymized. The evaluator delivers the later messages to ingress before Work prepares its first briefing. This control restores the earlier service question as the current request. The source messages supply no verified service address.

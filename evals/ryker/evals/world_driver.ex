@@ -135,11 +135,16 @@ defmodule Ryker.Evals.WorldDriver do
          world_started_at
        )
        when is_binary(actor_ref) and map_size(payload) > 0 do
+    received = Map.get(input, "received_before_work", [])
+    observation = Map.get(input, "initial_observation", false)
+
     with {:ok, input} <-
            WorldInputs.world_input(input, index, scenario, identity, world_started_at, payload),
          true <- Input.actor_ref(input) == actor_ref or {:error, :input_actor},
          {:ok, admission} <-
-           admit_world_input(input, index, scenario, settings, expected_episode_id),
+           admit_world_input(input, index, scenario, settings, expected_episode_id, observation),
+         :ok <-
+           WorldInputs.receive_before_work(received, index, scenario, identity, world_started_at),
          {:ok, claim} <- Custody.claim_next("#{settings.worker_ref}:work:#{index}", 300, :work),
          true <- not is_nil(claim) or {:error, :work_not_claimable},
          true <- claim.episode.id == admission.episode.id or {:error, :crossed_world_claim},
@@ -228,11 +233,14 @@ defmodule Ryker.Evals.WorldDriver do
   # Executor replace it from current context through the normal recovery path.
   defp initialize_disclosure(_claim), do: :ok
 
-  defp admit_world_input(input, index, scenario, settings, expected_episode_id) do
-    with {:ok, %{entry: entry}} <- Inbox.record(input),
+  defp admit_world_input(input, index, scenario, settings, expected_episode_id, observation) do
+    addressing =
+      if observation, do: [slack_audience: :ambient, slack_bot_user_ref: "UWORLD"], else: []
+
+    with {:ok, %{entry: entry}} <- Inbox.record(input, addressing),
          now <- Repo.now!(),
          {:ok, %{entry: claimed, lease_ref: lease_ref}} <-
-           claim_world_input(entry.id, index, settings, 32),
+           claim_world_input(entry.id, index, settings, 32, entry.next_attempt_at || now),
          true <- claimed.id == entry.id or {:error, :crossed_world_input_claim},
          {:ok, context} <-
            Admission.context(Inbox.ref(claimed),
@@ -244,6 +252,11 @@ defmodule Ryker.Evals.WorldDriver do
            ),
          {:ok, decision, waiting_event, routing_mode} <-
            admission_decision(context, expected_episode_id, input, settings.router),
+         decision <-
+           if(observation and routing_mode == "forced_host_scenario",
+             do: %{decision | unrequested_observation: true},
+             else: decision
+           ),
          {:ok, result} <-
            Admission.commit(
              context,
@@ -268,12 +281,12 @@ defmodule Ryker.Evals.WorldDriver do
   # Saving an explicit correction also records its confirmed decision for
   # background learning. Production admission settles that receipt without a
   # model. Exercise the same boundary before claiming the next scenario input.
-  defp claim_world_input(_entry_id, _index, _settings, 0),
+  defp claim_world_input(_entry_id, _index, _settings, 0, _at),
     do: {:error, :world_decision_receipt_limit}
 
-  defp claim_world_input(entry_id, index, settings, remaining) do
+  defp claim_world_input(entry_id, index, settings, remaining, at) do
     with {:ok, claim} <-
-           Inbox.claim_next("#{settings.worker_ref}:admission:#{index}", Repo.now!(), 300),
+           Inbox.claim_next("#{settings.worker_ref}:admission:#{index}", at, 300),
          do: accept_world_claim(claim, entry_id, index, settings, remaining)
   end
 
@@ -306,7 +319,7 @@ defmodule Ryker.Evals.WorldDriver do
              policy_digest: settings.policy_digest,
              renew_lease: fn -> :ok end
            ) do
-      claim_world_input(entry_id, index, settings, remaining - 1)
+      claim_world_input(entry_id, index, settings, remaining - 1, Repo.now!())
     end
   end
 

@@ -44,7 +44,7 @@ defmodule Ryker.Evals.WorldCase do
   @raw_candidate_fields ~w(bytes kind)
   @final_candidate_fields ~w(document kind)
   @input_event_fields ~w(actor_ref destination kind occurred_at payload)
-  @input_event_optional_fields ~w(new_episode source_item_ref)
+  @input_event_optional_fields ~w(new_episode source_item_ref received_before_work initial_observation)
   @destination_fields ~w(conversation_ref thread_ref transport)
   @wait_wakeup_fields ~w(kind occurred_at)
   @actor_fields ~w(actor_ref authority input_profile kind)
@@ -429,6 +429,7 @@ defmodule Ryker.Evals.WorldCase do
          :ok <- destination(value["destination"]),
          :ok <- optional_reference(value["source_item_ref"], :events),
          true <- is_boolean(Map.get(value, "new_episode", false)),
+         :ok <- before_work(value, actors, profile),
          :ok <- source_item_authority(profile, value["source_item_ref"]),
          {:ok, _occurred_at, 0} <- DateTime.from_iso8601(value["occurred_at"]),
          true <- is_map(value["payload"]) and map_size(value["payload"]) > 0 do
@@ -485,6 +486,39 @@ defmodule Ryker.Evals.WorldCase do
        do: {:error, :events}
 
   defp source_item_authority(_profile, _source_item_ref), do: :ok
+
+  defp before_work(value, actors, profile) do
+    received = Map.get(value, "received_before_work", [])
+    observation = Map.get(value, "initial_observation", false)
+
+    with true <- observation_profile?(observation, profile),
+         true <- is_list(received) and length(received) <= 8,
+         true <- Enum.all?(received, &received_event?(&1, value["destination"], actors)) do
+      :ok
+    else
+      _ -> {:error, :events}
+    end
+  end
+
+  defp observation_profile?(false, _profile), do: true
+
+  defp observation_profile?(true, %{
+         "source" => %{"kind" => "slack"},
+         "actor" => %{"kind" => "user"}
+       }), do: true
+
+  defp observation_profile?(_flag, _profile), do: false
+
+  defp received_event?(
+         %{"kind" => "input", "destination" => destination} = child,
+         destination,
+         actors
+       ) do
+    Map.keys(child) -- (@input_event_fields ++ ["source_item_ref"]) == [] and
+      event(child, actors) == :ok
+  end
+
+  defp received_event?(_, _, _), do: false
 
   defp destination(%{} = value) do
     with :ok <- exact_fields(value, @destination_fields, :events),

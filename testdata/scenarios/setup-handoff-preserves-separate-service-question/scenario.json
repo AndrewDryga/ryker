@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "id": "setup-handoff-preserves-separate-service-question",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_0be29f5ad5ae4a259887db838d05c44e"
+    ],
+    "captured_at": "2026-11-20T08:20:00Z"
+  },
+  "clock": {
+    "start": "2026-11-19T18:54:06.528619Z"
+  },
+  "actors": [
+    {
+      "kind": "human",
+      "actor_ref": "slack:user:U-ask",
+      "authority": "read_only",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-ask"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      }
+    },
+    {
+      "kind": "human",
+      "actor_ref": "slack:user:U-setup",
+      "authority": "read_only",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-setup"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      }
+    },
+    {
+      "kind": "human",
+      "actor_ref": "slack:user:U-helper",
+      "authority": "read_only",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-helper"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "kind": "input",
+      "actor_ref": "slack:user:U-ask",
+      "occurred_at": "2026-11-19T18:54:06.528619Z",
+      "destination": {
+        "transport": "slack",
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1795113000.000100"
+      },
+      "payload": {
+        "text": "What is the tailscale URL where I can reach it? We need it as service"
+      },
+      "received_before_work": [
+        {
+          "kind": "input",
+          "actor_ref": "slack:user:U-setup",
+          "occurred_at": "2026-11-19T18:59:14.573449Z",
+          "destination": {
+            "transport": "slack",
+            "conversation_ref": "slack:TEVAL:CEVAL",
+            "thread_ref": "1795113000.000100"
+          },
+          "payload": {
+            "text": "there seems to be some initial admin setup to do tho"
+          }
+        },
+        {
+          "kind": "input",
+          "actor_ref": "slack:user:U-helper",
+          "occurred_at": "2026-11-19T18:59:57.832639Z",
+          "destination": {
+            "transport": "slack",
+            "conversation_ref": "slack:TEVAL:CEVAL",
+            "thread_ref": "1795113000.000100"
+          },
+          "payload": {
+            "text": "I’m doing it rn"
+          }
+        }
+      ]
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "delivery_count",
+        "count": 1
+      },
+      {
+        "kind": "started_tasks",
+        "count": 0
+      },
+      {
+        "kind": "state_tool_not_recorded",
+        "tool": "request_task"
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Addresses the outstanding service URL request. Gives a verified address if available or states precisely what is missing without inventing one. Omits the setup walkthrough and unsolicited routing work.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "slack",
+    "busy-thread"
+  ]
+}
