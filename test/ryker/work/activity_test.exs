@@ -414,6 +414,25 @@ defmodule Ryker.Work.ActivityTest do
            ]) ==
              {:error, {:invalid_coop_activity, :tool_call_id}}
 
+    peer = %{
+      "role" => "reader",
+      "mode" => "consult",
+      "status" => "answered",
+      "failed_attempts" => 1
+    }
+
+    assert {:ok, %{inserted: 1}} =
+             Activity.ingest(session.id, [
+               event(
+                 session,
+                 13,
+                 "preset.peer",
+                 Map.put(peer, "raw", "private provider response")
+               )
+             ])
+
+    assert List.last(Activity.page_for_episode(episode_id).events).payload == peer
+
     assert Activity.sync(%{session | coop_session_id: nil}, OversizedAPI, :client) ==
              {:ok, %{cursor: 0, inserted: 0}}
 

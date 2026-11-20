@@ -496,6 +496,35 @@ defmodule Ryker.ControlPlane.TimelineLoadingTest do
              "The readiness probe starts before the migration."
   end
 
+  test "the timeline shows reported outcomes for each configured peer" do
+    work = episode_with_tool!("preset-history", "small")
+
+    for {{role, status}, seq} <-
+          Enum.with_index(
+            [{"reader", "answered"}, {"verifier", "failed"}, {"optional", "not_called"}],
+            2
+          ) do
+      activity!(work, seq, "preset.peer", %{
+        "role" => role,
+        "status" => status,
+        "mode" => "consult",
+        "failed_attempts" => 0
+      })
+    end
+
+    doc = LazyHTML.from_document(rendered(work))
+
+    for {seq, role, label} <- [
+          {2, "reader", "Answered"},
+          {3, "verifier", "Failed"},
+          {4, "optional", "Not called"}
+        ] do
+      text = doc |> LazyHTML.query("#event-activity-#{event_id(work, seq)}") |> LazyHTML.text()
+      assert text =~ role
+      assert text =~ label
+    end
+  end
+
   test "every worker update uses the shared card header without losing its evidence or warning" do
     # The shared activity override made populated events look uncontained beside
     # tool cards. Every activity kind must retain the same card anatomy.

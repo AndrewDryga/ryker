@@ -9,6 +9,8 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   def name?(name), do: matches?(name, @name)
 
+  def role_name?(name), do: matches?(name, @role_name)
+
   def valid?(%{"preset" => preset, "targets" => leads, "repository_read_only" => read_only}) do
     Maps.exact_keys?(preset, ~w(version name lead_prompt roles)) and
       preset["version"] === 1 and name?(preset["name"]) and
@@ -27,7 +29,7 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   defp role?(role, read_only) do
     Maps.exact_keys?(role, ~w(name mode targets when prompt)) and
-      matches?(role["name"], @role_name) and targets?(role["targets"]) and
+      role_name?(role["name"]) and targets?(role["targets"]) and
       hints?(role["when"]) and prompt?(role["prompt"]) and
       mode?(role["mode"], role["targets"], read_only)
   end

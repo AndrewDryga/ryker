@@ -534,6 +534,31 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     )
   end
 
+  defp activity_step(
+         %Work.ActivityEvent{kind: "preset.peer", payload: payload} = event,
+         _disclosed
+       ) do
+    label = %{
+      "answered" => "Answered",
+      "failed" => "Failed",
+      "not_called" => "Not called",
+      "unknown" => "Outcome unknown"
+    }
+
+    step("activity-#{event.id}", :work, event.occurred_at, %{
+      actor: "Coop",
+      stage: "Preset",
+      title: payload["role"],
+      summary: Map.get(label, payload["status"], "Outcome unknown"),
+      details:
+        compact_details([
+          {"Role", payload["mode"]},
+          {"Failed attempts", payload["failed_attempts"]}
+        ]),
+      tone: if(payload["status"] == "failed", do: :warn)
+    })
+  end
+
   defp activity_step(%Work.ActivityEvent{kind: "provider.backoff"} = event, _disclosed) do
     step(
       "activity-#{event.id}",

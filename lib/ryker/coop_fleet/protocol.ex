@@ -40,7 +40,7 @@ defmodule Ryker.CoopFleet.Protocol do
   # assistant message cannot ride along.
   # `prompt.sent` is what one prompt carried, recorded at the send
   # (`Ryker.Work.Activity`); this list learns a kind before any worker sends it.
-  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought model.progress permission.decided activity.elided provider.backoff provider.alive network prompt.sent)
+  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought model.progress permission.decided activity.elided provider.backoff provider.alive preset.peer network prompt.sent)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
 
   @spec version() :: 2

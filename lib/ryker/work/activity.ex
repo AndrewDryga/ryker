@@ -27,6 +27,7 @@ defmodule Ryker.Work.Activity do
     model.progress
     permission.decided
     activity.elided
+    preset.peer
     provider.backoff
     provider.alive
     network
@@ -597,6 +598,18 @@ defmodule Ryker.Work.Activity do
     case payload["dropped"] do
       dropped when is_integer(dropped) and dropped >= 0 -> {:ok, %{"dropped" => dropped}}
       _invalid -> {:error, {:invalid_coop_activity, :dropped}}
+    end
+  end
+
+  defp public_payload("preset.peer", payload) do
+    with true <- Ryker.CoopFleet.JobPreset.role_name?(payload["role"]),
+         count when is_integer(count) and count >= 0 <- payload["failed_attempts"],
+         {:ok, _mode} <- public_enum(payload["mode"], ~w(consult delegate native), :mode),
+         {:ok, _status} <-
+           public_enum(payload["status"], ~w(answered failed not_called unknown), :status) do
+      {:ok, Map.take(payload, ~w(role mode status failed_attempts))}
+    else
+      _ -> {:error, {:invalid_coop_activity, :preset_peer}}
     end
   end
 
