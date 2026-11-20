@@ -711,9 +711,15 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     asked_ago.(unsent, 10 * 60)
     assert [] == delivered!("worker-stale-read", "stale")
     assert ControlPlane.worker_idle?(session.id)
+    # A get_turn left queued while the controller backed up kept /readyz red after the worker
+    # had already finished the requested work and would never receive that expired read.
+    assert {:ok, fleet} = Observability.fleet()
+    assert fleet.oldest_queued_command_age_seconds == 0
 
     durable = ask.("ryker:test:stale-read:durable")
     asked_ago.(durable, 10 * 60)
+    assert {:ok, fleet} = Observability.fleet()
+    assert fleet.oldest_queued_command_age_seconds >= 600
     assert [durable.id] == delivered!("worker-stale-read", "durable")
     refute ControlPlane.worker_idle?(session.id)
   end

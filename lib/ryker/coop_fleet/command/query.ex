@@ -5,6 +5,16 @@ defmodule Ryker.CoopFleet.Command.Query do
   alias Ryker.WeeklyReport
   alias Ryker.Work
 
+  # A read answers only its caller, and a caller waits for it about as long as
+  # Ryker waits on Coop (30 s, `Ryker.Defaults` coop `receive_timeout_ms`).
+  # Every poll sent every read nobody waited for any more, oldest first, so
+  # after a long command the worker ran stale reads before newer work: 19 of
+  # 10,215 reads in the week to 2026-10-07 ran after their caller had gone
+  # (2026-10-04 review). Two minutes after it was asked, a read is no longer
+  # sent: one the worker has is cancelled when its lease runs out, and one it
+  # never had fails when its placement ends.
+  @read_wait_seconds 120
+
   def all, do: from(commands in Command, as: :coop_worker_commands)
 
   def by_id(queryable \\ all(), id), do: where(queryable, [coop_worker_commands: c], c.id == ^id)
@@ -148,11 +158,9 @@ defmodule Ryker.CoopFleet.Command.Query do
   Commands worker `worker_id` would still be given: open, on a placement
   still active and leased at `now`; for a prepare, delivered no earlier than
   `prepare_cutoff` (Coop cancels one past its redelivery); for a read, asked
-  no earlier than `read_cutoff` (no caller waits for its answer longer).
+  within the read timeout (no caller waits for its answer longer).
   """
-  def waiting_on(worker_id, now, prepare_cutoff, read_cutoff) do
-    reads = Command.read_key_prefix() <> "%"
-
+  def waiting_on(worker_id, now, prepare_cutoff) do
     from(c in all(),
       join: p in Placement,
       as: :coop_session_placements,
@@ -162,8 +170,20 @@ defmodule Ryker.CoopFleet.Command.Query do
         c.worker_id == ^worker_id and c.status in [:queued, :delivered, :acknowledged] and
           p.state == :active and p.lease_expires_at > ^now,
       where:
-        c.kind != "prepare_session" or is_nil(c.delivered_at) or c.delivered_at > ^prepare_cutoff,
-      where: not like(c.idempotency_key, ^reads) or c.inserted_at > ^read_cutoff
+        c.kind != "prepare_session" or is_nil(c.delivered_at) or c.delivered_at > ^prepare_cutoff
+    )
+    |> still_awaited(now)
+  end
+
+  @doc "Durable commands and reads young enough for their original caller to be waiting."
+  def still_awaited(queryable, now) do
+    reads = Command.read_key_prefix() <> "%"
+    cutoff = DateTime.add(now, -@read_wait_seconds, :second)
+
+    where(
+      queryable,
+      [coop_worker_commands: c],
+      not like(c.idempotency_key, ^reads) or c.inserted_at > ^cutoff
     )
   end
 

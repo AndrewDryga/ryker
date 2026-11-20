@@ -55,16 +55,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   # that is not starting. A healthy one answers in seconds.
   @prepare_redelivery_seconds 60
 
-  # A read answers only its caller, and a caller waits for it about as long as
-  # Ryker waits on Coop (30 s, `Ryker.Defaults` coop `receive_timeout_ms`).
-  # Every poll sent every read nobody waited for any more, oldest first, so
-  # after a long command the worker ran stale reads before newer work: 19 of
-  # 10,215 reads in the week to 2026-10-07 ran after their caller had gone
-  # (2026-10-04 review). Two minutes after it was asked, a read is no longer
-  # sent: one the worker has is cancelled when its lease runs out, and one it
-  # never had fails when its placement ends.
-  @read_wait_seconds 120
-
   # Session -> key -> placement is the shared lock order for enqueue and fence.
   # Source preparation and waiting on the remote worker never hold these locks.
   @doc false
@@ -354,8 +344,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     Command.Query.waiting_on(
       worker_id,
       now,
-      DateTime.add(now, -@prepare_redelivery_seconds, :second),
-      DateTime.add(now, -@read_wait_seconds, :second)
+      DateTime.add(now, -@prepare_redelivery_seconds, :second)
     )
   end
 

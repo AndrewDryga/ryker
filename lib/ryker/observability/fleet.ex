@@ -51,7 +51,9 @@ defmodule Ryker.Observability.Fleet do
     with {:ok, workers} <- Reads.all(CoopFleet.Worker.Query.all()),
          {:ok, oldest_queued_command} <-
            Reads.one(
-             CoopFleet.Command.Query.select_oldest_insert(CoopFleet.Command.Query.queued())
+             CoopFleet.Command.Query.queued()
+             |> CoopFleet.Command.Query.still_awaited(now)
+             |> CoopFleet.Command.Query.select_oldest_insert()
            ),
          {:ok, latest_checkpoint} <-
            Reads.one(CoopFleet.WorkspaceCheckpointTransfer.Query.select_latest_insert(transfers)),
