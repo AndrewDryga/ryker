@@ -209,7 +209,7 @@ async function checkSharedPageGutter(page, width) {
 async function discover(page) {
   const absent = [];
   for (const [name, route, selector] of [
-    ['episode-detail', '/', '.activity-title[href^="/timeline/"]'],
+    ['episode-detail', '/', '#activity-stream .entity-name a[href^="/timeline/"]'],
     ['conversation', '/conversations', '.lab-directory-list a[href^="/conversations/"]'],
     ['channel-detail', '/channels', 'a[href^="/channels/"]'],
     ['environment-detail', '/environments', '.entity-name a[href^="/environments/"]'],
@@ -219,6 +219,7 @@ async function discover(page) {
     ['failure-detail', '/failures', 'a[href^="/failures/"]']
   ]) {
     await page.goto(new URL(route, origin).href);
+    await connected(page);
     const link = page.locator(selector).first();
     if (await link.count()) {
       const href = await link.getAttribute('href');
