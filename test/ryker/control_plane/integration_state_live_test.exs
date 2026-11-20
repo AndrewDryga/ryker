@@ -159,8 +159,13 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     assert_same(
       :webhooks,
       "Not set up",
-      "A signing credential is ready. Add a webhook source so a sender can use it."
+      "A signing credential is ready. Add a webhook source so a sender can use it.",
+      except: "/integrations/webhooks"
     )
+
+    {:ok, view, _html} = open("/integrations/webhooks")
+    assert has_element?(view, ".kit-empty", "No webhook sources yet")
+    assert has_element?(view, "a", "Add webhook source")
   end
 
   test "a webhook source Ryker left out says which and why on every page" do

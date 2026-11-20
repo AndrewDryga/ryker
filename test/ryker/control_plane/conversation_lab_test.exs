@@ -148,7 +148,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
   # An attachment-only message is allowed, and its text is the empty string.
   # Admission progress named the row after that text, so the queue beside the
-  # message showed a blank title where "Incoming event" belonged.
+  # message showed a blank title instead of its attachment name.
   test "an attachment-only message's admission progress still has a title" do
     assert {:ok, _receipt} =
              ConversationLab.send_message(@conversation_id, "", profile(),
@@ -157,7 +157,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert {:ok, queued} = ConversationProjection.fetch(@conversation_id)
     assert [waiting] = queued.admission_progress
-    assert waiting.title == "Incoming event"
+    assert waiting.title == "note.txt"
   end
 
   test "a Lab incident offer starts a linked local incident with the configured chat authority" do

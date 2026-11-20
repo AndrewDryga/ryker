@@ -118,7 +118,9 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
         ] do
       assert [item] = SubscriptionProjection.list(%{"q" => query, "view" => "current"})
       assert item.title == "An update on Run run-k9CpPp3nWjQrkCMG"
-      assert item.episode_title == "Run run-k9CpPp3nWjQrkCMG"
+      assert item.episode_title =~ "Run notification for "
+      assert item.episode_title =~ "Run Planning"
+      refute item.episode_title =~ "<https://"
       assert item.condition == nil
       assert item.target_url =~ "https://app.terraform.io/"
       assert item.episode_href == "/timeline/#{episode.id}"
@@ -285,7 +287,8 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     {:ok, view, _} =
       live(signed_in_conn() |> Map.put(:host, "localhost"), "/follow-ups?q=run-k9&view=current")
 
-    assert has_element?(view, ".entity-name", "An update on Run run-k9CpPp3nWjQrkCMG")
+    assert has_element?(view, ".entity-name", "Run notification for")
+    assert has_element?(view, ".entity-text", "An update on Run run-k9CpPp3nWjQrkCMG")
 
     refute has_element?(view, ".follow-ups-view details")
 

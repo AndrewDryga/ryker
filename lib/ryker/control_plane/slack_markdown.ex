@@ -40,13 +40,20 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   # Without a workspace there is no directory to ask; the token stays as the
   # message wrote it rather than becoming a meaningless "Slack reference".
-  def plain(text, nil) when is_binary(text), do: text
+  def plain(text, nil) when is_binary(text), do: plain_links(text)
 
   def plain(text, workspace) when is_binary(text) and is_binary(workspace) do
     @mentions
     |> Regex.split(text, include_captures: true)
     |> Enum.map_join(fn part ->
-      if Regex.match?(@mentions, part), do: mention_name(part, workspace), else: part
+      if Regex.match?(@mentions, part), do: mention_name(part, workspace), else: plain_links(part)
+    end)
+  end
+
+  defp plain_links(text) do
+    Regex.replace(~r/<(https?:\/\/[^|>\s]+)(?:\|([^>\n]+))?>/u, text, fn
+      _token, url, "" -> url
+      _token, _url, label -> label
     end)
   end
 
