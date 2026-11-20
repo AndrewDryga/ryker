@@ -455,7 +455,7 @@ defmodule Ryker.Admission.DispatcherTest do
     {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
 
     for attempt <- 0..11 do
-      at = DateTime.add(@now, attempt * 601, :second)
+      at = DateTime.add(entry.next_attempt_at, attempt * 601, :second)
 
       opts =
         options(stub) |> Keyword.put(:now, fn -> at end) |> Keyword.put(:notify, notify(self()))
@@ -477,7 +477,9 @@ defmodule Ryker.Admission.DispatcherTest do
 
     assert {:ok, {:decided, execution}} =
              Dispatcher.run_once(
-               Keyword.put(options(stub), :now, fn -> DateTime.add(@now, 12 * 601, :second) end)
+               Keyword.put(options(stub), :now, fn ->
+                 DateTime.add(entry.next_attempt_at, 12 * 601, :second)
+               end)
              )
 
     assert execution.result.entry.id == entry.id
@@ -612,7 +614,12 @@ defmodule Ryker.Admission.DispatcherTest do
 
     for entry <- [first, second] do
       assert {:ok, {:blocked, input_ref, ^reason}} =
-               Dispatcher.run_once(options(stub) ++ [notify: notify(self())])
+               Dispatcher.run_once(
+                 Keyword.merge(options(stub),
+                   now: fn -> second.next_attempt_at end,
+                   notify: notify(self())
+                 )
+               )
 
       assert input_ref == Inbox.ref(entry)
     end
@@ -644,11 +651,16 @@ defmodule Ryker.Admission.DispatcherTest do
            [slack_audience: :ambient, slack_bot_user_ref: "UBOT"], sign_in_failed},
           {"Ev-quiet-crash", [message_ref: "1787832000.000400"], @mentioned, crashed}
         ] do
-      record_input!(event, overrides, record_options)
+      entry = record_input!(event, overrides, record_options)
       {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
 
       assert {:ok, {:blocked, _input_ref, ^reason}} =
-               Dispatcher.run_once(options(stub) ++ [notify: notify(self())])
+               Dispatcher.run_once(
+                 Keyword.merge(options(stub),
+                   now: fn -> entry.next_attempt_at || entry.inserted_at end,
+                   notify: notify(self())
+                 )
+               )
 
       refute_received {:note, _note}
     end
@@ -1081,8 +1093,18 @@ defmodule Ryker.Admission.DispatcherTest do
         fail_first_turn_response: true
       )
 
+    # The saved Slack event has a historical source clock. Its delivery lease is
+    # claimed relative to the database's receipt time and durable quiet deadline.
+    dispatch = fn seconds ->
+      options = real_options(fake, DateTime.add(@now, seconds, :second))
+
+      Dispatcher.run_once(
+        Keyword.put(options, :now, fn -> DateTime.add(entry.next_attempt_at, seconds, :second) end)
+      )
+    end
+
     assert {:ok, {:deferred, input_ref, {:coop_unavailable, :simulated_turn_response_loss}}} =
-             Dispatcher.run_once(real_options(fake, @now))
+             dispatch.(0)
 
     assert {:ok, frozen} = Inbox.fetch(input_ref)
     assert frozen.admission_context_fingerprint
@@ -1123,7 +1145,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert reopened.episode.state == :working
 
     assert {:ok, {:deferred, ^input_ref, {:admission_rejected, :context_stale}}} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+             dispatch.(2)
 
     assert Ryker.Inspectors.episode("ingress-input:#{entry.id}") == nil
     assert {:ok, reclassified} = Inbox.fetch(input_ref)
@@ -1133,7 +1155,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert FakeAPI.state(fake).submitted_prompt == submitted_prompt
 
     assert {:ok, {:decided, execution}} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 4, :second)))
+             dispatch.(4)
 
     assert execution.result.episode.id == episode_id
     assert FakeAPI.state(fake).submit_count == 2

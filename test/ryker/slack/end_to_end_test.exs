@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.EndToEndTest do
-  use Ryker.DataCase, async: true
+  # Slack delivery rechecks the database in its leased publisher process.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher, RoutingResponse}
@@ -10,8 +11,6 @@ defmodule Ryker.Slack.EndToEndTest do
   alias Ryker.Slack.{InteractionRepaint, Publisher}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Final, Session, Turn}
-
-  # A suite-owned workspace keeps conversation locks out of other async fixtures.
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -39,7 +38,7 @@ defmodule Ryker.Slack.EndToEndTest do
     {:ok, admission} = FakeCoopAPI.start_link([admission_decision()])
 
     assert {:ok, {:decided, admitted}} =
-             AdmissionDispatcher.run_once(admission_options(admission))
+             AdmissionDispatcher.run_once(admission_options(admission, input_ref))
 
     assert admitted.result.entry.id == entry.id
     assert admitted.result.episode.destination_conversation_ref == "slack:TSLACKENDTOEND:C456"
@@ -61,7 +60,12 @@ defmodule Ryker.Slack.EndToEndTest do
 
     assert execution.turn.status == :delivery_pending
     assert [submission] = FakeWorkCoopAPI.state(work).submissions
-    assert submission.schema == Final.json_schema()
+    {:ok, contract} = Ryker.Work.Contract.select(:live)
+
+    assert submission.schema ==
+             Final.for_slack_thread(contract, execution.turn.thread_receipt).output_schema
+
+    assert Map.has_key?(submission.schema["properties"], "settled_inputs")
 
     assert [current] = execution.turn.submission["context"]["inputs"]["items"]
 
@@ -173,7 +177,7 @@ defmodule Ryker.Slack.EndToEndTest do
       FakeCoopAPI.start_link([followup_decision(candidate_ref)])
 
     assert {:ok, {:decided, continued}} =
-             AdmissionDispatcher.run_once(admission_options(followup_admission))
+             AdmissionDispatcher.run_once(admission_options(followup_admission, followup_ref))
 
     assert continued.result.entry.id == followup_entry.id
     assert continued.result.episode.id == admitted.result.episode.id
@@ -260,7 +264,7 @@ defmodule Ryker.Slack.EndToEndTest do
       ])
 
     assert {:ok, {:decided, admitted}} =
-             AdmissionDispatcher.run_once(admission_options(admission))
+             AdmissionDispatcher.run_once(admission_options(admission, input_ref))
 
     assert {:ok, entry} = Inbox.fetch(input_ref)
     assert admitted.result.entry.id == entry.id
@@ -421,7 +425,10 @@ defmodule Ryker.Slack.EndToEndTest do
     }
   end
 
-  defp admission_options(fake) do
+  defp admission_options(fake, input_ref) do
+    # Dispatch at the persisted quiet deadline while the historical Slack source keeps its own date.
+    {:ok, entry} = Inbox.fetch(input_ref)
+
     [
       executor_options: [
         api: FakeCoopAPI,
@@ -434,7 +441,7 @@ defmodule Ryker.Slack.EndToEndTest do
         sleep: fn _milliseconds -> :ok end
       ],
       lease_seconds: 300,
-      now: fn -> @now end,
+      now: fn -> entry.next_attempt_at end,
       retry_base_ms: 1_000,
       retry_max_ms: 60_000,
       worker_ref: "slack-admission-e2e"
