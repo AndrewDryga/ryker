@@ -184,7 +184,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.summaries()
-      |> PagedRelation.read([desc: :updated_at, desc: :id], "summary_page", params)
+      # Each displayed summary checks its source history. Keep interactive pages short.
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "summary_page", params, page_size: 5)
 
     items =
       relation.items

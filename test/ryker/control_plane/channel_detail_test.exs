@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
        |> DateTime.truncate(:second)
        |> Map.put(:microsecond, {0, 6})
   @page_size 25
+  @summary_page_size 5
 
   # Rebuilding two pages of source histories twice made a busy channel take 43 seconds to open.
   test "opening a channel counts its learned records and reads only the list requested" do
@@ -607,12 +608,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert LazyHTML.query(row, ".state-word") |> LazyHTML.text() != ""
     end
 
-    test "every related collection pages exactly at 25 rows without losing a timestamp tie" do
+    test "every related collection stays within its page size without losing a timestamp tie" do
       # The offers' source episode lives elsewhere so it is not a 27th episode.
       source = SavedEntities.source!("slack:T123:CSOURCE")
       episode_refs = episodes!("slack:T123:C456", 26, updated_at: @now)
       schedule_refs = schedules!(source, "slack:T123:C456", 26)
-      summary_refs = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", []).ref
+
+      summary_refs =
+        for _ <- 1..(@summary_page_size + 1),
+            do: summary!("slack:T123", "slack:T123:C456", []).ref
 
       knowledge_refs =
         for index <- 1..26, do: knowledge!("slack:T123:C456", title: "Topic #{index}").id
@@ -662,9 +666,17 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         first_page = Map.fetch!(first, section)
         second_page = Map.fetch!(second, section)
 
-        assert %{total: 26, pages: 2, page: 1, key: ^key} = first_page, "#{section} first page"
-        assert %{total: 26, pages: 2, page: 2, key: ^key} = second_page, "#{section} second page"
-        assert length(first_page.items) == @page_size
+        # Interactively checking the source history for 25 summaries took nearly eight seconds.
+        size = if section == :summaries, do: @summary_page_size, else: @page_size
+        total = size + 1
+
+        assert %{total: ^total, pages: 2, page: 1, key: ^key} = first_page,
+               "#{section} first page"
+
+        assert %{total: ^total, pages: 2, page: 2, key: ^key} = second_page,
+               "#{section} second page"
+
+        assert length(first_page.items) == size
         assert length(second_page.items) == 1
 
         seen = Enum.map(first_page.items ++ second_page.items, &Map.get(&1, :ref, &1[:id]))
@@ -675,7 +687,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
         for value <- ["0", "-1", "two", "", "2.5", ["2"]] do
           assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{key => value})
           assert Map.fetch!(view, section).page == 1, "#{section} with #{inspect(value)}"
-          assert length(Map.fetch!(view, section).items) == @page_size
+          assert length(Map.fetch!(view, section).items) == size
         end
 
         assert {:ok, past_end} = ChannelDetail.fetch("T123", "C456", %{key => "40"})
@@ -686,7 +698,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     test "paging one section preserves the others and lands on its own anchor" do
       episodes!("slack:T123:C456", 26, updated_at: @now)
-      for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+      for _ <- 1..(@summary_page_size + 1), do: summary!("slack:T123", "slack:T123:C456", [])
 
       html = page("/channels/T123/C456?episode_page=2&summary_page=2&schedule_page=7&q=ignored")
 
@@ -728,14 +740,16 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "a row deleted between requests moves the reader to the last valid page, not to an empty one" do
-      [first | _] = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+      [first | _] =
+        for _ <- 1..(@summary_page_size + 1), do: summary!("slack:T123", "slack:T123:C456", [])
+
       assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "2"})
       assert view.summaries.page == 2
 
       Repo.delete_all(from(summary in ConversationSummary, where: summary.id == ^first.id))
       assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "2"})
-      assert %{page: 1, pages: 1, total: 25} = view.summaries
-      assert length(view.summaries.items) == @page_size
+      assert %{page: 1, pages: 1, total: @summary_page_size} = view.summaries
+      assert length(view.summaries.items) == @summary_page_size
 
       html = page("/channels/T123/C456?summary_page=2")
       refute html =~ "Ryker has not learned anything here yet"
@@ -743,7 +757,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       assert html
              |> LazyHTML.from_document()
              |> LazyHTML.query("#summaries .entity-row")
-             |> Enum.count() == 25
+             |> Enum.count() == @summary_page_size
     end
 
     test "a channel with only paged-out rows never reads as empty" do
@@ -1385,7 +1399,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       end
 
       # The pager links keep the chosen window, and the window keeps the pages.
-      for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+      for _ <- 1..(@summary_page_size + 1), do: summary!("slack:T123", "slack:T123:C456", [])
       html = page("/channels/T123/C456?usage_window=24h&summary_page=2&mode=all")
       document = LazyHTML.from_document(html)
 
@@ -1436,7 +1450,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     test "a refresh on page two keeps every section where the reader left it" do
       membership!("T123", "C456", private: false, external_shared: false)
       episodes!("slack:T123:C456", 26, updated_at: @now)
-      for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
+      for _ <- 1..(@summary_page_size + 1), do: summary!("slack:T123", "slack:T123:C456", [])
 
       conn = signed_in_conn() |> Map.put(:host, "localhost")
       {:ok, view, html} = live(conn, "/channels/T123/C456?episode_page=2&summary_page=2")

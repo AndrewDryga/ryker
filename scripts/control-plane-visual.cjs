@@ -168,6 +168,21 @@ async function checkCopyBlocks(page) {
   }
 }
 
+async function checkStorageFigures(page) {
+  // Definition-list table padding used to indent every storage value 16px past its label.
+  const indents = await page.locator('.storage-figures > div').evaluateAll(figures =>
+    figures.map(figure => {
+      const x = element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getBoundingClientRect().left;
+      };
+      return x(figure.querySelector('dd')) - x(figure.querySelector('dt'));
+    })
+  );
+  assert(indents.every(indent => Math.abs(indent) <= 1), 'Storage values align with their labels');
+}
+
 async function checkChannelHeading(page) {
   const heading = page.locator('.page-title-line:has(.page-title-link)');
   if (!await heading.count()) return;
@@ -284,6 +299,7 @@ async function discover(page) {
               const draft = report.captures.find(capture => capture.name === 'conversations' && capture.width === width);
               assert(Math.abs(result.layout.composerBottom - draft?.layout?.composerBottom) < 1, 'The composer must not move between a new and an open conversation');
             }
+            if (name === 'working-copies') await checkStorageFigures(page);
             if (name === 'channel-detail') await checkChannelHeading(page);
             if (name === 'integrations-github') await checkCopyBlocks(page);
             if (['schedules', 'channels', 'repositories', 'working-copies'].includes(name)) {
