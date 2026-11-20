@@ -64,6 +64,7 @@ defmodule Ryker.Ingress.Inbox.Entry do
     field(:lease_ref, :string)
     field(:lease_owner, :string)
     field(:lease_expires_at, :utc_datetime_usec)
+    field(:routing_batch_ref, :binary_id)
     field(:next_attempt_at, :utc_datetime_usec)
     field(:awaiting_transcript_until, :utc_datetime_usec)
     field(:last_error_code, :string)

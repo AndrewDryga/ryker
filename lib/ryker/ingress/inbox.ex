@@ -23,6 +23,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.RoutingBatch
   alias Ryker.Ingress.Input
   alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Ingress.Projections
@@ -917,16 +918,19 @@ defmodule Ryker.Ingress.Inbox do
     # Work acceptance uses the database clock. Mixing that with application
     # timestamps can place a follow-up before the answer it follows in the Lab.
     now = Repo.now!()
+    id = Repo.generate_id()
+    batch = RoutingBatch.attributes(input, settings, id, now)
 
     input
     |> Entry.Changeset.insert(
-      Repo.generate_id(),
+      id,
       settings.execution_mode,
       settings.work_profile,
       settings.slack_addressing,
       source_envelope: settings.source_envelope,
       engagement_receipt: settings.engagement_receipt
     )
+    |> Ecto.Changeset.change(batch)
     |> Ecto.Changeset.change(
       inserted_at: now,
       updated_at: now,

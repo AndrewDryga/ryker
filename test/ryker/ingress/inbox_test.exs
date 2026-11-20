@@ -104,6 +104,93 @@ defmodule Ryker.Ingress.InboxTest do
     end
   end
 
+  test "a Slack burst keeps its receipts immediately and claims after the bounded quiet window" do
+    # Routing immediately used to start answering before the teammate's takeover arrived.
+    Repo.delete_all(from(entry in Entry, where: entry.status == :pending))
+    addressing = [slack_audience: :direct, slack_bot_user_ref: "UBOT"]
+    opening = "1787832000.000100"
+
+    message = fn n ->
+      input!(
+        actor: %{kind: :user, ref: "U123"},
+        event_ref: "Ev-burst-#{n}",
+        message_ref: "178783200#{n}.000100",
+        thread_ref: opening
+      )
+    end
+
+    assert {:ok, %{entry: first}} = Inbox.record(message.(1), addressing)
+    assert Inbox.claim_next("router", first.inserted_at, 60) == {:ok, nil}
+    assert {:ok, %{entry: second}} = Inbox.record(message.(2), addressing)
+    assert {:ok, waiting} = Inbox.fetch(Inbox.ref(first))
+    assert waiting.routing_batch_ref == first.id
+    assert second.routing_batch_ref == first.id
+    deadline = DateTime.add(second.inserted_at, 2, :second)
+    assert waiting.next_attempt_at == deadline
+    assert Inbox.next_due_at(first.inserted_at) == deadline
+    assert {:ok, %{status: :duplicate}} = Inbox.record(message.(1), addressing)
+    assert Inbox.claim_next("router", DateTime.add(deadline, -1, :microsecond), 60) == {:ok, nil}
+    assert {:ok, %{entry: claimed}} = Inbox.claim_next("router", deadline, 60)
+    assert claimed.id == first.id
+
+    assert {:ok, %{entry: later}} = Inbox.record(message.(3), addressing)
+    assert later.routing_batch_ref == later.id
+  end
+
+  test "continuous Slack messages cannot extend routing past the first receipt's fixed deadline" do
+    addressing = [slack_audience: :direct, slack_bot_user_ref: "UBOT"]
+
+    message = fn n ->
+      input!(
+        actor: %{kind: :user, ref: "U123"},
+        event_ref: "Ev-cap-#{n}",
+        message_ref: "178783201#{n}.000100",
+        thread_ref: "1787832000.000100"
+      )
+    end
+
+    assert {:ok, %{entry: first}} = Inbox.record(message.(1), addressing)
+    opened = DateTime.add(first.inserted_at, -7, :second)
+    # The previous messages have kept this batch open for seven seconds.
+    Repo.update_all(Entry.Query.by_id(first.id), set: [inserted_at: opened])
+    assert {:ok, %{entry: second}} = Inbox.record(message.(2), addressing)
+    assert second.routing_batch_ref == first.id
+    assert second.next_attempt_at == DateTime.add(opened, 8, :second)
+  end
+
+  test "a full routing batch keeps overflow, independent threads and attachments separate" do
+    addressing = [slack_audience: :mention, slack_bot_user_ref: "UBOT"]
+
+    record = fn n, thread, content ->
+      input =
+        input!(
+          actor: %{kind: :user, ref: "U123"},
+          event_ref: "Ev-limit-#{n}",
+          message_ref: "178783202#{n}.000100",
+          thread_ref: thread,
+          content: content
+        )
+
+      assert {:ok, %{entry: entry}} = Inbox.record(input, addressing)
+      entry
+    end
+
+    thread = "1787832000.000100"
+    large = %{"text" => String.duplicate("q", 14_000)}
+    first = record.(1, thread, large)
+    second = record.(2, thread, large)
+    assert first.routing_batch_ref == first.id
+    assert second.routing_batch_ref == second.id
+    other = record.(3, "1787832010.000100", %{"text" => "another topic"})
+    assert other.routing_batch_ref == other.id
+
+    attachment =
+      record.(4, thread, %{"text" => "a file", "attachments" => [%{"title" => "report"}]})
+
+    assert is_nil(attachment.routing_batch_ref)
+    assert is_nil(attachment.next_attempt_at)
+  end
+
   test "incoming messages and model answers share the database clock" do
     # A 28 ms app/database clock skew reordered Lab follow-ups before their answers.
     assert {:ok, _} = Inbox.record(input!())

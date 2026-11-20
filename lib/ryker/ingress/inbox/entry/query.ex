@@ -61,6 +61,25 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
+  @doc "The most recently received message in the exact Slack routing lane."
+  def last_for_routing_batch(input, mode) do
+    from(e in all(),
+      where: [
+        destination_conversation_ref: ^input.destination.conversation_ref,
+        destination_thread_ref: ^input.destination.thread_ref,
+        destination_transport: "slack",
+        source_kind: "slack",
+        source_ref: ^input.source.ref,
+        execution_mode: ^mode
+      ],
+      order_by: [desc: e.inserted_at, desc: e.id],
+      limit: 1,
+      select: e.routing_batch_ref
+    )
+  end
+
+  def by_routing_batch(ref), do: from(e in all(), where: e.routing_batch_ref == ^ref)
+
   @doc "The messages that opened the threads `thread_refs` names."
   def thread_openings(queryable, thread_refs),
     do: where(queryable, [ingress_inbox_entries: e], e.source_item_ref in ^thread_refs)
