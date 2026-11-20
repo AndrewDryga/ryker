@@ -1840,11 +1840,23 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp load_detail(socket, options, ["repositories", "new"]) do
     socket = load_snapshot(socket, options)
 
-    if connected?(socket) and SettingsView.github_ready?(socket.assigns.settings) and
-         (socket.assigns.github_repository_discovery == :idle or
-            socket.assigns.github_repository_scope != repository_scope(socket)),
-       do: discover_github_repositories(socket, options),
-       else: socket
+    if SettingsView.github_ready?(socket.assigns.settings) do
+      scope = repository_scope(socket)
+
+      cond do
+        not connected?(socket) ->
+          assign(socket, :github_repositories, RepositoryChoices.preview(scope))
+
+        socket.assigns.github_repository_discovery == :idle or
+            socket.assigns.github_repository_scope != scope ->
+          discover_github_repositories(socket, options)
+
+        true ->
+          socket
+      end
+    else
+      socket
+    end
   end
 
   defp load_detail(socket, options, _segments), do: load_snapshot(socket, options)

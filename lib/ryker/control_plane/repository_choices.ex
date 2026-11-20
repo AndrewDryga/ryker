@@ -6,20 +6,26 @@ defmodule Ryker.ControlPlane.RepositoryChoices do
 
   def start_link(_options), do: Agent.start_link(fn -> nil end, name: __MODULE__)
 
+  # A disconnected mount can show the last list for this viewer. It neither
+  # starts a discovery nor interferes with another visit's in-flight result.
+  def preview(scope) do
+    now = System.monotonic_time(:millisecond)
+    Agent.get(__MODULE__, &elem(current(&1, scope, now), 0))
+  end
+
   def begin(scope) do
     ticket = make_ref()
     now = System.monotonic_time(:millisecond)
 
     Agent.get_and_update(__MODULE__, fn state ->
-      {choices, expires} =
-        case state do
-          {^scope, _previous, rows, until} when until > now -> {rows, until}
-          _missing -> {[], now}
-        end
+      {choices, expires} = current(state, scope, now)
 
       {{ticket, choices}, {scope, ticket, choices, expires}}
     end)
   end
+
+  defp current({scope, _ticket, rows, until}, scope, now) when until > now, do: {rows, until}
+  defp current(_state, _scope, now), do: {[], now}
 
   def finish(ticket, rows) do
     Agent.update(__MODULE__, fn

@@ -170,7 +170,15 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     test_pid = self()
     Agent.update(github, &%{&1 | answer: {:held, test_pid}})
 
-    {:ok, next, _} = open("/repositories/new")
+    # A full return navigation used to wait for a second settings read and
+    # websocket connection before showing even an already verified choice.
+    response = get(signed_in_conn() |> Map.put(:host, "localhost"), "/repositories/new")
+    html = html_response(response, 200)
+    assert html =~ ~s(data-repository-name="acme/api")
+    assert html =~ ~s(data-checking-access="true")
+    assert asked(github) == 1
+
+    {:ok, next, _} = live(response)
     assert_receive {:listing, listing}
     assert has_element?(next, "#repository-picker li[data-repository-name='acme/api']")
     send(listing, {:answer, {:ok, [repository("acme/new", 12)]}})
