@@ -835,6 +835,11 @@ requires a writable contributor job. A reviewer assignment, the review label,
 or a PR comment addressed to the App asking it to review uses the review choice.
 Confirmed changes use the contributor choice and the existing publication approval.
 
+For a pull request review, have the lead send each reviewer the base and head commit IDs,
+the relevant diff and source lines, and the test results on stdin to
+`coop-consult ROLE --fresh`. Each reviewer returns its findings to the lead, who checks
+them against that head and publishes the review.
+
 Republish the export after approving a recipe edit. New jobs read the published
 revision and pin it with their sources. Previously admitted jobs keep their role
 instructions. Removing the file makes the saved choice unavailable until the
