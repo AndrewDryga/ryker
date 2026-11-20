@@ -406,6 +406,14 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert title =~ "tenant-infra"
     refute title =~ ref
     assert render(%{"batch" => claim.batch.id}) =~ ref
+
+    Repo.update_all(from(b in Batch, where: b.id == ^claim.batch.id), set: [repository_ref: nil])
+
+    unknown =
+      render(%{}) |> LazyHTML.from_fragment() |> LazyHTML.query("#needs-attention .entity-name")
+
+    assert String.trim(LazyHTML.text(unknown)) == "GitHub repository"
+    assert render(%{"batch" => claim.batch.id}) =~ ref
   end
 
   test "learning from a chat is named by that chat, not only as a direct conversation" do
