@@ -362,7 +362,7 @@ defmodule Ryker.Slack.WorkControls do
 
   defp valid_publication_ref?(attributes, fields) do
     :publication_ref not in fields or
-      reference?(
+      Ryker.Reference.matches?(
         Map.get(attributes, :publication_ref),
         ~r/\Apublication:[A-Za-z0-9_.:-]{1,240}\z/
       )
@@ -378,8 +378,6 @@ defmodule Ryker.Slack.WorkControls do
         :postmortem
       ]
   end
-
-  defp reference?(value, regex), do: is_binary(value) and Regex.match?(regex, value)
 
   defp record_options(%{} = options) do
     options = Map.put_new(options, :work_record, WorkRecord)

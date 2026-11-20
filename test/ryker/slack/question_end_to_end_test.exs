@@ -73,7 +73,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     {:ok, admission_api} = FakeCoopAPI.start_link([start_decision()])
 
     assert {:ok, {:decided, admitted}} =
-             AdmissionDispatcher.run_once(admission_options(admission_api, "initial"))
+             AdmissionDispatcher.run_once(admission_options(admission_api, "initial", input_ref))
 
     assert admitted.result.entry.id == input_id(input_ref)
     episode = admitted.result.episode
@@ -198,7 +198,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
                workspace_ref: "TQUESTIONENDTOEND"
              })
 
-    assert {:ok, _source_receipt} = Inbox.record(source_update)
+    assert {:ok, %{entry: source_entry}} = Inbox.record(source_update)
 
     {:ok, source_admission_api} =
       FakeCoopAPI.start_link([continue_decision(candidate_ref(episode.id))],
@@ -207,7 +207,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     assert {:ok, {:decided, source_admitted}} =
              AdmissionDispatcher.run_once(
-               admission_options(source_admission_api, "source-update")
+               admission_options(source_admission_api, "source-update", Inbox.ref(source_entry))
              )
 
     assert source_admitted.result.episode.state == :waiting_for_input
@@ -238,7 +238,9 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
       FakeCoopAPI.start_link([continue_decision(candidate_ref(episode.id))])
 
     assert {:ok, {:decided, resumed}} =
-             AdmissionDispatcher.run_once(admission_options(answer_admission_api, "answer"))
+             AdmissionDispatcher.run_once(
+               admission_options(answer_admission_api, "answer", answer_ref)
+             )
 
     assert resumed.result.episode.id == episode.id
     assert resumed.result.episode.state == :working
@@ -455,13 +457,13 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
       | work_profile: fn "TQUESTIONENDTOEND", "slack:TQUESTIONENDTOEND:COTHER" -> profile end
     }
 
-    assert {:ack, {:recorded, _}} = Gateway.handle_envelope(fresh, settings)
+    assert {:ack, {:recorded, recall_ref}} = Gateway.handle_envelope(fresh, settings)
 
     {:ok, admission_api} =
       FakeCoopAPI.start_link([start_decision()], turn_id_override: "new-channel-recall")
 
     assert {:ok, {:decided, _}} =
-             AdmissionDispatcher.run_once(admission_options(admission_api, "recall"))
+             AdmissionDispatcher.run_once(admission_options(admission_api, "recall", recall_ref))
 
     assert {:ok, claim} = Custody.claim_next("question-recall-worker", 60, :work)
     assert claim.session.id != original_session_id
@@ -683,7 +685,9 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     }
   end
 
-  defp admission_options(api, suffix) do
+  defp admission_options(api, suffix, input_ref) do
+    {:ok, entry} = Inbox.fetch(input_ref)
+
     [
       executor_options: [
         api: FakeCoopAPI,
@@ -696,7 +700,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
         sleep: fn _milliseconds -> :ok end
       ],
       lease_seconds: 300,
-      now: fn -> @now end,
+      now: fn -> entry.next_attempt_at || entry.inserted_at end,
       retry_base_ms: 1_000,
       retry_max_ms: 60_000,
       worker_ref: "slack-question-admission-#{suffix}"

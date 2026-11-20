@@ -290,7 +290,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     case get_in(context, path) do
       [_ | _] = notes ->
-        room = @maximum_context_bytes - encoded_size(put_in(context, path, []))
+        room = @maximum_context_bytes - CanonicalJSON.encoded_size(put_in(context, path, []))
         put_in(context, path, fitting_head(notes, room))
 
       _none ->
@@ -305,14 +305,12 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp fitting_head(notes, room) do
     notes
     |> Enum.reduce_while({[], -1}, fn note, {kept, used} ->
-      used = used + 1 + encoded_size(note)
+      used = used + 1 + CanonicalJSON.encoded_size(note)
       if used <= room, do: {:cont, {[note | kept], used}}, else: {:halt, {kept, used}}
     end)
     |> elem(0)
     |> Enum.reverse()
   end
-
-  defp encoded_size(value), do: value |> CanonicalJSON.encode!() |> byte_size()
 
   defp submission_context(episode, session, snapshot, records, nil, metadata),
     do: fit_full_context(episode, session, snapshot, records, nil, metadata)
@@ -443,7 +441,7 @@ defmodule Ryker.Work.SubmissionBuilder do
 
     %{
       artifacts: measured |> model_artifact_refs() |> length(),
-      bytes: encoded_size(measured),
+      bytes: CanonicalJSON.encoded_size(measured),
       inputs: inputs
     }
   end

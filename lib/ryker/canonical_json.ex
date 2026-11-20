@@ -160,6 +160,9 @@ defmodule Ryker.CanonicalJSON do
     end
   end
 
+  @doc "The number of bytes in this value’s canonical JSON representation."
+  def encoded_size(value), do: value |> encode!() |> byte_size()
+
   @doc """
   Whether `value` encodes as canonical JSON within `max_bytes` when given:
   `:ok`, `{:error, {:too_large, bytes, max_bytes}}`, or `{:error, reason}`

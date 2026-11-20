@@ -26,7 +26,7 @@ defmodule Ryker.Ingress.Inbox.RoutingBatch do
         now
       )
       when is_binary(thread) and not is_nil(audience) do
-    bytes = encoded_bytes(content)
+    bytes = CanonicalJSON.encoded_size(content)
 
     if eligible?(content, bytes) do
       ref = input |> Entry.Query.last_for_routing_batch(mode) |> Repo.one()
@@ -67,7 +67,7 @@ defmodule Ryker.Ingress.Inbox.RoutingBatch do
 
   defp open?(entries, bytes, now) do
     length(entries) < @maximum_inputs and Enum.all?(entries, &unclaimed?(&1, now)) and
-      bytes + Enum.sum_by(entries, &encoded_bytes(&1.content)) <= @maximum_bytes
+      bytes + Enum.sum_by(entries, &CanonicalJSON.encoded_size(&1.content)) <= @maximum_bytes
   end
 
   defp unclaimed?(
@@ -77,6 +77,4 @@ defmodule Ryker.Ingress.Inbox.RoutingBatch do
        do: DateTime.after?(due, now)
 
   defp unclaimed?(_entry, _now), do: false
-
-  defp encoded_bytes(content), do: content |> CanonicalJSON.encode!() |> byte_size()
 end

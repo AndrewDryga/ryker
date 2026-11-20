@@ -276,6 +276,7 @@ defmodule Ryker.ControlPlane.EngagementCardTest do
 
     Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
       set: [
+        next_attempt_at: nil,
         decision_action: :reply,
         decision_document: decision,
         decision_fingerprint: CanonicalJSON.digest(decision),

@@ -1,15 +1,16 @@
 defmodule Ryker.CoopFleet.JobPreset do
   @moduledoc "The versioned lead and role instructions frozen into a worker job."
   alias Ryker.Maps
+  alias Ryker.Reference
   alias Ryker.Settings
 
   @name ~r/\A[a-z0-9][a-z0-9._-]{0,63}\z/
   @role_name ~r/\A[a-z][a-z0-9-]{0,63}\z/
   @target ~r/\A(?:codex|claude)(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?(?:\/(?:low|medium|high|xhigh))?@[a-z0-9][a-z0-9_-]{0,63}\z/
 
-  def name?(name), do: matches?(name, @name)
+  def name?(name), do: Reference.matches?(name, @name)
 
-  def role_name?(name), do: matches?(name, @role_name)
+  def role_name?(name), do: Reference.matches?(name, @role_name)
 
   def valid?(%{"preset" => preset, "targets" => leads, "repository_read_only" => read_only}) do
     Maps.exact_keys?(preset, ~w(version name lead_prompt roles)) and
@@ -53,8 +54,12 @@ defmodule Ryker.CoopFleet.JobPreset do
       end)
   end
 
-  defp targets?(values) when is_list(values) and length(values) in 1..4,
-    do: Enum.all?(values, &(is_binary(&1) and byte_size(&1) <= 256 and matches?(&1, @target)))
+  defp targets?(values) when is_list(values) and length(values) in 1..4 do
+    Enum.all?(
+      values,
+      &(is_binary(&1) and byte_size(&1) <= 256 and Reference.matches?(&1, @target))
+    )
+  end
 
   defp targets?(_values), do: false
 
@@ -63,5 +68,4 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   defp hints?(_values), do: false
   defp prompt?(text), do: is_binary(text) and byte_size(text) <= 32 * 1024 and String.valid?(text)
-  defp matches?(text, regex), do: is_binary(text) and Regex.match?(regex, text)
 end

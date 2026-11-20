@@ -28,7 +28,10 @@ defmodule Ryker.Reference do
   digits, `_`, `.`, `:` or `-`, as record, artifact and envelope refs are.
   """
   @spec token?(term()) :: boolean()
-  def token?(value), do: is_binary(value) and Regex.match?(@token, value)
+  def token?(value), do: matches?(value, @token)
+
+  @doc "Whether a binary reference matches the caller's required syntax."
+  def matches?(value, regex), do: is_binary(value) and Regex.match?(regex, value)
 
   @doc "The pattern `token?/1` matches, for a changeset's format check."
   @spec token_pattern() :: Regex.t()

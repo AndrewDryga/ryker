@@ -77,10 +77,11 @@ defmodule Ryker.Evals.LearningRunnerTest do
           sid,
           key,
           revision,
-          %{"contract_version" => "work-final-live-v4"} = submission,
+          %{"contract_version" => version} = submission,
           nil,
           []
-        ) do
+        )
+        when version in ["work-final-live-v4", "work-final-live-v5"] do
       # Existing explicitly synthetic host-contract fixture; this tests custody
       # and recall exposure, not whether its unrelated answer is factually good.
       fixture =
