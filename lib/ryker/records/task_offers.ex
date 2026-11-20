@@ -260,6 +260,35 @@ defmodule Ryker.Records.TaskOffers do
       Map.get(requested, "purpose", "implementation")
   end
 
+  @doc "Retire open proposals covered by an accepted, silent Slack settlement in its transaction."
+  def settle_in_transaction(
+        %Episodes.Episode{id: episode_id, destination_transport: "slack"} = episode,
+        %Work.Turn{episode_id: episode_id, candidate: raw, thread_receipt: %{}, status: :settled} =
+          turn
+      )
+      when is_binary(raw) do
+    with {:ok, %{"settled_inputs" => [_ | _]} = candidate} <- Jason.decode(raw),
+         {:ok, %Work.Final{delivery: :none, settled_inputs: inputs}} <-
+           Work.Final.parse(candidate) do
+      refs = Enum.map(inputs, & &1["source_event_id"])
+
+      {_count, dismissed} =
+        episode.id
+        |> Record.Query.unsettled_task_offers(turn.id, refs)
+        |> Record.Query.transition(:dismissed)
+        |> Repo.update_all([])
+
+      Enum.each(dismissed, fn record ->
+        Slack.TaskCards.check_offer_soon(record.id)
+        Records.broadcast_record_updated(record)
+      end)
+    end
+
+    :ok
+  end
+
+  def settle_in_transaction(_episode, _turn), do: :ok
+
   @spec confirm(keyword() | map()) :: {:ok, confirmation()} | {:error, term()}
   def confirm(attributes) do
     with {:ok, attributes} <- attributes(attributes),
@@ -276,7 +305,8 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp confirm_locked(attributes) do
-    with {:ok, record, source_episode, source_turn} <- fetch_and_lock_offer(attributes.record_ref),
+    with :ok <- Episodes.ConversationLock.lock(attributes.target),
+         {:ok, record, source_episode, source_turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <- check_delivery(record, source_episode, source_turn, attributes.target) do
       case record.status do
         :confirmed ->

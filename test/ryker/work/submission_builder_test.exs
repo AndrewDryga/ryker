@@ -463,6 +463,61 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         ]
       }
 
+      if name == "ambient setup" do
+        # A proposal can already exist when the human takes over but no card was posted yet.
+        assert {:ok, proposal} =
+                 Ryker.Records.create(
+                   Ryker.Records.token(turn),
+                   "setup-offer",
+                   "task_offer",
+                   Ryker.Fixtures.TaskOffer.payload(%{
+                     "instruction_ref" => item["source_event_id"]
+                   })
+                 )
+
+        raw = Jason.encode!(final)
+        assert {:accept, %{result: result}} = Ryker.Work.Validator.validate(raw, context, @now)
+        sha = Ryker.Crypto.sha256_hex(raw)
+
+        assert {:ok, _} =
+                 Custody.stage_candidate(
+                   claim.episode.id,
+                   turn.turn_ref,
+                   claim.lease_ref,
+                   nil,
+                   nil,
+                   raw,
+                   sha,
+                   1
+                 )
+
+        assert {:ok, _} =
+                 Custody.prepare_validation(
+                   claim.episode.id,
+                   turn.turn_ref,
+                   claim.lease_ref,
+                   sha,
+                   1,
+                   :accept,
+                   result
+                 )
+
+        assert {:ok, accepted} =
+                 Custody.accept_result(
+                   claim.episode.id,
+                   claim.episode.key,
+                   turn.turn_ref,
+                   claim.lease_ref,
+                   sha,
+                   1,
+                   "validation:setup-handoff"
+                 )
+
+        assert accepted.turn.status == :settled
+        assert Repo.get!(Ryker.Records.Record, proposal.id).status == :dismissed
+        assert Ryker.Slack.TaskCards.ensure_one() == {:ok, nil}
+      end
+
       assert {^expected, _} = Ryker.Work.Validator.validate(Jason.encode!(final), context, @now)
 
       assert {:reject, _} =

@@ -17,7 +17,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Records
-  alias Ryker.Slack.{TaskCard, TaskCardProjection, TaskCards}
+  alias Ryker.Slack.{Publisher, TaskCard, TaskCardProjection, TaskCards}
   require Logger
 
   @default_interval_ms 1_000
@@ -72,7 +72,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   end
 
   @spec run_once(map() | keyword()) ::
-          {:ok, :idle | {:blocked | :created | :deferred | :updated, String.t()}}
+          {:ok, :idle | {:blocked | :created | :deferred | :retired | :updated, String.t()}}
           | {:error, term()}
   def run_once(options) do
     options = options!(options)
@@ -126,10 +126,12 @@ defmodule Ryker.Slack.TaskCardWorker do
              card.lease_ref,
              projection.fingerprint,
              projection.ui_revision,
-             message_ref
+             message_ref,
+             Map.has_key?(projection.document, "task_offer")
            ) do
       {:ok, {:updated, marked.ref}}
     else
+      {:retired, ref} -> {:ok, {:retired, ref}}
       {:error, reason} -> settle(card, reason, options)
     end
   end
@@ -230,13 +232,19 @@ defmodule Ryker.Slack.TaskCardWorker do
              do: {:ok, message_ref}
 
       :not_found ->
-        options.api.post_message(
-          options.client,
-          card.channel_ref,
-          card.thread_ref,
-          projection.document,
-          TaskCard.delivery_ref(card)
-        )
+        case TaskCards.before_first_post(card.id, card.lease_ref) do
+          {:ok, :post} ->
+            post_reserved(card, projection, options)
+
+          {:ok, :await_receipt} ->
+            {:error, :slack_task_card_awaiting_receipt}
+
+          {:ok, %TaskCard{status: :retired} = retired} ->
+            {:retired, retired.ref}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -253,6 +261,29 @@ defmodule Ryker.Slack.TaskCardWorker do
              TaskCard.delivery_ref(card)
            ),
          do: {:ok, card.message_ref}
+  end
+
+  defp post_reserved(card, projection, options) do
+    result =
+      options.api.post_message(
+        options.client,
+        card.channel_ref,
+        card.thread_ref,
+        projection.document,
+        TaskCard.delivery_ref(card)
+      )
+
+    case Publisher.classify_write_result(result) do
+      {:error, {:delivery_uncertain, reason}} ->
+        {:error, {:delivery_uncertain, reason}}
+
+      {:error, reason} ->
+        with {:ok, _card} <- TaskCards.release_refused_first_post(card.id, card.lease_ref),
+             do: {:error, reason}
+
+      accepted ->
+        accepted
+    end
   end
 
   defp defer(card, reason, options) do

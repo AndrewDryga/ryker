@@ -212,7 +212,7 @@ defmodule Ryker.Slack.Publisher do
       request.ref,
       files
     )
-    |> settle()
+    |> classify_write_result()
   end
 
   defp prepare_files(request) do
@@ -346,7 +346,7 @@ defmodule Ryker.Slack.Publisher do
   defp post_message(api, client, request, target) do
     client
     |> api.post_message(target.channel_ref, target.thread_ref, request.document, request.ref)
-    |> settle()
+    |> classify_write_result()
   end
 
   # Slack answering is definite: an API error or a 4xx means nothing was
@@ -354,27 +354,29 @@ defmodule Ryker.Slack.Publisher do
   # a call Slack did not answer (a lost socket, an unreadable reply, a 5xx) may
   # have landed, and only the metadata walk on the next attempt can say. An
   # upload Slack completed has landed, and the next attempt waits for its share.
-  defp settle({:ok, message_ref}), do: {:ok, message_ref}
+  @doc "Classify a Slack write response by whether it could already have reached Slack."
+  def classify_write_result({:ok, message_ref}), do: {:ok, message_ref}
 
-  defp settle({:error, {:slack_file_share_pending, [_ | _] = upload_refs}}),
+  def classify_write_result({:error, {:slack_file_share_pending, [_ | _] = upload_refs}}),
     do: {:error, {:delivery_share_pending, upload_refs}}
 
-  defp settle({:error, {:delivery_rate_limited, delay, error}}),
+  def classify_write_result({:error, {:delivery_rate_limited, delay, error}}),
     do: {:error, {:delivery_rate_limited, delay, error}}
 
-  defp settle({:error, {:slack_api_error, error}}), do: {:error, {:slack_api_error, error}}
+  def classify_write_result({:error, {:slack_api_error, error}}),
+    do: {:error, {:slack_api_error, error}}
 
-  defp settle({:error, {:invalid_slack_api_request, field}}),
+  def classify_write_result({:error, {:invalid_slack_api_request, field}}),
     do: {:error, {:invalid_slack_api_request, field}}
 
-  defp settle({:error, {:slack_upload_unavailable, reason}}),
+  def classify_write_result({:error, {:slack_upload_unavailable, reason}}),
     do: {:error, {:slack_upload_unavailable, reason}}
 
-  defp settle({:error, {:slack_http_error, status, error}})
-       when is_integer(status) and status < 500,
-       do: {:error, {:slack_http_error, status, error}}
+  def classify_write_result({:error, {:slack_http_error, status, error}})
+      when is_integer(status) and status < 500,
+      do: {:error, {:slack_http_error, status, error}}
 
-  defp settle({:error, reason}), do: {:error, {:delivery_uncertain, reason}}
+  def classify_write_result({:error, reason}), do: {:error, {:delivery_uncertain, reason}}
 
   defp client(%{workspaces: workspaces}, workspace_ref) when is_map(workspaces) do
     with {:ok, %{api: api, client: client}} <- Map.fetch(workspaces, workspace_ref),

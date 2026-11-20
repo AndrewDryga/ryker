@@ -649,8 +649,8 @@ defmodule Ryker.IntegrationSetupTest do
   test "a failed later GitHub page cannot replace verified permissions with a partial list" do
     connect_github!()
 
-    assert {:error, {:github_verification_failed, :repositories}} =
-             IntegrationSetup.github_repositories(requester: InterruptedRepositoriesRequester)
+    assert IntegrationSetup.github_repositories(requester: InterruptedRepositoriesRequester) ==
+             {:error, {:github_verification_failed, :repositories}}
   end
 
   # Every repository tenant added joined its default environment, so each task there fetched all

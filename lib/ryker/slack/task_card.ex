@@ -10,11 +10,12 @@ defmodule Ryker.Slack.TaskCard do
     field(:channel_ref, :string)
     field(:thread_ref, :string)
     field(:message_ref, :string)
+    field(:first_write_started_at, :utc_datetime_usec)
     field(:card_fingerprint, :string)
     field(:card_ui_revision, :integer, default: 0)
     field(:card_checked_at, :utc_datetime_usec)
     # A blocked card is never claimed again until a person rearms it.
-    field(:status, Ecto.Enum, values: [:active, :blocked], default: :active)
+    field(:status, Ecto.Enum, values: [:active, :blocked, :retired], default: :active)
     field(:attempt_count, :integer, default: 0)
     field(:next_attempt_at, :utc_datetime_usec)
     field(:lease_owner, :string)
@@ -39,10 +40,11 @@ defmodule Ryker.Slack.TaskCard do
           channel_ref: String.t() | nil,
           thread_ref: String.t() | nil,
           message_ref: String.t() | nil,
+          first_write_started_at: DateTime.t() | nil,
           card_fingerprint: String.t() | nil,
           card_ui_revision: non_neg_integer(),
           card_checked_at: DateTime.t() | nil,
-          status: :active | :blocked,
+          status: :active | :blocked | :retired,
           attempt_count: non_neg_integer(),
           next_attempt_at: DateTime.t() | nil,
           lease_owner: String.t() | nil,

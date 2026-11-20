@@ -92,6 +92,59 @@ defmodule Ryker.Records.TaskOffersTest do
     assert Repo.aggregate(Session, :count, :id) == 2
   end
 
+  # A cached Start button may still be visible after another person takes the work.
+  # Retire the instruction they actually settled and preserve every sibling and earlier start.
+  test "an accepted withdrawal retires only the named open offer and makes its old button stale" do
+    first = Ecto.UUID.generate()
+    sibling = Ecto.UUID.generate()
+
+    fixture =
+      delivered_offers!("withdraw", [
+        Map.put(default_task_offer(), "instruction_ref", first),
+        Map.put(default_task_offer(), "instruction_ref", sibling)
+      ])
+
+    [old, other] = fixture.records
+    retired = Map.put(fixture, :record, old)
+    remaining = Map.put(fixture, :record, other)
+
+    settled = fn ref ->
+      raw =
+        Jason.encode!(%{
+          "delivery" => "none",
+          "message" => nil,
+          "decision_reason" => "The requester withdrew this change.",
+          "outcome" => %{"state" => "complete", "artifact_refs" => [], "record_refs" => []},
+          "settled_inputs" => [%{"source_event_id" => ref, "update_id" => Ecto.UUID.generate()}]
+        })
+
+      Repo.transaction(fn ->
+        TaskOffers.settle_in_transaction(fixture.episode, %Ryker.Work.Turn{
+          episode_id: fixture.episode.id,
+          id: Ecto.UUID.generate(),
+          candidate: raw,
+          thread_receipt: %{},
+          status: :settled
+        })
+      end)
+    end
+
+    assert settled.(first) == {:ok, :ok}
+    assert settled.(first) == {:ok, :ok}
+    assert Repo.get!(Record, old.id).status == :dismissed
+    assert Repo.get!(Record, other.id).status == :open
+    assert TaskOffers.confirm(confirmation(retired)) == {:error, :task_offer_stale}
+    card = Repo.get_by!(TaskCard, record_id: old.id)
+
+    assert {:ok, %{document: %{"message" => "This task offer is no longer available."}}} =
+             Ryker.Slack.TaskCardProjection.build(card)
+
+    assert {:ok, started} = TaskOffers.confirm(confirmation(remaining))
+    assert settled.(sibling) == {:ok, :ok}
+    assert {:ok, replay} = TaskOffers.confirm(confirmation(remaining))
+    assert replay.episode.id == started.episode.id
+  end
+
   test "a confirmed offer carries the worker's selector into the new linked session" do
     branch = %{"kind" => "branch", "name" => "feature/payments"}
 

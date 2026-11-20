@@ -1110,6 +1110,7 @@ defmodule Ryker.Work.Custody.Turns do
            ),
          {:ok, turn} <-
            persist_update(Turn.Changeset.accept_result(turn, attributes), :work_result),
+         :ok <- Records.TaskOffers.settle_in_transaction(episode, turn),
          :ok <-
            Publication.Custody.ensure_task_review_in_transaction(
              transition.episode,

@@ -8,6 +8,18 @@ defmodule Ryker.Records.Record.Query do
 
   def all, do: from(records in Record, as: :episode_state_records)
 
+  @doc "Open proposals belonging to a settled draft or to one of its exact withdrawn instructions."
+  def unsettled_task_offers(episode_id, turn_id, instructions) do
+    from(record in all(),
+      where:
+        record.episode_id == ^episode_id and record.kind == "task_offer" and
+          record.status == :open,
+      where:
+        record.turn_id == ^turn_id or
+          fragment("?::jsonb->>'instruction_ref'", record.payload) in ^instructions
+    )
+  end
+
   @doc "The confirmed task started by this exact admitted input."
   def for_source_entry(entry) do
     from(r in Record,
@@ -255,6 +267,9 @@ defmodule Ryker.Records.Record.Query do
 
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_state_records: r], r.episode_id == ^episode_id)
+
+  def by_status(queryable, status),
+    do: where(queryable, [episode_state_records: r], r.status == ^status)
 
   def open(queryable \\ all()),
     do: where(queryable, [episode_state_records: r], r.status == :open)

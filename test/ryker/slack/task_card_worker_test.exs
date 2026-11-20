@@ -17,12 +17,150 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
   @conversation "slack:T123:C456"
 
   defmodule API do
-    def update_message(agent, _channel, _message_ref, _document, _ref) do
+    def find_message(agent, _channel, _thread, _ref), do: Agent.get(agent, & &1.found)
+
+    def post_message(agent, _channel, _thread, _document, _ref) do
       Agent.get_and_update(agent, fn state ->
-        {state.result, Map.update!(state, :updates, &(&1 + 1))}
+        {Map.get(state, :post_result, {:ok, "1787832001.000444"}),
+         Map.update!(state, :posts, &(&1 + 1))}
+      end)
+    end
+
+    def update_message(agent, _channel, _message_ref, document, _ref) do
+      Agent.get_and_update(agent, fn state ->
+        {state.result,
+         state |> Map.update!(:updates, &(&1 + 1)) |> Map.put(:updated_document, document)}
       end)
     end
   end
+
+  # A handoff can settle the parent after repair created local card custody.
+  # Sending even a neutral replacement would still interrupt the conversation.
+  for {label, found, updates} <- [
+        {"never posted", :not_found, 0},
+        {"accepted by Slack before a lost receipt", {:ok, "1787832001.000333"}, 1}
+      ] do
+    @retired_card_case {found, updates}
+    test "a withdrawn offer #{label} posts no new message" do
+      {found, expected_updates} = @retired_card_case
+      producer = claim!("withdrawn-source")
+
+      {:ok, offer} =
+        Records.create(
+          Records.token(producer.turn),
+          "withdrawn",
+          "task_offer",
+          TaskOffer.payload(%{})
+        )
+
+      offer |> Ecto.Changeset.change(status: :dismissed) |> Repo.update!()
+
+      card =
+        Repo.insert!(%TaskCard{
+          record_id: offer.id,
+          ref: "task-card:#{offer.id}",
+          workspace_ref: "T123",
+          channel_ref: "C456",
+          thread_ref: "1787832000.000100"
+        })
+
+      client =
+        start_supervised!({Agent, fn -> %{result: :ok, found: found, posts: 0, updates: 0} end})
+
+      assert {:ok, _} = TaskCardWorker.run_once(options(client))
+      assert %{posts: 0, updates: ^expected_updates} = Agent.get(client, & &1)
+      saved = Repo.get!(TaskCard, card.id)
+
+      assert_reconciled_card(saved, found)
+    end
+  end
+
+  # Slack can accept the first write before its receipt or history entry reaches Ryker.
+  test "a withdrawn offer stays eligible to remove the Start button after a delayed receipt" do
+    {offer, card} = unposted_offer!()
+
+    client =
+      start_supervised!(
+        {Agent,
+         fn ->
+           %{
+             result: :ok,
+             found: :not_found,
+             posts: 0,
+             updates: 0,
+             post_result: {:error, {:slack_transport_error, :timeout}}
+           }
+         end}
+      )
+
+    assert {:ok, {:deferred, _}} = TaskCardWorker.run_once(options(client))
+    offer |> Ecto.Changeset.change(status: :dismissed) |> Repo.update!()
+    make_due!(card.id)
+    assert {:ok, {:deferred, _}} = TaskCardWorker.run_once(options(client))
+    Agent.update(client, &%{&1 | found: {:ok, "1787832001.000333"}})
+    make_due!(card.id)
+    assert {:ok, {:updated, _}} = TaskCardWorker.run_once(options(client))
+    assert Repo.get!(TaskCard, card.id).message_ref == "1787832001.000333"
+    assert %{posts: 1, updates: 1, updated_document: document} = Agent.get(client, & &1)
+    refute Map.has_key?(document, "task_offer")
+  end
+
+  test "a first post Slack explicitly rate-limited can be retried after the stated wait" do
+    {_offer, card} = unposted_offer!()
+
+    client =
+      start_supervised!(
+        {Agent,
+         fn ->
+           %{
+             result: :ok,
+             found: :not_found,
+             posts: 0,
+             updates: 0,
+             post_result:
+               {:error, {:delivery_rate_limited, 30, {:slack_http_error, 429, "ratelimited"}}}
+           }
+         end}
+      )
+
+    assert {:ok, {:deferred, _}} = TaskCardWorker.run_once(options(client))
+    refute Repo.get!(TaskCard, card.id).first_write_started_at
+    Agent.update(client, &Map.delete(&1, :post_result))
+    make_due!(card.id)
+    assert {:ok, {:updated, _}} = TaskCardWorker.run_once(options(client))
+    assert Repo.get!(TaskCard, card.id).message_ref == "1787832001.000444"
+    assert %{posts: 2, updates: 0} = Agent.get(client, & &1)
+  end
+
+  defp unposted_offer! do
+    producer = claim!("delayed")
+
+    {:ok, offer} =
+      Records.create(
+        Records.token(producer.turn),
+        "delayed",
+        "task_offer",
+        TaskOffer.payload(%{})
+      )
+
+    card =
+      Repo.insert!(%TaskCard{
+        record_id: offer.id,
+        ref: "task-card:#{offer.id}",
+        workspace_ref: "T123",
+        channel_ref: "C456",
+        thread_ref: "1787832000.000100"
+      })
+
+    {offer, card}
+  end
+
+  defp assert_reconciled_card(saved, :not_found) do
+    assert saved.status == :retired
+    refute saved.message_ref
+  end
+
+  defp assert_reconciled_card(saved, {:ok, ref}), do: assert(saved.message_ref == ref)
 
   # A card whose message was deleted, or whose channel was archived, was
   # claimed again every hour for as long as its task existed, edited a message

@@ -251,9 +251,51 @@ defmodule Ryker.Slack.TaskCards do
     )
   end
 
+  @doc "After reconciliation found no Slack message, retire a withdrawn card before its first post."
+  def before_first_post(card_id, lease_ref) do
+    mutate_claim(card_id, lease_ref, fn card, now ->
+      cond do
+        card.first_write_started_at ->
+          :await_receipt
+
+        Repo.exists?(
+          Records.Record.Query.by_id(card.record_id)
+          |> Records.Record.Query.by_status(:dismissed)
+        ) ->
+          update!(
+            card,
+            %{
+              status: :retired,
+              card_checked_at: now,
+              next_attempt_at: nil,
+              lease_ref: nil,
+              lease_owner: nil,
+              lease_expires_at: nil,
+              last_error_code: nil,
+              last_error_detail: nil
+            },
+            now
+          )
+
+        true ->
+          update!(card, %{first_write_started_at: now}, now, :quiet)
+          :post
+      end
+    end)
+  end
+
+  @doc "Release the reservation when Slack explicitly refused the post."
+  def release_refused_first_post(card_id, lease_ref) do
+    mutate_claim(card_id, lease_ref, fn card, now ->
+      update!(card, %{first_write_started_at: nil}, now, :quiet)
+    end)
+  end
+
   @spec mark(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), pos_integer(), String.t()) ::
           {:ok, TaskCard.t()} | {:error, term()}
-  def mark(card_id, lease_ref, fingerprint, ui_revision, message_ref) do
+  @spec mark(Ecto.UUID.t(), Ecto.UUID.t(), String.t(), pos_integer(), String.t(), boolean()) ::
+          {:ok, TaskCard.t()} | {:error, term()}
+  def mark(card_id, lease_ref, fingerprint, ui_revision, message_ref, offered? \\ false) do
     with {:ok, card_id} <- uuid(card_id, :card_id),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
          :ok <- reference(message_ref, :message_ref),
@@ -262,14 +304,23 @@ defmodule Ryker.Slack.TaskCards do
       mutate_claim(card_id, lease_ref, fn card, now ->
         # The attempts count consecutive failures: a card refreshed a hundred
         # times must not wait an hour after its first transient one.
+        # If retirement raced the Slack write, check the same message again immediately.
+        stale_button? =
+          offered? and
+            not Repo.exists?(
+              Records.Record.Query.by_id(card.record_id)
+              |> Records.Record.Query.open()
+            )
+
         update!(
           card,
           %{
             attempt_count: 0,
-            card_checked_at: now,
+            card_checked_at: if(stale_button?, do: nil, else: now),
             card_fingerprint: fingerprint,
             card_ui_revision: ui_revision,
             message_ref: message_ref,
+            first_write_started_at: nil,
             last_error_code: nil,
             last_error_detail: nil,
             lease_expires_at: nil,

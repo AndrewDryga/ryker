@@ -11,6 +11,7 @@ defmodule Ryker.Slack.TaskCard.Changeset do
     :card_ui_revision,
     :channel_ref,
     :episode_id,
+    :first_write_started_at,
     :id,
     :last_error_code,
     :last_error_detail,
@@ -29,6 +30,7 @@ defmodule Ryker.Slack.TaskCard.Changeset do
   @insert_required @fields --
                      [
                        :episode_id,
+                       :first_write_started_at,
                        :message_ref,
                        :thread_ref,
                        :card_checked_at,
