@@ -109,7 +109,10 @@ defmodule Ryker.ControlPlane.IssuePlans do
       action_path,
       "\">Refresh status</a> · Progress is also posted in the GitHub issue linked above.</p>",
       triage(view.progress),
-      plan(view.plan, conn, action_path, snapshot, view.workflow.id),
+      if(view.plan || is_nil(view.implementation),
+        do: plan(view.plan, conn, action_path, snapshot, view.workflow.id),
+        else: ""
+      ),
       "<form class=\"github-plan-actions\" method=\"post\" action=\"",
       action_path,
       "\">",
@@ -214,10 +217,10 @@ defmodule Ryker.ControlPlane.IssuePlans do
     "<p>Work is already in progress. Follow its status above before starting another action.</p>"
   end
 
-  defp controls(nil, _progress, _implementation),
+  defp controls(nil, progress, implementation),
     do: [
       "<button class=\"ui-button primary\" type=\"submit\" name=\"action\" value=\"make_plan\">Make a plan</button> ",
-      "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"build_issue\">Build this</button> ",
+      direct_build_action(implementation, progress),
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"triage_issue\">Triage this issue</button>"
     ]
 
@@ -227,6 +230,22 @@ defmodule Ryker.ControlPlane.IssuePlans do
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"make_plan\">Make a new plan</button> ",
       "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"triage_issue\">Triage this issue</button>"
     ]
+
+  defp direct_build_action(nil, _progress) do
+    "<button class=\"ui-button secondary\" type=\"submit\" name=\"action\" value=\"build_issue\">Build this</button> "
+  end
+
+  defp direct_build_action(%{"url" => url}, %{"url" => url}), do: ""
+
+  defp direct_build_action(%{"url" => url}, _progress),
+    do: [
+      "<a class=\"ui-button secondary\" href=\"",
+      PublicPage.escape(url),
+      "\">View pull request for this build</a> "
+    ]
+
+  defp direct_build_action(_implementation, _progress),
+    do: "<p>This issue already has an approved build.</p>"
 
   defp implementation_action(plan, nil),
     do: [

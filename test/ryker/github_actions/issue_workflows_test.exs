@@ -296,7 +296,13 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
        %{access: access, issue: issue} do
     page = IssueWorkflows.view(access, issue)
     {:ok, %{request: first}} = IssueWorkflows.start(access, issue, :build_issue, page.expected)
-    outcome = %{"status" => "published", "terminal" => true}
+
+    outcome = %{
+      "status" => "published",
+      "terminal" => true,
+      "url" => "https://github.com/acme/widget/pull/9"
+    }
+
     Repo.update!(IssueRequest.Changeset.finish(first, outcome, Repo.now!()))
 
     newer = %{issue | "updated_at" => "2026-11-19T20:00:00Z"}
@@ -311,7 +317,42 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
 
     assert same.id == first.id
 
+    # Later triage became the current request and the action page offered Build again,
+    # although the approved issue and its published pull request were unchanged.
+    assert {:ok, %{request: triage}} =
+             IssueWorkflows.start(
+               access,
+               newer,
+               :triage_issue,
+               IssueWorkflows.view(access, newer).expected
+             )
+
+    Repo.update!(
+      IssueRequest.Changeset.finish(
+        triage,
+        %{"status" => "triage_ready", "terminal" => true},
+        Repo.now!()
+      )
+    )
+
+    assert IssueWorkflows.view(access, newer).implementation == outcome
+
+    conn =
+      Plug.Test.conn(:get, "/github/actions/issue/widget-app/12", %{})
+      |> Map.put(:secret_key_base, String.duplicate("s", 64))
+      |> Map.put(:path_params, %{"binding" => "widget-app", "number" => "12"})
+
+    page = Ryker.ControlPlane.IssuePlans.call(conn, :issue, "writer-token", requester: Requester)
+    document = LazyHTML.from_document(page.resp_body)
+
+    assert LazyHTML.query(document, ~s(a[href="https://github.com/acme/widget/pull/9"]))
+           |> Enum.count() == 1
+
+    assert Enum.empty?(LazyHTML.query(document, ~s(button[value="build_issue"])))
+
     changed = %{newer | "body" => "Also handle an empty filter."}
+
+    assert IssueWorkflows.view(access, changed).implementation == nil
 
     assert {:ok, %{status: :recorded, request: other}} =
              IssueWorkflows.start(

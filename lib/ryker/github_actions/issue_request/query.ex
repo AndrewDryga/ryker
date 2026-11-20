@@ -18,7 +18,11 @@ defmodule Ryker.GitHubActions.IssueRequest.Query do
     plan_implementation(query, id)
   end
 
-  def approved_work(query, :build_issue, _expected, issue, _key) do
+  def approved_work(query, :build_issue, _expected, issue, _key), do: direct_build(query, issue)
+
+  def approved_work(query, _kind, _expected, _issue, key), do: by_request_key(query, key)
+
+  def direct_build(query, issue) do
     report = Map.take(issue, ~w(id number title body url))
 
     query
@@ -29,8 +33,6 @@ defmodule Ryker.GitHubActions.IssueRequest.Query do
     )
     |> oldest()
   end
-
-  def approved_work(query, _kind, _expected, _issue, key), do: by_request_key(query, key)
 
   def plan_implementation(query, id) do
     query
