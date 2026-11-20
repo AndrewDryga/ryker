@@ -231,15 +231,30 @@ defmodule Ryker.ControlPlane.Pages do
   # heading; the lists keep the page's.
   def page(["memory", "learned"], params, options) do
     params = Map.take(params, LearnedPage.query_keys())
-    view = options.projection.learned.(params)
+
+    checking? =
+      Map.get(options, :check_summary_history_async, false) and
+        params["kind"] == "context" and is_nil(params["item"])
+
+    request = if checking?, do: Map.put(params, :checking_summary_history, true), else: params
+    view = options.projection.learned.(request)
 
     body =
       LearnedPage.html(view, Map.get(options, :csrf_secret), Map.get(options, :relearn_error))
 
     case LearnedPage.heading(view) do
-      nil -> ok("Learned", ConfigurationGuide.description(:learned), body)
-      :not_found -> not_found("Topic")
-      heading -> sub_page(heading, body)
+      nil ->
+        page = ok("Learned", ConfigurationGuide.description(:learned), body)
+
+        if checking? and Enum.any?(view.items, &(&1[:recall_warning] == :checking)),
+          do: Map.put(page, :summary_directory, view),
+          else: page
+
+      :not_found ->
+        not_found("Topic")
+
+      heading ->
+        sub_page(heading, body)
     end
   end
 

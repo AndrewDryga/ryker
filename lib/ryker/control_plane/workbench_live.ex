@@ -20,10 +20,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ConsoleAccess
   alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
   alias Ryker.ControlPlane.{ChannelPage, Components, ConfigurationGuide, ConsolePeople}
-  alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Environments}
+  alias Ryker.ControlPlane.{ConversationLab, ConversationMemory, ConversationProjection}
+  alias Ryker.ControlPlane.{Endpoint, Environments}
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, IntegrationErrors, Integrations, Kit}
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
-  alias Ryker.ControlPlane.{LabControls, LabPage, LearningActivity, Navigation, PageCost}
+  alias Ryker.ControlPlane.{LabControls, LabPage, LearnedPage, LearningActivity}
+  alias Ryker.ControlPlane.{Navigation, PageCost}
   alias Ryker.ControlPlane.{PageHelp, PageRead, Pages}
   alias Ryker.ControlPlane.{PathRef, Paths, RelearnForm, RelearnPanel, RepositoriesPage}
   alias Ryker.ControlPlane.{RepositoryChoices, RequestFilters, Router}
@@ -159,6 +161,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        relearn_error: nil,
        fleet: nil,
        activity: nil,
+       summary_directory: nil,
        filter_menu: nil,
        filter_search: %{},
        filter_values: [],
@@ -198,6 +201,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        location:
          if(location.query, do: location.path <> "?" <> location.query, else: location.path),
        params: text_params(params),
+       summary_directory: nil,
        filter_menu: nil,
        disclosed: navigation_disclosures(socket, location.path),
        native: :loading,
@@ -514,6 +518,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        slack_people: nil,
        setup_failure: "Ryker could not list the people in Slack. Choose people to try again."
      )}
+  end
+
+  def handle_async(:summary_history, _result, %{assigns: %{summary_directory: nil}} = socket),
+    do: {:noreply, socket}
+
+  def handle_async(:summary_history, result, socket) do
+    view = socket.assigns.summary_directory
+
+    warnings =
+      case result do
+        {:ok, warnings} -> warnings
+        {:exit, _reason} -> %{}
+      end
+
+    items =
+      Enum.map(view.items, fn item ->
+        %{item | recall_warning: Map.get(warnings, {item.id, item.changed_at}, :unavailable)}
+      end)
+
+    body = %{view | items: items} |> LearnedPage.html(nil) |> IO.iodata_to_binary()
+    {:noreply, assign(socket, body: body, summary_directory: nil)}
   end
 
   def handle_async(:github_repositories, {:ok, {:ok, repositories}}, socket) do
@@ -2464,7 +2489,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # replacing it with an error page that would read as the record's state.
   defp load_snapshot(socket, options) do
     segments = String.split(socket.assigns.path, "/", trim: true)
-    page = Pages.page(segments, socket.assigns.params, options)
+
+    page =
+      Pages.page(
+        segments,
+        socket.assigns.params,
+        Map.put(options, :check_summary_history_async, true)
+      )
+
     if page.status >= 500, do: throw({:projection_unavailable, :secondary})
 
     assign(socket,
@@ -2481,6 +2513,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       settings: header_settings(socket.assigns.path, options),
       settings_commands: settings_commands(options, socket.assigns.viewer)
     )
+    |> check_summary_directory(page[:summary_directory])
+  end
+
+  defp check_summary_directory(socket, nil), do: socket
+
+  defp check_summary_directory(socket, view) do
+    ids = Enum.map(view.items, & &1.id)
+
+    socket
+    |> cancel_async(:summary_history)
+    |> assign(:summary_directory, view)
+    |> start_async(:summary_history, fn -> ConversationMemory.summary_warnings(ids) end)
   end
 
   # A secondary page shows settings only in these headers: Slack's line on

@@ -1,12 +1,17 @@
 defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   use Ryker.DataCase, async: false
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   alias Ryker.CanonicalJSON
   alias Ryker.Config
   alias Ryker.Continuity.ConversationSummary
-  alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
+  alias Ryker.ControlPlane.{Actions, ConversationMemory, Endpoint, LearnedPage, Projection}
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Learning.LearningSources
   alias Ryker.Repo
+
+  @endpoint Endpoint
 
   setup do
     Config.put_override(:retention, %{conversation_memory_seconds: 3_600})
@@ -72,6 +77,57 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
     assert item.expires_at != nil
     assert item.recall_warning == nil
     assert Enum.count(statements, &String.contains?(&1.sql, "ryker_learning_roots(")) == 1
+  end
+
+  test "a summary directory is searchable before source history has finished checking" do
+    # Thirty retained histories made the page wait twelve seconds before its search could be used.
+    {:ok, %{episode: episode}} = Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
+    {_entry, %{"source_ref" => "knowledge:" <> id}} = Ryker.Fixtures.Knowledge.learn!(episode)
+    topic = Repo.get!(Ryker.Knowledge.ConversationKnowledge, id)
+
+    summary =
+      summary!([LearningSources.knowledge_reference(id, topic.source_generation, topic.version)])
+
+    {view, statements} =
+      Ryker.QueryWork.statements(fn ->
+        ConversationMemory.project(%{"kind" => "context", :checking_summary_history => true})
+      end)
+
+    assert [%{id: selected, recall_warning: :checking}] = view.items
+    assert selected == summary.id
+    refute Enum.any?(statements, &String.contains?(&1.sql, "ryker_learning_roots("))
+    html = view |> LearnedPage.html(nil) |> IO.iodata_to_binary()
+    assert html =~ "Checking source history"
+    assert html =~ ~s(name="q")
+    assert [%{recall_warning: nil}] = ConversationMemory.project(%{"kind" => "context"}).items
+  end
+
+  test "the connected directory marks unsourced summaries after its first render" do
+    summary = summary!([])
+
+    start_supervised!(
+      {Endpoint,
+       server: false,
+       secret_key_base: String.duplicate("s", 64),
+       pubsub_server: Ryker.PubSub.Server,
+       live_view: [signing_salt: "summary-directory"],
+       url: [host: "localhost", port: 4321],
+       control_plane: %{
+         projection: Projection.callbacks(),
+         actions: Actions.callbacks(),
+         observability: %{},
+         csrf_secret: String.duplicate("f", 32)
+       }}
+    )
+
+    conn = signed_in_conn() |> Map.put(:host, "localhost") |> get("/memory/learned?kind=context")
+    assert html_response(conn, 200) =~ "Checking source history"
+    {:ok, view, _} = live(conn)
+    render_async(view)
+    assert has_element?(view, "#summary-#{summary.id} .state-word", "Not used")
+    refute has_element?(view, "main [role=status]", "Checking source history")
+    render_patch(view, "/memory/learned?kind=context&q=nonexistent")
+    refute has_element?(view, "#summary-#{summary.id}")
   end
 
   test "the conversation summaries directory does not resolve detail-only message times" do

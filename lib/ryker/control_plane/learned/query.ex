@@ -17,6 +17,31 @@ defmodule Ryker.ControlPlane.Learned.Query do
   def items("knowledge"), do: from(item in Knowledge.ConversationKnowledge)
   def items("context"), do: from(summary in Continuity.ConversationSummary)
 
+  @doc "Fields shown on a directory row, before its source history is checked."
+  def summary_directory(query) do
+    from(s in query,
+      select:
+        struct(s, [
+          :id,
+          :state,
+          :updated_at,
+          :transport,
+          :conversation_ref,
+          :repository_ref,
+          :source_episode_id,
+          :compaction_error_code,
+          :compaction_retry_at
+        ])
+    )
+  end
+
+  def summary_histories(ids) do
+    from(s in Continuity.ConversationSummary,
+      where: s.id in ^ids,
+      select: {s.id, s.updated_at, s.source_dependencies}
+    )
+  end
+
   @doc "The source notes of `observation_ids` that still say something."
   def notes(observation_ids) do
     from(source in Learning.ConversationObservation,

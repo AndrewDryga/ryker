@@ -139,6 +139,12 @@ defmodule Ryker.ControlPlane.LearnedPage do
   defp summaries(assigns) do
     ~H"""
     <.tools view={@view} />
+    <p :if={Enum.any?(@view.items, &(&1[:recall_warning] == :checking))} role="status">
+      Checking source history…
+    </p>
+    <p :if={Enum.any?(@view.items, &(&1[:recall_warning] == :unavailable))} role="status">
+      Source history could not be checked. Open a summary to inspect its sources.
+    </p>
     <Kit.entity_list
       :if={@view.items != []}
       class="memory-excerpts"

@@ -103,7 +103,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     kind = selected_kind(params["kind"], source_parent)
     search = Search.term(params["q"]) || ""
     selected = selected_id(params["item"])
-    query = listed(kind, source_parent, search, selected)
+
+    checking? = Map.get(params, :checking_summary_history, false)
+    query = listed(kind, source_parent, search, selected, checking?)
 
     page_options =
       case {kind, search, selected} do
@@ -148,6 +150,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         Enum.map(
           items,
           &listed_item(&1, lookup, secrets, %{
+            checking?: checking?,
             available: available_ids,
             counts: source_counts,
             selected: selected
@@ -182,6 +185,13 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       inherited_source_count: count - direct,
       version: row.version
     })
+  end
+
+  defp listed_item(%Continuity.ConversationSummary{} = row, lookup, secrets, %{
+         checking?: true,
+         selected: nil
+       }) do
+    Map.merge(base(row, lookup, nil), summary_preview(row, secrets, :checking))
   end
 
   defp listed_item(%Continuity.ConversationSummary{} = row, lookup, secrets, %{selected: nil}) do
@@ -386,7 +396,14 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   # The rows the page lists: one kind, searched, or only the selected item
   # when one is open.
-  defp listed(kind, source_parent, search, selected) do
+  defp listed("context", source_parent, text, nil, true) do
+    "context"
+    |> kind_query(source_parent)
+    |> search("context", text)
+    |> Learned.Query.summary_directory()
+  end
+
+  defp listed(kind, source_parent, search, selected, _checking?) do
     query = kind |> kind_query(source_parent) |> search(kind, search)
 
     if selected && kind in ["knowledge", "context"],
@@ -512,6 +529,17 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         values = state[key],
         is_list(values) and values != [],
         do: {label, values}
+  end
+
+  @doc "Check recall warnings for the exact summary rows currently displayed."
+  def summary_warnings(ids) do
+    ids
+    |> Learned.Query.summary_histories()
+    |> Repo.all()
+    |> Map.new(fn {id, updated_at, sources} ->
+      {{id, updated_at},
+       summary_history_warning(sources, Learning.LearningSources.canonical_roots(sources))}
+    end)
   end
 
   defp summary_history_warning(sources, roots) do
