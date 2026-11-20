@@ -103,11 +103,17 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
       for {surface, shown} <- slack_surfaces(view) do
         # A working connection is simply a done step on Setup; a stopped one
         # says why there too.
-        if running == :ready and surface == :setup do
-          assert shown =~ "Done: Slack · Acme as @ryker"
-        else
-          assert shown =~ word, "#{surface} says #{inspect(shown)}, not #{inspect(word)}"
-          assert shown =~ reason, "#{surface} says #{inspect(shown)}, without #{reason}"
+        case {running, surface} do
+          {:ready, :setup} ->
+            assert shown =~ "Done: Slack · Acme as @ryker"
+
+          {:ready, :channels} ->
+            assert shown =~ "Connected to Acme as @ryker"
+            assert shown =~ "Workspace admins, owners and 1 person can manage Ryker"
+
+          _ ->
+            assert shown =~ word, "#{surface} says #{inspect(shown)}, not #{inspect(word)}"
+            assert shown =~ reason, "#{surface} says #{inspect(shown)}, without #{reason}"
         end
       end
     end

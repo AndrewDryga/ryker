@@ -641,11 +641,10 @@ their original read-only source; removal still requires a fresh worker plan.
 Blocked cleanup offers a person a retry after the cause is repaired. Background learning sessions
 hold no checkout; `/memory/learning` lists them.
 
-- Worker storage charts use the same byte scale. Each shows the space it uses (its shared
-  checkouts and its own data as well as the copies below) and the space
-  cleanup can free against the limit, when it was measured, and whether the
-  worker still takes new copies. A worker that reported nothing is unknown,
-  never zero
+- Each worker shows storage in use and space available for cleanup. The bar shows
+  the share of those measured bytes that can be freed. Cleanup details holds
+  measurement times, reclaimed space and policy. Stale reports and paused allocations
+  appear beside the worker. A missing measurement is unknown.
 - "Ready for cleanup" lists what the janitor will do next, oldest first;
   current copies are shown 25 at a time, newest change first, with the full count.
   Removed copies have their own paginated view (`/working-copies?view=removed`)

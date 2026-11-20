@@ -125,7 +125,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              "/working-copies?view=removed"
            ]
 
-    assert Enum.empty?(LazyHTML.query(document, "details"))
+    assert Enum.empty?(LazyHTML.query(document, "details:not(.storage-details)"))
 
     assert Enum.empty?(LazyHTML.query(document, "table, .page-help, .result-count"))
     refute LazyHTML.text(document) =~ "Slack workspaces"
@@ -304,6 +304,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     refute LazyHTML.text(with_copy) =~ "No working copy holds this space"
   end
 
+  # Two separate charts and cleanup policy competed with the worker's current numbers.
+  test "a worker has one storage bar and cleanup policy is available on demand" do
+    storage = render([]) |> LazyHTML.query("#storage")
+    assert Enum.count(LazyHTML.query(storage, "#storage-worker-a meter")) == 1
+    assert LazyHTML.text(LazyHTML.query(storage, "details:not([open])")) =~ "10 GiB"
+  end
+
   test "storage says plainly what each worker measured, and never invents a byte" do
     # A missing report is unknown, not 0 GiB, and a stale heartbeat is a
     # stale measurement. QA, 2026-09-25: "0.16 GiB kept" sat beside "No
@@ -313,12 +320,15 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     storage = render([]) |> LazyHTML.query("section.working-copies-storage")
 
     worker = LazyHTML.query(storage, "#storage-worker-a")
-    assert LazyHTML.query(worker, "meter") |> Enum.count() == 2
+    assert LazyHTML.query(worker, "meter") |> Enum.count() == 1
 
-    for value <- ["20 GiB", "9 GiB", "1 GiB", "measured 2 min ago", "reserve exhausted"] do
+    for value <- ["20 GiB", "9 GiB", "reserve exhausted"] do
       assert LazyHTML.text(worker) =~ value
     end
 
+    details = LazyHTML.query(storage, "details")
+    assert LazyHTML.text(details) =~ "1 GiB"
+    assert LazyHTML.text(details) =~ "measured 2 min ago"
     assert LazyHTML.text(storage) =~ "10 GiB"
     assert LazyHTML.text(storage) =~ "1 hour"
 
@@ -341,7 +351,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     stale_line = document |> LazyHTML.query("#storage-worker-b") |> LazyHTML.text() |> squeeze()
     assert stale_line =~ "unknown"
     assert stale_line =~ "0 bytes"
-    assert Enum.count(LazyHTML.query(document, "#storage-worker-b meter")) == 1
+    assert Enum.empty?(LazyHTML.query(document, "#storage-worker-b meter"))
     assert stale_line =~ "Out of date"
     refute stale_line =~ "not taking new copies"
 

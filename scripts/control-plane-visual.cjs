@@ -149,6 +149,38 @@ async function checkSettingsPage(page, name) {
   }
 }
 
+// These controls used to sit below the text they belong to. Measure the rendered positions.
+async function checkCopyBlocks(page) {
+  const step = page.locator('#github-app');
+  if (!await step.count()) return;
+  const open = await step.evaluate(element => element.open);
+  if (!open) await step.locator('summary').first().click();
+  try {
+    const block = step.locator('.copy-block').filter({has: page.getByRole('button', {name: 'Copy webhook URL'})});
+    const aligned = await block.evaluate(element => {
+      const code = element.querySelector('pre').getBoundingClientRect();
+      const button = element.querySelector('[data-copy-block]').getBoundingClientRect();
+      return Math.abs(code.top - button.top) <= 1 && code.right <= button.left + 1;
+    });
+    assert(aligned, 'The copy button sits beside the code within the same block');
+  } finally {
+    if (!open) await step.locator('summary').first().click();
+  }
+}
+
+async function checkChannelHeading(page) {
+  const heading = page.locator('.page-title-line:has(.page-title-link)');
+  if (!await heading.count()) return;
+  const aligned = await heading.evaluate(element => {
+    const box = selector => element.querySelector(selector)?.getBoundingClientRect();
+    const label = box('h1'), icon = box('.page-title-external'), state = box('.state-word');
+    const middle = rect => rect.top + rect.height / 2;
+    return Math.abs(middle(label) - middle(icon)) <= 1 &&
+      (!state || state.top >= label.bottom || Math.abs(middle(label) - middle(state)) <= 1);
+  });
+  assert(aligned, 'Channel title, external link icon and status align vertically');
+}
+
 async function checkSharedPageGutter(page, width) {
   const gutter = await page.evaluate(() => {
     const workspace = document.querySelector('.app-workspace')?.getBoundingClientRect();
@@ -252,6 +284,8 @@ async function discover(page) {
               const draft = report.captures.find(capture => capture.name === 'conversations' && capture.width === width);
               assert(Math.abs(result.layout.composerBottom - draft?.layout?.composerBottom) < 1, 'The composer must not move between a new and an open conversation');
             }
+            if (name === 'channel-detail') await checkChannelHeading(page);
+            if (name === 'integrations-github') await checkCopyBlocks(page);
             if (['schedules', 'channels', 'repositories', 'working-copies'].includes(name)) {
               // One shell: the title once, then the page's own column with its comparison
               // table stacked into label/value rows on a phone instead of scrolling sideways.

@@ -683,6 +683,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
         base={@base}
         params={@view.params}
         relation={@view.knowledge}
+        one="learned topic"
         many="learned topics"
       >
         <Kit.entity_row
@@ -705,6 +706,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
         base={@base}
         params={@view.params}
         relation={@view.summaries}
+        one="conversation summary"
         many="conversation summaries"
       >
         <%!-- Andrew, 2026-09-28: no collapsibles in lists. A summary's row
@@ -937,6 +939,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   attr(:id, :string, required: true)
   attr(:anchor, :string, default: nil, doc: "Where the pager lands; the id by default")
   attr(:relation, :map, required: true)
+  attr(:one, :string, default: nil)
   attr(:many, :string, required: true)
   attr(:base, :string, required: true)
   attr(:params, :map, required: true)
@@ -949,8 +952,19 @@ defmodule Ryker.ControlPlane.ChannelPage do
 
     ~H"""
     <div :if={@relation.total > 0} id={@id} class="channel-relation">
-      <Kit.entity_list label={@many}>{render_slot(@inner_block)}</Kit.entity_list>
+      <.link
+        :if={!Map.has_key?(@relation, :items)}
+        patch={page_path(@base, @params, @relation, 1, @anchor)}
+        class="channel-learned-link"
+      >
+        {Wording.count(@relation.total, @one, @many)}
+        <Components.icon name={:arrow} />
+      </.link>
+      <Kit.entity_list :if={Map.has_key?(@relation, :items)} label={@many}>
+        {render_slot(@inner_block)}
+      </Kit.entity_list>
       <Components.pager
+        :if={Map.has_key?(@relation, :items)}
         page={@relation.page}
         pages={@relation.pages}
         path={&page_path(@base, @params, @relation, &1, @anchor)}
@@ -968,7 +982,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # its own anchor, so paging summaries never resets episodes.
   defp page_path(base, params, relation, page, anchor) do
     params =
-      if page > 1,
+      if page > 1 or relation.key in ~w(summary_page knowledge_page),
         do: Map.put(params, relation.key, Integer.to_string(page)),
         else: Map.delete(params, relation.key)
 

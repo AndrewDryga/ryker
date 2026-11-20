@@ -290,7 +290,7 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
               />
               <span>
                 <strong>Allow Ryker to approve pull requests</strong>
-                <small>An approval can count toward branch protection. With this off, Ryker can still comment and request changes. Existing approvals stay on GitHub.</small>
+                <small>An approval can count toward branch protection. With this off, Ryker can still comment and request changes.</small>
               </span>
             </label>
           </div>

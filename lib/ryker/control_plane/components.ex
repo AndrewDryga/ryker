@@ -847,7 +847,7 @@ defmodule Ryker.ControlPlane.Components do
               target="_blank"
               rel="noopener noreferrer"
               class="page-title-link"
-            >{@title}<.icon name={:external} class="page-title-external" /></a>
+            ><span>{@title}</span><.icon name={:external} class="page-title-external" /></a>
           </h1>
           <Kit.state :if={@status} tone={elem(@status, 0)} word={elem(@status, 1)} />
         </div>

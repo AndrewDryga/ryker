@@ -265,13 +265,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp storage(assigns) do
     assigns =
       assign(assigns,
-        scale:
-          assigns.storage.workers
-          |> Enum.reject(&(&1.measurement == :unknown))
-          |> Enum.flat_map(&Map.take(&1.bytes, ["protected_bytes", "disposable_bytes"]))
-          |> Enum.reduce(1, fn {_kind, value}, largest ->
-            if is_integer(value), do: max(value, largest), else: largest
-          end),
+        reported: Enum.reject(assigns.storage.workers, &(&1.measurement == :unknown)),
         limit: assigns.storage.budget[:disposable_bytes_limit],
         target: assigns.storage.budget[:reclaim_target_seconds]
       )
@@ -282,57 +276,54 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
         <span class="connection-dot" data-tone="off" aria-hidden="true"></span>
         No worker has reported storage yet, so how much space copies use is unknown.
       </p>
-      <p :if={@scale > 1} class="storage-note">
-        Worker storage · Bars share a scale of 0 to {size(@scale)}
-      </p>
+      <h2 :if={@storage.workers != []}>Worker storage</h2>
       <div :if={@storage.workers != []} class="storage-grid">
         <article :for={worker <- @storage.workers} class="storage-worker" id={"storage-" <> worker.id}>
-          <header>
-            <h3>
-              <span class="connection-dot" data-tone={worker_tone(worker)} aria-hidden="true"></span>{worker.id}
-            </h3>
-            <small :if={worker.measured_at && worker.measurement != :unknown}>
-              <ShortTime.time at={worker.measured_at} now={@now} prefix="measured " />
-            </small>
-          </header>
+          <h3>{worker.id}</h3>
           <p :if={worker.measurement == :unknown}>No storage report yet.</p>
           <%= if worker.measurement != :unknown do %>
-            <p :if={worker.measurement == :stale}>Out of date</p>
-            <div
-              :for={
-                {key, label} <- [{"protected_bytes", "In use"}, {"disposable_bytes", "Can be freed"}]
-              }
-              class="storage-measure"
-              data-kind={key}
-            >
-              <span>{label}</span><strong>{size(worker.bytes[key])}</strong>
-              <meter
-                :if={is_integer(worker.bytes[key])}
-                min="0"
-                max={@scale}
-                value={worker.bytes[key]}
-                aria-label={"#{worker.id} · #{label}"}
-                aria-valuetext={size(worker.bytes[key])}
-              />
-            </div>
-            <p :if={is_integer(worker.reclaimed_bytes) && worker.reclaimed_bytes > 0}>
-              Freed so far <strong>{size(worker.reclaimed_bytes)}</strong>
-            </p>
-            <p :if={
-              is_integer(worker.bytes["unattributed_bytes"]) && worker.bytes["unattributed_bytes"] > 0
-            }>
-              Space outside copies <strong>{size(worker.bytes["unattributed_bytes"])}</strong>
-            </p>
+            <p :if={worker.measurement == :stale} class="storage-refusal">Out of date</p>
+            <dl class="storage-figures">
+              <div>
+                <dt>In use</dt><dd>{size(worker.bytes["protected_bytes"])}</dd>
+              </div>
+              <div>
+                <dt>Can be freed</dt><dd>{size(worker.bytes["disposable_bytes"])}</dd>
+              </div>
+            </dl>
+            <meter
+              :if={total = measured_total(worker.bytes)}
+              min="0"
+              max={total}
+              value={worker.bytes["disposable_bytes"]}
+              aria-label={"#{worker.id} · share available for cleanup"}
+              aria-valuetext={"#{size(worker.bytes["disposable_bytes"])} of #{size(total)} can be freed"}
+            />
           <% end %>
           <p :if={worker.allocation == "refused"} class="storage-refusal">
             New copies paused · {refusal(worker.refusal_reason)}
           </p>
         </article>
       </div>
-      <p :if={@limit || @target} class="storage-note">
-        <span :if={@limit}>Cleanup budget <strong>{size(@limit)}</strong> of disposable data</span>
-        <span :if={@target}>Cleanup target <strong>{duration(@target)}</strong> after eligibility</span>
-      </p>
+      <details :if={@reported != [] || @limit || @target} class="storage-details">
+        <summary>Cleanup details</summary>
+        <ul :if={@reported != []}>
+          <li :for={worker <- @reported}>
+            <strong>{worker.id}</strong>
+            <span :if={worker.measured_at}><ShortTime.time
+              at={worker.measured_at}
+              now={@now}
+              prefix="measured "
+            /></span>
+            <span :if={is_integer(worker.reclaimed_bytes)}>Freed so far {size(worker.reclaimed_bytes)}</span>
+            <span :if={
+              is_integer(worker.bytes["unattributed_bytes"]) && worker.bytes["unattributed_bytes"] > 0
+            }>Space outside copies {size(worker.bytes["unattributed_bytes"])}</span>
+          </li>
+        </ul>
+        <p :if={@limit}>Cleanup budget: {size(@limit)} of disposable data.</p>
+        <p :if={@target}>Cleanup target: within {duration(@target)} of eligibility.</p>
+      </details>
       <p :if={not @copies? and space_in_use?(@storage.workers)} class="storage-note">
         No working copy holds this space. It includes shared checkouts, conversations and worker data.
       </p>
@@ -340,9 +331,12 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
     """
   end
 
-  defp worker_tone(%{allocation: "refused"}), do: "warn"
-  defp worker_tone(%{measurement: :fresh}), do: "on"
-  defp worker_tone(_unknown_or_stale), do: "off"
+  # Only measured values can describe a share. A worker's filesystem capacity is a separate figure.
+  defp measured_total(%{"protected_bytes" => used, "disposable_bytes" => disposable})
+       when is_integer(used) and is_integer(disposable) and used + disposable > 0,
+       do: used + disposable
+
+  defp measured_total(_incomplete), do: nil
 
   defp refusal(nil), do: "reason not reported"
   defp refusal(reason), do: Wording.words(reason)

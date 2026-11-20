@@ -174,7 +174,12 @@ defmodule Ryker.ControlPlane.ChannelContext do
   end
 
   @doc "Durable summaries of this conversation, newest first, presented as `/memory` presents them."
-  @spec summaries(ChannelScope.t(), map()) :: PagedRelation.t()
+  @spec summaries(ChannelScope.t(), map()) ::
+          PagedRelation.t() | %{key: String.t(), total: non_neg_integer()}
+  def summaries(%ChannelScope{} = scope, params) when not is_map_key(params, "summary_page") do
+    %{key: "summary_page", total: Repo.aggregate(ChannelContext.Query.summaries(scope), :count)}
+  end
+
   def summaries(%ChannelScope{} = scope, params) do
     relation =
       scope
@@ -183,19 +188,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
 
     items =
       relation.items
-      |> ConversationMemory.present()
+      |> ConversationMemory.channel_rows()
       |> Enum.zip_with(relation.items, fn presented, summary ->
-        presented
-        |> Map.drop([
-          :id,
-          :conversation,
-          :conversation_path,
-          :workspace,
-          :at,
-          :changed_at,
-          :repository
-        ])
-        |> Map.merge(%{
+        Map.merge(presented, %{
           ref: summary.ref,
           path: ConversationMemory.summary_path(summary.id),
           thread_ref: summary.thread_ref,
@@ -223,7 +218,12 @@ defmodule Ryker.ControlPlane.ChannelContext do
   end
 
   @doc "Learned knowledge scoped to exactly this conversation, with its recall availability."
-  @spec knowledge(ChannelScope.t(), map()) :: PagedRelation.t()
+  @spec knowledge(ChannelScope.t(), map()) ::
+          PagedRelation.t() | %{key: String.t(), total: non_neg_integer()}
+  def knowledge(%ChannelScope{} = scope, params) when not is_map_key(params, "knowledge_page") do
+    %{key: "knowledge_page", total: Repo.aggregate(ChannelContext.Query.knowledge(scope), :count)}
+  end
+
   def knowledge(%ChannelScope{} = scope, params) do
     relation =
       scope
@@ -234,7 +234,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
 
     items =
       relation.items
-      |> ConversationMemory.present()
+      |> ConversationMemory.channel_rows()
       |> Enum.zip_with(relation.items, fn presented, item ->
         %{
           id: item.id,
@@ -244,7 +244,6 @@ defmodule Ryker.ControlPlane.ChannelContext do
           available: MapSet.member?(available, item.id),
           updated_at: item.updated_at,
           source_at: item.latest_source_at,
-          expires_at: presented.expires_at,
           request_path: presented.request_path,
           path: ConversationMemory.topic_path(item.id)
         }

@@ -33,7 +33,9 @@ defmodule Ryker.ControlPlane.Integrations do
           required(:reason) => String.t() | nil,
           required(:facts) => [String.t()],
           required(:action) => %{label: String.t(), href: String.t()},
-          optional(:unassigned) => non_neg_integer()
+          optional(:unassigned) => non_neg_integer(),
+          optional(:identity) => String.t(),
+          optional(:managers) => String.t() | nil
         }
 
   @names %{slack: "Slack", github: "GitHub", emisar: "Emisar", webhooks: "Webhooks"}
@@ -293,9 +295,15 @@ defmodule Ryker.ControlPlane.Integrations do
         state(:slack, :finish, facts: facts([workspace, bot]))
 
       true ->
+        managers = managers(slack)
+
         state(:slack, running(view.readiness, view.application),
-          facts: facts([workspace, bot, managers(slack)])
+          facts: facts([workspace, bot, managers])
         )
+        |> Map.merge(%{
+          identity: Enum.join(facts([workspace && "to " <> workspace, bot && "as " <> bot]), " "),
+          managers: managers
+        })
     end
   end
 
@@ -723,7 +731,13 @@ defmodule Ryker.ControlPlane.Integrations do
   the one next step. The same words its own page and the overview show.
   """
   def line(assigns) do
-    assigns = assign(assigns, :name, Map.fetch!(@names, assigns.key))
+    assigns =
+      assign(assigns,
+        name: Map.fetch!(@names, assigns.key),
+        connected_slack:
+          assigns.key == :slack and not is_nil(assigns.integration) and
+            assigns.integration.status == :on
+      )
 
     ~H"""
     <div class="connection-line" id={@id}>
@@ -731,12 +745,14 @@ defmodule Ryker.ControlPlane.Integrations do
         <p :if={@integration}>
           <strong>{@name}</strong>
           <Kit.state tone={elem(@integration.state, 0)} word={elem(@integration.state, 1)} />
-          <span :if={line_text(@integration)}>{line_text(@integration)}</span>
+          <span :if={@connected_slack && @integration.identity != ""}>{@integration.identity}</span>
+          <span :if={!@connected_slack && line_text(@integration)}>{line_text(@integration)}</span>
         </p>
         <p :if={!@integration}>
           <strong>{@name}</strong>
           <span>Its state is unknown, because settings could not be read.</span>
         </p>
+        <p :if={@connected_slack && @integration.managers}>{@integration.managers}</p>
         {render_slot(@detail)}
       </div>
       <.link

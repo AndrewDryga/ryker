@@ -1098,9 +1098,20 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <p :if={@ready}>
           Connected as <strong>@{@view.snapshot.github.app_slug}</strong>. Replace the credentials here when you rotate a key.
         </p>
-        <p :if={!@ready}>
-          In GitHub, open the App owner’s Settings → Developer settings → GitHub Apps and select the App. Copy its App ID and generate a private key, then upload the .pem file here.
-        </p>
+        <ol class="setup-instructions">
+          <li>
+            Open the GitHub account or organization that owns the App. Under <strong>Settings → Developer settings → GitHub Apps</strong>, choose
+            <strong>Edit</strong>
+            beside the App. To register one, choose <strong>New GitHub App</strong>
+            first.
+          </li>
+          <li>Copy the numeric <strong>App ID</strong> assigned by GitHub into the field below.</li>
+          <li>
+            Open <strong>Credentials → Key pairs</strong>
+            and choose <strong>New key</strong>. Upload the downloaded <code>.pem</code>
+            file below.
+          </li>
+        </ol>
         <.github_form label={if @ready, do: "Replace credentials", else: "Verify GitHub App"} />
         <Components.form_feedback
           :if={@app_feedback}
@@ -1193,14 +1204,24 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </p>
         <ol :if={@usable} class="setup-instructions">
           <li>
-            Open the App owner’s Settings → Developer settings → GitHub Apps and edit the same App. Under <strong>Identifying and authorizing users</strong>, add this callback URL and save the change.
+            In the owning account or organization, open
+            <strong>Settings → Developer settings → GitHub Apps</strong>
+            and choose <strong>Edit</strong>
+            beside the connected App.
+          </li>
+          <li>
+            Add the following address to the App’s <strong>Callback URL</strong>
+            list and save your changes.
             <Components.copy_block label="Copy sign-in callback URL">
               <pre>{@view.github_action_callback_url}</pre>
             </Components.copy_block>
           </li>
           <li>
-            Copy the App’s <strong>Client ID</strong>
-            and generate a <strong>Client secret</strong>. Enter both below.
+            Copy the <strong>Client ID</strong>
+            GitHub assigned to the App into the Client ID field below.
+          </li>
+          <li>
+            Open <strong>Credentials → Client secrets</strong>. Generate a new client secret, copy its value while GitHub shows it, and paste it below.
           </li>
         </ol>
         <div :if={@usable}>
@@ -1229,13 +1250,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
             </div>
             <div class="settings-actions">
               <button type="submit" class="ui-button secondary" phx-disable-with="Saving…">Save GitHub sign-in</button>
+              <Components.form_feedback
+                :if={@sign_in_feedback}
+                tone={@sign_in_feedback.tone}
+                message={@sign_in_feedback.message}
+              />
             </div>
           </form>
-          <Components.form_feedback
-            :if={@sign_in_feedback}
-            tone={@sign_in_feedback.tone}
-            message={@sign_in_feedback.message}
-          />
         </div>
       </.setup_step>
     </Kit.section_card>
@@ -1373,6 +1394,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </fieldset>
       <details class="settings-disclosure">
         <summary>GitHub Enterprise</summary>
+        <p class="settings-help">
+          On older GitHub Enterprise Server versions, find Client secrets and Private keys on the App’s settings page.
+        </p>
         <div class="settings-field">
           <label for={"github-api-url-#{@key}"}>API URL</label>
           <p class="settings-help">Change it only for GitHub Enterprise Server.</p>

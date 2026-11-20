@@ -100,9 +100,11 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
   # The query string that reproduces this view: every section's resolved page,
   # so a link from one pager carries the others exactly where they are. Page
-  # one is the default and stays out of the URL.
+  # one stays in the URL for the two learned lists a reader explicitly opened.
   defp link_params(relations) do
-    for %{key: key, page: page} <- relations, page > 1, into: %{} do
+    for %{key: key, page: page} <- relations,
+        page > 1 or key in ~w(summary_page knowledge_page),
+        into: %{} do
       {key, Integer.to_string(page)}
     end
   end

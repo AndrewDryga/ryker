@@ -227,7 +227,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
 
       # Both former buttons opened the Slack integration.
       row = LazyHTML.query(card, "#slack-status #new-channels-default")
-      assert row |> LazyHTML.text() |> squeeze() =~ "Joins relevant conversations"
+      assert row |> LazyHTML.text() |> squeeze() == "New channels: joins relevant conversations"
       assert Enum.count(LazyHTML.query(card, "a")) == 1
       assert Enum.count(LazyHTML.query(card, "a[href='/integrations/slack']")) == 1
 

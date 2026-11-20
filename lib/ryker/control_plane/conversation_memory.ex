@@ -187,6 +187,22 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     Enum.map(rows, &item(&1, lookup, secrets))
   end
 
+  @doc "Channel list rows show the saved text and recall warning. Source timestamps and expiry belong to the detail page."
+  def channel_rows(rows) do
+    request_ids =
+      rows |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1) |> episode_keys()
+
+    secrets = InspectionRedactor.configured_secrets()
+
+    Enum.map(rows, fn row ->
+      path =
+        if Map.has_key?(request_ids, row.source_episode_id),
+          do: Paths.request(row.source_episode_id)
+
+      Map.put(preview(row, secrets), :request_path, path)
+    end)
+  end
+
   # The human-readable heading, text and fact groups of one continuity state.
   @spec continuity_state(term(), [String.t()]) :: %{
           title: String.t(),
@@ -386,10 +402,24 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   end
 
   defp item(%Knowledge.ConversationKnowledge{} = knowledge, lookup, secrets) do
+    Map.merge(base(knowledge, lookup), preview(knowledge, secrets))
+  end
+
+  defp item(%Continuity.ConversationSummary{} = summary, lookup, secrets) do
+    view = Map.merge(base(summary, lookup), preview(summary, secrets))
+
+    %{
+      view
+      | expires_at: if(is_nil(view.recall_warning), do: view.expires_at),
+        source_at:
+          if(is_nil(view.recall_warning), do: summary_source_at(summary.source_dependencies))
+    }
+  end
+
+  defp preview(%Knowledge.ConversationKnowledge{} = knowledge, secrets) do
     state = InspectionRedactor.document(knowledge.state, secrets)
 
-    base(knowledge, lookup)
-    |> Map.merge(%{
+    %{
       title: knowledge_title(knowledge, secrets),
       text: if(knowledge.forgotten_at, do: @forgotten_text, else: knowledge_text(state)),
       forgotten_at: knowledge.forgotten_at,
@@ -397,22 +427,15 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       source: nil,
       at: knowledge.updated_at,
       source_at: knowledge.latest_source_at
-    })
+    }
   end
 
-  defp item(%Continuity.ConversationSummary{} = summary, lookup, secrets) do
-    warning = summary_history_warning(summary.source_dependencies)
-    view = base(summary, lookup)
-
-    view
-    |> Map.merge(continuity_state(summary.state, secrets))
-    |> Map.merge(%{
+  defp preview(%Continuity.ConversationSummary{} = summary, secrets) do
+    Map.merge(continuity_state(summary.state, secrets), %{
       source: nil,
-      expires_at: if(is_nil(warning), do: view.expires_at),
-      recall_warning: warning,
+      recall_warning: summary_history_warning(summary.source_dependencies),
       maintenance_error: LearningActivity.error(summary.compaction_error_code),
-      maintenance_retry_at: summary.compaction_retry_at,
-      source_at: if(is_nil(warning), do: summary_source_at(summary.source_dependencies))
+      maintenance_retry_at: summary.compaction_retry_at
     })
   end
 

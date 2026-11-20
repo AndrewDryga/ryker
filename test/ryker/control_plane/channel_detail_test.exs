@@ -47,6 +47,38 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
        |> Map.put(:microsecond, {0, 6})
   @page_size 25
 
+  # Rebuilding two pages of source histories twice made a busy channel take 43 seconds to open.
+  test "opening a channel counts its learned records and reads only the list requested" do
+    membership!("T123", "C456", private: false, external_shared: false)
+    summary!("slack:T123", "slack:T123:C456", situation: "Replication is stalled")
+    topic = knowledge!("slack:T123:C456", title: "Replication")
+
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(handler, [:ryker, :repo, :query], &__MODULE__.learned_row_read/4, self())
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    assert {:ok, overview} = ChannelDetail.fetch("T123", "C456", %{})
+    refute_received :learned_row_read
+    assert overview.summaries.total == 1
+    assert overview.knowledge.total == 1
+    refute Map.has_key?(overview.summaries, :items)
+    refute Map.has_key?(overview.knowledge, :items)
+
+    document = page("/channels/T123/C456") |> LazyHTML.from_document()
+
+    assert ["/channels/T123/C456?knowledge_page=1#knowledge"] ==
+             document |> LazyHTML.query("#knowledge a") |> LazyHTML.attribute("href")
+
+    assert {:ok, opened} = ChannelDetail.fetch("T123", "C456", %{"knowledge_page" => "1"})
+    assert [%{id: id}] = opened.knowledge.items
+    assert id == topic.id
+    assert_received :learned_row_read
+    refute Map.has_key?(opened.summaries, :items)
+  end
+
   test "a canonical summary appears only on the channel page it belongs to" do
     # Production carried four durable summaries for one channel and the page
     # said "No durable records": the projection compared the raw `T…` ref while
@@ -58,11 +90,11 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     summary = summary!("slack:T123", "slack:T123:C456", situation: "Replication is stalled")
 
-    assert page("/channels/T123/C456") =~ summary.ref
-    refute page("/channels/T123/C999") =~ summary.ref
-    refute page("/channels/T999/C456") =~ summary.ref
+    assert page("/channels/T123/C456?summary_page=1") =~ summary.ref
+    refute page("/channels/T123/C999?summary_page=1") =~ summary.ref
+    refute page("/channels/T999/C456?summary_page=1") =~ summary.ref
 
-    assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
+    assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "1"})
     assert view.summaries.total == 1
     assert [%{ref: ref}] = view.summaries.items
     assert ref == summary.ref
@@ -73,6 +105,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     assert other_workspace.summaries.total == 0
   end
 
+  def learned_row_read(_event, _measurements, %{source: source, query: sql}, pid)
+      when pid == self() and source in ["conversation_summaries", "conversation_knowledge"] do
+    if String.starts_with?(sql, "SELECT") and not String.starts_with?(sql, "SELECT count("),
+      do: send(pid, :learned_row_read)
+  end
+
+  def learned_row_read(_, _, _, _), do: :ok
+
   # Andrew, 2026-09-28: a summary on #test read "uses andrewdryga-emisar", the
   # repository's ref. A repository is always named as people know it.
   test "a summary names the repository it used as owner/repo, not by its ref" do
@@ -80,7 +120,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     environment!("production", "Production", ~w(api))
     summary!("slack:T123", "slack:T123:C456", repository_ref: "api")
 
-    html = page("/channels/T123/C456")
+    html = page("/channels/T123/C456?summary_page=1")
     summaries = html |> LazyHTML.from_document() |> LazyHTML.query("[id^=summary-] .entity-meta")
 
     assert LazyHTML.text(summaries) =~ "uses acme/api"
@@ -617,7 +657,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
             {:guidance, "guidance_page", guidance_refs},
             {:memory, "memory_page", memory_refs}
           ] do
-        assert {:ok, first} = ChannelDetail.fetch("T123", "C456", %{})
+        assert {:ok, first} = ChannelDetail.fetch("T123", "C456", %{key => "1"})
         assert {:ok, second} = ChannelDetail.fetch("T123", "C456", %{key => "2"})
         first_page = Map.fetch!(first, section)
         second_page = Map.fetch!(second, section)
@@ -676,7 +716,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       [previous_summaries] =
         document |> LazyHTML.query("#summaries .pagination a") |> LazyHTML.attribute("href")
 
-      assert previous_summaries == "/channels/T123/C456?episode_page=2#summaries"
+      assert previous_summaries == "/channels/T123/C456?episode_page=2&summary_page=1#summaries"
 
       first = page("/channels/T123/C456") |> LazyHTML.from_document()
 
@@ -753,7 +793,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
           source_dependencies: [%{"secret-dependency" => "must-not-render-dependency"}]
         )
 
-      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "1"})
       assert [item] = view.summaries.items
       assert item.ref == summary.ref
       assert item.title == "database"
@@ -782,7 +822,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       # Andrew, 2026-09-28: no collapsibles in lists. The row says what the
       # summary is about and opens its page; decisions, open work and the
       # maintenance error are read there.
-      html = page("/channels/T123/C456")
+      html = page("/channels/T123/C456?summary_page=1")
       document = LazyHTML.from_document(html)
       section = LazyHTML.query(document, "#summaries")
       text = LazyHTML.text(section)
@@ -814,7 +854,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
           retention: "pruned"
         )
 
-      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{})
+      assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"knowledge_page" => "1"})
       assert view.knowledge.total == 2
       titles = Enum.map(view.knowledge.items, & &1.title)
       assert "Keep draft-ai-suggestions" in titles
@@ -832,7 +872,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       refute expired.available
       refute expired.text =~ "must-not-render-pruned"
 
-      html = page("/channels/T123/C456")
+      html = page("/channels/T123/C456?knowledge_page=1")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#knowledge")
       assert LazyHTML.text(section) =~ "Keep draft-ai-suggestions"
       assert LazyHTML.text(section) =~ "Not in use"
@@ -849,7 +889,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       item = knowledge!("slack:T123:C456", title: "Replication", summary: long)
 
       row =
-        page("/channels/T123/C456")
+        page("/channels/T123/C456?knowledge_page=1")
         |> LazyHTML.from_document()
         |> LazyHTML.query("#knowledge article.entity-row")
 
@@ -1352,7 +1392,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       [previous] =
         document |> LazyHTML.query("#summaries .pagination a") |> LazyHTML.attribute("href")
 
-      assert previous == "/channels/T123/C456?mode=all&usage_window=24h#summaries"
+      assert previous == "/channels/T123/C456?mode=all&summary_page=1&usage_window=24h#summaries"
 
       assert document |> LazyHTML.query("#summaries .pagination span") |> LazyHTML.text() =~
                "Page 2 of 2"
@@ -1408,7 +1448,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       render_click(view, "refresh")
       assert pages(render(view)) == second
 
-      {:ok, _view, first} = live(conn, "/channels/T123/C456")
+      {:ok, _view, first} = live(conn, "/channels/T123/C456?summary_page=1")
       assert pages(first) == %{"episodes" => "Page 1 of 2", "summaries" => "Page 1 of 2"}
     end
 

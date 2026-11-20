@@ -1067,6 +1067,21 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(view, ".section-head h2", "Connection")
   end
 
+  # The guide used to leave operators looking for a way to generate the already assigned ID.
+  test "GitHub sign-in names the controls on GitHub and puts refusals next to Save" do
+    initialize!()
+    connect_github!()
+    {:ok, view, _} = open("/integrations/github")
+    assert has_element?(view, "#github-action-sign-in ol", "Generate a new client secret")
+    assert has_element?(view, "#github-action-sign-in ol", "Client ID")
+
+    render_submit(view, "connect-github-actions", %{
+      "connection" => %{"client_id" => "", "client_secret" => ""}
+    })
+
+    assert has_element?(view, "#github-action-sign-in .settings-actions [role=alert]")
+  end
+
   test "the sign-in step folds only while Ryker can read the saved client secret" do
     initialize!()
     connect_github!()

@@ -159,7 +159,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
       <Integrations.line id="slack-status" key={:slack} integration={@integration}>
         <:detail :if={@default}>
           <p id="new-channels-default">
-            <span>New channels</span><span>{participation(@default)}</span>
+            New channels: {String.downcase(participation(@default))}
           </p>
         </:detail>
       </Integrations.line>

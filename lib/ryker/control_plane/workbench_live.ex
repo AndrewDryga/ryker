@@ -908,7 +908,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
            github_feedback: %{
              step: :sign_in,
              tone: :success,
-             message: "GitHub sign-in settings saved."
+             message: "Sign-in saved."
            },
            setup_notice: nil,
            setup_failure: nil
