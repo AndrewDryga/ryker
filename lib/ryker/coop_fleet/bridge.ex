@@ -140,13 +140,16 @@ defmodule Ryker.CoopFleet.Bridge do
 
   defp requirements(session, settings) do
     versions =
-      case session.worker_job_document do
-        %{"runtime" => %{"version" => 1}} ->
-          Map.put(settings.capability_versions, "project-runtime", "1")
-
-        _retained_or_source_free ->
-          settings.capability_versions
-      end
+      Enum.reduce(
+        [{"runtime", "project-runtime"}, {"preset", "job-preset"}],
+        settings.capability_versions,
+        fn
+          {field, capability}, versions ->
+            if get_in(session.worker_job_document, [field, "version"]) == 1,
+              do: Map.put(versions, capability, "1"),
+              else: versions
+        end
+      )
 
     %{
       capability_names: settings.capability_names,

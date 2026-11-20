@@ -48,6 +48,39 @@ defmodule Ryker.CoopFleet.BridgeTest do
     assert placement.worker_id == worker
   end
 
+  test "a preset job requires both the recipe and the other capabilities of its execution" do
+    worker = "worker-preset-review"
+    ready_worker!(worker)
+    session = session!()
+    options = [workspace_ref: "workspace-main", capability_names: ["controller-tools"]]
+    fixture = "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
+
+    job =
+      session.worker_job_document
+      |> Map.put("targets", fixture["job"]["targets"])
+      |> Map.put("preset", fixture["job"]["preset"])
+      |> Map.put("runtime", %{
+        "version" => 1,
+        "dockerfile" => "",
+        "compose" => "",
+        "environment" => %{}
+      })
+
+    assert {:ok, digest} = JobSpec.digest(job)
+    session = session |> Work.Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+
+    for {label, versions, expected} <- [
+          {"older", ["project-runtime"], false},
+          {"preset-only", ["job-preset"], false},
+          {"qualified", ["project-runtime", "job-preset"], true}
+        ] do
+      capabilities = Enum.map(["controller-tools" | versions], &%{"name" => &1, "version" => "1"})
+      advertised = put_in(poll(worker, label), ["worker", "capabilities"], capabilities)
+      assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker, advertised)
+      assert Bridge.accepts?(session, options) == expected
+    end
+  end
+
   # Twenty create identities reused one placement and kept roughly 96,000
   # receipt acknowledgements failing. A proven failed create spends both identities.
   test "a proven absent create retries on a new placement and preserves both receipts" do

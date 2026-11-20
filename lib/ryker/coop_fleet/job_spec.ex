@@ -13,6 +13,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   them, while controller and check environments remain authoritative.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.CoopFleet.JobPreset
   alias Ryker.CoopFleet.Protocol
   alias Ryker.Maps
   alias Ryker.Work
@@ -74,7 +75,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp identity_and_mode?(job) do
-    Maps.exact_keys?(job, @root_fields, ~w(runtime)) and
+    Maps.exact_keys?(job, @root_fields, ~w(runtime preset)) and
       job["version"] == 2 and
       Protocol.reference?(job["job_ref"]) and
       job["mode"] == "normal" and
@@ -90,7 +91,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp execution_bounds?(job) do
     egress?(job["egress"]) and limits?(job["limits"]) and
       environment?(job["environment"]) and check?(job["check"]) and
-      resources?(job["resources"]) and runtime?(job)
+      resources?(job["resources"]) and runtime?(job) and JobPreset.valid?(job)
   end
 
   defp runtime?(%{"runtime" => %{} = runtime, "source" => %{}, "repository_read_only" => false}) do

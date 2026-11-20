@@ -84,6 +84,42 @@ defmodule Ryker.CoopFleet.JobSpecTest do
              {:error, :invalid_coop_worker_job}
   end
 
+  test "a review job freezes its peer instructions and requires a read-only recipe" do
+    fixture =
+      "testdata/protocol/coop-job-preset-v1.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    %{"job" => job, "digest" => digest} = fixture
+    assert {:ok, ^digest} = JobSpec.digest(job)
+    [role] = job["preset"]["roles"]
+
+    change = fn field, value ->
+      put_in(job, ["preset", "roles"], [Map.put(role, field, value)])
+    end
+
+    assert {:ok, updated} = JobSpec.digest(change.("prompt", "Review the changed behavior."))
+    refute digest == updated
+    assert {:ok, ^digest} = JobSpec.digest(job)
+
+    for invalid <- [
+          change.("mode", "delegate"),
+          change.("mode", "native"),
+          change.("prompt_path", "roles/reader.md"),
+          change.("targets", ["claude:opus"]),
+          change.("targets", ["claude@first", "claude@second"]),
+          change.("targets", ["codex@someone-else"]),
+          put_in(job, ["preset", "roles"], [role, role]),
+          put_in(job, ["preset", "version"], 2),
+          Map.put(job, "preset", nil)
+        ] do
+      assert JobSpec.digest(invalid) == {:error, :invalid_coop_worker_job}
+    end
+
+    writable = Map.put(change.("mode", "delegate"), "repository_read_only", false)
+    assert JobSpec.validate(writable) == :ok
+  end
+
   test "runtime authority has canonical repository paths and an exact versioned shape" do
     job = Map.put(valid_job(), "repository_read_only", false)
     runtime = %{"version" => 1, "dockerfile" => "", "compose" => "", "environment" => %{}}
