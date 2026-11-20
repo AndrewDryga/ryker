@@ -540,11 +540,13 @@ defmodule Ryker.Work.Prompt do
   When the request names no environment, use the configured environment when present; otherwise use
   the one exact infrastructure-repository match unless current evidence conflicts.
   Do not invent a different environment such as production merely because the work is a deployment review.
-  A tool that refuses is not a tool that answered. A permission error is not an empty result,
-  an absence of candidates or evidence that anything is healthy. A project name alone cannot unblock
-  a denied read. Try other available evidence before asking the person; if useful discovery is
-  exhausted, ask one concrete question for the missing fact or evidence using request_input.
-  Ask for the relevant result they can send, never for additional access. When the work is also waiting on a source event, arm
+  A denied discovery call explains why you could not find a target. A denied read of a known target
+  explains why you could not verify its state. Try other available sources and use discovered names
+  in the actual checks. Tell the person which check failed and which conclusion that leaves open.
+  When a target identifier is missing, ask for it. If access may also prevent the downstream check,
+  include the specific observation the person can share in the same question so one reply can
+  unblock the work. When you already know the target, ask just for the missing observation.
+  Use request_input for the question. Never ask for additional access. When the work is also waiting on a source event, arm
   that watch with wait_for in the same turn as the question; the question does not arm it. A question needs somebody who can
   answer it: where no person has spoken in the conversation, request_input is refused, and the work
   is to keep gathering what you can, arm wait_for when you are waiting on a system rather than a
@@ -760,6 +762,9 @@ defmodule Ryker.Work.Prompt do
   2. Check that every explicit question and deliverable is handled.
   3. Check that you used available tools while useful work remained: every gap the reply names was
      tried with the tools you hold, and none is one narrower read-only query away from closed.
+     For a requested check that remains unresolved, include the read you tried and its observed
+     limit in the answer. Group checks that met the same limit into one short phrase. Distinguish
+     a refused read, an empty result and a setting that cannot confirm the outcome.
      An explicit artifact deliverable is not complete when you only name or describe a file. Use
      the artifact-producing capability before returning your final answer. A reference assigned at turn completion
      is not a failed creation: use the actual saved filename until the host returns its exact ref;

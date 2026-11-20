@@ -193,7 +193,10 @@ defmodule Ryker.Work.PromptTest do
              "Do not ask people to grant access, connect an integration or change permissions"
 
     assert instructions =~ "the smallest specific piece of evidence"
-    assert instructions =~ "A permission error is not an empty result"
+
+    assert instructions =~
+             "A denied read of a known target explains why you could not verify its state"
+
     refute instructions =~ "ask the person who asked to grant it"
     refute instructions =~ "ask for the access as well as the identifier"
     refute instructions =~ "connect it or paste the diff"
@@ -239,12 +242,14 @@ defmodule Ryker.Work.PromptTest do
 
     # The judge rejected a delivery that read a permission_denied from
     # gcp.projects.list as "no projects" and asked only for a project name —
-    # which the next turn would refuse identically, for the same reason.
-    assert instructions =~ "A tool that refuses is not a tool that answered"
-    assert instructions =~ "A project name alone cannot unblock a denied read"
+    # leaving the actual check and any shareable result unspecified.
+    assert instructions =~ "A denied discovery call explains why you could not find a target"
 
     assert instructions =~
-             "ask one concrete question for the missing fact or evidence"
+             "When you already know the target, ask just for the missing observation"
+
+    assert instructions =~
+             "include the specific observation the person can share in the same question"
 
     assert instructions =~ "arm that watch with wait_for in the same turn as the question"
     # The judge rejected a delivery that answered about "the requested revision"
