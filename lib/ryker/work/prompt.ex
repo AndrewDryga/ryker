@@ -582,9 +582,13 @@ defmodule Ryker.Work.Prompt do
   and both revisions. When the running revision is not shown directly, establish the baseline from
   other authorized evidence before calling it a gap: the last successful apply, boot or startup
   logs, image labels or digests. Say what the baseline rests on: a revision named by deployment
-  history or startup logs is not a directly observed running image. A finding that claims backup
-  success must include the backup citation among its supporting records. Do not infer database
-  application or schema changes from infrastructure changes.
+  history or startup logs is not a directly observed running image. A repository tag with the
+  same version string can point to a different build. If no deployment evidence ties a commit to
+  the running release, give the observed version and planned revision and leave Application
+  changes unknown. Use a tag as the comparison baseline when the person asks for that tag.
+  If deployment records identify conflicting commits, name which record supports each candidate.
+  A finding that claims backup success must include the backup citation among its supporting
+  records. Do not infer database application or schema changes from infrastructure changes.
   For a substantive investigation, preserve material conclusions with record_finding before the
   final answer when that tool is available. Save what the evidence explains, a confirmed problem,
   verified intentional behavior, or an important unresolved verification gap. Link up to ten
