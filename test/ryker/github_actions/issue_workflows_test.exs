@@ -1065,6 +1065,50 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
       ]
     }
 
+  # Two issue reports each received a useful triage comment and then a second
+  # acknowledgement that merely linked to the comment Ryker had just saved.
+  test "the saved issue result accounts for exactly its own reply", %{
+    access: access,
+    issue: issue
+  } do
+    enable_triage!(false)
+    access = %{access | settings: Settings.fetch!()}
+    {source, _request} = triaging!(access, issue)
+    binding = source.binding
+    reference = source.arguments["source_event_ref"]
+    assert accepted_delivery(binding) == :reply
+
+    assert {:ok, _} =
+             IssueWorkflows.save_triage(
+               binding,
+               reference,
+               recorded_triage()["triage"] |> Map.delete("instruction_ref")
+             )
+
+    assert accepted_delivery(binding) == :none
+
+    turn =
+      update_in(binding.turn.submission["context"]["inputs"]["items"], fn [item] ->
+        [item, %{"current" => true, "actor_ref" => "github:user:7"}]
+      end)
+
+    assert accepted_delivery(turn) == :reply
+  end
+
+  defp accepted_delivery(binding) do
+    candidate = recorded_triage()["candidate"] |> Jason.encode!()
+
+    context = Ryker.Work.ValidationContext.build(binding.episode, binding.turn)
+    assert {:accept, accepted} = Ryker.Work.Validator.validate(candidate, context, Repo.now!())
+    accepted.result.delivery
+  end
+
+  defp recorded_triage do
+    "testdata/github/issue-triage-duplicate-acknowledgement.json"
+    |> File.read!()
+    |> Jason.decode!()
+  end
+
   defp planning!(access, issue) do
     expected = IssueWorkflows.view(access, issue).expected
 

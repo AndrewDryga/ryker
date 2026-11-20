@@ -13,6 +13,7 @@ defmodule Ryker.Work.ValidationContext do
   alias Ryker.Artifacts
   alias Ryker.Delivery
   alias Ryker.Episodes
+  alias Ryker.GitHubActions
   alias Ryker.Records
   alias Ryker.Work
   alias Ryker.Work.{Custody, Turn}
@@ -20,7 +21,11 @@ defmodule Ryker.Work.ValidationContext do
   @doc "The context for `turn` of `episode`, before any artifact or workspace is known."
   @spec build(Episodes.Episode.t(), Turn.t()) :: %{String.t() => term()}
   def build(%Episodes.Episode{} = episode, %Turn{} = turn) do
+    saved_issue_reply =
+      GitHubActions.IssueInstructions.saved_reply?(%{episode: episode, turn: turn})
+
     %{
+      "saved_issue_reply" => saved_issue_reply,
       "artifact_delivery_supported" => Artifacts.Outputs.delivery_supported?(episode),
       "artifact_metadata" => [],
       "artifact_refs" => [],
@@ -34,7 +39,8 @@ defmodule Ryker.Work.ValidationContext do
         ),
       "slack_mentions" => Custody.Delivery.answer_mentions(episode, turn),
       "visible_reply_required" =>
-        episode.execution_mode == :live and reply_required?(submission_context(turn)),
+        episode.execution_mode == :live and not saved_issue_reply and
+          reply_required?(submission_context(turn)),
       "workspace" => nil
     }
   end

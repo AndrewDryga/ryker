@@ -4,6 +4,31 @@ defmodule Ryker.Work.ValidatorTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # Triage owns one GitHub result. Citing an ordinary evidence record must
+  # not add another acknowledgement, while offers still need their controls.
+  test "a saved issue result keeps evidence without repeating its acknowledgement" do
+    recorded =
+      File.read!("testdata/github/issue-triage-duplicate-acknowledgement.json") |> Jason.decode!()
+
+    candidate =
+      put_in(recorded["candidate"]["outcome"]["record_refs"], ["record:evidence:1"])["candidate"]
+      |> Jason.encode!()
+
+    for {kind, delivery} <- [
+          {"evidence", :none},
+          {"finding", :none},
+          {"guidance_offer", :reply},
+          {"task_offer", :reply}
+        ] do
+      context =
+        context(records: %{"record:evidence:1" => record(kind)})
+        |> Map.put("saved_issue_reply", true)
+
+      assert {:accept, accepted} = Validator.validate(candidate, context, @now)
+      assert accepted.result.delivery == delivery
+    end
+  end
+
   test "a complete reply accepts only existing records and artifacts without policing its prose" do
     candidate =
       candidate(

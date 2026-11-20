@@ -1,0 +1,42 @@
+{
+  "provenance": {
+    "kind": "harvested",
+    "captured_at": "2026-11-20T01:37:00Z",
+    "pseudonymized": [
+      "repository",
+      "source_commit",
+      "source_event_id"
+    ]
+  },
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "I saved the triage and asked for one detail in [issue #5](https://github.com/example/inventory/issues/5).",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": [],
+      "state": "complete"
+    },
+    "title": "Triage inventory issue #5"
+  },
+  "triage": {
+    "instruction_ref": "00000000-0000-4000-8000-000000000001",
+    "labels": [
+      "question"
+    ],
+    "plan": null,
+    "related": [
+      {
+        "evidence": "The reporter says filtering correctly shows Pears and asks for a count of visible rows. Issue #5 does not describe a filter or count symptom.",
+        "number": 3,
+        "relation": "related"
+      },
+      {
+        "evidence": "This asks for a CSV download from the Inventory page. Issue #5 does not mention downloading.",
+        "number": 1,
+        "relation": "related"
+      }
+    ],
+    "summary": "I couldn’t tell what failed from the report. The [Inventory page code](https://github.com/example/inventory/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/index.html) renders items on load and updates them as you type. The filter unit test passed. [#3](https://github.com/example/inventory/issues/3) asks for a visible item count, and [#1](https://github.com/example/inventory/issues/1) asks for CSV export. The search didn’t confirm a duplicate.\n\nWhat did you see when you opened Inventory, such as a blank list, an error message, or something else?"
+  }
+}

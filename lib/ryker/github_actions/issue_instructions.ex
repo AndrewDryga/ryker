@@ -19,6 +19,26 @@ defmodule Ryker.GitHubActions.IssueInstructions do
     end)
   end
 
+  @doc "Whether the issue workflow owns the visible reply for this turn's sole current input."
+  def saved_reply?(%{episode: %{destination_transport: "github"}} = binding) do
+    with [input] <- Records.TaskInstruction.current_inputs(binding),
+         %{"event_name" => "ryker_action", "payload" => %{"action" => action}}
+         when action in ["make_plan", "triage_issue"] <-
+           get_in(input, ["content", "content"]),
+         {:ok, {entry, _event}} <-
+           Records.TaskInstruction.fetch_source(binding, input["source_event_id"]),
+         {:ok, request} <- Repo.fetch(IssueRequest.Query.by_entry_id(entry.id)) do
+      {request.kind, request.outcome["status"]} in [
+        {:make_plan, "plan_ready"},
+        {:triage_issue, "triage_ready"}
+      ]
+    else
+      _ -> false
+    end
+  end
+
+  def saved_reply?(_binding), do: false
+
   def task_allowed(binding) do
     if read_only?(binding), do: {:error, :planning_is_read_only}, else: :ok
   end

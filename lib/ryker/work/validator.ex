@@ -15,7 +15,7 @@ defmodule Ryker.Work.Validator do
   alias Ryker.Work
   alias Ryker.Work.{Final, Result}
 
-  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode guidance_requirements open_required_goals records slack_mentions visible_reply_required workspace)
+  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode guidance_requirements open_required_goals records saved_issue_reply slack_mentions visible_reply_required workspace)
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @artifact_filename ~r/\b[\p{L}\p{N}][\p{L}\p{N}_.() -]*\.(?:png|jpe?g|gif|webp|svg|pdf|csv|xlsx?|docx?|pptx?|zip)\b/iu
   @artifact_action ~r/(?:\A|[.!?]\s+)(?:I(?:'ve| have)?|we(?:'ve| have)?|Ryker has)?\s*(?:attached|created|exported|generated|made|produced|rendered|saved)\b/iu
@@ -634,7 +634,26 @@ defmodule Ryker.Work.Validator do
     |> Enum.sort_by(&{continuation_kind(&1.continuation) != :input, &1.ref})
   end
 
-  defp accept(final, context, now) do
+  defp accept(
+         %{state: :complete, delivery: :reply, artifact_refs: []} = final,
+         %{saved_issue_reply: true} = context,
+         now
+       ) do
+    if Enum.all?(
+         final.record_refs,
+         &(context.records[&1].kind in ~w(evidence coverage finding progress source_citation alert_assessment guidance_result goal goal_state))
+       ) do
+      with {:ok, result} <-
+             Result.new(:none, nil, "The saved issue result is delivered in its GitHub comment."),
+           do: {:accept, %{final: final, result: result}}
+    else
+      accept_result(final, context, now)
+    end
+  end
+
+  defp accept(final, context, now), do: accept_result(final, context, now)
+
+  defp accept_result(final, context, now) do
     continuation = accepted_continuation(final, context, now)
 
     result =
@@ -673,9 +692,12 @@ defmodule Ryker.Work.Validator do
   end
 
   defp prepare_context(%{} = context) do
+    context = Map.put_new(context, "saved_issue_reply", false)
+
     with :ok <- exact_context_fields(context),
          true <- is_boolean(context["artifact_delivery_supported"]),
          true <- is_boolean(context["visible_reply_required"]),
+         true <- is_boolean(context["saved_issue_reply"]),
          {:ok, execution_mode} <- execution_mode(context["execution_mode"]),
          {:ok, artifacts} <- prepare_artifacts(context["artifact_refs"]),
          {:ok, artifact_metadata} <-
@@ -694,6 +716,7 @@ defmodule Ryker.Work.Validator do
          guidance_requirements: context["guidance_requirements"],
          open_required_goals: goals,
          records: records,
+         saved_issue_reply: context["saved_issue_reply"],
          slack_mentions: context["slack_mentions"],
          visible_reply_required: context["visible_reply_required"],
          workspace: workspace
