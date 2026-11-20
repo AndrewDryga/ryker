@@ -1,0 +1,26 @@
+{
+  "provenance": {
+    "kind": "harvested",
+    "captured_at": "2026-11-20T02:51:16.233760Z",
+    "pseudonymized": [
+      "repository_id",
+      "head_ref",
+      "head_commit",
+      "thread_id",
+      "published_commit"
+    ]
+  },
+  "observation": {
+    "base_ref": "main",
+    "base_repository_id": 17,
+    "head_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "head_ref": "human/fix",
+    "head_repository_id": 17,
+    "pull_request_state": "open",
+    "state": "unverified_after_push"
+  },
+  "request": {
+    "thread_id": "thread-one",
+    "verification": "Published bbbbbbb converts each quantity with Number before summing. The PR includes a strict regression test for numeric total 6 and mean 3 from 2 and \"4\", and the required publication test gate passed."
+  }
+}

@@ -132,6 +132,51 @@ defmodule Ryker.GitHub.ReviewFixesTest do
     refute_received :thread_checked
   end
 
+  # The selected fixes were published and checked, but GitHub briefly returned
+  # the old PR head. Four later resolution calls could never clear that receipt.
+  test "an old push observation is rechecked against the current published head", %{
+    binding: binding,
+    publication: publication,
+    configured: configured
+  } do
+    fixture =
+      File.read!("testdata/github/review-resolution-after-push-observation.json")
+      |> Jason.decode!()
+
+    receipt =
+      Map.put(publication.publication_receipt, "target_observation", fixture["observation"])
+
+    publication
+    |> change(
+      publication_receipt: receipt,
+      publication_receipt_fingerprint: Ryker.Publication.Receipt.fingerprint(receipt)
+    )
+    |> Repo.update!()
+
+    assert {:ok, %{"status" => "resolved"}} =
+             ReviewFixes.resolve(binding, fixture["request"], configured)
+
+    assert_received :permission_checked
+    assert_received :thread_checked
+    assert_received :thread_checked
+
+    Process.put(
+      :current_thread,
+      put_in(
+        Process.get(:current_thread),
+        ["pullRequest", "headRefOid"],
+        String.duplicate("f", 40)
+      )
+    )
+
+    assert ReviewFixes.resolve(binding, fixture["request"], configured) ==
+             {:error, :review_changed}
+
+    assert_received :permission_checked
+    assert_received :thread_checked
+    refute_received :thread_checked
+  end
+
   test "an unpublished or unverified candidate never touches review threads", %{
     binding: binding,
     publication: publication,
@@ -152,12 +197,6 @@ defmodule Ryker.GitHub.ReviewFixesTest do
           [
             review_document:
               Map.put(publication.review_document, "parent_head", String.duplicate("f", 40))
-          ],
-          [
-            publication_receipt:
-              Map.put(publication.publication_receipt, "target_observation", %{
-                "state" => "changed_after_push"
-              })
           ]
         ] do
       changed = publication |> change(attributes) |> Repo.update!()

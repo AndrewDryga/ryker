@@ -18,7 +18,6 @@ defmodule Ryker.GitHub.ReviewFixes do
          {:ok, publication} <- published(binding.session.id),
          true <- publication.review_document["parent_head"] == target["head_commit"],
          true <- publication.review_document["gate"] == "passed",
-         true <- is_nil(publication.publication_receipt["target_observation"]),
          :ok <- current_access(target, configured),
          {:ok, receipt} <-
            GitHub.Client.ReviewThreads.resolve(
