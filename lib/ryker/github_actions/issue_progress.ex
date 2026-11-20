@@ -5,6 +5,23 @@ defmodule Ryker.GitHubActions.IssueProgress do
   alias Ryker.Records
   alias Ryker.Repo
 
+  @doc "The accepted implementation for a plan, including plans started by earlier releases."
+  def fetch_implementation(workflow_id, plan_id) do
+    workflow_id
+    |> IssueRequest.Query.by_workflow_id()
+    |> IssueRequest.Query.plan_implementation(plan_id)
+    |> Repo.fetch()
+  end
+
+  def displayed_request(%IssueRequest{kind: :implement_plan} = request) do
+    case fetch_implementation(request.workflow_id, request.plan_id) do
+      {:ok, original} -> original
+      {:error, :not_found} -> request
+    end
+  end
+
+  def displayed_request(request), do: request
+
   def read(nil), do: %{"status" => "ready"}
   def read(%IssueRequest{outcome: %{} = outcome}), do: outcome
 

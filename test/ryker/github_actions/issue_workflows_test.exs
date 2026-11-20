@@ -241,7 +241,12 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
     {:ok, %{request: first}} =
       IssueWorkflows.start(access, issue, :implement_plan, first_page.expected)
 
-    outcome = %{"status" => "published", "terminal" => true, "url" => issue["url"] <> "/pull/8"}
+    outcome = %{
+      "status" => "pull_request_ready",
+      "terminal" => true,
+      "url" => "https://github.com/acme/widget/pull/8"
+    }
+
     Repo.update!(IssueRequest.Changeset.finish(first, outcome, Repo.now!()))
 
     refreshed = IssueWorkflows.view(access, issue)
@@ -254,6 +259,37 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
     assert duplicate.id == first.id
     assert duplicate.outcome == outcome
     assert IssueWorkflows.view(access, issue).progress == outcome
+
+    # A previous release accepted the refreshed page again. Both the issue
+    # comment and action page must link to the original PR. Keep both receipts.
+    historical =
+      first
+      |> Map.from_struct()
+      |> Map.merge(%{
+        request_key: String.duplicate("c", 64),
+        entry_id: Ecto.UUID.generate(),
+        inserted_at: DateTime.add(first.inserted_at, 1)
+      })
+      |> IssueRequest.Changeset.insert()
+      |> Repo.insert!()
+
+    other_outcome = %{outcome | "url" => "https://github.com/acme/widget/pull/14"}
+    Repo.update!(IssueRequest.Changeset.finish(historical, other_outcome, Repo.now!()))
+
+    refreshed.workflow
+    |> IssueWorkflow.Changeset.update(%{
+      current_request_id: historical.id,
+      next_attempt_at: Repo.now!()
+    })
+    |> Repo.update!()
+
+    assert IssueWorkflows.view(access, issue).progress == outcome
+    {:ok, claimed} = GitHubActions.IssueMessages.claim_next(["widget-app"])
+    {:ok, projected} = GitHubActions.IssueMessages.request(claimed, "https://ryker.example")
+    assert projected.progress == outcome
+    assert projected.request.document["message"] =~ "acme/widget/pull/8"
+    refute projected.request.document["message"] =~ "acme/widget/pull/14"
+    assert Repo.get!(IssueRequest, historical.id).outcome == other_outcome
   end
 
   test "a completed direct build is reused after the issue gains a progress comment",

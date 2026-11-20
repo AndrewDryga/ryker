@@ -78,7 +78,8 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
         []
       end
 
-    request = current_request(workflow.current_request_id)
+    request =
+      workflow.current_request_id |> current_request() |> IssueProgress.displayed_request()
 
     progress = IssueProgress.read(request)
 
@@ -92,7 +93,7 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
       progress_text: IssueMessages.status(progress),
       history_before: if(length(plans) == 10, do: List.last(plans).revision),
       plan: plan,
-      implementation: implementation(workflow, plan),
+      implementation: implementation(workflow, plan, request, progress),
       expected: %{
         "revision" => workflow.revision,
         "plan_id" => workflow.current_plan_id,
@@ -102,17 +103,15 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
     }
   end
 
-  defp implementation(_workflow, nil), do: nil
+  defp implementation(_workflow, nil, _request, _progress), do: nil
 
-  defp implementation(workflow, plan) do
-    query =
-      workflow.id
-      |> IssueRequest.Query.by_workflow_id()
-      |> IssueRequest.Query.plan_implementation(plan.id)
+  defp implementation(_workflow, %{id: id}, %{kind: :implement_plan, plan_id: id}, progress),
+    do: progress
 
-    case Repo.peek(query) do
-      nil -> nil
-      request -> IssueProgress.read(request)
+  defp implementation(workflow, plan, _request, _progress) do
+    case IssueProgress.fetch_implementation(workflow.id, plan.id) do
+      {:ok, request} -> IssueProgress.read(request)
+      {:error, :not_found} -> nil
     end
   end
 

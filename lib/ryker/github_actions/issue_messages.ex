@@ -33,7 +33,13 @@ defmodule Ryker.GitHubActions.IssueMessages do
     Repo.transaction(fn ->
       workflow = fetch_and_lock_claim!(claimed)
       authorize!(workflow)
-      request = fetch_request(workflow.current_request_id) |> IssueProgress.refresh()
+
+      request =
+        workflow.current_request_id
+        |> fetch_request()
+        |> IssueProgress.displayed_request()
+        |> IssueProgress.refresh()
+
       plan = IssueWorkflows.current_plan(workflow.current_plan_id)
       progress = IssueProgress.read(request)
 
