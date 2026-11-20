@@ -147,7 +147,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       items:
         Enum.map(
           items,
-          &listed_item(&1, lookup, secrets, %{available: available_ids, counts: source_counts})
+          &listed_item(&1, lookup, secrets, %{
+            available: available_ids,
+            counts: source_counts,
+            selected: selected
+          })
         )
     }
   end
@@ -178,6 +182,12 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       inherited_source_count: count - direct,
       version: row.version
     })
+  end
+
+  defp listed_item(%Continuity.ConversationSummary{} = row, lookup, secrets, %{selected: nil}) do
+    # The directory shows the handover's update time and recall warning. Its
+    # original message times, source links and expiry belong to its own page.
+    Map.merge(base(row, lookup, nil), preview(row, secrets))
   end
 
   defp listed_item(%Continuity.ConversationSummary{} = row, lookup, secrets, _sources) do

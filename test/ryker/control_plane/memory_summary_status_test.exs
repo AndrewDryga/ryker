@@ -52,6 +52,23 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
            plan
   end
 
+  test "the conversation summaries directory does not resolve detail-only message times" do
+    # A populated directory took 37 seconds to connect. Rows show their update
+    # time; resolving the latest source for every row delayed both renders.
+    [entry | _] = LearningFixtures.inputs!()
+    summary = summary!(LearningSources.for_entry(entry))
+
+    {page, statements} =
+      Ryker.QueryWork.statements(fn ->
+        ConversationMemory.project(%{"kind" => "context"})
+      end)
+
+    assert Enum.map(page.items, & &1.id) == [summary.id]
+    refute Enum.any?(statements, &String.contains?(&1.sql, "matched.occurred_at"))
+    [detail] = ConversationMemory.project(%{"kind" => "context", "item" => summary.id}).items
+    assert detail.source_at == entry.occurred_at
+  end
+
   test "the summaries list opens with its search and views, not with help, on a phone" do
     # On the retained replay's 390px page, expanded help consumed the entire
     # first screen before counts, search or a single topic could be reached.
@@ -98,11 +115,12 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   test "the missing-source label is not applied to a summary with a real source receipt" do
     [entry | _] = LearningFixtures.inputs!()
     assert [_] = dependencies = LearningSources.for_entry(entry)
-    summary!(dependencies)
+    summary = summary!(dependencies)
 
     [item] = ConversationMemory.project(%{"kind" => "context"}).items
     assert item.recall_warning == nil
-    assert %DateTime{} = item.expires_at
+    [detail] = ConversationMemory.project(%{"kind" => "context", "item" => summary.id}).items
+    assert %DateTime{} = detail.expires_at
     refute render_summaries() =~ "No complete source history was saved"
   end
 
@@ -117,7 +135,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
       )
     )
 
-    [item] = ConversationMemory.project(%{"kind" => "context"}).items
+    [item] = ConversationMemory.project(%{"kind" => "context", "item" => summary.id}).items
     assert item.source_at == entry.occurred_at
     assert item.changed_at != item.source_at
     html = render_summary(summary.id)

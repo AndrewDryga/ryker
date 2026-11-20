@@ -57,6 +57,15 @@ defmodule Ryker.ControlPlane.CasesPageTest do
   # all from Chat, listed each link as `control-plane-item:<id>`, an internal
   # reference shown to people and a link to nowhere; a Slack case's links were
   # bare message timestamps. A case links to where its messages can be opened.
+  test "a saved case with a source link has one complete clickable title" do
+    # An embedded Slack link ended the outer title anchor early. The rest of
+    # the incident title became an unwrapped text node on 320px screens.
+    case!("Run notification for <https://example.com/project|Example project> · Run Planning")
+    title = cases() |> LazyHTML.query(".entity-name")
+    assert [link] = Enum.to_list(LazyHTML.query(title, "a"))
+    assert LazyHTML.text(link) =~ "Run notification for Example project · Run Planning"
+  end
+
   test "a case links to where its messages can be opened, never to an internal reference" do
     start_supervised!(
       {Ryker.Slack.Names,

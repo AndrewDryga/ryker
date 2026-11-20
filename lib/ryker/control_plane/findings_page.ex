@@ -91,7 +91,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
           :for={item <- @view.items}
           id={"finding-" <> item.id}
           icon={:search}
-          name={MemoryFormat.row_text(item.what)}
+          name={MemoryFormat.row_label(item.what)}
           href={path(item.id)}
           link_row
           state={state(item)}

@@ -73,7 +73,7 @@ defmodule Ryker.ControlPlane.CasesPage do
           :for={item <- @view.items}
           id={"case-" <> item.id}
           icon={:book}
-          name={MemoryFormat.row_text(item.outcome || item.cause || item.problem)}
+          name={MemoryFormat.row_label(item.outcome || item.cause || item.problem)}
           text={
             if (item.outcome || item.cause) && item.problem not in [item.outcome, item.cause],
               do: MemoryFormat.row_text(item.problem)

@@ -94,6 +94,9 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   def row_text(text) when is_binary(text),
     do: text |> Text.shorten_to_word(@row_characters) |> inline()
 
+  @doc "Plain text for a title that already links to its own page."
+  def row_label(text), do: excerpt(text, Ryker.Slack.workspace(), @row_characters)
+
   def inline(nil, _workspace), do: nil
 
   def inline(text, workspace),
