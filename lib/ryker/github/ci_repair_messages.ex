@@ -16,11 +16,20 @@ defmodule Ryker.GitHub.CIRepairMessages do
         "message" =>
           "**Automatic CI repair**\n\n" <>
             status(repair.status) <>
-            "\n\nRepair rounds used: #{repair.rounds} of 2. Add the label `ryker:no-ci-fix` to stop automatic changes. Explicit requests remain available."
+            "\n\nRepair rounds used: #{rounds_used(projected)} of 2. Add the label `ryker:no-ci-fix` to stop automatic changes. Explicit requests remain available."
       },
       frozen_at: repair.inserted_at
     })
   end
+
+  defp rounds_used(%{
+         repair: %{status: "passing", generation: generation},
+         round: %{generation: previous, ordinal: used}
+       })
+       when previous + 1 == generation,
+       do: used
+
+  defp rounds_used(%{repair: repair}), do: repair.rounds
 
   defp status("running"), do: "Reading failed checks and testing a focused fix on this PR."
 

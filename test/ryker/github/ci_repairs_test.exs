@@ -423,6 +423,9 @@ defmodule Ryker.GitHub.CIRepairsTest do
     {:ok, _released} = delivered!(exhausted)
     {:ok, _repair} = CIRepairs.nudge(runtime_binding(), 12, @third)
     passing = evaluate!(put_in(snapshot(@third), ["checks", "state"], "passing"))
+    # The live status said zero rounds immediately after a successful repair.
+    assert {:ok, message} = Ryker.GitHub.CIRepairMessages.request(passing)
+    assert message.document["message"] =~ "Repair rounds used: 2 of 2"
     assert passing.repair.rounds == 0
     assert passing.repair.generation == first.round.generation + 1
     assert Repo.get!(CIRepairRound, first.round.id).outcome["commit"] == @next
