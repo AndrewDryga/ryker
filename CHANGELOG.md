@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Ryker is rebuilt in Elixir. It installs with Docker Compose (`./install.sh`), keeps every queue
   in PostgreSQL, runs model work on Coop workers enrolled over mutual TLS, and has a local web
   console. The 0.1.0 notes below describe the earlier Go release, then named Responder.
+
+- The Linux amd64 controller and Coop VM are available from GitHub Container Registry.
+  Use the pinned image digests in the release’s `container-images.txt` to deploy them.
 
 ## 0.1.0
 
