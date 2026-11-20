@@ -505,7 +505,8 @@ defmodule Ryker.Evals.WorldCase do
   defp observation_profile?(true, %{
          "source" => %{"kind" => "slack"},
          "actor" => %{"kind" => "user"}
-       }), do: true
+       }),
+       do: true
 
   defp observation_profile?(_flag, _profile), do: false
 
