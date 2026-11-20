@@ -25,7 +25,7 @@ defmodule Ryker.Delivery.Dispatcher do
   @type result ::
           {:ok,
            :idle
-           | {:delivered, kind(), String.t()}
+           | {:delivered | :held, kind(), String.t()}
            | {:suppressed, kind(), String.t(), String.t()}
            | {:deferred, kind(), String.t(), term()}
            | {:blocked, kind(), String.t(), term()}}
@@ -167,9 +167,14 @@ defmodule Ryker.Delivery.Dispatcher do
     }
   end
 
-  defp custody(%{action: action, lease_ref: lease_ref}, %{kind: :action} = settings) do
+  defp custody(%{action: action, lease_ref: lease_ref} = claim, %{kind: :action} = settings) do
     %{
       attempt_count: action.attempt_count,
+      before_write:
+        if(is_map(action.thread_receipt),
+          do: fn _ -> PlatformActionCustody.before_slack_write(claim) end
+        ),
+      hold_unstarted: fn -> PlatformActionCustody.hold_unstarted(claim) end,
       kind: :action,
       ref: action.action_ref,
       renew: fn ->
@@ -325,6 +330,10 @@ defmodule Ryker.Delivery.Dispatcher do
     Adapters.publish(request, adapters, before_write)
   catch
     kind, reason -> {:error, {:delivery_publisher_crashed, kind, reason}}
+  end
+
+  defp handle_error(%{kind: :action} = custody, :slack_action_needs_reconsideration, _settings) do
+    with {:ok, _} <- custody.hold_unstarted.(), do: {:ok, {:held, :action, custody.ref}}
   end
 
   defp handle_error(

@@ -591,6 +591,10 @@ defmodule Ryker.Slack.CapabilityTools do
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 
   defp error_code({:invalid_update_mentions, _violations} = reason), do: refusal_code(reason)
+
+  defp error_code(:work_validation_state_changed),
+    do: "thread_changed: Review the updates before requesting this action again."
+
   defp error_code(:update_limit_reached), do: refusal_code(:update_limit_reached)
   defp error_code(:reaction_limit_reached), do: refusal_code(:reaction_limit_reached)
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"

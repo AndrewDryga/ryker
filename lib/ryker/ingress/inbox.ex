@@ -461,6 +461,50 @@ defmodule Ryker.Ingress.Inbox do
   @spec ref(Entry.t()) :: String.t()
   def ref(%Entry{id: id}) when is_binary(id), do: @ref_prefix <> id
 
+  @doc "Resolve the original ingress behind an admitted event, including a reconsidered quick response."
+  def fetch_admitted_source(
+        %{id: id} = episode,
+        %Episodes.Event{
+          episode_id: id,
+          kind: :input_admitted,
+          payload: %{"payload" => %{"source" => %{}, "event_ref" => _} = source}
+        } = event
+      ) do
+    case Repo.fetch(Entry.Query.by_episode_id(id) |> Entry.Query.by_work_source(source)) do
+      {:error, :not_found} -> reconsidered_source(episode, event, source)
+      result -> result
+    end
+  end
+
+  def fetch_admitted_source(_episode, _event), do: {:error, :not_found}
+
+  defp reconsidered_source(%{id: id, execution_mode: :live}, event, source) do
+    with {:ok,
+          %Entry{
+            episode_id: nil,
+            execution_mode: :live,
+            status: :decided,
+            decision_action: action
+          } = entry}
+         when action in [:quick_reply, :react] <-
+           Repo.fetch(Entry.Query.by_id(id) |> Entry.Query.by_work_source(source)),
+         true <-
+           event.dedupe_key != nil and
+             event.payload["actor_ref"] == "slack:user:" <> entry.actor_ref,
+         true <-
+           Repo.exists?(
+             Episodes.Origin.Query.by_episode_id(id)
+             |> Episodes.Origin.Query.by_input_refs([event.dedupe_key])
+             |> Episodes.Origin.Query.by_native_input_id(entry.native_input_id)
+           ) do
+      {:ok, entry}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp reconsidered_source(_episode, _event, _source), do: {:error, :not_found}
+
   defp claim_entry(nil, _worker_ref, _now, _lease_seconds), do: nil
 
   defp claim_entry(entry, worker_ref, now, lease_seconds) do

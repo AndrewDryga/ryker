@@ -95,8 +95,12 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
 
     assert {:ok, {:deferred, _}} = TaskCardWorker.run_once(options(client))
     offer |> Ecto.Changeset.change(status: :dismissed) |> Repo.update!()
-    make_due!(card.id)
-    assert {:ok, {:deferred, _}} = TaskCardWorker.run_once(options(client))
+
+    for _miss <- 1..3 do
+      make_due!(card.id)
+      assert {:ok, {:deferred, _}} = TaskCardWorker.run_once(options(client, max_attempts: 2))
+    end
+
     Agent.update(client, &%{&1 | found: {:ok, "1787832001.000333"}})
     make_due!(card.id)
     assert {:ok, {:updated, _}} = TaskCardWorker.run_once(options(client))

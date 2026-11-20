@@ -13,6 +13,7 @@ defmodule Ryker.StateTools.Router do
   alias Ryker.Episodes
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, Capabilities, LookupContext, Tools, ToolVisibility}
+  alias Ryker.Work
   require Logger
 
   @maximum_body_bytes 1_048_576
@@ -151,7 +152,7 @@ defmodule Ryker.StateTools.Router do
          options
        ) do
     called_at = DateTime.utc_now()
-    answer = answer_tool(name, arguments, options)
+    answer = answer_tool(name, arguments, Map.put(options, :call_id, id))
     CallLog.record(options.binding, name, arguments, answer, called_at)
 
     result =
@@ -233,7 +234,8 @@ defmodule Ryker.StateTools.Router do
   defp call_tool(name, arguments, options) do
     cond do
       Enum.any?(Tools.list(options), &(&1["name"] == name)) ->
-        Tools.call(name, arguments, options)
+        with :ok <- authorize_write(Work.Contract.fixed_tool_allowed?(:shadow, name), options),
+             do: Tools.call(name, arguments, options)
 
       Enum.any?(visible_additional_tools(options), &(&1["name"] == name)) ->
         # Records.token/1 is a public turn locator, not a signing key. Platform
@@ -243,27 +245,38 @@ defmodule Ryker.StateTools.Router do
             do: Map.put(options.binding, :cursor_secret, opened(options.cursor_secret)),
             else: options.binding
 
-        case call_additional(options.additional_call, name, arguments, binding) do
-          {:ok, %{} = result} ->
-            source_tools = Enum.map(visible_additional_tools(options), & &1["name"])
-
-            LookupContext.enrich(
-              name,
-              arguments,
-              binding,
-              result,
-              source_tools
-            )
-
-          {:error, error} when is_binary(error) or is_map(error) ->
-            {:error, error}
-
-          _invalid ->
-            {:error, "invalid_fabricated_tool_response"}
+        with :ok <- authorize_write(Work.Contract.platform_tool_allowed?(:shadow, name), options) do
+          additional_answer(name, arguments, binding, options)
         end
 
       true ->
         call_emisar(name, arguments, options)
+    end
+  end
+
+  defp authorize_write(true, _options), do: :ok
+
+  defp authorize_write(false, options),
+    do: Work.ThreadUpdates.before_tool_write(options.binding, options.call_id)
+
+  defp additional_answer(name, arguments, binding, options) do
+    case call_additional(options.additional_call, name, arguments, binding) do
+      {:ok, %{} = result} ->
+        source_tools = Enum.map(visible_additional_tools(options), & &1["name"])
+
+        LookupContext.enrich(
+          name,
+          arguments,
+          binding,
+          result,
+          source_tools
+        )
+
+      {:error, error} when is_binary(error) or is_map(error) ->
+        {:error, error}
+
+      _invalid ->
+        {:error, "invalid_fabricated_tool_response"}
     end
   end
 
@@ -304,7 +317,8 @@ defmodule Ryker.StateTools.Router do
     with {:ok, pin} <- emisar_pin(options),
          {:ok, catalog} <- Emisar.Tools.catalog(pin),
          %{} = tool <- Enum.find(visible_emisar_tools(catalog, options), &(&1["name"] == name)) do
-      pin |> Emisar.Tools.call(tool, arguments) |> emisar_answer()
+      with :ok <- authorize_write(Emisar.Tools.read_only?(tool), options),
+           do: pin |> Emisar.Tools.call(tool, arguments) |> emisar_answer()
     else
       :no_emisar -> {:error, "unknown_tool"}
       nil -> {:error, "unknown_tool"}

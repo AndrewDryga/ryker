@@ -61,6 +61,16 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
+  @doc "The newest human thread revision outside the sources already shown to the router."
+  def unseen_routing_update(opening) do
+    covered = Enum.map((opening.admission_context || %{})["batch_inputs"] || [], & &1["id"])
+
+    opening
+    |> thread_updates(1)
+    |> where([ingress_inbox_entries: e], e.id not in ^covered)
+    |> select([ingress_inbox_entries: e], e.id)
+  end
+
   @doc "The most recently received message in the exact Slack routing lane."
   def last_for_routing_batch(input, mode) do
     from(e in all(),

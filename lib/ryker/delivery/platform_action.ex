@@ -20,7 +20,15 @@ defmodule Ryker.Delivery.PlatformAction do
     field(:source_item_ref, :string)
     field(:document, CanonicalJSON.Type)
     field(:intent_fingerprint, :string)
-    field(:status, Ecto.Enum, values: [:pending, :blocked, :delivered], default: :pending)
+
+    field(:status, Ecto.Enum,
+      values: [:pending, :blocked, :delivered, :held, :retired],
+      default: :pending
+    )
+
+    field(:authorization_order, :integer, default: 0)
+    field(:thread_receipt, CanonicalJSON.Type)
+    field(:first_write_started_at, :utc_datetime_usec)
     field(:attempt_count, :integer, default: 0)
     field(:retry_generation, :integer, default: 0)
     field(:lease_ref, :binary_id)

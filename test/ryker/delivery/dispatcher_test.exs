@@ -303,6 +303,126 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert Repo.get!(Inbox.Entry, revision.id).status == :pending
   end
 
+  test "a later human message returns the unsent quick response to one conversational turn" do
+    # The new speaker supplies context. Only the original ask can own the replacement.
+    pending =
+      reaction_pending!("quick-handoff", "eyes", ["I'll check."],
+        work_profile: %{
+          policy: "read-only",
+          policy_digest: String.duplicate("b", 64),
+          repository_ref: "test"
+        }
+      )
+
+    other = record_quick_handoff!(pending)
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+    options = dispatcher_options(:routing, publisher)
+    assert {:ok, {:suppressed, :routing, _, next}} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
+    assert Agent.get(publisher, & &1.calls) == []
+    assert {:ok, claim} = Custody.claim_next("worker:reconsider", 60, :work)
+    assert claim.turn.turn_ref == next
+    assert claim.session.policy == "read-only"
+    assert length(claim.episode.active_input_refs) == 1
+    assert {:ok, briefing} = Ryker.Inspectors.submission(claim)
+    assert [original] = briefing["context"]["inputs"]["items"]
+    assert original["content"]["actor"]["ref"] == "U123"
+    assert [%{"input_id" => update_id}] = briefing["context"]["thread_updates"]
+    assert update_id == other.id
+    assert Repo.get!(Inbox.Entry, other.id).status == :pending
+    assert Repo.get!(Inbox.Entry, pending.input_id).decision_action == :quick_reply
+    assert Custody.claim_next("worker:extra", 60, :work) == {:ok, nil}
+  end
+
+  test "only the original requester can withdraw the quick answer during reconsideration" do
+    pending =
+      reaction_pending!("withdraw-reconsideration", "eyes", ["I'll check."],
+        work_profile: %{
+          policy: "read-only",
+          policy_digest: String.duplicate("b", 64),
+          repository_ref: "test"
+        }
+      )
+
+    bystander = record_quick_handoff!(pending)
+    withdrawal = record_quick_handoff!(pending, "U123", "Do not make that change.", 3)
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+    assert {:ok, {:suppressed, :routing, _, _}} =
+             Dispatcher.run_once(dispatcher_options(:routing, publisher))
+
+    assert {:ok, claim} = Custody.claim_next("worker:withdraw", 60, :work)
+    assert {:ok, prepared} = Ryker.Work.SubmissionBuilder.prepare(claim)
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               prepared.submission,
+               thread_receipt: prepared.thread_receipt
+             )
+
+    assert [item] = prepared.submission["context"]["inputs"]["items"]
+
+    final = %{
+      "delivery" => "none",
+      "decision_reason" => "The requester withdrew this.",
+      "message" => nil,
+      "outcome" => %{"state" => "complete", "artifact_refs" => [], "record_refs" => []},
+      "settled_inputs" => [
+        %{"source_event_id" => item["source_event_id"], "update_id" => withdrawal.id}
+      ]
+    }
+
+    context = Ryker.Work.ValidationContext.build(claim.episode, turn)
+    assert {:accept, _} = Ryker.Work.Validator.validate(Jason.encode!(final), context, @now)
+
+    unauthorized =
+      put_in(final, ["settled_inputs"], [
+        %{"source_event_id" => item["source_event_id"], "update_id" => bystander.id}
+      ])
+
+    assert {:reject, _} =
+             Ryker.Work.Validator.validate(Jason.encode!(unauthorized), context, @now)
+
+    assert {:ok, {original, _}} =
+             Ryker.Records.TaskInstruction.fetch_source(
+               %{turn: turn, episode: claim.episode},
+               item["source_event_id"]
+             )
+
+    assert original.id == pending.input_id
+    assert original.episode_id == nil
+  end
+
+  test "reconsideration carries an already delivered quick reply forward with its receipt" do
+    pending =
+      reaction_pending!("partial-handoff", "eyes", ["I saw it.", "I'll check."],
+        work_profile: %{
+          policy: "read-only",
+          policy_digest: String.duplicate("b", 64),
+          repository_ref: "test"
+        }
+      )
+
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+    options = dispatcher_options(:routing, publisher)
+    assert {:ok, {:delivered, :routing, ref}} = Dispatcher.run_once(options)
+    assert ref == pending.delivery_ref
+    record_quick_handoff!(pending)
+    assert {:ok, {:suppressed, :routing, _, _}} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
+    assert {:ok, claim} = Custody.claim_next("worker:partial", 60, :work)
+    assert {:ok, briefing} = Ryker.Inspectors.submission(claim)
+
+    assert [%{"document" => %{"message" => "I saw it."}, "message_ref" => message_ref}] =
+             briefing["context"]["already_delivered_for_this_input"]
+
+    assert message_ref == Repo.get!(RoutingResponse, pending.id).external_receipt["message_ref"]
+    assert length(Agent.get(publisher, & &1.calls)) == 1
+  end
+
   test "a reaction provider failure releases custody and retries the same immutable intent" do
     pending = reaction_pending!("reaction-retry", "rocket")
 
@@ -335,6 +455,114 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert first == second
     assert first.document == %{"emoji_name" => "rocket"}
     assert first.source_item_ref == "1787832001.000200"
+  end
+
+  test "a received handoff holds both queued Slack updates and reactions before the first write" do
+    pending =
+      reaction_pending!("intermediate-action", "eyes", ["I'll check."],
+        work_profile: %{
+          policy: "read-only",
+          policy_digest: String.duplicate("b", 64),
+          repository_ref: "test"
+        }
+      )
+
+    record_quick_handoff!(pending)
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+    assert {:ok, {:suppressed, :routing, _, _}} =
+             Dispatcher.run_once(dispatcher_options(:routing, publisher))
+
+    assert {:ok, claim} = Custody.claim_next("worker:intermediate", 60, :work)
+    assert {:ok, prepared} = Ryker.Work.SubmissionBuilder.prepare(claim)
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               prepared.submission,
+               thread_receipt: prepared.thread_receipt
+             )
+
+    binding = %{claim | turn: turn}
+
+    target = %{
+      transport: "slack",
+      conversation_ref: "slack:T123:C456",
+      thread_ref: pending.thread_ref
+    }
+
+    reaction =
+      Map.merge(target, %{
+        tool: :set_slack_reaction,
+        kind: :reaction,
+        source_item_ref: pending.source_item_ref,
+        document: %{"action" => "add", "emoji_name" => "eyes"}
+      })
+
+    progress =
+      Map.merge(target, %{
+        tool: :post_slack_update,
+        kind: :message,
+        source_item_ref: nil,
+        document: %{"message" => "I’m looking at the setup."}
+      })
+
+    assert {:ok, %{action: first}} = PlatformActionCustody.enqueue_in_turn(binding, reaction)
+    assert {:ok, %{action: second}} = PlatformActionCustody.enqueue_in_turn(binding, progress)
+    earlier_progress = put_in(progress, [:document, "message"], "First status.")
+
+    assert {:ok, %{action: third}} =
+             PlatformActionCustody.enqueue_in_turn(binding, earlier_progress)
+
+    record_quick_handoff!(pending, "U123", "I have the setup covered.", 3)
+
+    for _action <- [first, second, third] do
+      assert {:ok, {:held, :action, _}} =
+               Dispatcher.run_once(dispatcher_options(:action, publisher))
+    end
+
+    assert Dispatcher.run_once(dispatcher_options(:action, publisher)) == {:ok, :idle}
+    assert Agent.get(publisher, & &1.calls) == []
+
+    for action <- [first, second, third] do
+      assert %{status: :held, external_receipt: nil} = Repo.get!(PlatformAction, action.id)
+    end
+
+    assert PlatformActionCustody.enqueue_in_turn(binding, progress) ==
+             {:error, :work_validation_state_changed}
+
+    # A fresh request reuses the original slot; just reading the new thread cannot release either action.
+    assert {:ok, fresh} = Ryker.Work.SubmissionBuilder.prepare(binding)
+    assert fresh.thread_receipt != prepared.thread_receipt
+
+    Repo.update!(
+      Ryker.Work.Turn.Changeset.expose_thread_updates(turn, %{"receipt" => fresh.thread_receipt})
+    )
+
+    # The later original slot is explicitly requested first after the handoff.
+    assert {:ok, %{action: renewed_third}} =
+             PlatformActionCustody.enqueue_in_turn(binding, earlier_progress)
+
+    assert {:ok, %{action: renewed_second}} =
+             PlatformActionCustody.enqueue_in_turn(binding, progress)
+
+    assert renewed_third.id == third.id
+    assert renewed_second.id == second.id
+    assert third.authorization_order > second.authorization_order
+    assert renewed_third.authorization_order < renewed_second.authorization_order
+
+    assert {:ok, {:delivered, :action, ref}} =
+             Dispatcher.run_once(dispatcher_options(:action, publisher))
+
+    assert ref == third.action_ref
+
+    assert {:ok, {:delivered, :action, ref}} =
+             Dispatcher.run_once(dispatcher_options(:action, publisher))
+
+    assert ref == second.action_ref
+    assert Repo.get!(PlatformAction, first.id).status == :held
   end
 
   test "a model-requested platform action is published from its immutable outbox intent" do
@@ -1281,7 +1509,26 @@ defmodule Ryker.Delivery.DispatcherTest do
   defp cited_refs(record, reaction),
     do: Enum.reject([record && record.ref, reaction && reaction.action_ref], &is_nil/1)
 
-  defp reaction_pending!(suffix, emoji_name, messages \\ nil) do
+  defp record_quick_handoff!(pending, actor \\ "UOTHER", text \\ "I’m doing it rn", offset \\ 2) do
+    {:ok, update} =
+      Input.new(%{
+        actor: %{kind: :user, ref: actor},
+        channel_ref: "C456",
+        content: %{"text" => text},
+        event_kind: :message,
+        event_ref: "Ev-newer-#{offset}",
+        message_ref: "178783200#{offset}.000300",
+        occurred_at: DateTime.add(@now, offset),
+        revision: 1,
+        thread_ref: pending.thread_ref,
+        workspace_ref: "T123"
+      })
+
+    {:ok, %{entry: other}} = Inbox.record(update)
+    other
+  end
+
+  defp reaction_pending!(suffix, emoji_name, messages \\ nil, options \\ []) do
     event_ref = "Ev-#{suffix}"
 
     assert {:ok, input} =
@@ -1298,7 +1545,7 @@ defmodule Ryker.Delivery.DispatcherTest do
                workspace_ref: "T123"
              })
 
-    assert {:ok, %{entry: entry}} = Inbox.record(input)
+    assert {:ok, %{entry: entry}} = Inbox.record(input, options)
 
     assert {:ok, context} =
              Admission.context(Inbox.ref(entry),

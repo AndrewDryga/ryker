@@ -87,6 +87,14 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
   def by_input_id(queryable \\ all(), input_id),
     do: where(queryable, [delivery_routing_responses: r], r.input_id == ^input_id)
 
+  def unstarted_for(input_id) do
+    from(r in by_input_id(input_id),
+      where: r.status == :pending and is_nil(r.first_write_started_at),
+      order_by: r.position,
+      lock: "FOR UPDATE"
+    )
+  end
+
   def by_input_ids(queryable \\ all(), input_ids),
     do: where(queryable, [delivery_routing_responses: r], r.input_id in ^input_ids)
 

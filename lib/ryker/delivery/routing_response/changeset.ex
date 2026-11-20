@@ -71,11 +71,16 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
 
   def reserve_first_write(response, at), do: change(response, first_write_started_at: at)
 
-  def supersede(response, revision) do
+  def supersede(response, revision), do: withdraw(response, superseding_revision: revision)
+
+  def reconsider(response, input_id, turn_ref),
+    do: withdraw(response, reconsidered_for_input_id: input_id, replacement_turn_ref: turn_ref)
+
+  defp withdraw(response, reason) do
     response
+    |> change(reason)
     |> change(
       status: :superseded,
-      superseding_revision: revision,
       next_attempt_at: nil,
       lease_ref: nil,
       lease_owner: nil,

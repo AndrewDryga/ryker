@@ -57,7 +57,7 @@ defmodule Ryker.Delivery.PlatformAction.Query do
       queryable,
       [platform_actions: a],
       a.turn_id == ^action.turn_id and a.tool == ^action.tool and
-        a.host_slot > ^action.host_slot and a.status != :delivered
+        a.authorization_order > ^action.authorization_order and a.status in [:pending, :blocked]
     )
   end
 
@@ -72,8 +72,8 @@ defmodule Ryker.Delivery.PlatformAction.Query do
         where:
           earlier.turn_id == parent_as(:platform_actions).turn_id and
             earlier.tool == parent_as(:platform_actions).tool and
-            earlier.host_slot < parent_as(:platform_actions).host_slot and
-            earlier.status != :delivered,
+            earlier.authorization_order < parent_as(:platform_actions).authorization_order and
+            earlier.status in [:pending, :blocked],
         select: 1
       )
 

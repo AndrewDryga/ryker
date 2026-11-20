@@ -449,7 +449,9 @@ defmodule Ryker.Slack.ClientTest do
     ts = "1787832001.000200"
     body = %{"channel" => "C123", "type" => "message", "message" => %{"ts" => ts}}
     present = put_in(body["message"]["reactions"], [%{"name" => "eyes", "users" => ["UBOT"]}])
-    {:ok, requester} = FakeRequester.start([slack(body), slack(present)])
+
+    {:ok, requester} =
+      FakeRequester.start([slack(body), slack(present), slack(present), slack(body)])
 
     {:ok, request} =
       Request.new(%{
@@ -473,8 +475,15 @@ defmodule Ryker.Slack.ClientTest do
 
     assert {:ok, receipt} = Publisher.publish_reaction(request, binding, uncertain)
     assert receipt["message_ref"] == ts
+    remove = %{request | document: %{"emoji_name" => "eyes", "action" => "remove"}}
+
+    assert Publisher.publish_reaction(remove, binding, uncertain) ==
+             {:error, :slack_write_awaiting_receipt}
+
+    assert {:ok, removed} = Publisher.publish_reaction(remove, binding, uncertain)
+    assert removed["message_ref"] == ts
     requests = FakeRequester.requests(requester)
-    assert length(requests) == 2
+    assert length(requests) == 4
 
     assert Enum.all?(requests, fn {method, path, _, _} ->
              method == :get and String.starts_with?(path, "/reactions.get?")

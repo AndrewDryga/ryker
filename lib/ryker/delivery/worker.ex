@@ -60,7 +60,7 @@ defmodule Ryker.Delivery.Worker do
       {:ok, {:suppressed, _kind, _delivery_ref, _next_turn_ref}} ->
         0
 
-      {:ok, {:delivered, _kind, _delivery_ref}} ->
+      {:ok, {status, _kind, _delivery_ref}} when status in [:held, :delivered] ->
         0
 
       {:ok, {:deferred, kind, delivery_ref, reason}} ->

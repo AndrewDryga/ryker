@@ -142,10 +142,12 @@ defmodule Ryker.Slack.Publisher do
   end
 
   defp confirm_existing_reaction(api, client, target, document, binding) do
+    expected = Map.get(document, "action", "add") == "add"
+
     with bot when is_binary(bot) <-
            get_in(binding, [:workspaces, target.workspace_ref, :bot_user_ref]),
          true <- function_exported?(api, :reaction_present?, 5),
-         {:ok, true} <-
+         {:ok, ^expected} <-
            api.reaction_present?(
              client,
              target.channel_ref,

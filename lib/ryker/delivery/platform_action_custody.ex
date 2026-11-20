@@ -15,6 +15,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   of each, numbered in the turn (`reaction:1` to `reaction:3`, `update:1` to
   `update:3`). Each is sent only after every earlier one of its kind in the
   turn is delivered, so they arrive in the order the model asked for them.
+  A thread change holds unstarted intents. Explicitly requesting one again
+  keeps its action and host slot and appends it to the newly authorized
+  send order. Merely reading the changed thread leaves it held.
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, Request}
@@ -355,6 +358,12 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp enqueue_in_turn_locked(binding, attributes) do
+    :ok =
+      Episodes.ConversationLock.lock(%{
+        transport: binding.episode.destination_transport,
+        conversation_ref: binding.episode.destination_conversation_ref
+      })
+
     {episode, turn} = peek_and_lock_binding(binding)
 
     case live_binding(episode, turn, binding, Repo.now!()) do
@@ -369,21 +378,135 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       |> PlatformAction.Query.by_turn_id()
       |> PlatformAction.Query.by_tool(attributes.tool)
       |> PlatformAction.Query.ordered_by_host_slot()
+      |> PlatformAction.Query.lock_for_update()
       |> Repo.all()
 
-    case repeated(earlier, attributes) do
-      %PlatformAction{} = same_action ->
-        %{action: same_action, status: :duplicate}
+    order = Enum.reduce(earlier, 0, &max(&1.authorization_order, &2)) + 1
+    same = repeated(earlier, attributes)
+    receipt = if attributes.transport == "slack", do: Work.ThreadUpdates.covered_receipt(turn)
 
-      nil when length(earlier) >= @maximum_per_turn ->
+    cond do
+      previously_attempted?(same) ->
+        %{action: same, status: :duplicate}
+
+      receipt && Work.ThreadUpdates.verify(episode, %{thread_receipt: receipt}) != :ok ->
+        {:refused, :work_validation_state_changed}
+
+      same ->
+        %{action: reauthorize_or_cover(same, receipt, order), status: :duplicate}
+
+      length(earlier) >= @maximum_per_turn ->
         {:refused, limit_reached(attributes.tool)}
 
-      nil ->
+      true ->
         slot = "#{Map.fetch!(@numbered, attributes.tool)}:#{length(earlier) + 1}"
         attributes = %{attributes | host_slot: slot}
         {:ok, request} = request_attributes(attributes)
-        enqueue_for_ids(episode.id, turn.id, attributes, request)
+        result = enqueue_for_ids(episode.id, turn.id, attributes, request)
+
+        %{
+          result
+          | action: write!(PlatformAction.Changeset.cover(result.action, receipt, order), :cover)
+        }
     end
+  end
+
+  defp previously_attempted?(nil), do: false
+
+  defp previously_attempted?(action),
+    do: action.status in [:delivered, :blocked] or action.first_write_started_at != nil
+
+  defp reauthorize_or_cover(%{status: :held} = action, receipt, order),
+    do: write!(PlatformAction.Changeset.reauthorize(action, receipt, order), :reauthorize)
+
+  defp reauthorize_or_cover(%{thread_receipt: receipt} = action, receipt, _order), do: action
+
+  defp reauthorize_or_cover(action, receipt, order),
+    do: write!(PlatformAction.Changeset.cover(action, receipt, order), :cover)
+
+  @doc "Reserve a numbered Slack action against the revisions its requesting tool actually knew."
+  def before_slack_write(%{action: claimed, lease_ref: lease}) do
+    result =
+      Repo.transaction(fn ->
+        :ok =
+          Episodes.ConversationLock.lock(%{
+            transport: claimed.transport,
+            conversation_ref: claimed.conversation_ref
+          })
+
+        with {:ok, action} <- leased_action(claimed.action_ref, lease, Repo.now!()),
+             {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(action.episode_id)) do
+          reserve_action(
+            action,
+            Work.ThreadUpdates.verify(episode, %{thread_receipt: action.thread_receipt})
+          )
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    case result do
+      {:ok, :reserved} -> {:reserved, fn -> release_action_reservation(claimed, lease) end}
+      {:ok, :stale} -> {:error, :slack_action_needs_reconsideration}
+      {:ok, :ok} -> :ok
+      error -> error
+    end
+  end
+
+  defp reserve_action(%{first_write_started_at: nil} = action, :ok) do
+    write!(PlatformAction.Changeset.reserve(action, Repo.now!()), :reserve)
+    :reserved
+  end
+
+  defp reserve_action(_action, :ok), do: :ok
+
+  defp reserve_action(%{first_write_started_at: nil}, {:error, :work_validation_state_changed}),
+    do: :stale
+
+  defp reserve_action(_attempted, {:error, :work_validation_state_changed}),
+    do: Repo.rollback(:slack_write_awaiting_receipt)
+
+  defp release_action_reservation(action, lease) do
+    case mutate_claim(action.action_ref, lease, fn current, _now ->
+           write!(PlatformAction.Changeset.reserve(current, nil), :release)
+         end) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  @doc "Hold a definitely unstarted interim action for the owning Work session."
+  def hold_unstarted(%{action: claimed, lease_ref: lease}) do
+    Repo.transaction(fn ->
+      :ok =
+        Episodes.ConversationLock.lock(%{
+          transport: claimed.transport,
+          conversation_ref: claimed.conversation_ref
+        })
+
+      with {:ok, action} <- leased_action(claimed.action_ref, lease, Repo.now!()),
+           nil <- action.first_write_started_at,
+           {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(action.episode_id)),
+           {:error, :work_validation_state_changed} <-
+             Work.ThreadUpdates.verify(episode, %{thread_receipt: action.thread_receipt}) do
+        write!(PlatformAction.Changeset.hold(action), :hold)
+      else
+        {:error, reason} -> Repo.rollback(reason)
+        _ -> Repo.rollback(:slack_write_recheck)
+      end
+    end)
+  end
+
+  @doc "An accepted answer replaces its own unstarted interim updates that Work did not reauthorize."
+  def retire_held_in_transaction(turn_id) do
+    turn_id
+    |> PlatformAction.Query.by_turn_id()
+    |> PlatformAction.Query.by_status(:held)
+    |> PlatformAction.Query.lock_for_update()
+    |> Repo.all()
+    |> Enum.each(&write!(PlatformAction.Changeset.retire(&1), :retire))
+
+    :ok
   end
 
   # The same call again: the latest action on the same subject, the same emoji

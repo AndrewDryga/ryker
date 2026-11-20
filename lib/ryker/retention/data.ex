@@ -1048,7 +1048,7 @@ defmodule Ryker.Retention.Data do
     )
     AND NOT EXISTS (
       SELECT 1 FROM platform_actions action
-      WHERE action.episode_id = episode.id AND action.status <> 'delivered'
+      WHERE action.episode_id = episode.id AND action.status NOT IN ('delivered', 'retired')
     )
     AND NOT EXISTS (
       SELECT 1 FROM episode_kernel_episodes child
@@ -1077,7 +1077,7 @@ defmodule Ryker.Retention.Data do
     {"episode_state_record_responses",
      "record_id IN (SELECT id FROM episode_state_records WHERE episode_id IN #{@episode_ids})"},
     {"episode_event_subscriptions", "episode_id IN #{@episode_ids} AND status <> 'active'"},
-    {"platform_actions", "episode_id IN #{@episode_ids} AND status = 'delivered'"},
+    {"platform_actions", "episode_id IN #{@episode_ids} AND status IN ('delivered', 'retired')"},
     {"episode_work_activity", "episode_id IN #{@episode_ids}"},
     {"coop_session_evidence", "episode_id IN #{@episode_ids}"},
     {"episode_state_records",
@@ -1250,7 +1250,7 @@ defmodule Ryker.Retention.Data do
     )
     AND NOT EXISTS (
       SELECT 1 FROM platform_actions action
-      WHERE action.episode_id = episode.id AND action.status <> 'delivered'
+      WHERE action.episode_id = episode.id AND action.status NOT IN ('delivered', 'retired')
     )
   ORDER BY episode.updated_at, episode.id
   LIMIT 10
@@ -1268,7 +1268,7 @@ defmodule Ryker.Retention.Data do
     {"delivery_routing_responses",
      "input_id IN #{@episode_inputs} AND status IN ('delivered', 'superseded')"},
     {"ingress_inbox_entries", "episode_id IN #{@episode_ids}"},
-    {"platform_actions", "episode_id IN #{@episode_ids} AND status = 'delivered'"},
+    {"platform_actions", "episode_id IN #{@episode_ids} AND status IN ('delivered', 'retired')"},
     {"episode_work_turns", "episode_id IN #{@episode_ids} AND status = ANY($2)",
      [@terminal_turn_states]},
     {"episode_work_sessions", "episode_id IN #{@episode_ids} AND cleanup_status = 'discarded'"},

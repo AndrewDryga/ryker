@@ -39,6 +39,15 @@ defmodule Ryker.Slack.TaskCard.Query do
   def by_record_id(queryable \\ all(), id),
     do: where(queryable, [slack_task_cards: c], c.record_id == ^id)
 
+  def blocked_awaiting_first_receipt(record_id) do
+    from(card in by_record_id(record_id),
+      where:
+        card.status == :blocked and is_nil(card.message_ref) and
+          not is_nil(card.first_write_started_at),
+      where: card.last_error_code in ["delivery_uncertain", "slack_task_card_awaiting_receipt"]
+    )
+  end
+
   @doc "The task's channel-root card, including its pending post."
   def root_for_episode(episode_id, workspace, channel) do
     from(card in all(),

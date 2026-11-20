@@ -53,6 +53,15 @@ defmodule Ryker.Slack.TaskCards do
     :ok
   end
 
+  @doc "Wake receipt reconciliation if a withdrawn offer had exhausted its first-post checks."
+  def check_withdrawn_offer(record_id) do
+    Repo.update_all(TaskCard.Query.blocked_awaiting_first_receipt(record_id),
+      set: [status: :active, attempt_count: 0, last_error_code: nil, last_error_detail: nil]
+    )
+
+    check_offer_soon(record_id)
+  end
+
   @doc "Links an offer's existing message to its confirmed task inside the confirmation transaction."
   @spec confirm_offer(Records.Record.t()) :: :ok | {:error, :invalid_task_card_record}
   def confirm_offer(
@@ -254,14 +263,20 @@ defmodule Ryker.Slack.TaskCards do
   @doc "After reconciliation found no Slack message, retire a withdrawn card before its first post."
   def before_first_post(card_id, lease_ref) do
     mutate_claim(card_id, lease_ref, fn card, now ->
-      cond do
-        card.first_write_started_at ->
-          :await_receipt
-
+      dismissed? =
         Repo.exists?(
           Records.Record.Query.by_id(card.record_id)
           |> Records.Record.Query.by_status(:dismissed)
-        ) ->
+        )
+
+      cond do
+        card.first_write_started_at && dismissed? ->
+          :await_withdrawn_receipt
+
+        card.first_write_started_at ->
+          :await_receipt
+
+        dismissed? ->
           update!(
             card,
             %{

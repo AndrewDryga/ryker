@@ -88,7 +88,7 @@ defmodule Ryker.Work.Validator do
     |> mention_violations(final, context)
     |> visibility_violations(final, context)
     |> question_delivery_violations(final, context)
-    |> platform_action_violations(context)
+    |> platform_action_violations(final, context)
     |> missing_record_violations(final, context)
     |> missing_artifact_violations(final, context)
     |> unselected_artifact_violations(final, context)
@@ -298,11 +298,13 @@ defmodule Ryker.Work.Validator do
   defp timer_wait?(%{kind: "event_wait", wait_mode: :timer}), do: true
   defp timer_wait?(_record), do: false
 
-  defp platform_action_violations(violations, %{records: records}) do
+  defp platform_action_violations(violations, final, %{records: records}) do
     unresolved =
       records
-      |> Enum.filter(fn {_ref, record} ->
-        record.kind == "platform_action" and record.status != :delivered
+      |> Enum.filter(fn {ref, record} ->
+        record.kind == "platform_action" and
+          (record.status in [:pending, :blocked] or
+             (record.status in [:held, :retired] and ref in final.record_refs))
       end)
       |> Enum.map(fn {ref, record} -> "#{ref} (#{record.status})" end)
 
@@ -992,6 +994,8 @@ defmodule Ryker.Work.Validator do
   defp prepare_current_human_input(_input), do: {:error, :current_human_input}
 
   defp platform_action_status("pending"), do: {:ok, :pending}
+  defp platform_action_status("held"), do: {:ok, :held}
+  defp platform_action_status("retired"), do: {:ok, :retired}
   defp platform_action_status("blocked"), do: {:ok, :blocked}
   defp platform_action_status("delivered"), do: {:ok, :delivered}
   defp platform_action_status(_status), do: {:error, :status}

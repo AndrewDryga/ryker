@@ -432,6 +432,24 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       assert [item] = submission["context"]["inputs"]["items"]
       bind_remote_turn!(claim, submission, thread_receipt: receipt)
 
+      held_action =
+        if during_tool? do
+          attributes = %{
+            tool: :post_slack_update,
+            kind: :message,
+            transport: "slack",
+            conversation_ref: request.destination.conversation_ref,
+            thread_ref: thread,
+            source_item_ref: nil,
+            document: %{"message" => "I’m looking into setup."}
+          }
+
+          {:ok, %{action: action}} =
+            Ryker.Delivery.PlatformActionCustody.enqueue_in_turn(claim, attributes)
+
+          action
+        end
+
       {_, update} = early || handoff.()
 
       if during_tool? do
@@ -440,6 +458,25 @@ defmodule Ryker.Work.SubmissionBuilderTest do
           | turn: Repo.get!(Ryker.Work.Turn, claim.turn.id),
             session: Repo.get!(Ryker.Work.Session, claim.session.id)
         }
+
+        {:ok, api} = Ryker.TestSupport.FakeSlackAPI.start_link([])
+
+        adapter = %{
+          binding: %{
+            workspaces: %{"TWORKTHREAD" => %{api: Ryker.TestSupport.FakeSlackAPI, client: api}}
+          },
+          message_publisher: Ryker.Slack.Publisher,
+          reaction_publisher: Ryker.Slack.Publisher
+        }
+
+        assert {:ok, {:held, :action, _}} =
+                 Ryker.Delivery.Dispatcher.run_once(
+                   kind: :action,
+                   worker_ref: "worker:held-progress",
+                   adapters: %{"slack" => adapter}
+                 )
+
+        assert Ryker.TestSupport.FakeSlackAPI.state(api).posts == []
 
         assert [%{"input_id" => id}] = Ryker.Work.ThreadUpdates.for_tool(binding, 2)
         assert id == update.id
@@ -463,7 +500,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         ]
       }
 
-      if name == "ambient setup" do
+      if name == "ambient setup" or during_tool? do
         # A proposal can already exist when the human takes over but no card was posted yet.
         assert {:ok, proposal} =
                  Ryker.Records.create(
@@ -514,6 +551,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                  )
 
         assert accepted.turn.status == :settled
+
+        if held_action do
+          assert %{status: :retired, external_receipt: nil} =
+                   Repo.get!(Ryker.Delivery.PlatformAction, held_action.id)
+        end
+
         assert Repo.get!(Ryker.Records.Record, proposal.id).status == :dismissed
         assert Ryker.Slack.TaskCards.ensure_one() == {:ok, nil}
       end
@@ -526,6 +569,132 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                |> Jason.encode!()
                |> Ryker.Work.Validator.validate(context, @now)
     end
+  end
+
+  test "a mutating tool returns the unseen update before it can act, including RPC replay" do
+    thread = "1787832000.000100"
+    {request, _} = record_thread_message("Check this setup.", thread, nil, "UASK")
+
+    claim =
+      claim_episode_payload!("tool-check-before-write", Ryker.Ingress.Input.document(request),
+        destination: request.destination
+      )
+
+    {:ok, prepared} = SubmissionBuilder.prepare(claim)
+
+    bind_remote_turn!(claim, prepared.submission,
+      selection_ledger: prepared.ledger,
+      thread_receipt: prepared.thread_receipt
+    )
+
+    binding = %{
+      claim
+      | session: Repo.get!(Ryker.Work.Session, claim.session.id),
+        turn: Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    }
+
+    options =
+      Ryker.StateTools.Router.init(
+        binding: binding,
+        additional_tools: [
+          %{
+            "name" => "post_slack_update",
+            "description" => "Report progress.",
+            "inputSchema" => %{"type" => "object"}
+          }
+        ],
+        additional_call: fn _, _, _ ->
+          send(self(), :sent_update)
+          {:ok, %{"sent" => true}}
+        end
+      )
+
+    call = fn id ->
+      body = %{
+        "id" => id,
+        "jsonrpc" => "2.0",
+        "method" => "tools/call",
+        "params" => %{"name" => "post_slack_update", "arguments" => %{}}
+      }
+
+      Plug.Test.conn(:post, "/mcp", Jason.encode!(body))
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Ryker.StateTools.Router.call(options)
+      |> Map.fetch!(:resp_body)
+      |> Jason.decode!()
+      |> Map.fetch!("result")
+    end
+
+    # Ordinary semantic corrections still have a staged candidate. They can make required writes.
+    first_raw = Jason.encode!(%{"message" => "Need a record."})
+    first_sha = Ryker.Crypto.sha256_hex(first_raw)
+
+    assert {:ok, _} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               first_raw,
+               first_sha,
+               1
+             )
+
+    assert {:ok, _} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               first_sha,
+               1,
+               {:reject, ["Record the required finding."]},
+               nil
+             )
+
+    assert %{"isError" => false} = call.(1)
+    assert_received :sent_update
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+    assert %{"isError" => true, "content" => [_, %{"text" => note}]} = call.(2)
+    assert note =~ "I’m doing it rn"
+    assert %{"isError" => true} = call.(2)
+    refute_received :sent_update
+    # A second, already in-flight RPC carries a different ID but comes from the same inference.
+    assert %{"isError" => true} = call.(3)
+    refute_received :sent_update
+    raw = Jason.encode!(%{"message" => "Checking setup."})
+    sha = Ryker.Crypto.sha256_hex(raw)
+
+    assert {:ok, staged} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               first_sha,
+               1,
+               raw,
+               sha,
+               2
+             )
+
+    assert {:reject, [note]} = Ryker.Work.ThreadUpdates.before_final(%{binding | turn: staged})
+
+    assert {:ok, _} =
+             Custody.prepare_validation(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               sha,
+               2,
+               {:reject, [note]},
+               nil
+             )
+
+    assert %{"isError" => false} = call.(5)
+    assert_received :sent_update
+    record_thread_message("I have a correction", "1787832002.000100", thread, "UASK")
+    assert %{"isError" => true} = call.(4)
+    refute_received :sent_update
   end
 
   test "the running session receives a later handoff on a tool response and can replay it" do

@@ -37,6 +37,35 @@ defmodule Ryker.Delivery.PlatformAction.Changeset do
     |> action_constraints()
   end
 
+  def cover(action, receipt, order),
+    do: change(action, thread_receipt: receipt, authorization_order: order)
+
+  def reserve(action, at), do: change(action, first_write_started_at: at)
+
+  def hold(action) do
+    change(action,
+      status: :held,
+      lease_ref: nil,
+      lease_owner: nil,
+      lease_expires_at: nil,
+      next_attempt_at: nil
+    )
+  end
+
+  def reauthorize(action, receipt, order) do
+    change(action,
+      status: :pending,
+      authorization_order: order,
+      thread_receipt: receipt,
+      attempt_count: 0,
+      next_attempt_at: nil,
+      last_error_code: nil,
+      last_error_detail: nil
+    )
+  end
+
+  def retire(action), do: change(action, status: :retired)
+
   @doc "See `Ryker.Lease.Changeset.claim/5`."
   def claim(%PlatformAction{} = action, at, lease_seconds, owner, lease_ref) do
     action

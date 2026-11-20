@@ -25,6 +25,7 @@ defmodule Ryker.Admission do
   alias Ryker.People
   alias Ryker.Repo
   alias Ryker.Settings
+  alias Ryker.Slack
   alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Waits
@@ -1093,6 +1094,73 @@ defmodule Ryker.Admission do
 
       true ->
         :ok
+    end
+  end
+
+  @doc "Reconsider a committed quick response using only its original sender, source and Work placement."
+  def reconsider_quick_response_in_transaction(
+        %Ingress.Inbox.Entry{
+          source_kind: "slack",
+          actor_kind: :user,
+          status: :decided,
+          execution_mode: :live,
+          operational_pruned_at: nil,
+          decision_action: action
+        } = entry
+      )
+      when action in [:quick_reply, :react] do
+    with true <- Repo.in_transaction?(),
+         :ok <-
+           Slack.ChannelFence.authorize_in_transaction(
+             "slack",
+             entry.destination_conversation_ref
+           ),
+         {:ok, input} <- input_from_entry(entry),
+         {:ok, decision} <- Decision.parse(entry.decision_document),
+         {:ok, policy} <- reconsideration_policy(entry),
+         :ok <- source_unowned(input) do
+      command = admit_command(%{input: input}, entry, %{})
+
+      with {:ok, [admitted]} <- apply_admit(command, nil),
+           :ok <- maybe_pin_episode(admitted.episode, policy, decision),
+           do: {:ok, command.turn_ref}
+    else
+      false -> {:error, :delivery_transaction_required}
+      error -> error
+    end
+  end
+
+  def reconsider_quick_response_in_transaction(_entry),
+    do: {:error, :routing_reconsideration_source_unavailable}
+
+  defp source_unowned(input) do
+    case Episodes.Origins.fetch_current_owner(input.native_input_id, "slack", :live) do
+      {:error, :not_found} -> :ok
+      {:ok, {_owner, _revision}} -> {:error, :routing_reconsideration_source_already_owned}
+    end
+  end
+
+  defp reconsideration_policy(%{work_profile: profile} = entry) when is_map(profile) do
+    with {:ok, restored} <- Ingress.WorkProfile.restore(profile) do
+      Ingress.WorkProfile.reading_placement(restored, :conversational, entry.repository_ref)
+    end
+  end
+
+  defp reconsideration_policy(%{
+         work_policy: name,
+         work_policy_digest: digest,
+         repository_ref: ref
+       })
+       when is_binary(name) and is_binary(digest),
+       do: {:ok, %{name: name, digest: digest, repository_ref: ref}}
+
+  defp reconsideration_policy(entry) do
+    case Repo.one(Ryker.Admission.Attempt.Query.committed_for(entry)) do
+      %{policy: name, policy_digest: digest} when is_binary(name) and is_binary(digest) ->
+        {:ok, %{name: name, digest: digest, repository_ref: nil}}
+
+      _ ->
+        {:error, :routing_reconsideration_policy_unavailable}
     end
   end
 

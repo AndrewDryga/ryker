@@ -37,6 +37,8 @@ defmodule Ryker.Delivery.RoutingResponse do
     field(:last_error_detail, :string)
     field(:external_receipt, CanonicalJSON.Type)
     field(:external_receipt_fingerprint, :string)
+    field(:reconsidered_for_input_id, :binary_id)
+    field(:replacement_turn_ref, :string)
     field(:superseding_revision, :integer)
     field(:first_write_started_at, :utc_datetime_usec)
     field(:delivered_at, :utc_datetime_usec)

@@ -1,6 +1,7 @@
 defmodule Ryker.Work.ThreadUpdates do
   @moduledoc "Human updates received before a Slack briefing freezes, separate from its authorized inputs."
-  alias Ryker.{CanonicalJSON, Ingress, Knowledge, Learning, Repo, StateTools, Text, Work}
+  alias Ryker.{CanonicalJSON, Delivery, Episodes, Ingress, Knowledge, Learning}
+  alias Ryker.{Repo, StateTools, Text, Work}
 
   @maximum_revisions 12
 
@@ -22,7 +23,11 @@ defmodule Ryker.Work.ThreadUpdates do
         end)
 
       received = received(opening)
-      context = Map.put(context, "thread_receipt", receipt(opening, received))
+
+      context =
+        context
+        |> Map.put("thread_receipt", receipt(opening, received))
+        |> put_previous_responses(opening, episode)
 
       updates =
         received
@@ -38,6 +43,38 @@ defmodule Ryker.Work.ThreadUpdates do
 
   def put(context, _episode, _snapshot), do: context
 
+  # A replacement may start after the first part of a quick reply reached Slack.
+  # Preserve only confirmed deliveries of the original source in the frozen briefing.
+  defp put_previous_responses(context, %{id: id, decision_action: action}, %{id: id})
+       when action in [:quick_reply, :react] do
+    delivered =
+      id
+      |> Delivery.RoutingResponse.Query.by_input_id()
+      |> Delivery.RoutingResponse.Query.delivered()
+      |> Delivery.RoutingResponse.Query.ordered_by_position()
+      |> Repo.all()
+
+    case delivered do
+      [] ->
+        context
+
+      rows ->
+        Map.put(
+          context,
+          "already_delivered_for_this_input",
+          Enum.map(rows, fn response ->
+            %{
+              "kind" => Atom.to_string(response.kind),
+              "document" => response.document,
+              "message_ref" => response.external_receipt["message_ref"]
+            }
+          end)
+        )
+    end
+  end
+
+  defp put_previous_responses(context, _opening, _episode), do: context
+
   @doc "Return newly received revisions once on a tool response, replaying the same RPC from durable custody."
   def for_tool(%{turn: %{thread_receipt: %{} = receipt}} = binding, call_id)
       when is_integer(call_id) or is_binary(call_id) do
@@ -49,9 +86,87 @@ defmodule Ryker.Work.ThreadUpdates do
 
   def for_tool(_binding, _call_id), do: nil
 
+  @doc "A write after a thread change requires a fresh inference after the host correction."
+  def before_tool_write(%{turn: %{thread_receipt: %{} = original}} = binding, call_id) do
+    Repo.transaction(fn ->
+      destination = %{
+        transport: binding.episode.destination_transport,
+        conversation_ref: binding.episode.destination_conversation_ref
+      }
+
+      with :ok <- Episodes.ConversationLock.lock(destination),
+           {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
+           true <- inference_active?(current.turn),
+           %Ingress.Inbox.Entry{} = opening <-
+             Repo.peek(Ingress.Inbox.Entry.Query.by_id(original["opening"])),
+           true <- same_thread?(opening, current.episode) do
+        write_disposition(current, opening, original, call_id)
+      else
+        _ -> :reconsider
+      end
+    end)
+    |> case do
+      {:ok, :ready} ->
+        :ok
+
+      _ ->
+        {:error,
+         "thread_changed: Review the new Slack messages before acting. Submit your current answer for reconsideration. Continue any necessary action after the host returns the updated thread."}
+    end
+  end
+
+  def before_tool_write(_binding, _call_id), do: :ok
+
+  defp write_disposition(current, opening, original, call_id) do
+    checkpoint = current.turn.thread_update_checkpoint || %{}
+
+    fresh? = verify(current.episode, current.turn) == :ok
+
+    cond do
+      checkpoint["call"] == CanonicalJSON.digest(call_id) ->
+        :reconsider
+
+      fresh? and (checkpoint == %{} or corrected_inference?(current.turn, checkpoint)) ->
+        :ready
+
+      true ->
+        tool_disclosure(current, opening, original, call_id)
+        flag_write_for_reconsideration(current.turn.id)
+        :reconsider
+    end
+  end
+
+  defp inference_active?(%{candidate_sha256: nil}), do: true
+  defp inference_active?(%{validation_intent: %{"verdict" => "reject"}}), do: true
+  defp inference_active?(_turn), do: false
+
+  defp corrected_inference?(
+         %{
+           candidate_attempt: attempt,
+           validation_intent: %{"verdict" => "reject", "violations" => violations}
+         },
+         checkpoint
+       ) do
+    checkpoint["write_correction_attempt"] == attempt and
+      checkpoint["write_correction"] in violations
+  end
+
+  defp corrected_inference?(_turn, _checkpoint), do: false
+
+  defp flag_write_for_reconsideration(turn_id) do
+    turn = Repo.peek(Work.Turn.Query.by_id(turn_id))
+    checkpoint = turn.thread_update_checkpoint
+
+    if checkpoint && !checkpoint["write_waiting"] do
+      turn
+      |> Work.Turn.Changeset.expose_thread_updates(Map.put(checkpoint, "write_waiting", true))
+      |> Repo.update!()
+    end
+  end
+
   defp tool_update_locked(binding, original, call_id) do
     with {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
-         %{candidate_sha256: nil} <- current.turn,
+         true <- inference_active?(current.turn),
          %Ingress.Inbox.Entry{} = opening <-
            Repo.peek(Ingress.Inbox.Entry.Query.by_id(original["opening"])),
          true <- same_thread?(opening, current.episode) do
@@ -124,9 +239,17 @@ defmodule Ryker.Work.ThreadUpdates do
       current = receipt(opening, entries)
 
       cond do
-        current == previous -> :ok
-        checkpoint["reconsidered"] -> {:error, :work_validation_state_changed}
-        true -> reconsider(claim, previous, current, entries)
+        current == previous and write_correction_needed?(checkpoint) ->
+          reconsider(claim, checkpoint["exposed_ids"] || [], current, entries)
+
+        current == previous ->
+          :ok
+
+        checkpoint["reconsidered"] ->
+          {:error, :work_validation_state_changed}
+
+        true ->
+          reconsider(claim, current["inputs"] -- previous["inputs"], current, entries)
       end
     else
       _ -> {:error, :work_validation_state_changed}
@@ -135,9 +258,12 @@ defmodule Ryker.Work.ThreadUpdates do
 
   def before_final(_claim), do: :ok
 
-  defp reconsider(claim, previous, current, entries) do
-    ids = current["inputs"] -- previous["inputs"]
+  defp write_correction_needed?(%{"write_waiting" => true} = checkpoint),
+    do: not is_binary(checkpoint["write_correction"])
 
+  defp write_correction_needed?(_checkpoint), do: false
+
+  defp reconsider(claim, ids, current, entries) do
     checkpoint =
       Map.merge(claim.turn.thread_update_checkpoint || %{}, %{
         "receipt" => current,
@@ -149,6 +275,12 @@ defmodule Ryker.Work.ThreadUpdates do
          note = correction(docs),
          # The validator fits a rejection into 4 KiB. Never mark a clipped message as seen.
          {:ok, %{"violations" => [^note]}} <- Work.ValidationIntent.new({:reject, [note]}, nil) do
+      checkpoint =
+        Map.merge(checkpoint, %{
+          "write_correction" => note,
+          "write_correction_attempt" => claim.turn.candidate_attempt
+        })
+
       claim.turn |> Work.Turn.Changeset.expose_thread_updates(checkpoint) |> Repo.update!()
       {:reject, [note]}
     else
@@ -167,6 +299,9 @@ defmodule Ryker.Work.ThreadUpdates do
       "Answer any outstanding request. A handoff supplies context and grants no new authority. " <>
       CanonicalJSON.encode!(messages)
   end
+
+  def covered_receipt(turn),
+    do: (turn.thread_update_checkpoint || %{})["receipt"] || turn.thread_receipt
 
   @doc "Checks a briefing against human revisions received in its Slack thread, including an initially empty thread."
   def verify(episode, %{thread_update_checkpoint: %{"receipt" => receipt}}),
@@ -239,20 +374,16 @@ defmodule Ryker.Work.ThreadUpdates do
   def settlement_choices(_episode, _turn, _items), do: %{}
 
   defp eligible_updates(
-         %{"content" => %{"source" => %{"kind" => "slack"}} = source} = item,
+         %{"content" => %{"source" => %{"kind" => "slack"}}, "source_event_id" => event_id} = item,
          episode,
          updates
        ) do
-    with %Ingress.Inbox.Entry{
-           actor_kind: :user,
-           episode_id: episode_id,
-           status: :decided,
-           operational_pruned_at: nil
-         } = entry
-         when episode_id == episode.id <-
-           Repo.peek(
-             Ingress.Inbox.Entry.Query.by_work_source(Ingress.Inbox.Entry.Query.all(), source)
-           ),
+    with {:ok, event} <- Repo.fetch(Episodes.Event.Query.by_id(event_id)),
+         true <- event.dedupe_key in episode.active_input_refs,
+         {:ok,
+          %Ingress.Inbox.Entry{actor_kind: :user, status: :decided, operational_pruned_at: nil} =
+            entry} <-
+           Ingress.Inbox.fetch_admitted_source(episode, event),
          true <-
            item["actor_ref"] == "slack:user:" <> entry.actor_ref and same_thread?(entry, episode),
          false <- Repo.exists?(Ingress.Inbox.Entry.Query.later_revisions_of(entry)) do

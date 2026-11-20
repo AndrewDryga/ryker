@@ -14,6 +14,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   after the outermost commit (`subscribe_routing_responses/0`), on its message's
   topics too (`Ryker.Ingress.Inbox`).
   """
+  alias Ryker.Admission
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{Request, RoutingResponse}
   alias Ryker.Episodes
@@ -180,8 +181,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
       with :ok <- Episodes.ConversationLock.lock(destination),
            {:ok, response} <- leased_response(claimed.delivery_ref, lease, Repo.now!()),
            {:ok, entry} <- Repo.fetch(Ingress.Inbox.Entry.Query.by_id(response.input_id)) do
-        latest = entry |> Ingress.Inbox.Entry.Query.newest_later_revision() |> Repo.one()
-        check_revision(response, latest, action)
+        check_revision(response, source_change(entry), action)
       else
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -191,6 +191,30 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp source_change(entry) do
+    case Repo.one(Ingress.Inbox.Entry.Query.newest_later_revision(entry)) do
+      nil -> unseen_change(entry)
+      revision -> {:revision, revision}
+    end
+  end
+
+  defp unseen_change(
+         %{
+           source_kind: "slack",
+           actor_kind: :user,
+           execution_mode: :live,
+           destination_thread_ref: ref
+         } = entry
+       )
+       when is_binary(ref) do
+    case Repo.one(Ingress.Inbox.Entry.Query.unseen_routing_update(entry)) do
+      nil -> nil
+      id -> {:thread_update, entry, id}
+    end
+  end
+
+  defp unseen_change(_entry), do: nil
 
   defp check_revision(%{first_write_started_at: nil} = response, nil, :reserve) do
     response |> RoutingResponse.Changeset.reserve_first_write(Repo.now!()) |> Repo.update!()
@@ -208,13 +232,33 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp check_revision(_response, _revision, :reserve),
     do: Repo.rollback(:slack_thread_changed_before_write)
 
-  defp check_revision(response, revision, :supersede) do
+  defp check_revision(response, {:revision, revision}, :supersede) do
     response
     |> RoutingResponse.Changeset.supersede(revision)
     |> Repo.update!()
     |> broadcast_routing_response_updated()
 
     {:suppressed, "revision:#{revision}"}
+  end
+
+  defp check_revision(response, {:thread_update, entry, update_id}, :supersede) do
+    case Admission.reconsider_quick_response_in_transaction(entry) do
+      {:ok, turn_ref} ->
+        response.input_id
+        |> RoutingResponse.Query.unstarted_for()
+        |> Repo.all()
+        |> Enum.each(fn pending ->
+          pending
+          |> RoutingResponse.Changeset.reconsider(update_id, turn_ref)
+          |> Repo.update!()
+          |> broadcast_routing_response_updated()
+        end)
+
+        {:suppressed, turn_ref}
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
   end
 
   defp release_refused_slack_write(%{response: claimed, lease_ref: lease}) do

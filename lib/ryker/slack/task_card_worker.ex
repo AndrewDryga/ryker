@@ -174,6 +174,16 @@ defmodule Ryker.Slack.TaskCardWorker do
     end
   end
 
+  defp settle(card, :withdrawn_card_awaiting_receipt = reason, options) do
+    # Slack may expose its accepted post later. No new post is eligible while this waits.
+    case TaskCards.defer(card.id, card.lease_ref, max(options.retry_base_seconds, 60), reason,
+           counted: false
+         ) do
+      {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp settle(card, reason, options) do
     case Delivery.Retry.rate_limited(reason) do
       {:ok, seconds} ->
@@ -235,6 +245,9 @@ defmodule Ryker.Slack.TaskCardWorker do
         case TaskCards.before_first_post(card.id, card.lease_ref) do
           {:ok, :post} ->
             post_reserved(card, projection, options)
+
+          {:ok, :await_withdrawn_receipt} ->
+            {:error, :withdrawn_card_awaiting_receipt}
 
           {:ok, :await_receipt} ->
             {:error, :slack_task_card_awaiting_receipt}

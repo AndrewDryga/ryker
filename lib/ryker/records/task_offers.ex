@@ -279,7 +279,7 @@ defmodule Ryker.Records.TaskOffers do
         |> Repo.update_all([])
 
       Enum.each(dismissed, fn record ->
-        Slack.TaskCards.check_offer_soon(record.id)
+        Slack.TaskCards.check_withdrawn_offer(record.id)
         Records.broadcast_record_updated(record)
       end)
     end
