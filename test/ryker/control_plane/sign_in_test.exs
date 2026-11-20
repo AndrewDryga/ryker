@@ -244,6 +244,28 @@ defmodule Ryker.ControlPlane.SignInTest do
              WorkbenchLive.mount(%{}, page, %Phoenix.LiveView.Socket{endpoint: Endpoint})
   end
 
+  # Several browsers used the same owner link on the same day. Their sign-out
+  # controls looked identical, including the time each browser was last used.
+  test "same-name sessions have distinct stable browser references" do
+    tokens = for _ <- 1..2, do: session_token("Dana")
+    {:ok, view, html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/settings/access")
+    sessions = Enum.filter(ConsoleAccess.sessions(), &(&1.person_name == "Dana"))
+    assert length(sessions) == 2
+
+    for session <- sessions do
+      assert has_element?(
+               view,
+               "#session-#{session.id}",
+               "Browser #{String.slice(session.id, -8, 8)}"
+             )
+
+      assert has_element?(view, "#session-#{session.id}", "Signed in ")
+    end
+
+    assert has_element?(view, "#signed-in", "This browser")
+    for token <- tokens, do: refute(html =~ token)
+  end
+
   # People outside Slack get in by an invite, and anyone signed in can end a browser's session.
   test "Access invites someone with a link shown once, and signs another browser out" do
     other = session_token("Dana")

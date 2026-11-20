@@ -379,7 +379,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
           id={"session-#{session.id}"}
           name={session.person_name}
           text={signed_in_with(session.person_via)}
-          meta={[used(session, @viewer, @now)]}
+          meta={[
+            "Browser #{String.slice(session.id, -8, 8)}",
+            "Signed in #{ShortTime.stamp(session.inserted_at, @now)}",
+            used(session, @viewer, @now)
+          ]}
         >
           <:actions>
             <button
