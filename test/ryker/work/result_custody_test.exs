@@ -6,10 +6,12 @@ defmodule Ryker.Work.ResultCustodyTest do
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Ingress
   alias Ryker.Inspectors
   alias Ryker.Records
+  alias Ryker.Slack
   alias Ryker.Waits.EventSubscription
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, SubmissionBuilder, Turn}
   alias Ryker.Work.ValidationIntent
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -693,7 +695,23 @@ defmodule Ryker.Work.ResultCustodyTest do
   end
 
   test "an event deadline elapsed during Slack delivery starts an immediate continuation" do
-    work = bound_turn!("elapsed-event-wait")
+    {opening, opening_entry} =
+      monitoring_message!("1787932800.000100", nil, "Please verify this.")
+
+    source = %{
+      destination: opening.destination,
+      native_input_id: opening.native_input_id,
+      payload: Ingress.Input.document(opening),
+      revision: opening.revision
+    }
+
+    work =
+      bound_turn!(
+        "elapsed-event-wait",
+        ~s({"delivery":"reply","message":"Investigation complete."}),
+        source
+      )
+
     stage_candidate!(work)
     deadline = ~U[2099-08-28 12:05:00.000000Z]
 
@@ -741,6 +759,23 @@ defmodule Ryker.Work.ResultCustodyTest do
     host_continuation = submission["context"]["continuity"]["host_continuation"]
     assert host_continuation["resume_cause"] == "deadline_elapsed"
     assert host_continuation["requested"] == expired
+
+    # Resuming the scheduled check is still tied to its original Slack thread.
+    # A correction arriving after its new briefing must be considered before a write.
+    assert {:ok, %{thread_receipt: receipt}} = SubmissionBuilder.prepare(resumed)
+    assert receipt["opening"] == opening_entry.id
+    assert Ryker.Work.ThreadUpdates.verify(resumed.episode, %{thread_receipt: receipt}) == :ok
+    monitoring_message!("1787932801.000100", nil, "Separate request.")
+    assert Ryker.Work.ThreadUpdates.verify(resumed.episode, %{thread_receipt: receipt}) == :ok
+
+    monitoring_message!(
+      "1787932802.000100",
+      opening.source_item_ref,
+      "I have the verification covered."
+    )
+
+    assert Ryker.Work.ThreadUpdates.verify(resumed.episode, %{thread_receipt: receipt}) ==
+             {:error, :work_validation_state_changed}
   end
 
   test "a silent wait accepted after its frozen deadline settles into immediate verification" do
@@ -918,9 +953,10 @@ defmodule Ryker.Work.ResultCustodyTest do
 
   defp bound_turn!(
          suffix,
-         candidate \\ ~s({"delivery":"reply","message":"Investigation complete."})
+         candidate \\ ~s({"delivery":"reply","message":"Investigation complete."}),
+         source \\ %{}
        ) do
-    command = create_episode!(suffix)
+    command = create_episode!(suffix, source)
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 120)
     assert claim.episode.key == command.episode_key
 
@@ -1008,17 +1044,22 @@ defmodule Ryker.Work.ResultCustodyTest do
     )
   end
 
-  defp create_episode!(suffix) do
+  defp create_episode!(suffix, source) do
     id = Ecto.UUID.generate()
 
     command =
-      EpisodeFixtures.admit_input(%{
-        episode_id: id,
-        episode_key: "work-result:#{suffix}:#{id}",
-        native_input_id: "source:#{suffix}:#{id}",
-        occurred_at: @now,
-        turn_ref: "turn:#{suffix}:#{id}"
-      })
+      EpisodeFixtures.admit_input(
+        Map.merge(
+          %{
+            episode_id: id,
+            episode_key: "work-result:#{suffix}:#{id}",
+            native_input_id: "source:#{suffix}:#{id}",
+            occurred_at: @now,
+            turn_ref: "turn:#{suffix}:#{id}"
+          },
+          source
+        )
+      )
 
     assert {:ok, _transition} = Episodes.apply(command)
 
@@ -1030,6 +1071,25 @@ defmodule Ryker.Work.ResultCustodyTest do
              )
 
     command
+  end
+
+  defp monitoring_message!(timestamp, thread, text) do
+    {:ok, input} =
+      Slack.Input.new(%{
+        actor: %{kind: :user, ref: "UTEST"},
+        workspace_ref: "TMONITOR",
+        channel_ref: "CVERIFY",
+        message_ref: timestamp,
+        thread_ref: thread,
+        event_ref: "event:#{timestamp}",
+        event_kind: :message,
+        occurred_at: @now,
+        revision: 1,
+        content: %{"text" => text}
+      })
+
+    {:ok, %{entry: entry}} = Ingress.Inbox.record(input)
+    {input, entry}
   end
 
   defp queued_input(work, suffix) do
