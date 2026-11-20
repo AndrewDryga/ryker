@@ -16,6 +16,10 @@ defmodule Ryker.CoopFleet.PresetCatalogTest do
     File.write!(path, Jason.encode!(document))
     accounts = ["codex@default", "claude@review"]
     assert PresetCatalog.names() == ["review"]
+
+    assert PresetCatalog.resolve("subdir/review", accounts, true) ==
+             {:error, {:coop_job_preset, "subdir/review", :unavailable}}
+
     assert {:ok, ^document} = PresetCatalog.resolve("review", accounts, true)
 
     assert PresetCatalog.resolve("review", ["codex@default"], true) ==

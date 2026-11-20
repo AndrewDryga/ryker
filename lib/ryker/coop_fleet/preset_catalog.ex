@@ -39,6 +39,9 @@ defmodule Ryker.CoopFleet.PresetCatalog do
     end
   end
 
+  # The operator owns the absolute directory. JobPreset.name?/1 allows one basename,
+  # and regular?/1 checks the directory entry itself before the bounded read.
+  # sobelow_skip ["Traversal.FileModule"]
   def resolve(name, accounts, read_only) do
     with true <- JobPreset.name?(name),
          {:ok, root} <- directory(),
