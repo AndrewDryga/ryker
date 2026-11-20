@@ -193,6 +193,14 @@ defmodule Ryker.IntegrationSetupTest do
     end
   end
 
+  defmodule InterruptedRepositoriesRequester do
+    def request(_client, :get, "/installation/repositories?per_page=100&page=2", _body, _headers),
+      do: {:ok, %{body: %{}, headers: [], status: 503}}
+
+    defdelegate request(client, method, path, body, headers),
+      to: Ryker.IntegrationSetupTest.PagedRepositoriesRequester
+  end
+
   # Slack listing a workspace's people a page at a time, as it does: a page may hold fewer
   # people than the limit while more pages follow.
   defmodule PagedMembersRequester do
@@ -636,6 +644,13 @@ defmodule Ryker.IntegrationSetupTest do
     assert Enum.take(names, 2) == ["acme/busy", "acme/recent"]
     assert "acme/quiet-100" in names
     refute "acme/retired" in names
+  end
+
+  test "a failed later GitHub page cannot replace verified permissions with a partial list" do
+    connect_github!()
+
+    assert {:error, {:github_verification_failed, :repositories}} =
+             IntegrationSetup.github_repositories(requester: InterruptedRepositoriesRequester)
   end
 
   # Every repository tenant added joined its default environment, so each task there fetched all
