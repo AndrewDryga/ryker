@@ -74,7 +74,13 @@ defmodule Ryker.Records.TaskOffers do
          placement,
          authorize
        ) do
-    with :ok <- Settings.synchronize_in_transaction(),
+    destination = %{
+      transport: candidate.destination_transport,
+      conversation_ref: candidate.destination_conversation_ref
+    }
+
+    with :ok <- Episodes.ConversationLock.lock(destination),
+         :ok <- Settings.synchronize_in_transaction(),
          :ok <- TaskInstruction.lock_source(candidate),
          :ok <- TaskInstruction.lock_assignment(payload["assignment_ref"]),
          {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
@@ -112,7 +118,7 @@ defmodule Ryker.Records.TaskOffers do
         }
       }
 
-      result = start_record(record, current.episode, attributes)
+      result = start_record(record, current, attributes)
 
       :ok = Slack.TaskCards.ensure_started(result.record, result.episode)
 
@@ -182,8 +188,12 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp start_record(%Record{status: :open} = record, episode, attributes),
-    do: create_episode(record, episode, attributes)
+  defp start_record(%Record{status: :open} = record, current, attributes) do
+    case Work.ThreadUpdates.verify(current.episode, current.turn) do
+      :ok -> create_episode(record, current.episode, attributes)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
 
   defp start_record(%Record{status: :confirmed} = record, _episode, _attributes),
     do: confirmed(record, :duplicate)

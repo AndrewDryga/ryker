@@ -34,6 +34,35 @@ defmodule Ryker.StateTools.TaskStartTest do
     assert Repo.aggregate(Session, :count) == 2
   end
 
+  # A handoff can reach Ryker while the permission lookup is still in flight.
+  # Starting from the old draft would create a second person's engineering task.
+  test "an unseen thread message holds a new task until the running session reads it" do
+    request = request!()
+
+    assert {:ok, %{thread_receipt: %{} = receipt}} =
+             Ryker.Work.SubmissionBuilder.prepare(request.source.claim)
+
+    request.binding.turn |> Ecto.Changeset.change(thread_receipt: receipt) |> Repo.update!()
+
+    authorize_after_handoff = fn entry, repository ->
+      attributes =
+        Map.merge(request.source.attributes, %{
+          content: %{"text" => "I’m doing it rn"},
+          event_ref: "handoff:#{entry.id}",
+          message_ref: "1791926114.866679"
+        })
+
+      {:ok, input} = Ryker.Slack.Input.new(attributes)
+      {:ok, _} = Ryker.Ingress.Inbox.record(input)
+      authorize(entry, repository)
+    end
+
+    assert {:error, "work_validation_state_changed" <> _} = call(request, authorize_after_handoff)
+    refute Repo.exists?(Record)
+    refute Repo.exists?(TaskCard)
+    assert Repo.aggregate(Session, :count) == 1
+  end
+
   # GitHub task preparation was first refused outright in production. A fresh
   # permission lookup must also not revive settings revoked while it waits.
   for phase <- [:during_permission_lookup, :before_settings_fence] do
