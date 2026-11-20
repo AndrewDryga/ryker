@@ -231,7 +231,17 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 55
+    assert length(scenarios) == 57
+
+    assert scenarios
+           |> Enum.filter(&("dashboard-setup" in &1.tags))
+           |> Enum.map(& &1.id)
+           |> Enum.sort() ==
+             [
+               "related-setup-questions-share-one-answer",
+               "requester-lacks-dashboard-credential-access"
+             ]
+
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"
