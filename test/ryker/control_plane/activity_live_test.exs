@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
   @endpoint Endpoint
 
   setup do
+    owner = self()
     {:ok, items} = Agent.start_link(fn -> [item(1), item(2)] end)
     # Whether the database answers Activity's read.
     {:ok, reachable} = Agent.start_link(fn -> true end)
@@ -51,6 +52,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
           end,
           schedules: fn _params -> [] end,
           usage_filter_options: fn ->
+            send(owner, :read_filter_choices)
             [%{conversation_ref: "slack:T123:C456", conversation_label: "#deploys"}]
           end
         })
@@ -70,6 +72,17 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
     )
 
     %{items: items, reachable: reachable}
+  end
+
+  test "the activity landing page loads historical filter choices only when used" do
+    # The unfiltered landing page scanned historical accounting and conversations
+    # on both HTTP and connected mounts, delaying the first usable request list.
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/")
+    assert has_element?(view, "#activity-stream")
+    refute_received :read_filter_choices
+    view |> element("#filter-add") |> render_click()
+    assert_receive :read_filter_choices
+    assert has_element?(view, "#filter-values-conversation button", "#deploys")
   end
 
   # A link carrying `q[x]=y` handed the page a map where the search field needs text, and the page

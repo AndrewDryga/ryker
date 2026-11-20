@@ -164,7 +164,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        summary_directory: nil,
        filter_menu: nil,
        filter_search: %{},
-       filter_values: [],
+       filter_values: nil,
        schedules: [],
        row_ids: [],
        row_days: %{},
@@ -1426,7 +1426,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         true -> nil
       end
 
-    {:noreply, assign(socket, filter_menu: menu, filter_search: %{})}
+    socket = assign(socket, filter_menu: menu, filter_search: %{})
+
+    if menu && socket.assigns.native == :activity && is_nil(socket.assigns.filter_values),
+      do: {:noreply, refresh(socket)},
+      else: {:noreply, socket}
   end
 
   def handle_event("filter-menu", _params, socket), do: {:noreply, socket}
@@ -1641,13 +1645,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       native: :activity,
       page_title: "Activity",
       activity: Map.delete(activity, :items),
-      filter_values:
-        if(reset) do
-          Activity.conversation_filter_options() ++
-            options.projection.usage_filter_options.()
-        else
-          socket.assigns.filter_values
-        end,
+      filter_values: activity_filter_values(socket, options, reset),
       fleet: options.projection.fleet.(),
       schedules: schedules
     )
@@ -1660,6 +1658,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     case settings_route(segments, socket.assigns.params) do
       {section, form} -> load_settings(socket, options, section, form)
       nil -> load_detail(socket, options, segments)
+    end
+  end
+
+  defp activity_filter_values(%{assigns: assigns}, options, reset) do
+    cond do
+      not reset and is_list(assigns.filter_values) ->
+        assigns.filter_values
+
+      assigns.filter_menu || Enum.any?(RequestFilters.keys(), &is_binary(assigns.params[&1])) ->
+        Activity.conversation_filter_options() ++ options.projection.usage_filter_options.()
+
+      true ->
+        nil
     end
   end
 
@@ -2880,7 +2891,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             activity={@activity}
             filter_menu={@filter_menu}
             filter_search={@filter_search}
-            filter_values={@filter_values}
+            filter_values={@filter_values || []}
             fleet={@fleet}
             schedules={@schedules}
             stream={@streams.activity}
