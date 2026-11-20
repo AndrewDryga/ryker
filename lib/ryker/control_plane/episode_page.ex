@@ -2811,7 +2811,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # The timeline's last line says in words what is happening, and only work in progress moves
   # (Andrew, 2026-10-01: it read "No visible answer yet · continue work").
   defp pending_answer_label(%{episode: %{state: :cancelled}}), do: "Stopped"
-  defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply was sent"
+  defp pending_answer_label(%{episode: %{state: :complete}}), do: "No further reply is recorded"
 
   defp pending_answer_label(%{episode: %{state: :waiting_for_input}}),
     do: "Waiting for your answer"
@@ -2865,7 +2865,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
         }
 
       snapshot.trace.case_file.awaiting_reply ->
-        %{href: "#latest-outcome", preview: nil}
+        awaiting_outcome(snapshot)
 
       decision && separate_decision?(decision, reply) ->
         %{href: "#event-#{decision.id}", preview: nil}
@@ -2881,6 +2881,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
         %{href: "#latest-outcome", preview: nil}
     end
   end
+
+  defp awaiting_outcome(%{episode: %{state: :complete}, trace: %{stopped: nil}} = snapshot),
+    do: %{href: "#latest-outcome", preview: pending_answer_label(snapshot), label: "View outcome"}
+
+  defp awaiting_outcome(_), do: %{href: "#latest-outcome", preview: nil}
 
   defp separate_decision?(_decision, nil), do: true
 

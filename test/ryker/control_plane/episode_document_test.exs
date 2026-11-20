@@ -1878,6 +1878,28 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute LazyHTML.text(sent) =~ "validated response"
   end
 
+  test "a completed request with no further recorded reply puts its final status above the history" do
+    # A populated timeline left its terminal outcome at the very bottom even on a phone.
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    document =
+      snapshot
+      |> put_in([:episode, :state], :complete)
+      |> put_in([:trace, :case_file, :awaiting_reply], true)
+      |> render_episode([])
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.query(document, ".episode-outcome p") |> LazyHTML.text() ==
+             "No further reply is recorded"
+
+    assert LazyHTML.query(document, ".episode-outcome a") |> LazyHTML.attribute("href") ==
+             ["#latest-outcome"]
+
+    assert LazyHTML.query(document, "#latest-outcome") |> LazyHTML.text() =~
+             "No further reply is recorded"
+  end
+
   test "the header keeps state, actions and navigation in their operator-facing order" do
     # The completed badge occupied the only useful action position, while the
     # review control sat below the metrics and source navigation replaced the
@@ -1916,10 +1938,12 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     # One request in its conversation: the Activity list would show only this
     # page, so there is no "all activity" link to follow.
     assert Enum.map(links, &LazyHTML.text/1) == [
-             "Jump to latest outcome ↓",
              "Open in Slack →",
              "All messages in this thread →"
            ]
+
+    assert LazyHTML.query(document, ".episode-outcome a") |> LazyHTML.attribute("href") ==
+             ["#latest-outcome"]
 
     # Only Slack opens in a new tab; the thread's messages are a page of Ryker.
     blank_links = LazyHTML.query(document, ".episode-location > a[target='_blank']")

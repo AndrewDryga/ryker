@@ -491,7 +491,10 @@ defmodule Ryker.ControlPlane.NativePagesTest do
     refute html =~ "aria-label=\"Selected event\""
     refute html =~ "phx-click=\"inspect-step\""
 
-    for {state, expected} <- [{:cancelled, "Stopped"}, {:complete, "No further reply was sent"}] do
+    for {state, expected} <- [
+          {:cancelled, "Stopped"},
+          {:complete, "No further reply is recorded"}
+        ] do
       terminal = snapshot |> put_in([:episode, :state], state) |> put_in([:trace, :stopped], nil)
       assert episode_html(terminal) =~ expected
     end
