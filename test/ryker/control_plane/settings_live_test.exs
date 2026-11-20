@@ -723,9 +723,12 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert has_element?(
              view,
-             ".settings-connection a[href='/environments']",
+             ".section-head p",
              "1 environment without an Emisar account"
            )
+
+    assert has_element?(view, ".section-head a[href='/environments']", "Manage environments")
+    refute has_element?(view, "a", "without an Emisar account")
 
     assert has_element?(view, ".entity-row .state-word[data-tone=off]", "Paused")
     refute has_element?(view, "form[phx-submit=rename-emisar]")

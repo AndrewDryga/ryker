@@ -333,8 +333,10 @@ defmodule Ryker.ControlPlane.SetupPageTest do
     assert LazyHTML.query(step, ".setup-step-line") |> text() ==
              "Done: Emisar · Production approvals · 1 environment without an Emisar account"
 
-    assert LazyHTML.query(step, "a[href='/environments']") |> LazyHTML.text() ==
-             "1 environment without an Emisar account"
+    assert LazyHTML.query(step, "a[href='/environments']") |> text() ==
+             "Manage environments"
+
+    assert Enum.empty?(LazyHTML.query(step, ".setup-step-summary a"))
 
     overview =
       render_component(&SettingsPage.render/1,

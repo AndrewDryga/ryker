@@ -359,7 +359,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Storage",
        [
-         "Each worker shows storage in use and how much can be freed. Its bar shows the share available for cleanup. Open Cleanup details for the latest measurement and the budget for disposable data.",
+         "Each worker shows storage in use and how much can be freed. Its bar shows the share available for cleanup. The latest measurement is shown beside the worker. The budget for disposable data is below the workers.",
          "New copies wait when the worker's filesystem reaches its free-space reserve. Settings → Advanced shows its capacity and the space needed to resume. A container or virtual machine may have a smaller disk than its host."
        ]}
     ])

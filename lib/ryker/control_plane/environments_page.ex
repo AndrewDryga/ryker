@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           meta={[used_by(environment, @view)]}
         >
           <:details>
-            <Kit.row_details label="Repository access" facts={access_facts(environment, @view)} />
+            <Kit.fact_line facts={access_facts(environment, @view)} />
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>

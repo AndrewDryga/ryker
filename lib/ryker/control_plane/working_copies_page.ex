@@ -265,7 +265,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp storage(assigns) do
     assigns =
       assign(assigns,
-        reported: Enum.reject(assigns.storage.workers, &(&1.measurement == :unknown)),
         limit: assigns.storage.budget[:disposable_bytes_limit],
         target: assigns.storage.budget[:reclaim_target_seconds]
       )
@@ -299,31 +298,31 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
               aria-label={"#{worker.id} · share available for cleanup"}
               aria-valuetext={"#{size(worker.bytes["disposable_bytes"])} of #{size(total)} can be freed"}
             />
+            <p :if={worker.measured_at}>
+              <ShortTime.time
+                at={worker.measured_at}
+                now={@now}
+                prefix="measured "
+              />
+            </p>
+            <p :if={is_integer(worker.reclaimed_bytes)}>
+              Freed so far {size(worker.reclaimed_bytes)}
+            </p>
+            <p :if={
+              is_integer(worker.bytes["unattributed_bytes"]) && worker.bytes["unattributed_bytes"] > 0
+            }>
+              Space outside copies {size(worker.bytes["unattributed_bytes"])}
+            </p>
           <% end %>
           <p :if={worker.allocation == "refused"} class="storage-refusal">
             New copies paused · {refusal(worker.refusal_reason)}
           </p>
         </article>
       </div>
-      <details :if={@reported != [] || @limit || @target} class="storage-details">
-        <summary>Cleanup details</summary>
-        <ul :if={@reported != []}>
-          <li :for={worker <- @reported}>
-            <strong>{worker.id}</strong>
-            <span :if={worker.measured_at}><ShortTime.time
-              at={worker.measured_at}
-              now={@now}
-              prefix="measured "
-            /></span>
-            <span :if={is_integer(worker.reclaimed_bytes)}>Freed so far {size(worker.reclaimed_bytes)}</span>
-            <span :if={
-              is_integer(worker.bytes["unattributed_bytes"]) && worker.bytes["unattributed_bytes"] > 0
-            }>Space outside copies {size(worker.bytes["unattributed_bytes"])}</span>
-          </li>
-        </ul>
-        <p :if={@limit}>Cleanup budget: {size(@limit)} of disposable data.</p>
-        <p :if={@target}>Cleanup target: within {duration(@target)} of eligibility.</p>
-      </details>
+      <p :if={@limit || @target} class="storage-note">
+        <span :if={@limit}>Cleanup budget: {size(@limit)} of disposable data.</span>
+        <span :if={@target}>Cleanup target: within {duration(@target)} of eligibility.</span>
+      </p>
       <p :if={not @copies? and space_in_use?(@storage.workers)} class="storage-note">
         No working copy holds this space. It includes shared checkouts, conversations and worker data.
       </p>

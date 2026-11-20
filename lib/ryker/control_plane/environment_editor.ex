@@ -672,8 +672,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
             />
           </ul>
         </div>
-        <details class="environment-access-about">
-          <summary>About this check</summary>
+        <div class="environment-access-about">
           <p>
             Checks GitHub's repository list and Emisar's tool catalog. File and resource permissions
             are checked when work uses them.
@@ -682,7 +681,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
             New work uses the saved environment. Earlier work keeps its original access and evidence.
             To retry with updated access, <.link navigate="/conversations">start a new conversation</.link>.
           </p>
-        </details>
+        </div>
       </Kit.section_card>
     </div>
     """

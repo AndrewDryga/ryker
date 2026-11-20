@@ -130,7 +130,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
              "In Production, Staging · used in 2 channels and 1 schedule"
 
-    assert LazyHTML.query(row, "details .entity-facts strong") |> LazyHTML.text() == "3f9a1c2e"
+    assert LazyHTML.query(row, ".entity-body > .entity-facts strong") |> LazyHTML.text() ==
+             "3f9a1c2e"
   end
 
   test "each repository says which environments it is in, or that it is in none" do
@@ -676,13 +677,13 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         |> update_in([:knowledge], &Map.merge(&1, knowledge))
         |> render_row()
 
-      assert row |> LazyHTML.query("details .entity-facts") |> LazyHTML.text() |> squeeze() =~
+      assert row |> LazyHTML.query(".entity-body > .entity-facts") |> LazyHTML.text() |> squeeze() =~
                "fetched 2 h ago · " <> meta
     end
 
     fresh = render_row(%{@repository | knowledge: nil})
 
-    assert fresh |> LazyHTML.query("details .entity-facts") |> LazyHTML.text() |> squeeze() =~
+    assert fresh |> LazyHTML.query(".entity-body > .entity-facts") |> LazyHTML.text() |> squeeze() =~
              "· Knowledge not written yet"
 
     # While a model writes it, it cannot be asked for again.

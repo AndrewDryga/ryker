@@ -642,9 +642,9 @@ Blocked cleanup offers a person a retry after the cause is repaired. Background 
 hold no checkout; `/memory/learning` lists them.
 
 - Each worker shows storage in use and space available for cleanup. The bar shows
-  the share of those measured bytes that can be freed. Cleanup details holds
-  measurement times, reclaimed space and policy. Stale reports and paused allocations
-  appear beside the worker. A missing measurement is unknown.
+  the share of those measured bytes that can be freed. Each worker shows its
+  measurement time, reclaimed space, stale reports and paused allocations. The
+  cleanup budget and target appear below the workers. A missing measurement is unknown.
 - "Ready for cleanup" lists what the janitor will do next, oldest first;
   current copies are shown 25 at a time, newest change first, with the full count.
   Removed copies have their own paginated view (`/working-copies?view=removed`)

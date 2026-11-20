@@ -69,6 +69,11 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert LazyHTML.query(production, ".entity-name a") |> LazyHTML.attribute("href") ==
              ["/environments/production/edit"]
 
+    assert LazyHTML.query(production, ".entity-body > .entity-facts") |> text() =~
+             "2 repositories"
+
+    assert Enum.empty?(LazyHTML.query(production, "summary"))
+
     assert LazyHTML.query(production, ".entity-tag") |> LazyHTML.text() == "Default"
     # Andrew, 2026-09-27: "whats the point of logo if you can't click on it?"
     # The tile opens the environment as its name does, for a pointer only: the
@@ -196,10 +201,9 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute text(results) =~ "Listed by"
     refute text(results) =~ "Earlier work"
 
-    assert LazyHTML.query(document, ".environment-access details:not([open]) summary") |> text() ==
-             "About this check"
+    assert Enum.empty?(LazyHTML.query(document, ".environment-access details"))
 
-    assert LazyHTML.query(document, ".environment-access details") |> text() =~
+    assert LazyHTML.query(document, ".environment-access .environment-access-about") |> text() =~
              "File and resource permissions"
 
     assert LazyHTML.query(results, "a") |> Enum.empty?()
@@ -568,7 +572,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute staging.is_default
 
     # The list says how many repositories work there only reads.
-    assert has_element?(view, "#environment-staging details", "1 read only")
+    assert has_element?(view, "#environment-staging .entity-body > .entity-facts", "1 read only")
   end
 
   # Andrew, 2026-10-03, on tenant's editor with all 25 repositories ticked: "i need a way to

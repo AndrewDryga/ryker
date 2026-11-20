@@ -138,6 +138,16 @@ defmodule Ryker.ControlPlane.PromptReadabilityTest do
     assert LazyHTML.query(document, ".knowledge-provenance") |> LazyHTML.text() =~ "memory:one"
   end
 
+  test "one source identifier is visible alongside the retained knowledge" do
+    document =
+      readable(%{
+        "repository_knowledge" => %{"content" => "A note.", "source_commit" => "abc123"}
+      })
+
+    assert LazyHTML.query(document, "p.knowledge-provenance") |> LazyHTML.text() =~ "abc123"
+    assert Enum.empty?(LazyHTML.query(document, "details.knowledge-provenance"))
+  end
+
   test "a previous accepted outcome reads the delivery inside its retained envelope" do
     # A restarted session wraps its prior delivery with provenance, unlike a
     # continued session's direct previous_delivery. Neither may lose the reply.

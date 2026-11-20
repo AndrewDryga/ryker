@@ -110,13 +110,13 @@ defmodule Ryker.ControlPlane.CasesPage do
           <span>{MemoryFormat.time(@item.at, "ended ")}</span>
         </Kit.status_line>
         <Kit.facts :if={not @item.forgotten?} id="case-facts" facts={facts(@item)} />
-        <details
+        <div
           :if={@item.problem && @item.problem != heading(@item).title}
           class="memory-source-text"
         >
-          <summary>Full request</summary>
+          <h3>Full request</h3>
           <div class="memory-topic-text">{MemoryFormat.inline(@item.problem)}</div>
-        </details>
+        </div>
       </article>
       <section :if={@item.checked != []} id="case-checked" class="memory-section">
         <Kit.section_head title="What Ryker checked" lede="The sources the work read and cited." />

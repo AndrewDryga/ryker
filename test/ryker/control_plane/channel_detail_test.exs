@@ -935,7 +935,8 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       html = page("/channels/T123/C456")
       section = html |> LazyHTML.from_document() |> LazyHTML.query("#knows")
       link = LazyHTML.query(section, ".channel-health a[href='/memory/learning']")
-      assert LazyHTML.text(link) =~ "1 learning batch needs attention"
+      assert LazyHTML.text(section) =~ "1 learning batch needs attention"
+      assert LazyHTML.text(link) =~ "Review batches"
       refute html =~ "must-not-render-lease"
       refute html =~ "must-not-render-policy"
 

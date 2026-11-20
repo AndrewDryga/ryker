@@ -65,9 +65,8 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     refute text(card, ".prompt-assembly") =~ "30"
     refute text(card, ".prompt-assembly") =~ ~r/\b48 (earlier )?(messages|inputs)\b|\bof 48\b/
 
-    details = LazyHTML.query(card, "details.request-selection")
-    assert LazyHTML.attribute(details, "open") == []
-    assert text(details, ".ui-disclosure-label") == "Context limits"
+    details = LazyHTML.query(card, "p.request-selection")
+    assert text(details, "strong") == "Context limits"
     assert LazyHTML.text(details) =~ "Up to 40 messages · 160 KiB of context"
     assert LazyHTML.text(details) =~ "Anything left out is noted beside its section."
     assert Enum.empty?(LazyHTML.query(details, ".ui-disclosure-body details, pre, button"))

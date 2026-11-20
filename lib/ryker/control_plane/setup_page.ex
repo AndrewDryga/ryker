@@ -180,14 +180,14 @@ defmodule Ryker.ControlPlane.SetupPage do
       <div class="setup-step-done">
         <p class="setup-step-line">
           <span class="sr-only">Done: </span><strong>{@step.done_title}</strong>
-          <span :if={@step.summary} class="setup-step-summary">· {@step.summary}</span><span
-            :if={@step[:link]}
-            class="setup-step-summary"
-          > · <.link navigate={@step.link.href}>{@step.link.label}</.link></span>
+          <span :if={@step.summary} class="setup-step-summary">· {@step.summary}</span>
           <Kit.state :if={@step[:state]} tone={elem(@step.state, 0)} word={elem(@step.state, 1)} />
         </p>
         <p :if={@step[:broken] && @step[:reason]} class="setup-step-reason">{@step.reason}</p>
       </div>
+      <.link :if={@step[:link]} navigate={@step.link.href} class="setup-step-manage">
+        {@step.link.label}
+      </.link>
       <.link :if={@step[:manage]} navigate={@step.manage.href} class="setup-step-manage">
         {@step.manage.label}<span class="sr-only">{" " <> @step.done_title}</span>
       </.link>
@@ -373,6 +373,10 @@ defmodule Ryker.ControlPlane.SetupPage do
   defp step(:emisar, view) do
     emisar = Integrations.emisar(view)
 
+    facts =
+      emisar.facts ++
+        if(emisar.unassigned > 0, do: [Integrations.unassigned(emisar.unassigned)], else: [])
+
     %{
       title:
         case emisar do
@@ -391,10 +395,10 @@ defmodule Ryker.ControlPlane.SetupPage do
       minutes: 3,
       action: emisar.action,
       done_title: "Emisar",
-      summary: if(emisar.facts != [], do: Enum.join(emisar.facts, " · ")),
+      summary: if(facts != [], do: Enum.join(facts, " · ")),
       link:
         emisar.unassigned > 0 &&
-          %{label: Integrations.unassigned(emisar.unassigned), href: "/environments"},
+          %{label: "Manage environments", href: "/environments"},
       manage: %{label: "Manage", href: "/integrations/emisar"}
     }
   end

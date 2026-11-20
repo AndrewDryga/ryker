@@ -125,7 +125,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
              "/working-copies?view=removed"
            ]
 
-    assert Enum.empty?(LazyHTML.query(document, "details:not(.storage-details)"))
+    assert Enum.empty?(LazyHTML.query(document, "details"))
 
     assert Enum.empty?(LazyHTML.query(document, "table, .page-help, .result-count"))
     refute LazyHTML.text(document) =~ "Slack workspaces"
@@ -307,10 +307,10 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
   end
 
   # Two separate charts and cleanup policy competed with the worker's current numbers.
-  test "a worker has one storage bar and cleanup policy is available on demand" do
+  test "a worker has one storage bar and cleanup policy is visible below it" do
     storage = render([]) |> LazyHTML.query("#storage")
     assert Enum.count(LazyHTML.query(storage, "#storage-worker-a meter")) == 1
-    assert LazyHTML.text(LazyHTML.query(storage, "details:not([open])")) =~ "10 GiB"
+    assert LazyHTML.text(LazyHTML.query(storage, "p.storage-note")) =~ "10 GiB"
   end
 
   test "storage says plainly what each worker measured, and never invents a byte" do
@@ -328,9 +328,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
       assert LazyHTML.text(worker) =~ value
     end
 
-    details = LazyHTML.query(storage, "details")
-    assert LazyHTML.text(details) =~ "1 GiB"
-    assert LazyHTML.text(details) =~ "measured 2 min ago"
+    assert LazyHTML.text(worker) =~ "1 GiB"
+    assert LazyHTML.text(worker) =~ "measured 2 min ago"
     assert LazyHTML.text(storage) =~ "10 GiB"
     assert LazyHTML.text(storage) =~ "1 hour"
 

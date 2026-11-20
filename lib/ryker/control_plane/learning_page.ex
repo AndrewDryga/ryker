@@ -210,10 +210,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               meta={[MemoryFormat.time(session.updated_at, "Updated ")]}
             >
               <:details>
-                <details class="memory-details">
-                  <summary>Details</summary>
-                  <p>Session <code>{session.ref}</code></p>
-                </details>
+                <p class="entity-meta">Session <code>{session.ref}</code></p>
               </:details>
               <:actions :if={session[:action] == :rearm}>
                 <.action_button
@@ -240,9 +237,10 @@ defmodule Ryker.ControlPlane.LearningPage do
       <span :if={@activity.waiting_inputs > 0 and @activity.oldest_waiting_at}>
         oldest waiting {MemoryFormat.waited(@activity.oldest_waiting_at)}
       </span>
-      <a :if={@activity.counts.deferred > 0} data-tone="warn" href="#needs-attention">
-        {Wording.count(@activity.counts.deferred, "needs attention", "need attention")}
-      </a>
+      <span :if={@activity.counts.deferred > 0} data-tone="warn">
+        {Wording.count(@activity.counts.deferred, "needs attention", "need attention")}.
+        <a href="#needs-attention">Review batches</a>
+      </span>
     </Kit.status_line>
     <p :if={state_note(@activity.state)} class="memory-note memory-status-note">
       {state_note(@activity.state)}

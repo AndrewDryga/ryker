@@ -567,6 +567,16 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     end
   end
 
+  test "a single unused earlier request is visible without opening details" do
+    document =
+      routing_card(Enum.take(@offered, 1), %{"action" => "quick_reply", "relation" => "unrelated"})
+
+    assert document |> LazyHTML.query("details.request-unused-history") |> Enum.empty?()
+
+    assert document |> LazyHTML.query(".request-unused-history") |> outcome_rows() ==
+             [{"Not continued", "Restart the workers ↑"}]
+  end
+
   # A quick reply, a reaction, a plain reply and silence join nothing when
   # routed as unrelated. New work is the exception: which earlier work it did
   # not continue is part of the decision to start it.

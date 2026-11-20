@@ -1893,8 +1893,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    than the line breaks. */
 .entity-name > span:first-child { min-width:0; overflow-wrap:break-word; }
 .entity-text { margin:4px 0 0; max-width:720px; font-size:14px; line-height:20px; color:var(--ryker-text); overflow-wrap:anywhere; }
-.entity-meta { margin:3px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
-.entity-meta strong { color:var(--ryker-text); font-weight:500; }
+.entity-meta, .entity-facts { margin:3px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
+.entity-meta strong, .entity-facts strong { color:var(--ryker-text); font-weight:500; }
 .entity-side { grid-column:side; display:flex; align-items:center; gap:16px; margin-left:20px; }
 /* A row's state is a tinted pill at the far edge, or beside the name in a list whose rows carry their own buttons (Kit state_by_name, 2026-09-27). */
 :is(.entity-side, .entity-name) .state-word { padding:3px 10px 3px 9px; border-radius:999px; background:var(--ryker-surface-emphasis); font-size:12px; line-height:18px; }
@@ -1929,7 +1929,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .section-head h2 { margin:0; font-size:16px; line-height:24px; font-weight:600; }
 .section-head p { margin:2px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); max-width:720px; }
 /* The title and its sentence wrap; the controls beside them keep their width. */
-.section-actions { flex:none; margin-left:auto; display:flex; gap:8px; }
+.section-actions { flex:0 1 auto; min-width:0; margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 /* A segmented control is a <nav>; the global nav spacing must not reach it. */
 .segmented { display:inline-flex; flex-wrap:nowrap; gap:0; margin:0; border:1px solid var(--ryker-stroke); border-radius:8px; overflow:hidden; }
 .segmented a { display:inline-flex; align-items:center; min-height:calc(var(--ryker-control-height) - 2px); padding:0 12px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); white-space:nowrap; }
@@ -2041,11 +2041,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .connection-card > .connection-line { margin:0; border:0; border-radius:0; }
 .connection-card > .connection-line + .connection-line { border-top:1px solid var(--ryker-stroke); }
 .connection-line p .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]) { color:var(--ryker-text); }
-/* Details on demand: closed, quiet, exact. */
-:is(.channel-page, .repositories-page, .working-copies-page) .entity-details { margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-:is(.channel-page, .repositories-page, .working-copies-page) .entity-details > summary { width:max-content; padding:2px 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); cursor:pointer; }
-.ryker-app :is(.channel-page, .repositories-page, .working-copies-page) .entity-details > summary:hover { color:var(--ryker-text); }
-:is(.channel-page, .repositories-page, .working-copies-page) .entity-details[open] > summary { margin-bottom:8px; }
 .channel-page .channel-facts { display:grid; grid-template-columns:minmax(140px,max-content) minmax(0,1fr); gap:6px 24px; margin:0; }
 .channel-page .channel-facts > div { display:contents; }
 .channel-page .channel-facts dt { padding:0; border:0; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
@@ -2106,7 +2101,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .storage-worker { min-width:0; padding:14px 16px; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:10px; }
 .working-copies-storage > h2 { margin:0; font-size:16px; line-height:22px; }
 .storage-worker h3 { margin:0 0 12px; font-size:15px; overflow-wrap:anywhere; }
-.storage-worker p, .storage-details { margin:8px 0 0; color:var(--ryker-text-secondary); font-size:13px; }
+.storage-worker p { margin:8px 0 0; color:var(--ryker-text-secondary); font-size:13px; }
 .storage-worker .storage-figures { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0; }
 .storage-figures dt, .storage-figures dd { padding:0; border:0; }
 .storage-figures dt { color:var(--ryker-text-secondary); font-size:13px; }
@@ -2117,10 +2112,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .storage-worker meter::-webkit-meter-optimum-value { background:var(--ryker-accent-strong); border-radius:5px; }
 .storage-worker meter::-moz-meter-bar { background:var(--ryker-accent-strong); border-radius:5px; }
 .storage-worker .storage-refusal { color:var(--ryker-warning); }
-.storage-details summary { width:fit-content; cursor:pointer; color:var(--ryker-text); }
-.storage-details ul { list-style:none; margin:10px 0; padding:0; }
-.storage-details li { display:flex; flex-wrap:wrap; gap:2px 14px; margin:4px 0; }
-.storage-details p { margin:4px 0; }
 .working-copies-storage .storage-note { display:flex; flex-wrap:wrap; gap:4px 20px; margin-top:4px; }
 @media (max-width:800px) {
   .connection-line { flex-direction:column; align-items:flex-start; }
@@ -2185,13 +2176,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .learning-switch { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
 .ryker-app .learning-switch .ui-button { min-height:36px; padding:6px 14px; font-size:13px; line-height:18px; }
 .ryker-app .learning-switch-error { margin:0; max-width:32ch; font-size:13px; line-height:18px; color:var(--ryker-error); text-align:right; }
-/* Turning learning off asks in place of the switch, as wide as the
-   header's action column allows. */
-.memory-details { max-width:720px; margin:6px 0 0; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
-.ryker-app .memory-details > summary { width:fit-content; padding:4px 0; font-size:13px; line-height:18px; cursor:pointer; color:var(--ryker-text-secondary); }
-.ryker-app .memory-details[open] > summary { color:var(--ryker-text); }
-.ryker-app .memory-details p { margin:6px 0 0; font-size:13px; line-height:18px; }
-.memory-details code { overflow-wrap:anywhere; }
 /* The relearn picker is a section of a topic's page like any other: no
    panel, no coloured edge, never collapsed. */
 .knowledge-rebuild { max-width:1040px; overflow-wrap:anywhere; }
@@ -2589,7 +2573,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .entity-row-link .entity-name a::after { content:""; position:absolute; inset:0; }
 /* A row that opens its item keeps a long name to two lines; the item's own page has all of it. */
 .entity-row-link .entity-name > a { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.entity-row-link :is(.entity-actions, .entity-meta a, .entity-text a, details) { position:relative; z-index:1; }
+.entity-row-link :is(.entity-actions, .entity-meta a, .entity-facts a, .entity-text a, details) { position:relative; z-index:1; }
 /* The hover ground sits under the row's content and reaches past its edges;
    a day heading stays off it. */
 .entity-row-link::before { content:""; position:absolute; inset:0 -12px; z-index:-1; border-radius:12px; background:transparent; }
@@ -2597,8 +2581,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .entity-list > .entity-row-link.entity-row-grouped:first-child::before { top:42px; }
 .ryker-app .entity-row-link:hover::before { background:var(--ryker-surface-raised); }
 .ryker-app .entity-row-link:hover .entity-name a { text-decoration:none; }
-.ryker-app .entity-meta a { color:var(--ryker-text); font-weight:500; }
-.ryker-app .section-actions > a:not(.ui-button) { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
+.ryker-app :is(.entity-meta, .entity-facts) a { color:var(--ryker-text); font-weight:500; }
+.ryker-app .section-actions > a:not(.ui-button) { display:inline-flex; align-items:center; min-height:36px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .ryker-app .section-actions > a:not(.ui-button):hover { color:var(--ryker-text); }
 .ryker-app .kit-status-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; max-width:1040px; margin:-16px 0 20px; font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .kit-status-line .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]), .kit-facts .state-word:is([data-tone=on], [data-tone=busy], [data-tone=off]) { color:var(--ryker-text); }
@@ -2695,7 +2679,6 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .environment-access-row .state-word { white-space:nowrap; }
 .ryker-app .environment-access-detail { grid-column:1 / -1; margin:0; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
 .environment-access-about { margin-top:8px; font-size:13px; line-height:20px; color:var(--ryker-text-secondary); }
-.environment-access-about summary { min-height:44px; width:fit-content; align-content:center; cursor:pointer; }
 .ryker-app .environment-access-about p { margin:0 0 8px; font-size:13px; line-height:20px; }
 .kit-form-card .settings-group > .settings-group-title { margin:0 0 -8px; font-size:14px; line-height:20px; color:var(--ryker-text); }
 .kit-form-card .settings-field :is(input[type=text], input[type=password], input[type=url], input:not([type]), select) { max-width:520px; }
@@ -3236,7 +3219,3 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .episode-outcome { margin: 0 0 1rem; padding: 0.875rem 1rem; border-inline-start: 3px solid var(--ryker-accent); overflow-wrap: anywhere; }
 .episode-outcome h2 { margin: 0; font-size: 1rem; }
 .episode-outcome p { margin: 0.35rem 0; }
-
-.entity-row-details { width:fit-content; max-width:100%; color:var(--ryker-text-secondary); font-size:0.875rem; }
-.entity-row-details summary { cursor:pointer; }
-.entity-row-details .entity-facts { margin:0.35rem 0; overflow-wrap:anywhere; }

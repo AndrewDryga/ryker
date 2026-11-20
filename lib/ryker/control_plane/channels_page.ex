@@ -124,7 +124,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           meta={meta(item)}
         >
           <:details>
-            <Kit.row_details label="Channel activity" facts={activity_facts(item, @now)} />
+            <Kit.fact_line facts={activity_facts(item, @now)} />
           </:details>
         </Kit.entity_row>
       </Kit.entity_list>

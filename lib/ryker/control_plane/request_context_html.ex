@@ -2578,12 +2578,24 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp provenance(metadata) do
     populated = Map.reject(metadata, fn {_key, value} -> blank?(value) end)
 
-    if map_size(populated) == 0,
-      do: [],
-      else:
+    case Map.to_list(populated) do
+      [] ->
+        []
+
+      [{key, value}] when is_binary(value) and byte_size(value) <= 160 ->
+        [
+          "<p class=\"knowledge-provenance\">",
+          escape(field_label(key)),
+          " · ",
+          escape(value),
+          "</p>"
+        ]
+
+      _fields ->
         Components.disclosure_html("Source details", fields(populated, 0),
           class: "knowledge-provenance"
         )
+    end
   end
 
   defp knowledge_action(key) do

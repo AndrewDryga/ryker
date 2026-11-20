@@ -652,10 +652,13 @@ defmodule Ryker.ControlPlane.ChannelPage do
           ]}
         >
           <:details>
-            <details :if={item.text} id={"guidance-" <> item.ref <> "-text"} class="entity-details">
-              <summary>Full guidance</summary>
-              <p class="channel-entry-text">{item.text}</p>
-            </details>
+            <p
+              :if={item.text && item.text != item.summary}
+              id={"guidance-" <> item.ref <> "-text"}
+              class="channel-entry-text"
+            >
+              {item.text}
+            </p>
           </:details>
         </Kit.entity_row>
       </.relation>
@@ -782,15 +785,17 @@ defmodule Ryker.ControlPlane.ChannelPage do
       <span :if={@learning.waiting > 0}>
         {Wording.count(@learning.waiting, "message")} waiting to be learned from
       </span>
-      <a :if={@learning.needs_attention > 0} href="/memory/learning">
-        {Wording.count(@learning.needs_attention, "learning batch needs", "learning batches need")} attention
-      </a>
+      <span :if={@learning.needs_attention > 0}>
+        {Wording.count(@learning.needs_attention, "learning batch needs", "learning batches need")} attention.
+        <a href="/memory/learning">Review batches</a>
+      </span>
       <span :if={@continuity.drafts > 0}>
         {Wording.count(@continuity.drafts, "conversation update")} being saved
       </span>
-      <a :if={@continuity.handover_failures > 0} href="/memory/learning#context-not-saved">
-        {Wording.count(@continuity.handover_failures, "conversation update")} could not be saved
-      </a>
+      <span :if={@continuity.handover_failures > 0}>
+        {Wording.count(@continuity.handover_failures, "conversation update")} could not be saved.
+        <a href="/memory/learning#context-not-saved">Review updates</a>
+      </span>
     </p>
     """
   end

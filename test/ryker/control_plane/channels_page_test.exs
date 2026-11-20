@@ -74,7 +74,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
 
       assert LazyHTML.query(row, "p.entity-meta strong") |> LazyHTML.text() == "Payments"
 
-      last = LazyHTML.query(row, "details .entity-facts time")
+      last = LazyHTML.query(row, ".entity-body > .entity-facts time")
       assert LazyHTML.attribute(last, "datetime") == ["2026-08-28T12:00:00Z"]
       assert LazyHTML.attribute(last, "title") == ["28 Aug 2026, 12:00 UTC"]
       refute LazyHTML.text(document) =~ "Global + channel"

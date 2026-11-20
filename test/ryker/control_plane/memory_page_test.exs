@@ -656,10 +656,11 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.text(status) =~ "25 messages waiting"
       assert LazyHTML.text(status) =~ "oldest waiting 3 days"
 
-      assert LazyHTML.query(status, "a[href='#needs-attention'][data-tone=warn]")
-             |> LazyHTML.text()
-             |> String.trim() ==
+      assert LazyHTML.query(status, "span[data-tone=warn]") |> LazyHTML.text() =~
                "1 needs attention"
+
+      assert LazyHTML.query(status, "a[href='#needs-attention']") |> LazyHTML.text() ==
+               "Review batches"
 
       for {state, tone, word, note} <- [
             {:off, "off", "Learning is off", "learns nothing from them until learning is on"},
@@ -798,7 +799,7 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       assert LazyHTML.query(retry, ".entity-text") |> LazyHTML.text() =~
                "The worker has not confirmed that this session stopped. Ryker checks again in"
 
-      assert LazyHTML.query(retry, "details.memory-details:not([open]) code") |> LazyHTML.text() ==
+      assert LazyHTML.query(retry, ".entity-body > .entity-meta code") |> LazyHTML.text() ==
                "coop:learning:1"
 
       blocked = LazyHTML.query(section, "article#session-coop-learning-2")

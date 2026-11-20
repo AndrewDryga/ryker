@@ -1454,24 +1454,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
     <Kit.section_card
       class="settings-section"
       title="Accounts"
-      lede="Open an account to rename it, replace its key, pause it or remove it."
+      lede={
+        if @line.unassigned > 0,
+          do: Integrations.unassigned(@line.unassigned),
+          else: "Open an account to rename it, replace its key, pause it or remove it."
+      }
     >
-      <:actions :if={@accounts != []}>
-        <.link patch="/integrations/emisar/new" class="ui-button secondary">
+      <:actions :if={@line.unassigned > 0 || @accounts != []}>
+        <.link :if={@line.unassigned > 0} navigate="/environments">Manage environments</.link>
+        <.link :if={@accounts != []} patch="/integrations/emisar/new" class="ui-button secondary">
           <Components.icon name={:plus} />Add account
         </.link>
       </:actions>
-      <div :if={@line.status != :on || @line.unassigned > 0} class="settings-connection">
+      <div :if={@line.status != :on} class="settings-connection">
         <div class="settings-connection-body">
-          <Kit.state
-            :if={@line.status != :on}
-            tone={elem(@line.state, 0)}
-            word={elem(@line.state, 1)}
-          />
+          <Kit.state tone={elem(@line.state, 0)} word={elem(@line.state, 1)} />
           <p :if={@line.reason}>{@line.reason}</p>
-          <.link :if={@line.unassigned > 0} navigate="/environments">{Integrations.unassigned(
-            @line.unassigned
-          )}</.link>
         </div>
       </div>
       <Kit.empty

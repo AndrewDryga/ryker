@@ -118,7 +118,6 @@ defmodule Ryker.ControlPlane.Kit do
   def entity_row(assigns) do
     assigns =
       assigns
-      |> assign(:meta, Enum.reject(assigns.meta, &(&1 in [nil, "", []])))
       |> assign(:side_state, if(assigns.actions == [], do: assigns.state))
       |> assign(:name_state, if(assigns.actions != [], do: assigns.state))
 
@@ -163,11 +162,7 @@ defmodule Ryker.ControlPlane.Kit do
           />
         </h3>
         <p :if={@text} class="entity-text">{@text}</p>
-        <p :if={@meta != []} class="entity-meta">
-          <%= for {fact, index} <- Enum.with_index(@meta) do %>
-            <span :if={index > 0} aria-hidden="true"> · </span><.fact value={fact} />
-          <% end %>
-        </p>
+        <.fact_line facts={@meta} class="entity-meta" />
         {render_slot(@details)}
       </div>
       <div :if={@side_state || @at} class="entity-side">
@@ -257,20 +252,17 @@ defmodule Ryker.ControlPlane.Kit do
   end
 
   attr(:facts, :list, required: true)
-  attr(:label, :string, required: true)
+  attr(:class, :string, default: "entity-facts")
 
-  def row_details(assigns) do
+  def fact_line(assigns) do
     assigns = assign(assigns, :facts, Enum.reject(assigns.facts, &(&1 in [nil, "", []])))
 
     ~H"""
-    <details :if={@facts != []} class="entity-row-details">
-      <summary>{@label}</summary>
-      <p class="entity-facts">
-        <%= for {value, index} <- Enum.with_index(@facts) do %>
-          <span :if={index > 0} aria-hidden="true"> · </span><.fact value={value} />
-        <% end %>
-      </p>
-    </details>
+    <p :if={@facts != []} class={@class}>
+      <%= for {value, index} <- Enum.with_index(@facts) do %>
+        <span :if={index > 0} aria-hidden="true"> · </span><.fact value={value} />
+      <% end %>
+    </p>
     """
   end
 

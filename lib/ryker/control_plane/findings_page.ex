@@ -147,10 +147,10 @@ defmodule Ryker.ControlPlane.FindingsPage do
             {"Investigation", MemoryFormat.link("Open the investigation", @item.path)}
           ]}
         />
-        <details :if={@item.what && @item.what != heading(@item).title} class="memory-source-text">
-          <summary>Full finding</summary>
+        <div :if={@item.what && @item.what != heading(@item).title} class="memory-source-text">
+          <h3>Full finding</h3>
           <div class="memory-topic-text">{MemoryFormat.inline(@item.what)}</div>
-        </details>
+        </div>
       </article>
       <section :if={@item.evidence != []} id="evidence" class="memory-section">
         <Kit.section_head

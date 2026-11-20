@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       |> assign(:answers, answers)
       |> assign(:choice, List.first(choice))
       |> assign(:unused_history, unused_history)
+      |> assign(:one_unused_outcome?, match?([%{outcomes: [_]}], unused_history))
       |> assign(:result?, request.phase == :result)
       |> assign(:run, if(request.phase == :result, do: request[:run]))
       |> assign(:retried_after, request[:retried_after])
@@ -146,17 +147,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         {Phoenix.HTML.raw(submitted(@request, @prompt_section))}
         <SentPrompts.list id={"#{@request.id}-sent"} sends={@request[:sent]} />
       </section>
-      <Components.disclosure
+      <p
         :if={!@result? && @request[:selection] && @request.selection.limits}
         id={"#{@request.id}-details"}
-        label="Context limits"
-        class="request-selection"
+        class="request-selection entity-meta"
       >
-        <p>{@request.selection.limits}</p>
-        <p>
-          Context is bounded to fit the model call. Anything left out is noted beside its section.
-        </p>
-      </Components.disclosure>
+        <strong>Context limits</strong> · {@request.selection.limits}.
+        Anything left out is noted beside its section.
+      </p>
       <section :if={is_map(@response)} class="response-review">
         <Components.message_block :if={is_binary(@response["message"])} sender="Ryker">
           {Ryker.ControlPlane.SlackMarkdown.html(@response["message"])}
@@ -174,8 +172,15 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </ul>
         </div>
       </section>
+      <div
+        :if={@one_unused_outcome?}
+        id={"#{@request.id}-unused-history"}
+        class="request-unused-history"
+      >
+        <.decision_list facts={@unused_history} />
+      </div>
       <Components.disclosure
-        :if={@unused_history != []}
+        :if={@unused_history != [] && !@one_unused_outcome?}
         id={"#{@request.id}-unused-history"}
         label="Details"
         class="request-unused-history"
