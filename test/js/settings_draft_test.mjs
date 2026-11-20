@@ -200,3 +200,25 @@ test("a kept draft holds the fields the form would send, and never a password", 
   fixture({forms: [settingsForm({dirty: true, elements})], storage})
   assert.equal(kept(storage).form, "name=alerts&accepting=true&labels%5B%5D=service&labels%5B%5D=team")
 })
+
+test("a new validation error stays in view beside the field the operator is editing", () => {
+  // On a phone, pressing Enter left the time zone at the viewport's bottom
+  // and placed its server validation message entirely below the screen.
+  const f = fixture()
+  const field = {}
+  const otherField = {}
+  const calls = []
+  const feedback = {
+    matches: selector => selector === ".settings-error",
+    closest: () => field,
+    scrollIntoView: options => calls.push(options)
+  }
+  const addFeedback = activeField => {
+    feedback.ownerDocument = {activeElement: {closest: () => activeField}}
+    f.mutate([{type: "childList", target: field, addedNodes: [feedback]}])
+  }
+  addFeedback(otherField)
+  assert.deepEqual(calls, [])
+  addFeedback(field)
+  assert.deepEqual(calls, [{block: "nearest", inline: "nearest"}])
+})

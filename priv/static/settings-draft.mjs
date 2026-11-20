@@ -68,6 +68,13 @@ export function createSettingsGuard(root, push, environment = {}) {
   // what is saved; its draft goes.
   const observer = Observer && new Observer(records => {
     for (const record of records) {
+      for (const node of record.addedNodes || []) {
+        if (!node.matches?.(".settings-error")) continue
+        const field = node.closest(".settings-field")
+        if (field && field === node.ownerDocument.activeElement?.closest(".settings-field")) {
+          node.scrollIntoView({block: "nearest", inline: "nearest"})
+        }
+      }
       const form = record.target
       if (record.type === "attributes" && record.oldValue === "true" && form.dataset?.draft &&
           form.dataset.dirty !== "true") drop(form)
