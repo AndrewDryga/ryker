@@ -8,6 +8,7 @@ defmodule Ryker.StateTools.CallRecord do
     field(:status, :string)
     field(:arguments, Ryker.CanonicalJSON.Type)
     field(:error, Ryker.CanonicalJSON.Type)
+    field(:github_review, :map)
     field(:emisar_run, Ryker.CanonicalJSON.Type)
     field(:answered_at, :utc_datetime_usec)
     field(:called_at, :utc_datetime_usec)
@@ -20,6 +21,7 @@ defmodule Ryker.StateTools.CallRecord do
           status: String.t() | nil,
           arguments: term(),
           error: term(),
+          github_review: map() | nil,
           emisar_run: map() | nil,
           answered_at: DateTime.t() | nil,
           called_at: DateTime.t() | nil

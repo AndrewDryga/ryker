@@ -24,6 +24,18 @@ defmodule Ryker.StateTools.CallRecord.Query do
   def called_since(queryable, since),
     do: where(queryable, [episode_work_state_tool_calls: c], c.called_at >= ^since)
 
+  def submitted_github_review(queryable \\ all(), turn_id, accepted_at, target) do
+    from([episode_work_state_tool_calls: c] in queryable,
+      where:
+        c.turn_id == ^turn_id and c.tool == "submit_github_review" and c.status == "completed" and
+          c.answered_at <= ^accepted_at and
+          fragment("? @> ?", c.github_review, type(^target, :map)),
+      order_by: [desc: c.answered_at, desc: c.id],
+      limit: 1,
+      select: c.github_review
+    )
+  end
+
   def observed_emisar_runs(queryable \\ all(), turn_id, attempt, connection_ref) do
     from([episode_work_state_tool_calls: c] in queryable,
       join: t in Work.Turn,

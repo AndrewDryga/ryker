@@ -84,6 +84,12 @@ defmodule Ryker.Delivery.DispatcherTest do
     end
   end
 
+  defmodule GitHubPublisher do
+    def transport, do: "github"
+    defdelegate publish_message(request, agent), to: Publisher
+    defdelegate publish_reaction(request, agent), to: Publisher
+  end
+
   defmodule BlockingPublisher do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher
@@ -162,6 +168,81 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert request.conversation_ref == "slack:T123:C456"
     assert request.thread_ref == "1787832000.000100"
     assert request.source_item_ref == nil
+  end
+
+  test "a completed PR review settles on the posted findings without publishing another review" do
+    # One native findings review was followed by another COMMENTED review telling the
+    # requester it had been posted. Preserve both the native ID and the saved final answer.
+    accepted = github_review_pending!()
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+    assert {:ok, {:delivered, :message, _ref}} =
+             Dispatcher.run_once(dispatcher_options(:message, publisher, GitHubPublisher))
+
+    assert Agent.get(publisher, & &1.calls) == []
+    settled = Repo.get!(Turn, accepted.turn.id)
+    assert settled.external_receipt["message_ref"] == "github:pull_request_review:77"
+    assert settled.delivery_document == accepted.turn.delivery_document
+
+    assert Dispatcher.run_once(dispatcher_options(:message, publisher, GitHubPublisher)) ==
+             {:ok, :idle}
+  end
+
+  test "failed, unrelated and actionable review replies still reach GitHub" do
+    offer = TaskOffer.payload(%{"prompt" => "Fix the finding.", "title" => "Fix the count"})
+
+    for options <- [
+          [answer: {:error, "temporarily_unavailable"}],
+          [answer: {:ok, %{"review_id" => 77}}],
+          [submitted_head: String.duplicate("b", 40)],
+          [number: 18],
+          [read_only: false],
+          [thread: "github:main:pull:16:review-thread:801"],
+          [record?: false],
+          [task_offer: offer]
+        ] do
+      # Each fresh turn speaks into the same PR. The earlier turn's review must
+      # never silence this one, or hide an offer requiring a person's approval.
+      accepted = github_review_pending!(options)
+      {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+      assert {:ok, {:delivered, :message, _ref}} =
+               Dispatcher.run_once(dispatcher_options(:message, publisher, GitHubPublisher))
+
+      assert [{:message, _}] = Agent.get(publisher, & &1.calls), inspect(options)
+
+      refute Repo.get!(Turn, accepted.turn.id).external_receipt["message_ref"] ==
+               "github:pull_request_review:77"
+    end
+  end
+
+  test "a native review can settle only this turn's plain terminal delivery to its own repository" do
+    accepted = github_review_pending!()
+    session = Repo.get!(Ryker.Work.Session, accepted.turn.session_id)
+    claim = %{turn: accepted.turn, session: session}
+
+    {:ok, request} =
+      Ryker.Delivery.Request.new(%{
+        ref: accepted.turn.delivery_ref,
+        transport: "github",
+        kind: :message,
+        document: %{"message" => accepted.turn.delivery_document["message"]},
+        conversation_ref: "github:main:repository:12",
+        thread_ref: "github:main:pull:16",
+        source_item_ref: nil
+      })
+
+    assert {:ok, _receipt} = Ryker.GitHub.ReviewDelivery.receipt(claim, request)
+
+    for {claim, request} <- [
+          {%{claim | turn: %{claim.turn | continuation: %{"kind" => "wait"}}}, request},
+          {%{claim | turn: %{claim.turn | id: Ecto.UUID.generate()}}, request},
+          {claim, %{request | conversation_ref: "github:main:repository:13"}},
+          {claim, %{request | artifacts: [%{"name" => "review.png"}]}},
+          {claim, %{request | also_answered: [%{"thread_ref" => "github:main:pull:18"}]}}
+        ] do
+      assert :not_found == Ryker.GitHub.ReviewDelivery.receipt(claim, request)
+    end
   end
 
   test "an answer is published to the thread its question was asked in" do
@@ -1271,7 +1352,7 @@ defmodule Ryker.Delivery.DispatcherTest do
   defp dispatcher_options(kind, binding, publisher_module \\ Publisher, overrides \\ []) do
     assert {:ok, adapters} =
              Adapters.new(%{
-               "slack" => %{
+               publisher_module.transport() => %{
                  binding: binding,
                  message_publisher: publisher_module,
                  reaction_publisher: publisher_module
@@ -1338,16 +1419,67 @@ defmodule Ryker.Delivery.DispatcherTest do
     holder
   end
 
+  defp github_review_pending!(options \\ []) do
+    head = String.duplicate("a", 40)
+    submitted = Keyword.get(options, :submitted_head, head)
+
+    destination = %{
+      transport: "github",
+      conversation_ref: "github:main:repository:12",
+      thread_ref: Keyword.get(options, :thread, "github:main:pull:16")
+    }
+
+    record_review = fn claim ->
+      job = %{
+        "repository_read_only" => Keyword.get(options, :read_only, true),
+        "source" => %{"binding" => %{"selected_commit" => head}}
+      }
+
+      session =
+        Repo.update!(
+          Ecto.Changeset.change(claim.session,
+            worker_job_document: job,
+            worker_job_digest: Ryker.CanonicalJSON.digest(job)
+          )
+        )
+
+      if Keyword.get(options, :record?, true) do
+        args = %{"head_sha" => submitted, "number" => Keyword.get(options, :number, 16)}
+
+        answer =
+          Keyword.get(options, :answer, {:ok, %{"commit_id" => submitted, "review_id" => 77}})
+
+        Ryker.StateTools.CallLog.record(
+          %{claim | session: session},
+          "submit_github_review",
+          args,
+          answer,
+          DateTime.utc_now()
+        )
+      end
+    end
+
+    delivery_pending!(
+      "native-review-#{Ecto.UUID.generate()}",
+      Keyword.merge(options,
+        destination: destination,
+        after_bind: record_review,
+        message: "I published one review on PR #16. The count includes an extra item."
+      )
+    )
+  end
+
   defp delivery_pending!(suffix, options \\ []) do
     id = Ecto.UUID.generate()
 
     command =
       EpisodeFixtures.admit_input(%{
-        destination: %{
-          conversation_ref: "slack:T123:C456",
-          thread_ref: "1787832000.000100",
-          transport: "slack"
-        },
+        destination:
+          Keyword.get(options, :destination, %{
+            conversation_ref: "slack:T123:C456",
+            thread_ref: "1787832000.000100",
+            transport: "slack"
+          }),
         episode_id: id,
         episode_key: "delivery-dispatcher:#{suffix}:#{id}",
         native_input_id: "slack-message:#{suffix}:#{id}",
@@ -1413,6 +1545,8 @@ defmodule Ryker.Delivery.DispatcherTest do
                claim.turn.submit_generation,
                "coop-turn:delivery:#{suffix}"
              )
+
+    if after_bind = options[:after_bind], do: after_bind.(%{claim | session: session, turn: turn})
 
     artifact_refs =
       case output_artifact do

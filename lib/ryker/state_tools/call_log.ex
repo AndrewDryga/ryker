@@ -10,6 +10,7 @@ defmodule Ryker.StateTools.CallLog do
   The records go when their turn's bodies expire.
   """
   alias Ryker.Emisar
+  alias Ryker.GitHub
   alias Ryker.Repo
   alias Ryker.StateTools.CallRecord
   alias Ryker.Work
@@ -36,6 +37,7 @@ defmodule Ryker.StateTools.CallLog do
       status: status,
       arguments: if(is_nil(arguments), do: nil, else: Work.Activity.sanitize_evidence(arguments)),
       error: error,
+      github_review: github_review(binding, tool, arguments, result),
       emisar_run: terminal_run(binding, tool, arguments, result),
       called_at: called_at
     }
@@ -86,6 +88,40 @@ defmodule Ryker.StateTools.CallLog do
   end
 
   defp terminal_run(_binding, _tool, _arguments, _result), do: nil
+
+  # A model-authored review URL or tool argument is not a delivery receipt.
+  # Keep the ID returned by the authenticated submit, bound to where it went.
+  defp github_review(
+         %{
+           episode: %{
+             destination_transport: "github",
+             destination_conversation_ref: conversation,
+             destination_thread_ref: thread
+           }
+         },
+         "submit_github_review",
+         %{"number" => number, "head_sha" => head},
+         {:ok, %{"review_id" => id, "commit_id" => head}}
+       ) do
+    if GitHub.id?(id) do
+      %{
+        "conversation_ref" => conversation,
+        "thread_ref" => thread,
+        "number" => number,
+        "head_sha" => head,
+        "review_id" => id
+      }
+    end
+  end
+
+  defp github_review(_binding, _tool, _arguments, _answer), do: nil
+
+  @doc "The native review GitHub accepted for this turn and destination before Work accepted its reply."
+  def fetch_submitted_github_review(turn, target) do
+    turn.id
+    |> CallRecord.Query.submitted_github_review(turn.accepted_at, target)
+    |> Repo.fetch()
+  end
 
   @doc "Exact terminal runs returned to this turn before its frozen candidate."
   @spec observed_emisar_runs(Ecto.UUID.t(), pos_integer(), String.t()) :: [map()]

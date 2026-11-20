@@ -13,6 +13,7 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
+  alias Ryker.GitHub
   alias Ryker.LeasedCall
   alias Ryker.Reference
   alias Ryker.Slack
@@ -99,8 +100,15 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp publish_request(claim, custody, settings) do
     with {:ok, request} <- request(claim, settings.kind),
-         {:ok, receipt} <- publish_with_lease(request, custody, settings),
+         {:ok, receipt} <- publish_or_reconcile(claim, request, custody, settings),
          do: {:ok, {request, receipt}}
+  end
+
+  defp publish_or_reconcile(claim, request, custody, settings) do
+    case GitHub.ReviewDelivery.receipt(claim, request) do
+      :not_found -> publish_with_lease(request, custody, settings)
+      receipt -> receipt
+    end
   end
 
   # The four custodies hold the same lease shape under different names; the
