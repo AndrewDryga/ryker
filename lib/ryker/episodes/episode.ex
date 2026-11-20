@@ -28,6 +28,7 @@ defmodule Ryker.Episodes.Episode do
     field(:semantic_version, :integer, default: 0)
     field(:next_sequence, :integer, default: 1)
     field(:input_revisions, :map, default: %{})
+    field(:slack_input_costs, :map, default: %{})
     field(:active_input_refs, {:array, :string}, default: [])
     field(:queued_input_refs, {:array, :string}, default: [])
     field(:queued_input_order_keys, {:array, :string}, default: [])
@@ -51,6 +52,7 @@ defmodule Ryker.Episodes.Episode do
           semantic_version: non_neg_integer(),
           next_sequence: pos_integer(),
           input_revisions: map(),
+          slack_input_costs: map(),
           active_input_refs: [String.t()],
           queued_input_refs: [String.t()],
           queued_input_order_keys: [String.t()],

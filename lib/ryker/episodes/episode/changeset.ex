@@ -11,6 +11,7 @@ defmodule Ryker.Episodes.Episode.Changeset do
     :semantic_version,
     :next_sequence,
     :input_revisions,
+    :slack_input_costs,
     :active_input_refs,
     :queued_input_refs,
     :queued_input_order_keys
@@ -26,6 +27,7 @@ defmodule Ryker.Episodes.Episode.Changeset do
     :semantic_version,
     :next_sequence,
     :input_revisions,
+    :slack_input_costs,
     :active_input_refs,
     :queued_input_refs,
     :queued_input_order_keys

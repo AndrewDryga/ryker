@@ -745,6 +745,70 @@ defmodule Ryker.Episodes.ReducerTest do
       assert resumed.episode.active_input_refs == [Command.dedupe_key(followup)]
     end
 
+    test "a single next turn can own a burst of short Slack messages in source order" do
+      # Four small pieces of one question used to require two separate Work turns.
+      assert {:ok, initial} = Reducer.decide(nil, EpisodeFixtures.admit_input())
+      assert {:ok, accepted} = Reducer.decide(initial.episode, EpisodeFixtures.accept_result())
+
+      commands =
+        for n <- 1..5 do
+          content =
+            if n == 5, do: %{"files" => [%{"id" => "file"}]}, else: %{"text" => "part #{n}"}
+
+          EpisodeFixtures.admit_input(%{
+            native_input_id: "slack:event:burst-#{n}",
+            occurred_at: DateTime.add(~U[2026-08-27 12:00:00.000000Z], n, :second),
+            payload: %{
+              "source" => %{"kind" => "slack"},
+              "actor" => %{"kind" => "user"},
+              "event_kind" => "message",
+              "content" => content
+            }
+          })
+        end
+
+      waiting =
+        Enum.reduce(Enum.reverse(commands), accepted.episode, fn command, episode ->
+          assert {:ok, step} = Reducer.decide(episode, command)
+          step.episode
+        end)
+
+      assert {:ok, resumed} =
+               Reducer.decide(
+                 waiting,
+                 EpisodeFixtures.confirm_delivery(%{next_turn_ref: "burst"})
+               )
+
+      {small, [large]} = Enum.split(commands, 4)
+      assert resumed.episode.active_input_refs == Enum.map(small, &Command.dedupe_key/1)
+      assert resumed.episode.queued_input_refs == [Command.dedupe_key(large)]
+
+      assert {:ok, accepted} =
+               Reducer.decide(
+                 resumed.episode,
+                 EpisodeFixtures.accept_result(%{expected_turn_ref: "burst"})
+               )
+
+      assert {:ok, restored} =
+               Reducer.decide(accepted.episode, %Command.SuppressDelivery{
+                 episode_key: accepted.episode.key,
+                 expected_delivery_ref: accepted.episode.owner_ref,
+                 next_turn_ref: "burst-retry",
+                 input_refs: resumed.episode.active_input_refs,
+                 occurred_at: ~U[2026-08-27 12:01:00.000000Z]
+               })
+
+      correction =
+        EpisodeFixtures.transfer_owner(%{
+          expected_owner: %{kind: :turn, ref: "burst-retry"},
+          required_input_ref: Command.dedupe_key(large)
+        })
+
+      assert {:ok, corrected} = Reducer.decide(restored.episode, correction)
+      assert corrected.episode.queued_input_refs == Enum.map(tl(small), &Command.dedupe_key/1)
+      assert Enum.all?(corrected.episode.queued_input_order_keys, &is_binary/1)
+    end
+
     test "queued inputs advance in exact bounded pairs without losing chronology" do
       assert {:ok, admitted} = Reducer.decide(nil, EpisodeFixtures.admit_input())
       assert {:ok, accepted} = Reducer.decide(admitted.episode, EpisodeFixtures.accept_result())

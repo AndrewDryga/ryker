@@ -5,6 +5,7 @@ defmodule Ryker.Episodes.Reducer do
   It performs no IO and obtains no time or identifiers implicitly, making every
   accepted transition byte-for-byte replayable.
   """
+  alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Command.{AcceptResult, AdmitInput, CancelEpisode, ConfirmDelivery}
   alias Ryker.Episodes.Command.{RecordReaction, ResumeWait, StartWait}
@@ -16,6 +17,8 @@ defmodule Ryker.Episodes.Reducer do
   # instruction plus one correction. Later inputs remain ordered in the queue
   # instead of being truncated or making the turn unbuildable.
   @maximum_active_inputs 2
+  @maximum_slack_inputs 8
+  @maximum_slack_payload_bytes 32 * 1_024
 
   @type result :: {:ok, Transition.t()} | {:error, term()}
 
@@ -492,7 +495,13 @@ defmodule Ryker.Episodes.Reducer do
   defp activate_queued_inputs(episode, active_refs, required_ref \\ nil) do
     slots = max(@maximum_active_inputs - length(active_refs), 0)
     queued = Enum.zip(episode.queued_input_refs, episode.queued_input_order_keys)
-    {selected, remaining} = input_batch(queued, slots, required_ref)
+
+    {selected, remaining} =
+      if active_refs == [] and is_nil(required_ref) do
+        slack_batch(queued, episode.slack_input_costs)
+      else
+        input_batch(queued, slots, required_ref)
+      end
 
     %{
       episode
@@ -502,8 +511,49 @@ defmodule Ryker.Episodes.Reducer do
     }
   end
 
+  # Small text-only inputs can share one briefing. Reserve the rest of its
+  # 160 KiB for source documents, routing notes, and other required context.
+  # A file, large envelope, or old row with no measured cost keeps the
+  # conservative two-input limit. Stop at the first item that cannot fit.
+  defp slack_batch(queued, costs) do
+    {count, _bytes} =
+      Enum.reduce_while(queued, {0, 0}, fn {ref, _order}, {count, bytes} ->
+        case costs[ref] do
+          %{"bytes" => size}
+          when count < @maximum_slack_inputs and bytes + size <= @maximum_slack_payload_bytes ->
+            {:cont, {count + 1, bytes + size}}
+
+          _overflow ->
+            {:halt, {count, bytes}}
+        end
+      end)
+
+    Enum.split(queued, max(count, @maximum_active_inputs))
+  end
+
   defp transfer_inputs(episode, nil),
     do: activate_queued_inputs(episode, episode.active_input_refs)
+
+  # A required correction can replace the previous correction. A larger
+  # Slack batch also owns independent messages. Carry those forward in their
+  # original order when the corrected turn takes the first request.
+  defp transfer_inputs(%{active_input_refs: [first, _, _ | _] = active} = episode, required_ref) do
+    carried = for ref <- tl(active), do: {ref, episode.slack_input_costs[ref]["order"]}
+
+    ordered =
+      Enum.sort_by(
+        carried ++ Enum.zip(episode.queued_input_refs, episode.queued_input_order_keys),
+        &elem(&1, 1)
+      )
+
+    {refs, keys} = Enum.unzip(ordered)
+
+    activate_queued_inputs(
+      %{episode | queued_input_refs: refs, queued_input_order_keys: keys},
+      [first],
+      required_ref
+    )
+  end
 
   defp transfer_inputs(episode, required_ref) do
     episode
@@ -578,7 +628,54 @@ defmodule Ryker.Episodes.Reducer do
     |> Kernel.<>(":" <> input_ref)
   end
 
+  defp remember_cost(
+         costs,
+         %AdmitInput{
+           destination: %{transport: "slack"},
+           payload:
+             %{
+               "source" => %{"kind" => "slack"},
+               "actor" => %{"kind" => "user"},
+               "event_kind" => "message",
+               "content" => %{"text" => text} = content
+             } = payload
+         } = command
+       )
+       when is_binary(text) do
+    bytes = CanonicalJSON.encode!(payload)
+
+    if byte_size(bytes) <= @maximum_slack_payload_bytes and
+         Map.get(content, "files", []) == [] and Map.get(content, "attachments", []) == [] and
+         not String.contains?(bytes, ~s("artifact_ref")) do
+      ref = Command.dedupe_key(command)
+
+      Map.put(costs, ref, %{
+        "bytes" => byte_size(bytes),
+        "order" => input_order_key(command.occurred_at, ref)
+      })
+    else
+      costs
+    end
+  end
+
+  defp remember_cost(costs, _other), do: costs
+
+  # A first Slack write can still be suppressed. Its replacement receives
+  # the original active inputs, so keep their ordering until delivery settles.
+  defp retain_pending_costs(costs, %{owner_kind: :delivery}), do: costs
+  defp retain_pending_costs(costs, _episode) when map_size(costs) == 0, do: costs
+
+  defp retain_pending_costs(costs, episode),
+    do: Map.take(costs, episode.active_input_refs ++ episode.queued_input_refs)
+
   defp applied(%Episode{} = episode, command, sequence, kind) do
+    costs =
+      episode.slack_input_costs
+      |> remember_cost(command)
+      |> retain_pending_costs(episode)
+
+    episode = %{episode | slack_input_costs: costs}
+
     event = %Event{
       sequence: sequence,
       kind: kind,
