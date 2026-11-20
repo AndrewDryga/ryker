@@ -1025,7 +1025,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: turn.id,
-      counts: work_counts(context, selection, saved),
+      counts: Map.put(work_counts(context, selection, saved), :opened, reading.opened),
       selection: selection && Map.take(selection, [:limits]),
       sent: sent(reading, turn.coop_turn_id, submission),
       title: "Work request",
@@ -1056,7 +1056,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: entry.id,
-      counts: admission_counts(entry, prompt["context"], reading),
+      counts:
+        Map.put(admission_counts(entry, prompt["context"], reading), :opened, reading.opened),
       sent: sent(reading, attempt_value(attempt, :turn_ref), submission),
       title: "Admission · execution #{generation}",
       generation: generation,

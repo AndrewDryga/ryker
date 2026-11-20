@@ -595,7 +595,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     Enum.map(@briefing_groups, fn {group, title, description} ->
       entries = Map.get(rows, group, [])
-      extra = group_extra(group, context, conversation, parts, root, prefix)
+      extra = group_extra(group, context, conversation, parts, root, {prefix, counts[:opened]})
       absent = absent_rows(group, context, parts, root, prefix)
 
       if entries == [] and extra == [] and absent == [] do
@@ -965,13 +965,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp row_group("candidates", _parent), do: "history"
   defp row_group(key, parent), do: key |> metadata(parent) |> elem(1)
 
-  defp group_extra("conversation", context, conversation, parts, root, prefix),
-    do: conversation_sources(context, conversation, parts, routing?(root), prefix)
+  defp group_extra("conversation", context, conversation, parts, root, disclosure),
+    do: conversation_sources(context, conversation, parts, routing?(root), disclosure)
 
-  defp group_extra("summaries", _context, conversation, _parts, root, prefix),
+  defp group_extra("summaries", _context, conversation, _parts, root, {prefix, _opened}),
     do: summary_sources(conversation, routing?(root), prefix)
 
-  defp group_extra("runtime", context, _conversation, parts, root, prefix) do
+  defp group_extra("runtime", context, _conversation, parts, root, {prefix, _opened}) do
     [
       permitted_actions_source(context, allowed_rows(context), root, prefix),
       run_details_source(context, root, prefix),
@@ -1271,13 +1271,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         )
 
       true ->
-        source(
+        deferred_source(
           key,
           path,
           value,
           source_metadata(key, parent),
-          source_body(key, value, path, prefix, context),
-          prefix,
+          fn -> source_body(key, value, path, prefix, context) end,
+          {prefix, counts[:opened]},
           options
         )
     end
@@ -1394,7 +1394,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     ]
   end
 
-  defp conversation_sources(context, {bundle, manifest, bundle_path}, parts, routing?, prefix) do
+  defp conversation_sources(context, {bundle, manifest, bundle_path}, parts, routing?, disclosure) do
     shown? = routing? or Enum.any?(parts, &(&1.title == "Earlier messages"))
 
     [
@@ -1403,7 +1403,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           earlier_messages(context, bundle),
           manifest,
           bundle_path,
-          prefix
+          disclosure
         )
       else
         []
@@ -1441,7 +1441,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end
   end
 
-  defp earlier_messages_source([], manifest, bundle_path, prefix) do
+  defp earlier_messages_source([], manifest, bundle_path, {prefix, _opened}) do
     absent_source(
       "earlier_messages",
       bundle_path <> ".messages",
@@ -1452,14 +1452,14 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     )
   end
 
-  defp earlier_messages_source(messages, manifest, bundle_path, prefix) do
-    source(
+  defp earlier_messages_source(messages, manifest, bundle_path, {prefix, opened}) do
+    deferred_source(
       "earlier_messages",
       bundle_path <> ".messages",
       messages,
       {"Earlier messages", "conversation", nil, nil},
-      earlier_messages_body(messages, manifest),
-      prefix,
+      fn -> earlier_messages_body(messages, manifest) end,
+      {prefix, opened},
       count: earlier_messages_count(messages, manifest),
       state: if(is_nil(messages), do: "Bodies not retained"),
       estimate: messages
@@ -3331,6 +3331,29 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp recall_field(_key, value), do: fields(value, 0)
+
+  # A long retained timeline can contain several copies of the same briefing.
+  # Keep each row's heading and count visible while its frozen body stays closed.
+  defp deferred_source(key, path, value, metadata, render, {prefix, opened}, options) do
+    id = prefix <> "-source-" <> Base.url_encode64(path, padding: false)
+    fold? = not is_nil(opened) and fold_source?(key, value) and byte_size(id) <= 256
+
+    if fold? do
+      body = if MapSet.member?(opened, id), do: render.(), else: loading()
+      source(key, path, value, metadata, body, prefix, Keyword.put(options, :artifact, id))
+    else
+      source(key, path, value, metadata, render.(), prefix, options)
+    end
+  end
+
+  defp fold_source?("earlier_messages", messages) when is_list(messages),
+    do: length(messages) >= 8
+
+  defp fold_source?(key, value)
+       when key in ~w(continuity records conversation_observations conversation_knowledge),
+       do: :erlang.external_size(value) > 4096
+
+  defp fold_source?(_key, _value), do: false
 
   defp source(key, path, value, metadata, body, prefix, options \\ []) do
     {title, origin, _owner, description} = metadata

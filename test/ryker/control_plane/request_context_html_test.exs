@@ -340,6 +340,36 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
            )
   end
 
+  test "a large earlier-message disclosure loads only the selected briefing's frozen messages" do
+    # One timeline rendered the same twenty earlier messages in four closed disclosures.
+    bundle =
+      File.read!("testdata/control_plane/retained-work-conversation-context.json")
+      |> Jason.decode!()
+
+    artifact = InspectionRedactor.artifact(%{"conversation_context" => bundle})
+
+    render = fn prefix, opened ->
+      artifact
+      |> RequestContextHTML.assembly("$.work", prefix, %{opened: opened})
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[data-source=earlier_messages]")
+    end
+
+    closed = render.("first-request", MapSet.new())
+    assert Enum.empty?(LazyHTML.query(closed, ".ui-message"))
+    assert [id] = LazyHTML.attribute(closed, "data-artifact")
+    opened = MapSet.new([id])
+
+    selected = render.("first-request", opened)
+    assert LazyHTML.attribute(selected, "data-artifact") == [id]
+
+    assert Enum.count(LazyHTML.query(selected, ".ui-message")) ==
+             length(bundle["bundle"]["messages"])
+
+    assert Enum.empty?(LazyHTML.query(render.("second-request", opened), ".ui-message"))
+  end
+
   test "retained Work history exposes its messages, limits and summary availability" do
     # The live Work card hid all eleven retained messages and both summaries
     # because their bundle/manifest envelope differs from routing's flat shape.
