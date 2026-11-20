@@ -944,7 +944,8 @@ defmodule Ryker.Runtime.Assembly do
         ci_repairs: %{
           bindings:
             Map.new(prepared, fn {name, item} ->
-              {name, Map.put(delivery_binding.bindings[name], :read_client, item.client)}
+              {name,
+               Map.put(delivery_binding.bindings[name], :read_client, item.publication_client)}
             end)
         },
         issue_triage: %{

@@ -47,6 +47,39 @@ defmodule Ryker.Runtime.AssemblyTest do
     :ok
   end
 
+  defmodule TokenRequest do
+    def request(test, :post, _path, document, _headers) do
+      send(test, {:installation_token_request, document})
+      {:error, :test_complete}
+    end
+  end
+
+  # A failing PR stayed untouched because the eligibility snapshot could not
+  # read commit statuses alongside check runs.
+  test "CI repair reads check runs and commit statuses with a read-only repository token" do
+    assert {:ok, runtime} = Assembly.build(bootstrap(), connected!())
+
+    start_supervised!({
+      Ryker.GitHub.InstallationTokens,
+      %{
+        app_http: self(),
+        requester: TokenRequest,
+        bindings: %{"ryker-app" => %{installation_id: 1001, repository_id: 2001}}
+      }
+    })
+
+    client = runtime.github.ci_repairs.bindings["ryker-app"].read_client
+    assert {:error, _reason} = client.http.token_provider.()
+
+    assert_receive {:installation_token_request,
+                    %{"repository_ids" => [2001], "permissions" => permissions}}
+
+    assert permissions["statuses"] == "read"
+    assert permissions["checks"] == "read"
+    assert permissions["pull_requests"] == "read"
+    assert Enum.all?(Map.values(permissions), &(&1 == "read"))
+  end
+
   test "proactive channel fixes use every writable target and refuse stale runtime settings" do
     settings = connected!()
 
