@@ -429,6 +429,9 @@ defmodule Ryker.Work.Custody do
   defdelegate request_block(episode_id, episode_key, turn_ref, lease_ref, reason),
     to: Cancellation
 
+  @doc "Whether a saved receipt proves completion of this exact frozen candidate."
+  defdelegate completion_matches?(turn, receipt), to: Turns
+
   @doc "Freezes remote completion before fallible host finalization, retaining the lease."
   defdelegate record_completion(episode_id, turn_ref, lease_ref, receipt), to: Turns
 

@@ -59,13 +59,13 @@ defmodule Ryker.Publication.Completion do
 
     Map.new(
       Enum.flat_map(pairs, fn {reply, episode, id} ->
-        case sources[id] do
-          %Work.Turn{episode_id: ^episode, accepted_at: %DateTime{}, operational_pruned_at: nil} =
-              source ->
-            [{reply, source}]
-
-          _missing ->
-            []
+        with %Work.Turn{episode_id: ^episode, operational_pruned_at: nil} = source <- sources[id],
+             true <-
+               match?(%DateTime{}, source.accepted_at) or
+                 Work.Custody.completion_matches?(source, source.completion_receipt) do
+          [{reply, source}]
+        else
+          _missing -> []
         end
       end)
     )

@@ -267,6 +267,10 @@ defmodule Ryker.Work.Turn.Query do
         :session_id,
         :selected_input_refs,
         :accepted_at,
+        :completion_receipt,
+        :candidate_sha256,
+        :candidate_attempt,
+        :coop_turn_id,
         :operational_pruned_at,
         :delivery_document,
         :validation_intent

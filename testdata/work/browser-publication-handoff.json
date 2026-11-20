@@ -1,0 +1,31 @@
+{
+  "provenance": {
+    "kind": "harvested",
+    "captured_at": "2026-11-20T02:09:50Z",
+    "pseudonymized": [
+      "turn_id",
+      "result_origin",
+      "artifact_refs",
+      "record_refs"
+    ]
+  },
+  "candidate": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "Added **Download CSV** beside the inventory filter. It downloads `inventory.csv` with the visible items in their existing order. If nothing matches, the file contains only the `Name` header.\n\nVerified the filename and contents in Chromium at desktop and 390 px phone widths, with no filter, an active filter, and no matches. The before-and-after screenshots are included with the [browser checks](https://ryker.example.test/github/actions/results/00000000-0000-4000-8000-000000000002).",
+    "outcome": {
+      "artifact_refs": [
+        "artifact:browser:desktop-before",
+        "artifact:browser:desktop-after",
+        "artifact:browser:phone-before",
+        "artifact:browser:phone-after"
+      ],
+      "record_refs": [
+        "record:evidence:browser-1",
+        "record:evidence:browser-2"
+      ],
+      "state": "complete"
+    },
+    "title": "Download filtered inventory as CSV"
+  }
+}

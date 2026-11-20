@@ -67,14 +67,18 @@ defmodule Ryker.Artifacts.Shares do
 
   def selected_refs(_turn), do: []
 
-  defp accepted_document(%Work.Turn{accepted_at: %DateTime{}} = turn) do
-    case Work.ValidationIntent.result(turn.validation_intent) do
-      {:ok, %Work.Result{delivery: :reply, delivery_document: document}} -> document
-      _missing -> nil
+  defp accepted_document(%Work.Turn{} = turn) do
+    completed? =
+      match?(%DateTime{}, turn.accepted_at) or
+        Work.Custody.completion_matches?(turn, turn.completion_receipt)
+
+    if completed? do
+      case Work.ValidationIntent.result(turn.validation_intent) do
+        {:ok, %Work.Result{delivery: :reply, delivery_document: document}} -> document
+        _missing -> nil
+      end
     end
   end
-
-  defp accepted_document(_turn), do: nil
 
   @doc "Batch projection for delivery and Chat. References retain their original turn ownership."
   def projections(turn_ids) do

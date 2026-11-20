@@ -211,6 +211,87 @@ defmodule Ryker.BrowserTestsTest do
     assert hd(expired.reports).document == document()
   end
 
+  # The CSV acceptance run selected four real screenshots, then publication
+  # handed the completed candidate to a new turn. Its result page hid every
+  # retained image because the original candidate had no accepted_at.
+  test "a remotely completed candidate keeps its selected screenshots during a publication handoff" do
+    binding = work!()
+    assert {:ok, _report} = BrowserTests.record(document(), binding)
+    data = File.read!(Application.app_dir(:ryker, "priv/static/brand/avatar.png"))
+
+    fixture = File.read!("testdata/work/browser-publication-handoff.json") |> Jason.decode!()
+    candidate = Jason.encode!(fixture["candidate"])
+    [first_ref | _] = refs = fixture["candidate"]["outcome"]["artifact_refs"]
+
+    metadata = %{
+      "id" => first_ref,
+      "name" => "desktop-before.png",
+      "media_type" => "image/png",
+      "bytes" => byte_size(data),
+      "sha256" => Ryker.Crypto.sha256_hex(data),
+      "data" => data
+    }
+
+    assert {:ok, [_artifact]} = Artifacts.Outputs.put_many(binding.turn.id, [metadata])
+    assert {:ok, final} = Work.Final.parse(fixture["candidate"])
+    assert {:ok, result} = Work.Result.new(:reply, Work.Final.delivery_document(final))
+    assert {:ok, intent} = Work.ValidationIntent.new(:accept, result)
+    digest = Ryker.Crypto.sha256_hex(candidate)
+
+    Repo.update_all(Work.Turn.Query.by_id(binding.turn.id),
+      set: [
+        candidate: candidate,
+        candidate_sha256: digest,
+        candidate_attempt: 2,
+        coop_turn_id: "completed-browser-turn",
+        validation_intent: intent,
+        validation_intent_fingerprint: Work.ValidationIntent.fingerprint(intent)
+      ]
+    )
+
+    # The transport identity is supplied by the deterministic worker double.
+    # Generate the proof through the same boundary that consumes Coop's completion.
+    remote = %{
+      "state" => "completed",
+      "assistant_message" => candidate,
+      "validation_attempt" => 2,
+      "validation_candidate_sha256" => digest,
+      "validation_receipt" => "validation:browser:recorded"
+    }
+
+    assert {:ok, proof} =
+             Work.Executor.Turns.completion_proof(
+               %{turn: Repo.get!(Work.Turn, binding.turn.id)},
+               remote
+             )
+
+    assert {:ok, pending} =
+             Artifacts.shared_results(binding.turn.id, "reader-token", requester: Reader)
+
+    assert pending.artifacts == []
+
+    Repo.update_all(Work.Turn.Query.by_id(binding.turn.id), set: [completion_receipt: proof])
+
+    assert {:ok, completed} =
+             Artifacts.shared_results(binding.turn.id, "reader-token", requester: Reader)
+
+    assert [%{name: "desktop-before.png"}] = completed.artifacts
+    assert completed.turn.accepted_at == nil
+
+    changed =
+      put_in(completed.turn.completion_receipt["candidate_sha256"], String.duplicate("f", 64))
+
+    assert Artifacts.Shares.selected_refs(changed) == []
+
+    assert Artifacts.Shares.selected_refs(%{
+             completed.turn
+             | operational_pruned_at: DateTime.utc_now()
+           }) == []
+
+    projection = Artifacts.Shares.projections([binding.turn.id])[binding.turn.id]
+    assert projection.refs == refs
+  end
+
   test "an accepted result cannot add new browser evidence and invalid reports cannot claim success" do
     binding = work!()
     invalid = put_in(document(), ["cases", Access.at(0), "screenshot"], "../outside.png")
