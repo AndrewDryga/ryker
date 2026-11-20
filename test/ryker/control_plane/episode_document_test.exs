@@ -1821,6 +1821,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     reply = %{
       id: "linked-reply",
+      delivered: true,
       at: DateTime.add(at, 2),
       actor: "Ryker",
       text: "session reuse validated.",
@@ -1849,6 +1850,23 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
       |> put_in([:trace, :case_file, :conversation], [reply])
       |> render_episode([request])
       |> LazyHTML.from_fragment()
+
+    completed =
+      snapshot
+      |> put_in([:episode, :state], :complete)
+      |> put_in([:trace, :case_file, :conversation], [reply])
+      |> put_in([:trace, :case_file, :awaiting_reply], false)
+      |> render_episode([request])
+      |> LazyHTML.from_fragment()
+
+    # A long final plan previously pushed the actual, already delivered answer off the first screen.
+    assert LazyHTML.query(completed, ".episode-outcome + .episode-metrics") |> Enum.any?()
+    assert LazyHTML.query(completed, ".episode-outcome") |> LazyHTML.text() =~ reply.text
+
+    assert LazyHTML.query(completed, ".episode-outcome a") |> LazyHTML.attribute("href") ==
+             ["#story-message-linked-reply"]
+
+    assert LazyHTML.query(document, ".episode-outcome") |> Enum.empty?()
 
     sent = LazyHTML.query(document, "#story-message-linked-reply")
     assert LazyHTML.query(sent, ".ui-message-title") |> LazyHTML.text() == "Sent response"

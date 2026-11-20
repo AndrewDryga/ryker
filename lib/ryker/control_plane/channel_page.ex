@@ -320,14 +320,11 @@ defmodule Ryker.ControlPlane.ChannelPage do
                 · from the incident room
               </span>
             <% {_source, repositories} -> %>
-              <ul class="channel-repositories">
-                <li :for={repository <- repositories}>
-                  <a href={Paths.repository(repository.ref)}>{repository.name}</a>
-                  <span :if={access_words(repository)} class="channel-fact-note">
-                    {access_words(repository)}
-                  </span>
-                </li>
-              </ul>
+              <details :if={length(repositories) > 2} class="channel-repository-details">
+                <summary>{repository_summary(repositories)}</summary>
+                <.repository_list repositories={repositories} />
+              </details>
+              <.repository_list :if={length(repositories) <= 2} repositories={repositories} />
           <% end %>
         </.fact>
         <.fact :if={@environment.source != :incident_room} label="Emisar">
@@ -354,6 +351,32 @@ defmodule Ryker.ControlPlane.ChannelPage do
         </.fact>
       </dl>
     </Kit.section_card>
+    """
+  end
+
+  defp repository_summary(repositories) do
+    default = Enum.find(repositories, & &1.default)
+    read_only = Enum.count(repositories, &(&1.access == :read_only))
+
+    [
+      Wording.count(length(repositories), "repository", "repositories"),
+      default && "Default: #{default.name}",
+      read_only > 0 && "#{read_only} read only"
+    ]
+    |> Enum.filter(& &1)
+    |> Enum.join(" · ")
+  end
+
+  defp repository_list(assigns) do
+    ~H"""
+    <ul class="channel-repositories">
+      <li :for={repository <- @repositories}>
+        <a href={Paths.repository(repository.ref)}>{repository.name}</a>
+        <span :if={access_words(repository)} class="channel-fact-note">
+          {access_words(repository)}
+        </span>
+      </li>
+    </ul>
     """
   end
 

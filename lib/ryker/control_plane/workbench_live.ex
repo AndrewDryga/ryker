@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.{LabControls, LabPage, LearningActivity, Navigation, PageCost}
   alias Ryker.ControlPlane.{PageHelp, PageRead, Pages}
   alias Ryker.ControlPlane.{PathRef, Paths, RelearnForm, RelearnPanel, RepositoriesPage}
-  alias Ryker.ControlPlane.{RequestFilters, Router}
+  alias Ryker.ControlPlane.{RepositoryChoices, RequestFilters, Router}
   alias Ryker.ControlPlane.{SettingsPage, SettingsView, UsageProjection, Viewer}
   alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
@@ -131,6 +131,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        settings_commands: nil,
        settings_error: nil,
        settings_section: :setup,
+       emisar_form_feedback: %{},
        setup_notice: nil,
        setup_failure: nil,
        github_feedback: nil,
@@ -140,6 +141,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_counted: false,
        github_repositories: [],
        github_repository_discovery: :idle,
+       github_repository_scope: nil,
+       github_repository_ticket: nil,
        repository: nil,
        repository_notice: nil,
        repository_question: nil,
@@ -211,6 +214,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        # An outcome or an open question belongs to the page it happened on. A
        # form that saved returns to its list and carries what the save did
        # there (`return_with/3`), so the list says it.
+       emisar_form_feedback:
+         if(location.path == socket.assigns.path,
+           do: socket.assigns.emisar_form_feedback,
+           else: %{}
+         ),
        setup_notice:
          socket.assigns.carried_notice ||
            if(location.path == socket.assigns.path, do: socket.assigns.setup_notice),
@@ -509,13 +517,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   def handle_async(:github_repositories, {:ok, {:ok, repositories}}, socket) do
+    RepositoryChoices.finish(socket.assigns.github_repository_ticket, repositories)
+
     {:noreply,
      assign(socket, github_repositories: repositories, github_repository_discovery: :complete)}
   end
 
   def handle_async(:github_repositories, {:ok, {:error, reason}}, socket) do
+    RepositoryChoices.finish(socket.assigns.github_repository_ticket, [])
+
     {:noreply,
-     assign(socket, github_repository_discovery: {:error, IntegrationErrors.message(reason)})}
+     assign(socket,
+       github_repositories: [],
+       github_repository_discovery: {:error, IntegrationErrors.message(reason)}
+     )}
   end
 
   # A listing given up for the next visit's (`reset_repository_discovery/3`)
@@ -524,8 +539,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     do: {:noreply, socket}
 
   def handle_async(:github_repositories, {:exit, _reason}, socket) do
+    RepositoryChoices.finish(socket.assigns.github_repository_ticket, [])
+
     {:noreply,
      assign(socket,
+       github_repositories: [],
        github_repository_discovery:
          {:error, "Ryker could not list the repositories. Refresh to try again."}
      )}
@@ -932,62 +950,36 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Add repositories lists what the GitHub App reaches when it opens; this
   # lists it again, keeping what was ticked (repository-picker.mjs).
   def handle_event("refresh-github-repositories", _params, socket) do
-    if socket.assigns.github_repository_discovery == :loading,
-      do: {:noreply, socket},
-      else:
-        {:noreply,
-         socket
-         |> assign(repository_notice: nil)
-         |> discover_github_repositories(Endpoint.config(:control_plane))}
+    if socket.assigns.path != "/repositories/new" or
+         !SettingsView.github_ready?(socket.assigns.settings) or
+         socket.assigns.github_repository_discovery == :loading,
+       do: {:noreply, socket},
+       else:
+         {:noreply,
+          socket
+          |> assign(repository_notice: nil)
+          |> discover_github_repositories(Endpoint.config(:control_plane))}
   end
 
+  def handle_event(
+        "import-github-repositories",
+        _params,
+        %{assigns: %{github_repository_discovery: state}} = socket
+      )
+      when state != :complete, do: {:noreply, socket}
+
   def handle_event("import-github-repositories", params, socket) do
-    selected = params |> Map.get("repository_ids", []) |> List.wrap() |> MapSet.new()
+    settings = Endpoint.config(:control_plane).projection.settings.()
+    socket = assign(socket, settings: settings)
 
-    repositories =
-      if Map.get(params, "import_mode") == "all" do
-        Enum.reject(socket.assigns.github_repositories, & &1.already_present)
-      else
-        Enum.filter(
-          socket.assigns.github_repositories,
-          &MapSet.member?(selected, to_string(&1.repository_id))
-        )
-      end
-
-    case IntegrationSetup.import_github_repositories(repositories, actor(socket),
-           auto_add_repositories: Map.get(params, "auto_add_repositories") == "true"
-         ) do
-      # The picker marks what is now added, so a second "Add selected" cannot
-      # repeat the first. An import that added everything chosen returns to
-      # the list, which has the new rows and says so; anything else stays on
-      # the form, which says what is left to do.
-      {:ok, result} ->
-        handled = MapSet.new(result.added ++ result.already_present)
-        tone = import_tone(result)
-        message = import_message(result)
-
-        socket =
-          assign(socket,
-            github_repositories:
-              Enum.map(socket.assigns.github_repositories, fn repository ->
-                if MapSet.member?(handled, repository.full_name),
-                  do: %{repository | already_present: true},
-                  else: repository
-              end)
-          )
-
-        {:noreply,
-         if(tone == :success) do
-           socket
-           |> assign(repository_notice: {:list, tone, message})
-           |> push_patch(to: "/repositories")
-         else
-           socket |> assign(repository_notice: {:import, tone, message}) |> refresh(true)
-         end}
-
-      {:error, reason} ->
-        {:noreply,
-         assign(socket, repository_notice: {:import, :error, IntegrationErrors.message(reason)})}
+    if socket.assigns.path == "/repositories/new" and SettingsView.github_ready?(settings) and
+         socket.assigns.github_repository_scope == repository_scope(socket) do
+      import_repositories(socket, params)
+    else
+      {:noreply,
+       socket
+       |> assign(github_repository_discovery: :idle, github_repositories: [])
+       |> refresh(true)}
     end
   end
 
@@ -1015,7 +1007,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         actor(socket)
       )
 
-    {:noreply, finish_setup(socket, result, "The Emisar key was replaced.")}
+    {:noreply, emisar_saved(socket, :key, result, "The Emisar key was replaced.")}
   end
 
   def handle_event("disable-emisar", %{"ref" => ref}, socket) when is_binary(ref) do
@@ -1064,7 +1056,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         actor(socket)
       )
 
-    {:noreply, finish_setup(socket, result, "Emisar account name was updated.")}
+    {:noreply, emisar_saved(socket, :name, result, "Emisar account name was updated.")}
   end
 
   # A removed account's page is gone, so its removal returns to the list.
@@ -1812,8 +1804,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp load_detail(socket, options, ["repositories", "new"]) do
     socket = load_snapshot(socket, options)
 
-    if socket.assigns.github_repository_discovery == :idle and connected?(socket) and
-         SettingsView.github_ready?(socket.assigns.settings),
+    if connected?(socket) and SettingsView.github_ready?(socket.assigns.settings) and
+         (socket.assigns.github_repository_discovery == :idle or
+            socket.assigns.github_repository_scope != repository_scope(socket)),
        do: discover_github_repositories(socket, options),
        else: socket
   end
@@ -1823,11 +1816,73 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # GitHub can take seconds to list every installation's repositories, so the
   # page stays live while it answers.
   defp discover_github_repositories(socket, options) do
+    scope = repository_scope(socket)
+    {ticket, preview} = RepositoryChoices.begin(scope)
     discover = options.actions.github_repositories
 
     socket
-    |> assign(:github_repository_discovery, :loading)
+    |> assign(
+      github_repository_discovery: :loading,
+      github_repository_ticket: ticket,
+      github_repository_scope: scope,
+      github_repositories: preview
+    )
     |> start_async(:github_repositories, discover)
+  end
+
+  defp import_repositories(socket, params) do
+    selected = params |> Map.get("repository_ids", []) |> List.wrap() |> MapSet.new()
+
+    repositories =
+      if Map.get(params, "import_mode") == "all" do
+        Enum.reject(socket.assigns.github_repositories, & &1.already_present)
+      else
+        Enum.filter(
+          socket.assigns.github_repositories,
+          &MapSet.member?(selected, to_string(&1.repository_id))
+        )
+      end
+
+    case IntegrationSetup.import_github_repositories(repositories, actor(socket),
+           auto_add_repositories: Map.get(params, "auto_add_repositories") == "true"
+         ) do
+      # The picker marks what is now added, so a second "Add selected" cannot
+      # repeat the first. An import that added everything chosen returns to
+      # the list, which has the new rows and says so; anything else stays on
+      # the form, which says what is left to do.
+      {:ok, result} ->
+        handled = MapSet.new(result.added ++ result.already_present)
+        tone = import_tone(result)
+        message = import_message(result)
+
+        socket =
+          assign(socket,
+            github_repositories:
+              Enum.map(socket.assigns.github_repositories, fn repository ->
+                if MapSet.member?(handled, repository.full_name),
+                  do: %{repository | already_present: true},
+                  else: repository
+              end)
+          )
+
+        {:noreply,
+         if(tone == :success) do
+           socket
+           |> assign(repository_notice: {:list, tone, message})
+           |> push_patch(to: "/repositories")
+         else
+           socket |> assign(repository_notice: {:import, tone, message}) |> refresh(true)
+         end}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket, repository_notice: {:import, :error, IntegrationErrors.message(reason)})}
+    end
+  end
+
+  defp repository_scope(socket) do
+    {:ok, view} = socket.assigns.settings
+    RepositoryChoices.scope(view, actor(socket))
   end
 
   # Setup, the environments, the integrations and the installation settings
@@ -1966,6 +2021,22 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp initialize_error(_reason),
     do: "Settings could not be created. Check that the database is reachable, then try again."
+
+  defp emisar_saved(socket, field, result, message) do
+    {socket, tone, text} =
+      case result do
+        {:ok, _saved} -> {refresh_settings(socket), :success, message}
+        {:error, reason} -> {socket, :error, IntegrationErrors.message(reason)}
+      end
+
+    feedback = %{tone: tone, message: text, key: System.unique_integer([:positive])}
+
+    assign(socket,
+      emisar_form_feedback: Map.put(socket.assigns.emisar_form_feedback, field, feedback),
+      setup_notice: nil,
+      setup_failure: nil
+    )
+  end
 
   defp finish_setup(socket, {:ok, _result}, message) do
     socket
@@ -2804,6 +2875,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             error={@settings_error}
             section={@settings_section}
             github_feedback={@github_feedback}
+            emisar_form_feedback={@emisar_form_feedback}
             notice={@setup_notice}
             failure={@setup_failure}
             confirm={@settings_confirm}

@@ -333,14 +333,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
           required: true,
           default: :only_credential,
           prompt: "Choose a credential",
-          help: "The shared secret the sender uses, from Signing credentials above.",
+          help: "The shared secret this sender uses.",
           errors: %{
-            required:
-              "Choose the signing credential this sender uses. Add one under Signing " <>
-                "credentials above if there is none.",
+            required: "Choose the signing credential this sender uses.",
             unregistered_secret:
-              "That signing credential no longer exists. Choose another, or add one under " <>
-                "Signing credentials above."
+              "That signing credential no longer exists. Choose a current credential."
           }
         },
         %{

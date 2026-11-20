@@ -444,14 +444,16 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp batch(row, secrets, context) do
     code = Map.get(context.causes, row.id, row.error_code)
+    repository = RepositoryNames.name(context.names, row.repository_ref)
 
     %{
       id: row.id,
       status: row.status,
       label: label(row.status),
-      conversation: conversation(row, context.titles),
+      conversation: conversation(row, context.titles, repository),
+      source_ref: if(row.transport == "github", do: row.conversation_ref),
       conversation_path: Activity.conversation_path(row.transport, row.conversation_ref),
-      repository: RepositoryNames.name(context.names, row.repository_ref),
+      repository: repository,
       mode: row.execution_mode,
       input_count: row.input_count,
       start_count: row.start_count,
@@ -468,14 +470,17 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   # A direct conversation is named by its title, like Chat names it; every
   # one of them read "Direct conversation" on its own.
-  defp conversation(%{transport: "control_plane", conversation_ref: ref}, titles) do
+  defp conversation(%{transport: "control_plane", conversation_ref: ref}, titles, _repository) do
     case titles[ref] do
       nil -> Slack.Names.destination(ref)
       title -> "Direct conversation · " <> title
     end
   end
 
-  defp conversation(row, _titles), do: Slack.Names.destination(row.conversation_ref)
+  defp conversation(%{transport: "github"}, _titles, repository),
+    do: repository || "GitHub repository"
+
+  defp conversation(row, _titles, _repository), do: Slack.Names.destination(row.conversation_ref)
 
   # When Ryker looks at the batch again, only while that is still ahead: a
   # queued batch waiting out its delay, or a stopped one whose model run it

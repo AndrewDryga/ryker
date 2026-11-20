@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Maintenance, Outcome, Preparation}
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
-  alias Ryker.ControlPlane.{SavedRecords, Units}
+  alias Ryker.ControlPlane.{PageRead, SavedRecords, Units}
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Operator
@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.Wording
   alias Ryker.Work
 
+  @turn_limit 200
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
     {:ready, "Getting ready", "How Ryker routed, scoped, and prepared the work."},
@@ -222,12 +223,28 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   end
 
   defp turns(episode_id) do
+    {__MODULE__, :turns, episode_id}
+    |> PageRead.memo(fn -> read_turns(episode_id, @turn_limit) end)
+    |> Enum.reverse()
+  end
+
+  @doc "Reads the model cards' most recent turns, sharing the trace's frozen rows within this page."
+  def recent_turns(episode_id, limit) do
+    case PageRead.fetch({__MODULE__, :turns, episode_id}) do
+      {:ok, turns} when limit <= @turn_limit or length(turns) < @turn_limit ->
+        Enum.take(turns, limit)
+
+      _missing_or_incomplete ->
+        read_turns(episode_id, limit)
+    end
+  end
+
+  defp read_turns(episode_id, limit) do
     episode_id
     |> Work.Turn.Query.by_episode_id()
     |> Work.Turn.Query.ordered_by_recent()
-    |> Work.Turn.Query.limit_to(200)
+    |> Work.Turn.Query.limit_to(limit)
     |> Repo.all()
-    |> Enum.reverse()
   end
 
   defp totals(episode_id, events, records, sessions, turns) do

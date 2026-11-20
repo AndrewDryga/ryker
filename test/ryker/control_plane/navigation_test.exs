@@ -66,7 +66,10 @@ defmodule Ryker.ControlPlane.NavigationTest do
         render_component(&Navigation.mobile/1, path: "/", live: live)
         |> LazyHTML.from_fragment()
 
-      assert mobile |> LazyHTML.query("section strong") |> Enum.map(&LazyHTML.text/1) |> hd() ==
+      assert mobile
+             |> LazyHTML.query("details.mobile-nav-group > summary")
+             |> Enum.map(&LazyHTML.text/1)
+             |> hd() ==
                "Work"
     end
   end
@@ -103,7 +106,9 @@ defmodule Ryker.ControlPlane.NavigationTest do
         render_component(&Navigation.mobile/1, path: "/", live: live)
         |> LazyHTML.from_fragment()
 
-      groups = LazyHTML.query(mobile, "section strong") |> Enum.map(&LazyHTML.text/1)
+      groups =
+        LazyHTML.query(mobile, "details.mobile-nav-group > summary") |> Enum.map(&LazyHTML.text/1)
+
       assert Enum.take(groups, -2) == ["Integrations", "Settings"]
 
       for removed <- ~w(/settings/slack /settings/github /settings/emisar /settings/webhooks) do
@@ -272,6 +277,27 @@ defmodule Ryker.ControlPlane.NavigationTest do
         refute retired in (document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
         refute retired in (mobile_document |> LazyHTML.query("a") |> LazyHTML.attribute("href"))
       end
+    end
+  end
+
+  # On a phone the account and primary destinations occupied four separate rows.
+  test "the compact header keeps primary links outside More and reveals the current group" do
+    for live <- [true, false] do
+      nav =
+        render_component(&Navigation.mobile/1, path: "/channels", live: live)
+        |> LazyHTML.from_fragment()
+
+      assert LazyHTML.query(nav, ".mobile-primary a") |> LazyHTML.attribute("href") ==
+               ["/conversations", "/"]
+
+      assert LazyHTML.query(nav, ".mobile-nav-group[open] a[aria-current=page]")
+             |> LazyHTML.text() == "Channels"
+
+      assert LazyHTML.query(nav, ".mobile-manage nav a[href='/instructions']") |> Enum.count() ==
+               1
+
+      refute LazyHTML.query(nav, ".mobile-nav-group > summary") |> LazyHTML.text() =~
+               "Instructions"
     end
   end
 

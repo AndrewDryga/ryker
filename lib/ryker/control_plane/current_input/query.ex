@@ -10,7 +10,32 @@ defmodule Ryker.ControlPlane.CurrentInput.Query do
   defmacro visible_text(pruned_at, event_kind, content) do
     quote do
       fragment(
-        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE left(?::jsonb->>'text', 12000) END",
+        """
+        CASE WHEN ? IS NOT NULL THEN NULL
+             WHEN ? = 'delete' THEN 'Message deleted'
+             ELSE (
+               SELECT left(COALESCE(
+                 CASE WHEN lower(btrim(source ->> 'text')) NOT IN ('(no preview available)', '[no preview available]')
+                      THEN NULLIF(source ->> 'text', '') END,
+                 'Answered "' || (source ->> 'choice') || '"',
+                 source #>> '{payload,comment,body}', source #>> '{payload,review,body}',
+                 CASE WHEN source #>> '{attachments,0,footer}' = 'HCP Terraform'
+                        AND source #>> '{attachments,0,title}' LIKE 'Run run-%'
+                        AND NULLIF(source #>> '{attachments,0,pretext}', '') IS NOT NULL
+                      THEN concat_ws(' · ', source #>> '{attachments,0,pretext}', NULLIF(source #>> '{attachments,1,title}', ''))
+                 END,
+                 source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}',
+                 source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}',
+                 source #>> '{blocks,0,text,text}', source #>> '{files,0,name}',
+                 CASE WHEN source -> 'event_type' IS NOT NULL
+                      THEN COALESCE(NULLIF(source #>> '{payload,text}', ''), 'Webhook event: ' || NULLIF(source ->> 'event_type', ''), 'Webhook event')
+                 END,
+                 NULLIF(source ->> 'text', '')
+               ), 12000)
+               FROM (SELECT ?::jsonb AS source) AS payload
+             )
+        END
+        """,
         unquote(pruned_at),
         unquote(event_kind),
         unquote(content)
@@ -28,7 +53,7 @@ defmodule Ryker.ControlPlane.CurrentInput.Query do
   defmacro visible_preview(pruned_at, event_kind, content) do
     quote do
       fragment(
-        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), 'Answered \"' || (source ->> 'choice') || '\"', source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}', CASE WHEN source -> 'event_type' IS NOT NULL THEN COALESCE(NULLIF(source #>> '{payload,text}', ''), 'Webhook event: ' || NULLIF(source ->> 'event_type', ''), 'Webhook event') END), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
+        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(CASE WHEN lower(btrim(source ->> 'text')) NOT IN ('(no preview available)', '[no preview available]') THEN NULLIF(source ->> 'text', '') END, 'Answered \"' || (source ->> 'choice') || '\"', source #>> '{payload,comment,body}', source #>> '{payload,review,body}', CASE WHEN source #>> '{attachments,0,footer}' = 'HCP Terraform' AND source #>> '{attachments,0,title}' LIKE 'Run run-%' AND NULLIF(source #>> '{attachments,0,pretext}', '') IS NOT NULL THEN concat_ws(' · ', source #>> '{attachments,0,pretext}', NULLIF(source #>> '{attachments,1,title}', '')) END, source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}', CASE WHEN source -> 'event_type' IS NOT NULL THEN COALESCE(NULLIF(source #>> '{payload,text}', ''), 'Webhook event: ' || NULLIF(source ->> 'event_type', ''), 'Webhook event') END, NULLIF(source ->> 'text', '')), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
         unquote(pruned_at),
         unquote(event_kind),
         unquote(content)

@@ -22,6 +22,7 @@ defmodule Ryker.Application do
         {Finch, Ryker.Delivery.HTTPClient.pool_options()},
         Ryker.PubSub,
         Ryker.Emisar.ToolCache,
+        ControlPlane.RepositoryChoices,
         {DynamicSupervisor, name: Ryker.Runtime.Supervisor, strategy: :one_for_one}
       ] ++ bundled_coop_reconciler() ++ runtime_owner()
 

@@ -93,12 +93,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     page = min(PagedRelation.requested(params, "calls"), @timeline_max_pages)
     limit = page * @page_size
 
-    turn_window =
-      episode.id
-      |> Work.Turn.Query.by_episode_id()
-      |> Work.Turn.Query.ordered_by_recent()
-      |> Work.Turn.Query.limit_to(limit + 1)
-      |> Repo.all()
+    turn_window = EpisodeTrace.recent_turns(episode.id, limit + 1)
 
     turns =
       turn_window

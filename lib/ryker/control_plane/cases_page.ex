@@ -73,7 +73,11 @@ defmodule Ryker.ControlPlane.CasesPage do
           :for={item <- @view.items}
           id={"case-" <> item.id}
           icon={:book}
-          name={MemoryFormat.row_text(item.problem)}
+          name={MemoryFormat.row_text(item.outcome || item.cause || item.problem)}
+          text={
+            if (item.outcome || item.cause) && item.problem not in [item.outcome, item.cause],
+              do: MemoryFormat.row_text(item.problem)
+          }
           href={path(item.id)}
           link_row
           meta={meta(item)}
@@ -105,8 +109,14 @@ defmodule Ryker.ControlPlane.CasesPage do
         <Kit.status_line id="case-status" state={state(@item)}>
           <span>{MemoryFormat.time(@item.at, "ended ")}</span>
         </Kit.status_line>
-        <div class="memory-topic-text">{MemoryFormat.inline(@item.problem)}</div>
         <Kit.facts :if={not @item.forgotten?} id="case-facts" facts={facts(@item)} />
+        <details
+          :if={@item.problem && @item.problem != heading(@item).title}
+          class="memory-source-text"
+        >
+          <summary>Full request</summary>
+          <div class="memory-topic-text">{MemoryFormat.inline(@item.problem)}</div>
+        </details>
       </article>
       <section :if={@item.checked != []} id="case-checked" class="memory-section">
         <Kit.section_head title="What Ryker checked" lede="The sources the work read and cited." />

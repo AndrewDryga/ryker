@@ -851,9 +851,9 @@ defmodule Ryker.ControlPlane.Components do
           </h1>
           <Kit.state :if={@status} tone={elem(@status, 0)} word={elem(@status, 1)} />
         </div>
-        <div :if={@action != []} class="page-action">{render_slot(@action)}</div>
       </div>
       <p :if={@description} class="page-description">{@description}</p>
+      <div :if={@action != []} class="page-action">{render_slot(@action)}</div>
     </header>
     """
   end

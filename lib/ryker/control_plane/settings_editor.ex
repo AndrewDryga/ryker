@@ -1517,7 +1517,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     [
       view.webhook_secret_names == [] &&
         %{
-          text: "Create a signing credential above before adding a webhook source.",
+          text: "Each sender needs a signing credential to verify its requests.",
+          link: "Add signing credential",
+          href: "/integrations/webhooks/credentials/new",
           blocks_add: true
         },
       view.snapshot.environments == [] &&

@@ -50,16 +50,19 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     row =
       row(%{item | poll_after: DateTime.add(@now, 2_400), deadline_at: ~U[2026-09-26 12:00:00Z]})
 
-    assert LazyHTML.query(row, ".entity-name") |> LazyHTML.text() |> String.trim() =~
-             "An update on Run run-t2W6yCNeLUU9xFso"
+    assert LazyHTML.query(row, ".entity-name") |> LazyHTML.text() |> String.trim() ==
+             "Review the portal deployment"
 
     assert LazyHTML.query(row, ".entity-side .state-word[data-tone=busy]") |> LazyHTML.text() ==
              "Waiting"
 
     text = LazyHTML.query(row, ".entity-text")
-    assert words(text) == "Continues: Review the portal deployment"
+    assert words(text) == "An update on Run run-t2W6yCNeLUU9xFso"
 
-    assert LazyHTML.query(text, "a[href='/timeline/0193a5d2-7c1e-7b8a-9f00-0000000000b1']")
+    assert LazyHTML.query(
+             row,
+             ".entity-name a[href='/timeline/0193a5d2-7c1e-7b8a-9f00-0000000000b1']"
+           )
            |> LazyHTML.text() ==
              "Review the portal deployment"
 
@@ -109,18 +112,15 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
   test "each state reads as a word people use, and history says what happened", %{item: item} do
     at = DateTime.add(@now, -7_200)
 
-    for {status, resolution, trigger, tone, word, meta, lead} <- [
-          {:active, nil, "source_event", "busy", "Waiting", "when a matching update arrives",
-           "Continues"},
-          {:resolved, :input, "source_event", "off", "Resumed", "update arrived 2 hours ago",
-           "Continued"},
+    for {status, resolution, trigger, tone, word, meta} <- [
+          {:active, nil, "source_event", "busy", "Waiting", "when a matching update arrives"},
+          {:resolved, :input, "source_event", "off", "Resumed", "update arrived 2 hours ago"},
           {:resolved, :poll_fallback, "source_event", "off", "Resumed",
-           "checked again 2 hours ago", "Continued"},
-          {:resolved, :timer, "after", "off", "Resumed", "timer fired 2 hours ago", "Continued"},
+           "checked again 2 hours ago"},
+          {:resolved, :timer, "after", "off", "Resumed", "timer fired 2 hours ago"},
           {:timed_out, :deadline, "source_event", "warn", "Deadline passed",
-           "gave up 2 hours ago", "Continued"},
-          {:cancelled, :cancelled, "source_event", "off", "Cancelled", "cancelled 2 hours ago",
-           "Part of"}
+           "gave up 2 hours ago"},
+          {:cancelled, :cancelled, "source_event", "off", "Cancelled", "cancelled 2 hours ago"}
         ] do
       document =
         row(%{
@@ -135,7 +135,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
       assert LazyHTML.text(state) == word, inspect(status)
       assert LazyHTML.attribute(state, "data-tone") == [tone], inspect(status)
       assert words(LazyHTML.query(document, ".entity-meta")) =~ meta, inspect(status)
-      assert words(LazyHTML.query(document, ".entity-text")) =~ lead <> ":", inspect(status)
+      assert words(LazyHTML.query(document, ".entity-text")) == item.title, inspect(status)
     end
   end
 
@@ -177,7 +177,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
     document = row(item)
 
     assert LazyHTML.query(document, "script") |> Enum.empty?()
-    assert LazyHTML.query(document, ".entity-name") |> LazyHTML.text() =~ title
+    assert LazyHTML.query(document, ".entity-text") |> LazyHTML.text() =~ title
 
     target = LazyHTML.query(document, ".entity-meta a[href='https://example.test/run']")
     assert LazyHTML.attribute(target, "rel") == ["noreferrer"]

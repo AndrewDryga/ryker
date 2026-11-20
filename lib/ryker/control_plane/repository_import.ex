@@ -75,7 +75,11 @@ defmodule Ryker.ControlPlane.RepositoryImport do
           id="repository-picker"
           phx-submit="import-github-repositories"
           phx-hook="RepositoryPicker"
+          data-checking-access={to_string(@loading)}
         >
+          <p :if={@loading} role="status">
+            Checking current GitHub access. You can select repositories while it loads.
+          </p>
           <label class="repository-search">
             <span>Search {length(@repositories)} repositories</span><input
               id="repository-search"
@@ -92,19 +96,6 @@ defmodule Ryker.ControlPlane.RepositoryImport do
               Select none
             </button>
           </div>
-          <ul>
-            <li :for={repository <- @repositories} data-repository-name={repository.full_name}>
-              <label><input
-                type="checkbox"
-                name="repository_ids[]"
-                value={repository.repository_id}
-                disabled={repository.already_present}
-              />
-              <strong>{repository.full_name}</strong><span>{if repository.already_present,
-                do: "Already added",
-                else: repository.default_branch}</span></label>
-            </li>
-          </ul>
           <label class="member-choice"><input
             type="checkbox"
             name="auto_add_repositories"
@@ -129,10 +120,24 @@ defmodule Ryker.ControlPlane.RepositoryImport do
               type="submit"
               name="import_mode"
               value="all"
+              disabled={@loading}
               phx-disable-with="Adding…"
-            >Add all {@addable}</button>
+            >Add all {@addable} available</button>
             <.link patch="/repositories" class="ui-button secondary">Cancel</.link>
           </div>
+          <ul>
+            <li :for={repository <- @repositories} data-repository-name={repository.full_name}>
+              <label><input
+                type="checkbox"
+                name="repository_ids[]"
+                value={repository.repository_id}
+                disabled={repository.already_present}
+              />
+              <strong>{repository.full_name}</strong><span>{if repository.already_present,
+                do: "Already added",
+                else: repository.default_branch}</span></label>
+            </li>
+          </ul>
         </form>
       </div>
     </div>

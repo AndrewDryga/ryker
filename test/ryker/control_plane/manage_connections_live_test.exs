@@ -159,6 +159,26 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert asked(github) == 2
   end
 
+  test "a return visit offers the previous verified choices while checking current access", %{
+    github: github
+  } do
+    # Populated installations waited for every provider page again on a full navigation.
+    connect_github!()
+    answer!(github, [repository("acme/api", 11)])
+    {:ok, first, _} = open("/repositories/new")
+    render_async(first)
+    test_pid = self()
+    Agent.update(github, &%{&1 | answer: {:held, test_pid}})
+
+    {:ok, next, _} = open("/repositories/new")
+    assert_receive {:listing, listing}
+    assert has_element?(next, "#repository-picker li[data-repository-name='acme/api']")
+    send(listing, {:answer, {:ok, [repository("acme/new", 12)]}})
+    render_async(next)
+    refute has_element?(next, "#repository-picker li[data-repository-name='acme/api']")
+    assert has_element?(next, "#repository-picker li[data-repository-name='acme/new']")
+  end
+
   test "an App that lists nothing, or cannot be asked, says so on the Add page", %{github: github} do
     connect_github!()
 
@@ -312,6 +332,8 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     add_selected = LazyHTML.query(picker, "button[data-repository-add-selected][disabled]")
     assert LazyHTML.text(add_selected) =~ "Add 0 selected"
+    # The installation that exposed this had 379 rows between selection and submission.
+    assert [_list] = LazyHTML.query(picker, ".repository-import-actions ~ ul") |> Enum.to_list()
     assert LazyHTML.query(picker, "button[value=all]") |> LazyHTML.text() =~ "Add all 2"
   end
 

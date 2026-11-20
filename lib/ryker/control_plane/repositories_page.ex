@@ -108,7 +108,11 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           state={state(item)}
           text={problem(item) || knowledge_problem(item)}
           meta={meta(item, @now)}
-        />
+        >
+          <:details>
+            <Kit.row_details label="Code and knowledge" facts={code_facts(item, @now)} />
+          </:details>
+        </Kit.entity_row>
       </Kit.entity_list>
       <Kit.list_note shown={length(@items)} total={@total} plural="repositories" />
       <Kit.empty
@@ -324,7 +328,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp removable?(_item), do: false
 
   # Not fully added, a repository is not being set up whatever its state says.
-  defp meta(%{configured: %{github_bound: false}} = item, now), do: use_facts(item, now)
+  defp meta(%{configured: %{github_bound: false}} = item, _now),
+    do: [environments(item), used_in(item)]
 
   defp meta(%{configured: %{onboarding_state: onboarding} = repository}, now)
        when onboarding in @setting_up do
@@ -335,13 +340,12 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     ]
   end
 
-  defp meta(%{configured: %{onboarding_state: :ready}} = item, now),
-    do: use_facts(item, now) ++ knowledge_facts(Map.get(item, :knowledge), now)
+  defp meta(item, _now), do: [environments(item), used_in(item)]
 
-  defp meta(item, now), do: use_facts(item, now)
+  defp code_facts(%{configured: %{github_bound: true, onboarding_state: :ready}} = item, now),
+    do: [tasks(item.sessions), code(item.freshness, now) | knowledge_facts(item[:knowledge], now)]
 
-  defp use_facts(item, now),
-    do: [environments(item), used_in(item), tasks(item.sessions), code(item.freshness, now)]
+  defp code_facts(item, now), do: [tasks(item.sessions), code(item.freshness, now)]
 
   defp step(:pending), do: "Waiting to start"
   defp step(:cloning), do: "Copying the code"

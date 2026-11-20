@@ -67,6 +67,7 @@ pages show the URLs to give GitHub and each alert source:
 
 ```bash
 RYKER_GITHUB_PUBLIC_URL=https://ryker.example.com/v1/github
+# Optional with the supplied proxy. Set explicitly if generic hooks use another origin.
 RYKER_WEBHOOK_PUBLIC_URL=https://ryker.example.com
 ```
 

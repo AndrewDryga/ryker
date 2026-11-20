@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.UsageChart do
       )
 
     maximum = max(Enum.max_by(days, & &1.tokens).tokens, 1)
-    step = 680 / length(series)
+    step = 618 / length(series)
     bar_width = min(step * 0.7, 48)
 
     [
@@ -50,11 +50,11 @@ defmodule Ryker.ControlPlane.UsageChart do
         y = 190 - fraction * 156
 
         [
-          "<line class=\"chart-grid\" x1=\"74\" x2=\"774\" y1=\"",
+          "<line class=\"chart-grid\" x1=\"136\" x2=\"774\" y1=\"",
           coord(y),
           "\" y2=\"",
           coord(y),
-          "\"/><text class=\"chart-axis\" x=\"64\" y=\"",
+          "\"/><text class=\"chart-axis\" x=\"126\" y=\"",
           coord(y + 5),
           "\" text-anchor=\"end\">",
           Units.compact(round(maximum * fraction)),
@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.UsageChart do
       Enum.with_index(series)
       |> Enum.map(fn {day, index} ->
         height = day.tokens / maximum * 156
-        x = 84 + step * index + (step - bar_width) / 2
+        x = 146 + step * index + (step - bar_width) / 2
 
         [
           "<rect class=\"chart-bar\" tabindex=\"0\" role=\"img\" data-date=\"",
@@ -84,18 +84,19 @@ defmodule Ryker.ControlPlane.UsageChart do
           "</title></rect>"
         ]
       end),
+      "<g class=\"chart-dates\">",
       ticks(length(series))
       |> Enum.uniq()
       |> Enum.map(fn index ->
         [
           "<text class=\"chart-axis\" x=\"",
-          coord(84 + step * (index + 0.5)),
+          coord(146 + step * (index + 0.5)),
           "\" y=\"222\" text-anchor=\"middle\">",
           date(Enum.at(series, index).date),
           "</text>"
         ]
       end),
-      "</svg></div></figure>"
+      "</g></svg></div></figure>"
     ]
   end
 

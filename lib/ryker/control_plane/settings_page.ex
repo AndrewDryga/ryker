@@ -57,6 +57,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:failure, :string, default: nil)
   attr(:reveal, :map, default: nil)
   attr(:github_feedback, :map, default: nil)
+  attr(:emisar_form_feedback, :map, default: %{})
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
 
   attr(:slack_people, :any,
@@ -155,7 +156,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           <EnvironmentsPage.add />
         </:action>
         <:action :if={@section == :pricing and is_nil(@form)}>
-          <.link patch="/settings/prices/new" class="ui-button secondary">
+          <.link patch="/settings/prices/new" class="ui-button primary">
             <Components.icon name={:plus} />Add price
           </.link>
         </:action>
@@ -219,6 +220,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
       <.form_page
         :if={@form}
+        emisar_form_feedback={@emisar_form_feedback}
         section={@section}
         form={@form}
         view={@view}
@@ -480,6 +482,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # Pages of one form ------------------------------------------------------------
 
   attr(:section, :atom, required: true)
+  attr(:emisar_form_feedback, :map, required: true)
   attr(:form, :any, required: true)
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
@@ -550,7 +553,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
       )
 
     ~H"""
-    <.emisar_manage :if={@account} account={@account} view={@view} confirm={@confirm} />
+    <.emisar_manage
+      :if={@account}
+      account={@account}
+      view={@view}
+      confirm={@confirm}
+      feedback={@emisar_form_feedback}
+    />
     <.gone :if={!@account} noun="Emisar account" back="/integrations/emisar" />
     """
   end
@@ -1501,6 +1510,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
   attr(:confirm, :any, default: nil)
 
+  attr(:feedback, :map, required: true)
+
   # One account's page: each thing that can change about it is a part of its
   # own, saved on its own, and removing it asks first.
   defp emisar_manage(assigns) do
@@ -1520,7 +1531,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
         {"Emisar account", @account.account_label},
         {"Environments", @used}
       ]} />
-      <form phx-submit="rename-emisar" class="settings-inline-form">
+      <form
+        id={"emisar-rename-form-#{@account.ref}"}
+        phx-hook="AccountField"
+        phx-submit="rename-emisar"
+        class="settings-inline-form"
+        data-saved={@account.display_name}
+        data-success={success_key(@feedback[:name])}
+      >
         <input type="hidden" name="connection[ref]" value={@account.ref} />
         <div class="settings-field">
           <label for={"emisar-name-#{@account.ref}"}>Name</label>
@@ -1532,7 +1550,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
             required
           />
         </div>
-        <button class="ui-button secondary" type="submit" phx-disable-with="Saving…">Save name</button>
+        <button class="ui-button secondary" type="submit" phx-disable-with="Saving…" disabled>Save name</button>
+        <Components.form_feedback
+          :if={@feedback[:name]}
+          message={@feedback.name.message}
+          tone={@feedback.name.tone}
+        />
       </form>
     </Kit.section_card>
 
@@ -1541,7 +1564,15 @@ defmodule Ryker.ControlPlane.SettingsPage do
       title="API key"
       lede="Replace it when you create a new key in Emisar. Ryker checks the key with Emisar before it uses it."
     >
-      <form phx-submit="rotate-emisar" autocomplete="off" class="settings-inline-form">
+      <form
+        id={"emisar-key-form-#{@account.ref}"}
+        phx-hook="AccountField"
+        phx-submit="rotate-emisar"
+        autocomplete="off"
+        class="settings-inline-form"
+        data-saved=""
+        data-success={success_key(@feedback[:key])}
+      >
         <input type="hidden" name="connection[ref]" value={@account.ref} />
         <div class="settings-field">
           <label for={"emisar-token-#{@account.ref}"}>New API key</label>
@@ -1553,7 +1584,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
             required
           />
         </div>
-        <button class="ui-button secondary" type="submit" phx-disable-with="Replacing…">Replace key</button>
+        <button class="ui-button secondary" type="submit" phx-disable-with="Replacing…" disabled>Replace key</button>
+        <Components.form_feedback
+          :if={@feedback[:key]}
+          message={@feedback.key.message}
+          tone={@feedback.key.tone}
+        />
       </form>
     </Kit.section_card>
 
@@ -1627,6 +1663,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
     """
   end
 
+  defp success_key(%{tone: :success, key: key}), do: key
+  defp success_key(_other), do: nil
+
   # The form on its own page: the key and where Emisar answers.
   defp emisar_form(assigns) do
     ~H"""
@@ -1693,6 +1732,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     assigns =
       assign(assigns,
         credentials: credentials,
+        sources?: assigns.view.snapshot.webhook_sources != [],
         deleting:
           case assigns.confirm do
             {"delete-webhook-credential", name} -> name
@@ -1703,7 +1743,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       )
 
     ~H"""
-    <.connection state={@line.state} text={@line.reason}>
+    <.connection :if={@sources?} state={@line.state} text={@line.reason}>
       <:facts :if={@line.facts != []}>{facts(@line.facts)}</:facts>
     </.connection>
 
@@ -1761,6 +1801,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     />
 
     <.live_component
+      :if={@credentials != [] or @sources?}
       module={SettingsEditor}
       id="settings-webhooks"
       section={section!(:webhooks)}
@@ -1770,6 +1811,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     />
 
     <.live_component
+      :if={@sources?}
       module={WebhookPreview}
       id="webhook-preview"
       view={@view}

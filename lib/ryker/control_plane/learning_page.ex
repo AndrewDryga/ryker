@@ -96,10 +96,10 @@ defmodule Ryker.ControlPlane.LearningPage do
               link_row
               text={batch.error}
               meta={[
-                batch.repository,
+                if(batch.repository != batch.conversation, do: batch.repository),
                 Wording.count(batch.input_count, "message"),
                 starts(batch),
-                MemoryFormat.time(batch.at),
+                Ryker.UTCDateTime.readable(batch.at),
                 MemoryFormat.time(batch[:next_check], "Next check ")
               ]}
             />
@@ -130,7 +130,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               state={state(batch.status)}
               text={batch.error}
               meta={[
-                batch.repository,
+                if(batch.repository != batch.conversation, do: batch.repository),
                 Wording.count(batch.input_count, "message"),
                 MemoryFormat.time(batch.at)
               ]}
@@ -432,6 +432,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     [
       {"Conversation", MemoryFormat.link(batch.conversation, batch.conversation_path)},
       {"Repository", batch.repository},
+      {"Source reference", batch[:source_ref]},
       {"Messages", Wording.count(batch.input_count, "message")},
       {"Model starts", starts(batch)},
       {"Mode", if(batch.mode == :shadow, do: "Shadow mode")},

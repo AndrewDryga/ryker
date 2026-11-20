@@ -70,11 +70,11 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       meta = row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze()
 
       assert meta ==
-               "Replies when mentioned · works in Payments · own instructions · 2 conversations · last active 28 Aug"
+               "Replies when mentioned · works in Payments"
 
       assert LazyHTML.query(row, "p.entity-meta strong") |> LazyHTML.text() == "Payments"
 
-      last = LazyHTML.query(row, "p.entity-meta time")
+      last = LazyHTML.query(row, "details .entity-facts time")
       assert LazyHTML.attribute(last, "datetime") == ["2026-08-28T12:00:00Z"]
       assert LazyHTML.attribute(last, "title") == ["28 Aug 2026, 12:00 UTC"]
       refute LazyHTML.text(document) =~ "Global + channel"

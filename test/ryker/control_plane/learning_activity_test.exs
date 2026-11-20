@@ -391,6 +391,23 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert render(%{"batch" => claim.batch.id}) =~ ~r/next check in (29|30) min/i
   end
 
+  test "a stopped GitHub batch names its repository while its detail keeps the exact source" do
+    inputs!()
+    assert {:ok, claim} = Batches.claim("inspection-test", @settings)
+    assert {:ok, _} = Batches.finish(claim, :deferred, "learning_retry_exhausted")
+    ref = "github:fixture:repository:97"
+
+    Repo.update_all(from(b in Batch, where: b.id == ^claim.batch.id),
+      set: [transport: "github", conversation_ref: ref]
+    )
+
+    list = render(%{}) |> LazyHTML.from_fragment()
+    title = list |> LazyHTML.query("#needs-attention .entity-name") |> LazyHTML.text()
+    assert title =~ "tenant-infra"
+    refute title =~ ref
+    assert render(%{"batch" => claim.batch.id}) =~ ref
+  end
+
   test "learning from a chat is named by that chat, not only as a direct conversation" do
     # QA, 2026-09-25: every Learning row from Chat read "Direct conversation",
     # so no two of them could be told apart, least of all on a phone.

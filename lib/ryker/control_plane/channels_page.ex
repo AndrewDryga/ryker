@@ -121,8 +121,12 @@ defmodule Ryker.ControlPlane.ChannelsPage do
           state={
             state(item.membership, match?(%{open: true}, item[:incident_room]), item.channel_ref)
           }
-          meta={meta(item, @now)}
-        />
+          meta={meta(item)}
+        >
+          <:details>
+            <Kit.row_details label="Channel activity" facts={activity_facts(item, @now)} />
+          </:details>
+        </Kit.entity_row>
       </Kit.entity_list>
       <Components.pager
         page={@channels.page}
@@ -196,12 +200,17 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   def state(nil, _incident_open, "D" <> _direct), do: nil
   def state(nil, _incident_open, _channel_ref), do: {:off, "Not connected"}
 
-  defp meta(item, now) do
+  defp meta(item) do
     [
       if(item[:private], do: "Private"),
       if(item[:incident_room], do: "Incident room"),
       participation(item.participation),
-      environment(item),
+      environment(item)
+    ]
+  end
+
+  defp activity_facts(item, now) do
+    [
       if(item[:custom_instructions], do: "own instructions"),
       conversations(item.episodes),
       item.last_at &&

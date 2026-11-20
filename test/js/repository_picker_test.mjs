@@ -81,3 +81,16 @@ test("a page update keeps what the person chose", () => {
   assert.deepEqual(page.rows.map(row => row.box.checked), [false, true])
   assert.equal(page.addSelected.textContent, "Add 1 selected")
 })
+
+test("a saved selection waits for current GitHub access before enabling import", () => {
+  const page = fixture(["acme/api"])
+  page.form.dataset = {checkingAccess: "true"}
+  const picker = createRepositoryPicker(page.form)
+  picker.mounted()
+  page.click("all")
+  assert.equal(page.addSelected.textContent, "Add 1 selected")
+  assert.equal(page.addSelected.disabled, true)
+  page.form.dataset.checkingAccess = "false"
+  picker.updated()
+  assert.equal(page.addSelected.disabled, false)
+})

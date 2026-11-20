@@ -51,6 +51,9 @@ defmodule Ryker.Bootstrap do
     control_public_url =
       public_url!(env, "RYKER_CONTROL_PUBLIC_URL", "http://127.0.0.1:#{control_plane.port}")
 
+    github_public_url =
+      public_url!(env, "RYKER_GITHUB_PUBLIC_URL", "http://127.0.0.1:4319/v1/github")
+
     %__MODULE__{
       repo: [url: database_url!(env), pool_size: integer!(env, "POOL_SIZE", 10, 1..200)],
       control_plane: control_plane,
@@ -61,10 +64,9 @@ defmodule Ryker.Bootstrap do
       cloudflare_access: cloudflare_access!(env, control_public_url),
       worker_gateway: worker_gateway!(env),
       github_listener: listener!(env, "RYKER_GITHUB", 4319, :network),
-      github_public_url:
-        public_url!(env, "RYKER_GITHUB_PUBLIC_URL", "http://127.0.0.1:4319/v1/github"),
+      github_public_url: github_public_url,
       webhook_listener: listener!(env, "RYKER_WEBHOOK", 4320, :network),
-      webhook_public_url: public_url!(env, "RYKER_WEBHOOK_PUBLIC_URL", "http://127.0.0.1:4320"),
+      webhook_public_url: webhook_public_url!(env, github_public_url),
       storage_root: storage_root!(env),
       credential_key: credential_key!(env),
       log_level: log_level!(env)
@@ -249,6 +251,19 @@ defmodule Ryker.Bootstrap do
 
       _unset ->
         nil
+    end
+  end
+
+  # The supplied reverse proxy serves both signed receivers on the same origin.
+  # A GitHub relay or custom path says nothing about where generic hooks arrive.
+  defp webhook_public_url!(env, github_url) do
+    if optional(env, "RYKER_WEBHOOK_PUBLIC_URL") do
+      public_url!(env, "RYKER_WEBHOOK_PUBLIC_URL", nil)
+    else
+      case URI.parse(github_url) do
+        %URI{scheme: "https", path: "/v1/github"} = uri -> URI.to_string(%{uri | path: nil})
+        _other -> "http://127.0.0.1:4320"
+      end
     end
   end
 

@@ -19,8 +19,8 @@ defmodule Ryker.ControlPlane.FeedbackChart do
   ]
 
   # The drawing area inside the 800 × 240 view box, as Usage's chart has it.
-  @left 84
-  @width 690
+  @left 146
+  @width 628
   @bottom 190
   @height 156
   @max_days 366
@@ -79,8 +79,8 @@ defmodule Ryker.ControlPlane.FeedbackChart do
         <svg viewBox="0 0 800 240" role="group" aria-label="Feedback by day">
           <title>Feedback by day</title>
           <g :for={{y, label_y, label} <- @grid}>
-            <line class="chart-grid" x1="74" x2="774" y1={y} y2={y} />
-            <text class="chart-axis" x="64" y={label_y} text-anchor="end">{label}</text>
+            <line class="chart-grid" x1="136" x2="774" y1={y} y2={y} />
+            <text class="chart-axis" x="126" y={label_y} text-anchor="end">{label}</text>
           </g>
           <g
             :for={bar <- @bars}
@@ -100,9 +100,11 @@ defmodule Ryker.ControlPlane.FeedbackChart do
               height={height}
             />
           </g>
-          <text :for={{x, label} <- @ticks} class="chart-axis" x={x} y="222" text-anchor="middle">
-            {label}
-          </text>
+          <g class="chart-dates">
+            <text :for={{x, label} <- @ticks} class="chart-axis" x={x} y="222" text-anchor="middle">
+              {label}
+            </text>
+          </g>
         </svg>
       </div>
     </figure>

@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     assert has_element?(
              view,
              "#settings-webhooks .settings-error",
-             "Choose the signing credential this sender uses. Add one under Signing credentials above if there is none."
+             "Choose the signing credential this sender uses."
            )
 
     assert has_element?(
@@ -154,21 +154,27 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
            )
   end
 
-  # Andrew, 2026-09-28: a box saying "Create a signing credential above before
-  # adding a webhook source." sat over the list. The Add it blocks cannot be
-  # pressed now and says why on hover.
-  test "with no signing credential, Add webhook source is disabled and says why on hover" do
+  # The fresh setup showed four panels and the direct source form pointed "above" to a missing control.
+  test "a fresh webhook setup leads to its prerequisite from the list and direct source form" do
     installation!()
     assert Credentials.delete(:webhook, @registered, @actor) == :ok
     {:ok, view, _html} = open()
 
-    blocked =
-      "#settings-webhooks span.settings-editor-add.is-disabled[aria-disabled='true']" <>
-        "[title='Create a signing credential above before adding a webhook source.']"
+    assert has_element?(
+             view,
+             "a[href='/integrations/webhooks/credentials/new']",
+             "Add signing credential"
+           )
 
-    assert has_element?(view, blocked, "Add webhook source")
-    refute has_element?(view, "#settings-webhooks a.settings-editor-add")
-    refute has_element?(view, "#settings-webhooks .settings-notice", "signing credential")
+    refute has_element?(view, "#settings-webhooks")
+    refute has_element?(view, "#webhook-preview")
+    render_patch(view, "/integrations/webhooks/sources/new")
+
+    assert has_element?(
+             view,
+             ".settings-notice a[href='/integrations/webhooks/credentials/new']",
+             "Add signing credential"
+           )
   end
 
   test "a source may only reference a credential Ryker has in encrypted custody" do

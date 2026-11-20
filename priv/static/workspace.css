@@ -2,10 +2,8 @@
 .mobile-navigation { display:none; position:relative; }
 .connection-offline.app-warning { display:none; }
 .phx-disconnected .connection-offline.app-warning { display:block; }
-@media(max-width:800px) { .mobile-navigation { display:flex; justify-content:flex-end; padding:8px 20px; } }
 .usage-page .usage-chart figcaption { font-size:13px; }
 .usage-page .usage-chart figcaption strong { font-size:16px; }
-.usage-page .usage-chart svg { min-width:440px; }
 .usage-page .chart-bar:focus { stroke:var(--ink); stroke-width:2; outline:none; }
 .usage-donut { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:16px; }
 .usage-donut-chart { position:relative; width:160px; max-width:100%; flex:none; }
@@ -44,7 +42,7 @@
 .usage-chart figcaption strong { font-size:22px; color:var(--ink); }
 .usage-chart figcaption span { margin-left:auto; }
 .chart-scroll { overflow-x:auto; }
-.usage-chart svg { width:100%; min-width:560px; max-height:280px; display:block; }
+.usage-chart svg { width:100%; max-height:280px; display:block; }
 .chart-grid { stroke:var(--ryker-stroke); stroke-width:1; }
 .chart-axis { font:14px var(--ryker-font-sans); fill:var(--ryker-text-secondary); }
 .chart-bar { fill:var(--ryker-data-primary); }
@@ -57,13 +55,20 @@
 .feedback-bar-positive { fill:var(--ryker-accent); }
 .feedback-chart-day:focus { outline:none; }
 .feedback-chart-day:focus rect { stroke:var(--ryker-text); stroke-width:1.5; }
-.feedback-chart-legend { display:flex; gap:14px; font-size:13px; }
+.feedback-chart-legend { display:flex; flex-wrap:wrap; gap:14px; font-size:13px; }
 .usage-chart figcaption .feedback-key { display:inline-flex; align-items:center; gap:6px; margin-left:0; }
 .feedback-key::before { content:""; width:8px; height:8px; border-radius:2px; }
 .feedback-key-negative::before { background:var(--ryker-error); }
 .feedback-key-neutral::before { background:var(--ryker-stroke-strong); }
 .feedback-key-positive::before { background:var(--ryker-accent); }
-@media(max-width:700px) { .usage-chart figcaption span { width:100%; margin:0; } }
+@media(max-width:700px) {
+  .usage-chart figcaption .feedback-chart-legend { flex-basis:100%; margin:0; }
+  .usage-chart .chart-axis { font-size:24px; }
+  .chart-dates > text { display:none; }
+  .chart-dates > :is(:first-child, :last-child, :nth-child(4):nth-last-child(n+3)) { display:block; }
+  .chart-dates > :first-child:not(:only-child) { text-anchor:start; }
+  .chart-dates > :last-child:not(:only-child) { text-anchor:end; }
+}
 .ryker-app select { appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--ryker-text-secondary) 50%),linear-gradient(135deg,var(--ryker-text-secondary) 50%,transparent 50%); background-size:5px 5px,5px 5px; background-repeat:no-repeat; background-position:right 19px center,right 14px center; padding-right:36px; }
 .recovery-model-output { overflow-wrap:anywhere; line-height:1.65; margin-top:12px; padding:16px; border-left:3px solid var(--line); background:var(--panel); color:var(--ink); }
 .recovery-model-output p { white-space:pre-wrap; }
@@ -246,7 +251,16 @@
 .page-surface summary { cursor:pointer; color:var(--ryker-text-secondary); font-size:15px; padding:8px 0; }
 @media (max-width:580px) { .page-surface dl { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .page-surface th, .page-surface td { padding:10px; } }
 /* Configuration is a readable field guide, not an unexplained key/value dump. */
-@media (max-width:800px) { .app-sidebar { position:static; width:100%; padding:16px 20px; border-right:0; border-bottom:1px solid var(--stroke); } .app-brand { margin:-16px -20px 0; padding:8px 20px; } .app-brand img { width:32px; aspect-ratio:780/680; } .app-nav { display:flex; overflow:auto; gap:8px; margin-top:12px; } .secondary-nav { display:none; } .app-nav > a { white-space:nowrap; margin:0; font-size:14px; padding:8px; } .app-nav .ui-icon { width:15px; } .app-workspace { margin-left:0; }  .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; } }
+@media (max-width:800px) {
+  .app-sidebar { display:none; }
+  .app-workspace { margin-left:0; }
+  .mobile-navigation { display:flex; align-items:center; gap:8px; padding:4px 56px 4px 12px; border-bottom:1px solid var(--ryker-stroke); background:var(--ryker-surface-sunken); }
+  .mobile-brand, .mobile-primary a, .mobile-manage > summary { display:inline-flex; align-items:center; justify-content:center; min-height:44px; min-width:44px; }
+  .mobile-primary { display:flex; }
+  .mobile-primary a { padding:4px 8px; font-size:14px; color:var(--ryker-text-secondary); }
+  .mobile-navigation a[aria-current=page] { color:var(--ryker-selected-text); background:var(--ryker-selected-bg); border-radius:6px; }
+  .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:24px 20px; }
+}
 @media (prefers-reduced-motion:no-preference) { .app-nav a, .ui-button { transition:background-color .12s ease; } .ui-disclosure > summary .ui-icon { transition:transform .12s ease; } }
 .slack-mention { color:var(--ryker-text-secondary); background:var(--ryker-surface-raised); border-radius:3px; padding:0 2px; }
 .mobile-manage { display:none; position:static; }
@@ -255,13 +269,20 @@
 .mobile-manage summary::-webkit-details-marker { display:none; }
 .mobile-manage summary::marker { content:""; }
 @media (max-width:800px) {
-  .mobile-manage { display:block; margin-right:auto; flex-shrink:0; }
+  .mobile-manage { display:block; margin-left:auto; flex-shrink:0; }
   .mobile-manage summary { cursor:pointer; font-size:14px; color:var(--ryker-text-secondary); padding:10px 0; }
   .mobile-manage nav { position:absolute; z-index:30; top:100%; left:20px; right:20px; width:auto; box-sizing:border-box; max-height:70vh; overflow:auto; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); box-shadow:0 12px 30px var(--ryker-shadow-medium); border-radius:6px; padding:18px; }
-  .mobile-manage section + section { margin-top:16px; }
+  .mobile-manage nav { display:block; }
+  .mobile-manage .mobile-nav-group > summary { display:flex; justify-content:space-between; min-height:44px; padding:8px 6px; }
+  .mobile-nav-group > summary::after { content:"+"; }
+  .mobile-nav-group[open] > summary::after { content:"−"; }
+  .mobile-nav-group > a { padding-left:20px; }
+  .mobile-manage .mobile-account { padding:12px 6px 0; border-top:1px solid var(--ryker-stroke); }
+  .mobile-account small { display:block; overflow-wrap:anywhere; }
+  .mobile-primary-overflow { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
   .mobile-manage .mobile-primary-overflow { padding-bottom:16px; border-bottom:1px solid var(--ryker-stroke); }
   .mobile-manage strong { display:block; font-size:14px; color:var(--ryker-text-secondary); margin-bottom:8px; }
-  .mobile-manage a { display:block; font-size:14px; padding:9px 6px; color:var(--ryker-text-secondary); }
+  .mobile-manage a { display:block; min-height:44px; font-size:14px; padding:9px 6px; color:var(--ryker-text-secondary); }
 }
 .episode-workbench { padding:32px 36px; max-width:1800px; margin:auto; }
 .episode-title-row { display:flex; align-items:start; justify-content:space-between; gap:30px; }
@@ -351,7 +372,9 @@
 .chat-message-extras .button.primary { background:var(--ryker-control-primary-bg); color:var(--ryker-control-primary-text); border-color:var(--ryker-control-primary-bg); font-weight:600; }
 .chat-message-extras .button.primary:hover { background:var(--ryker-control-primary-hover-bg); border-color:var(--ryker-control-primary-hover-bg); }
 .chat-message-extras a { color:var(--ryker-text-secondary); }
-.chat-message-extras .lab-card { background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:6px; padding:14px 16px 16px; }
+.chat-message-extras .message-cards { grid-template-columns:minmax(0,1fr); }
+.chat-message-extras .lab-card pre { max-width:100%; overflow-x:auto; }
+.chat-message-extras .lab-card { min-width:0; overflow-wrap:anywhere; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:6px; padding:14px 16px 16px; }
 .chat-message-extras .lab-card-head { display:flex; align-items:center; flex-wrap:wrap; gap:8px; color:var(--ryker-text-secondary); font-size:11px; line-height:16px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
 .chat-message-extras .lab-card-status { padding-left:8px; border-left:1px solid var(--ryker-stroke); letter-spacing:0; text-transform:none; }
 .chat-message-extras .lab-card h3 { color:var(--ink); font-size:16px; line-height:22px; font-weight:600; margin:8px 0 0; }
@@ -854,10 +877,10 @@
   .context-record { padding:12px; }
 }
 
-/* Mobile keeps the same order: title, action, description, help, then stacked toolbar controls. */
+/* Stack the action below its heading and description on phones. */
 @media (max-width:600px) {
   .ryker-app .page-surface, .ryker-app .native-page > .instructions-page { padding:20px 16px; }
-  .page-heading { flex-direction:column; gap:8px; }
+  .page-header > .page-action { margin-top:12px; }
   .ryker-app .page-heading h1 { font-size:24px; }
   .filter-toolbar .search-field { flex-basis:100%; max-width:none; }
   .ryker-app .filter-toolbar select { flex:1 1 calc(50% - 6px); min-width:0; }
@@ -1805,7 +1828,7 @@
 .app-sign-out { justify-self:start; margin-top:6px; padding:0; border:0; background:none; color:var(--ryker-text-secondary); font:inherit; font-size:12px; line-height:16px; cursor:pointer; }
 .app-sign-out:hover { color:var(--ryker-text); text-decoration:underline; }
 .app-sign-out:focus-visible, #mobile-sign-out:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; }
-#mobile-sign-out { display:block; padding:6px 0; border:0; background:none; color:var(--ryker-text); font:inherit; font-size:14px; cursor:pointer; }
+#mobile-sign-out { display:block; min-height:44px; padding:6px 0; border:0; background:none; color:var(--ryker-text); font:inherit; font-size:14px; cursor:pointer; }
 @media (max-width:800px) { .app-viewer { display:none; } }
 
 /* Signing in: Ryker's mark over one card, without the sidebar. */
@@ -1832,7 +1855,9 @@
 .github-action-error { padding:12px; border:1px solid currentColor; border-radius:4px; }
 
 /* A secondary page header keeps its action over the content column, not the far edge. */
-.secondary-page > .page-header { max-width:1040px; }
+.secondary-page > .page-header,
+.settings-page:has(> .environments-page, #settings-pricing) > .page-header { max-width:1040px; }
+.secondary-page:has(> .kit-form-card .repository-import) > .page-header { max-width:760px; }
 
 /* Manage pages (2026-09-24): one list and state language for Channels,
    Repositories, Automations, Instructions, Memory and Settings (Kit). Rows sit
@@ -2401,6 +2426,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .environment-repositories-choose { display:flex; gap:4px; margin:4px 0 0 -10px; }
 .environment-repositories { display:grid; grid-template-columns:minmax(0,1fr) 168px 64px; max-width:640px; margin:4px 0 0; }
 .environment-repositories-head, .environment-repository { display:contents; }
+.environment-repository[hidden] { display:none; }
 .environment-repositories-head > span { padding:0 0 6px; border-bottom:1px solid var(--ryker-stroke); font-size:12px; line-height:16px; font-weight:600; color:var(--ryker-text-secondary); }
 .environment-repositories-head > span:last-child, .environment-repository-default { text-align:center; }
 .environment-repository > span { display:flex; align-items:center; min-height:48px; border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
@@ -2411,7 +2437,11 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .environment-repository-default { justify-content:center; }
 .settings-field .environment-repository-access select { min-height:34px; padding-top:5px; padding-bottom:5px; font-size:13px; line-height:20px; }
 .settings-field .environment-repository-access select:disabled { color:var(--ryker-text-secondary); background-color:var(--ryker-surface-sunken); opacity:1; }
-@media (max-width:600px) { .environment-repositories { grid-template-columns:minmax(0,1fr) 156px 52px; } }
+@media (max-width:600px) {
+  .environment-repositories { grid-template-columns:minmax(0,1fr) minmax(100px, 36%) 52px; }
+  .environment-repository[data-chosen=false] > .environment-repository-name { grid-column:1 / -1; }
+  .environment-repository[data-chosen=false] > :not(.environment-repository-name) { display:none; }
+}
 /* A channel's settings change in place (Andrew, 2026-09-27): a compact
    select, a quiet note and the saved mark on one line, the label beside it
    level with the select's words. */
@@ -3184,15 +3214,29 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 
 .github-setup .github-step { border-top:1px solid var(--ryker-stroke); }
 .github-setup .github-step:first-of-type { margin-top:14px; }
-.github-step > summary { display:flex; gap:8px 16px; flex-wrap:wrap; align-items:center; padding:14px 2px; cursor:pointer; }
+.github-step > summary { display:grid; grid-template-columns:minmax(0,1fr) max-content 15px; gap:4px 16px; align-items:center; padding:14px 2px; cursor:pointer; }
 .github-step > summary::-webkit-details-marker { display:none; }
-.github-step > summary strong { flex:1; min-width:min(100%,190px); font-size:15px; }
-.github-step > summary::after { content:""; width:7px; height:7px; margin:0 4px; border-right:2px solid var(--ryker-text-secondary); border-bottom:2px solid var(--ryker-text-secondary); transform:rotate(45deg); }
+.github-step > summary strong { min-width:0; font-size:15px; }
+.github-step > summary::after { content:""; grid-column:3; grid-row:1; width:7px; height:7px; margin:0 4px; border-right:2px solid var(--ryker-text-secondary); border-bottom:2px solid var(--ryker-text-secondary); transform:rotate(45deg); }
 .github-step[open] > summary::after { transform:rotate(225deg); }
 .github-step > summary .settings-connection { margin:0; }
+@media (max-width:600px) {
+  .github-step > summary { grid-template-columns:minmax(0,1fr) 15px; }
+  .github-step > summary strong { grid-column:1; grid-row:1; }
+  .github-step > summary .settings-connection { grid-column:1; grid-row:2; min-width:0; }
+  .github-step > summary::after { grid-column:2; grid-row:1 / span 2; }
+}
 .github-step-body { max-width:660px; padding:0 2px 16px; }
 .github-step-body > p, .setup-instructions { font-size:14px; color:var(--ryker-text-secondary); margin:0 0 12px; }
 .github-step-body > h3 { margin:18px 0 6px; font-size:15px; }
 .setup-instructions { padding-inline-start:22px; }
 .setup-instructions li + li { margin-top:8px; }
 .github-examples { margin-block:16px; }
+
+.episode-outcome { margin: 0 0 1rem; padding: 0.875rem 1rem; border-inline-start: 3px solid var(--ryker-accent); overflow-wrap: anywhere; }
+.episode-outcome h2 { margin: 0; font-size: 1rem; }
+.episode-outcome p { margin: 0.35rem 0; }
+
+.entity-row-details { width:fit-content; max-width:100%; color:var(--ryker-text-secondary); font-size:0.875rem; }
+.entity-row-details summary { cursor:pointer; }
+.entity-row-details .entity-facts { margin:0.35rem 0; overflow-wrap:anywhere; }

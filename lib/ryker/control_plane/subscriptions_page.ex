@@ -79,9 +79,10 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
           :for={item <- @items}
           id={"follow-up-" <> item.ref}
           icon={:bell}
-          name={item.title}
+          name={item.episode_title || item.title}
+          href={item.episode_href}
           state={Presentation.status(item)}
-          text={continues(item)}
+          text={if item.episode_title, do: item.title}
           meta={facts(item, @now)}
         />
       </Kit.entity_list>
@@ -123,21 +124,6 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
     />
     """
   end
-
-  # The request this follow-up belongs to, linked to its timeline.
-  defp continues(%{episode_title: title, episode_href: href} = item) when is_binary(title) do
-    assigns = %{lead: lead(item), title: title, href: href}
-
-    ~H"""
-    {@lead}: <a :if={@href} href={@href}>{@title}</a><span :if={!@href}>{@title}</span>
-    """
-  end
-
-  defp continues(_item), do: "Continues a request that is no longer available."
-
-  defp lead(%{status: :active}), do: "Continues"
-  defp lead(%{status: :cancelled}), do: "Part of"
-  defp lead(_item), do: "Continued"
 
   defp facts(item, now) do
     Enum.map(Presentation.timing(item, now), &moment/1) ++

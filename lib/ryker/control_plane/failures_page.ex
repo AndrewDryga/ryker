@@ -165,24 +165,23 @@ defmodule Ryker.ControlPlane.FailuresPage do
   # The row says what to do next, and the whole row opens the failure's page,
   # where its options are buttons.
   defp row(assigns) do
-    assigns = assign(assigns, :next, assigns.e.next)
+    title =
+      assigns.row[:request_title] || FailureExplanation.place(assigns.row) || assigns.e.title
+
+    assigns = assign(assigns, :title, title)
 
     ~H"""
     <Kit.entity_row
-      name={@e.title}
+      name={@title}
       href={FailureExplanation.path(@row)}
       link_row
       icon={:incident}
       icon_tone={tile_tone(@e.state)}
       state={@e.state}
-      text={@e.summary}
-      meta={facts(@row, @now)}
+      text={if @title == @e.title, do: @e.summary, else: @e.title}
+      meta={[@e.next, stopped(@row, @now), FailureExplanation.attempts(@row), request_link(@row)]}
       class="failure-row"
-    >
-      <:details>
-        <p class="failure-next"><strong>{@next.lead}</strong> {@next.text}</p>
-      </:details>
-    </Kit.entity_row>
+    />
     """
   end
 
@@ -325,6 +324,13 @@ defmodule Ryker.ControlPlane.FailuresPage do
       ],
       &is_nil/1
     )
+  end
+
+  defp request_link(row) do
+    case FailureExplanation.request(row) do
+      %{href: href} -> anchor(%{href: href, text: "Open request"})
+      _missing -> nil
+    end
   end
 
   defp request(row) do

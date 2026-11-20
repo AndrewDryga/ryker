@@ -1,3 +1,4 @@
+import {AccountField} from "./account-field.mjs"
 import {Socket} from "./phoenix.mjs"
 import {LiveSocket} from "./phoenix_live_view.esm.js"
 import {createReadingStateHook} from "./reading-state.mjs"
@@ -66,7 +67,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   // joins and action acknowledgements without dropping historical evidence.
   timeout: 30_000,
   params: () => ({_csrf_token: csrfToken, asset_bundle: new URL(import.meta.url).pathname, draft: composerDraft(document)}),
-  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime, ScheduleCountdown}
+  hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, AccountField, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime, ScheduleCountdown}
 })
 liveSocket.connect()
 // After connect, so LiveView sees a submit first and its own forms stay its own.

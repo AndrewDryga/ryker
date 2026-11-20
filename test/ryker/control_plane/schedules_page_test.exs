@@ -327,6 +327,7 @@ defmodule Ryker.ControlPlane.SchedulesPageTest do
         empty = page.body |> LazyHTML.from_fragment() |> LazyHTML.query(".kit-empty")
         assert LazyHTML.query(empty, ".kit-empty-title") |> LazyHTML.text() == title
         assert LazyHTML.text(empty) =~ text
+        if !params["q"], do: refute(page.body =~ ~s(id="operator-search"))
       end
     end
   end

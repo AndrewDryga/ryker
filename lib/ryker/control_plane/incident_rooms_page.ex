@@ -154,8 +154,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp list_view(assigns) do
     ~H"""
     <div class="incident-rooms-view">
-      <Kit.counts label="Incident rooms" items={counts(@rooms, @query, @status)} />
-      <Kit.toolbar>
+      <Kit.counts :if={@items != []} label="Incident rooms" items={counts(@rooms, @query, @status)} />
+      <Kit.toolbar :if={@items != [] or @filtered}>
         <Components.filter_toolbar
           id="operator-search"
           path="/incident-rooms"
@@ -163,7 +163,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
           placeholder="Search incident rooms"
           query={@query}
           filtered={@filtered}
-          disabled={@items == [] and not @filtered}
           selects={[
             %{
               id: "incident-status",

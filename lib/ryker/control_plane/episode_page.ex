@@ -48,6 +48,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       |> assign(:source_link, source_link(assigns.snapshot))
       |> assign(:thread_link, thread_link(assigns.snapshot.episode))
       |> assign(:task, assigns.snapshot[:task])
+      |> assign(:outcome, timeline_outcome(assigns.snapshot))
 
     ~H"""
     <div class="episode-workbench execution-document">
@@ -85,8 +86,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
             {task_relation(item)} →
           </a>
           <a
-            :if={!@startup}
-            href={outcome_anchor(@snapshot)}
+            :if={!@startup && !@outcome.preview}
+            href={@outcome.href}
           >Jump to latest outcome ↓</a>
           <a
             :if={@source_link}
@@ -101,6 +102,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <a :if={@thread_link} href={@thread_link.href}>{@thread_link.label} →</a>
         </p>
       </div>
+      <section :if={!@startup && @outcome.preview} class="episode-outcome" aria-label="Outcome">
+        <h2>Outcome</h2>
+        <p>{@outcome.preview}</p>
+        <a href={@outcome.href}>{@outcome.label} ↓</a>
+      </section>
       <section :if={@startup} class="task-start-failure" aria-labelledby="task-start-heading">
         <h2 id="task-start-heading">{@snapshot.trace.stopped.headline}</h2>
         <p :if={@startup.confirmed}>Your confirmation was received.</p>
@@ -2833,15 +2839,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     end
   end
 
-  defp outcome_anchor(snapshot) do
-    if snapshot.trace.case_file.awaiting_reply do
-      "#latest-outcome"
-    else
-      accepted_outcome_anchor(snapshot)
-    end
-  end
-
-  defp accepted_outcome_anchor(snapshot) do
+  defp timeline_outcome(snapshot) do
     decision =
       snapshot.trace.steps
       |> Enum.reverse()
@@ -2854,20 +2852,53 @@ defmodule Ryker.ControlPlane.EpisodePage do
       |> Enum.reverse()
       |> Enum.find(&(&1.actor == "Ryker"))
 
-    cond do
-      decision && silent_result?(decision) ->
-        "#event-#{decision.id}"
+    outcome_link(snapshot, decision, reply)
+  end
 
-      decision && (is_nil(reply) || decision.id != "turn-#{reply.id}-accepted") ->
-        "#event-#{decision.id}"
+  defp outcome_link(snapshot, decision, reply) do
+    cond do
+      snapshot.episode.state == :complete and silent_result?(decision) ->
+        %{
+          href: "#event-#{decision.id}",
+          preview: "Finished without sending a reply.",
+          label: "View decision"
+        }
+
+      snapshot.trace.case_file.awaiting_reply ->
+        %{href: "#latest-outcome", preview: nil}
+
+      decision && separate_decision?(decision, reply) ->
+        %{href: "#event-#{decision.id}", preview: nil}
 
       reply ->
-        "#story-message-#{reply.id}"
+        %{
+          href: "#story-message-#{reply.id}",
+          preview: delivered_preview(snapshot.episode, reply),
+          label: "Read full reply"
+        }
 
       true ->
-        "#latest-outcome"
+        %{href: "#latest-outcome", preview: nil}
     end
   end
+
+  defp separate_decision?(_decision, nil), do: true
+
+  defp separate_decision?(decision, reply),
+    do: silent_result?(decision) or decision.id != "turn-#{reply.id}-accepted"
+
+  defp delivered_preview(
+         %{state: :complete} = episode,
+         %{delivered: true, available: true, text: text} = reply
+       )
+       when is_binary(text) do
+    unless reply[:update] do
+      workspace = Slack.destination_workspace(episode[:conversation_ref])
+      text |> SlackMarkdown.plain(workspace) |> String.trim() |> Ryker.Text.shorten_to_word(240)
+    end
+  end
+
+  defp delivered_preview(_episode, _reply), do: nil
 
   defp wall_time(%{milliseconds: milliseconds}) when is_integer(milliseconds),
     do: Units.duration(milliseconds)

@@ -46,11 +46,12 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   @doc "The Schedules list: the toolbar and the rows. How to add one is the page's help."
   @spec list([map()], map(), DateTime.t()) :: iodata()
-  def list(items, params, now \\ DateTime.utc_now()) do
+  def list(items, params, now \\ DateTime.utc_now(), populated \\ true) do
     %{
       __changed__: nil,
       now: now,
       items: Enum.take(items, @list_limit),
+      populated: populated,
       full: length(items) > @list_limit,
       query: params["q"] || "",
       view: params["view"] || "current"
@@ -62,7 +63,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp list_view(assigns) do
     ~H"""
     <div class="schedules-view">
-      <Kit.toolbar>
+      <Kit.toolbar :if={@populated}>
         <Components.filter_toolbar
           id="operator-search"
           path="/schedules"

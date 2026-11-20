@@ -35,7 +35,7 @@ export const createRepositoryPicker = form => {
     const button = form.querySelector("[data-repository-add-selected]")
     if (!button) return
     button.textContent = `Add ${selected} selected`
-    button.disabled = selected === 0
+    button.disabled = selected === 0 || form.dataset?.checkingAccess === "true"
   }
 
   const filter = () => {

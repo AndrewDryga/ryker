@@ -12,6 +12,46 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
     Config.put_override(:retention, %{conversation_memory_seconds: 3_600})
   end
 
+  # The topics index expanded every compact source reference twice for its expiry.
+  test "a topic row uses the oldest receipt already counted for its frozen generation" do
+    {:ok, %{episode: episode}} = Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
+    {_entry, document} = Ryker.Fixtures.Knowledge.learn!(episode)
+    "knowledge:" <> id = document["source_ref"]
+    topic = Repo.get!(Ryker.Knowledge.ConversationKnowledge, id)
+    expected = topic.source_dependencies |> LearningSources.oldest() |> DateTime.add(3_600)
+
+    {page, statements} = Ryker.QueryWork.statements(fn -> ConversationMemory.project(%{}) end)
+    row = Enum.find(page.items, &(&1.id == id))
+    assert row.source_count == 1
+    assert DateTime.compare(row.expires_at, expected) == :eq
+    refute Enum.any?(statements, &String.contains?(&1.sql, "FROM ryker_learning_roots($1) r"))
+
+    # A concurrent rebuild between reading the page and loading source counts
+    # must not replace the displayed generation with the new head's receipts.
+    Repo.update!(Ecto.Changeset.change(topic, source_generation: topic.source_generation + 1))
+
+    assert [{^id, {1, 1, retained_at}}] =
+             Repo.all(Ryker.ControlPlane.Learned.Query.source_counts([topic]))
+
+    assert DateTime.compare(DateTime.add(retained_at, 3_600), expected) == :eq
+  end
+
+  # Thirty displayed summaries each scanned the observation table, adding 17 seconds to the first response.
+  test "the summary evidence clock can look up an exact observation by primary key" do
+    [entry | _] = LearningFixtures.inputs!()
+    roots = CanonicalJSON.encode!(LearningSources.for_entry(entry))
+    query = Ryker.ControlPlane.Learned.Query.latest_source_at(roots)
+    {sql, params} = Ecto.Adapters.SQL.to_sql(:all, Repo, query)
+    Repo.query!("SET LOCAL enable_seqscan = off")
+
+    plan =
+      Repo.query!("EXPLAIN (COSTS OFF) " <> sql, params).rows |> List.flatten() |> Enum.join("\n")
+
+    assert plan =~
+             ~r/Index Scan using conversation_observations_pkey[^\n]*\n\s+Index Cond: \(id =/,
+           plan
+  end
+
   test "the summaries list opens with its search and views, not with help, on a phone" do
     # On the retained replay's 390px page, expanded help consumed the entire
     # first screen before counts, search or a single topic could be reached.

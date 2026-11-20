@@ -49,7 +49,8 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       |> LazyHTML.from_fragment()
 
     row = LazyHTML.query(document, ".entity-row")
-    assert LazyHTML.query(row, ".entity-name") |> LazyHTML.text() =~ "Timer"
+    assert LazyHTML.query(row, ".entity-name") |> LazyHTML.text() =~ "Follow up on the deployment"
+    assert LazyHTML.query(row, ".entity-text") |> LazyHTML.text() == "Timer"
 
     assert LazyHTML.query(row, ".entity-meta time[datetime='2026-09-07T12:10:00Z']")
            |> LazyHTML.text() == "in 10 minutes"
@@ -279,7 +280,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     for {row, article, path} <- Enum.zip([rows, articles, paths]) do
       explanation = FailureExplanation.explain(row, @now)
-      next = LazyHTML.query(article, ".failure-next") |> LazyHTML.text()
+      next = LazyHTML.query(article, ".entity-meta") |> LazyHTML.text()
 
       # The line under the facts names the step and says what it does. The
       # whole row opens the failure's page (Andrew, 2026-09-28: a row that
@@ -288,8 +289,8 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
       assert Enum.empty?(LazyHTML.query(article, "form, .ui-button"))
       step = Enum.find(explanation.options, &(&1[:recommended] && &1[:path]))
       assert next =~ step.label
-      [_label, effect] = String.split(next, ":", parts: 2)
-      assert String.trim(effect) == hd(Enum.filter(explanation.options, & &1[:path])).effect
+      refute LazyHTML.text(article) =~ step.effect
+      assert row |> detail() |> LazyHTML.text() =~ step.effect
 
       button = row |> detail() |> LazyHTML.query("form[method='get'][action='#{path}'] button")
       assert LazyHTML.text(button) == step.label
@@ -297,7 +298,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     end
 
     assert LazyHTML.text(document) =~ "Post the reply again"
-    assert LazyHTML.text(document) =~ "never appears twice"
+    refute LazyHTML.text(document) =~ "never appears twice"
     assert LazyHTML.text(document) =~ "Update the message again"
   end
 
@@ -321,7 +322,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     list = [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
     assert LazyHTML.query(list, ".state-word") |> LazyHTML.text() == "Fix needed first"
     assert Enum.empty?(LazyHTML.query(list, "form[action^='/actions/']"))
-    assert LazyHTML.query(list, ".failure-next") |> LazyHTML.text() =~ "invite Ryker"
+    assert LazyHTML.query(list, ".entity-meta") |> LazyHTML.text() =~ "channel"
 
     # On the failure's page, the change that has to come first is the
     # primary step, and the retry that would fail is not.
@@ -372,7 +373,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert explanation.outlook == :automatic
     assert explanation.summary =~ "requesting a fresh publication token"
     assert Enum.join(explanation.cause, " ") =~ "HTTP 503"
-    assert inspect(explanation.next) =~ "retries the same publication"
+    assert explanation.next == "Ryker is retrying"
   end
 
   test "a stuck publication says why it is stuck" do

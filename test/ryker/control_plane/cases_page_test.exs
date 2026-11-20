@@ -89,6 +89,20 @@ defmodule Ryker.ControlPlane.CasesPageTest do
            ]
   end
 
+  test "two cases with the same request show their saved outcomes in the list" do
+    first = case!("Check the rollout", outcome: "Rolled back")
+    second = case!("Check the rollout", outcome: "Fixed the probe")
+    list = cases()
+
+    assert list |> LazyHTML.query("#case-#{first.episode_id} .entity-name") |> LazyHTML.text() =~
+             "Rolled back"
+
+    assert list |> LazyHTML.query("#case-#{second.episode_id} .entity-name") |> LazyHTML.text() =~
+             "Fixed the probe"
+
+    refute case_page(first) =~ "memory-topic-text"
+  end
+
   test "cases are searched by their problem, cause and how they ended" do
     case!("Checkout returns 502 after the deploy", outcome: "Rolled back to the previous image.")
     case!("The build runner's disk filled up", cause: "Old Docker layers were never pruned.")

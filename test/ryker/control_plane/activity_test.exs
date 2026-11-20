@@ -82,6 +82,64 @@ defmodule Ryker.ControlPlane.ActivityTest do
     assert Enum.any?(Activity.list(%{}).items, &(&1.title == "Investigate checkout 502s"))
   end
 
+  test "opening a populated inbox reads the grouped counts and one page" do
+    # Each extra pass reads the union of all admitted and unadmitted work.
+    {:ok, _} = Episodes.apply(Fixtures.admit_input())
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ryker, :repo, :query],
+        &__MODULE__.capture_inbox_read/4,
+        self()
+      )
+
+    try do
+      assert %{total: 1, searchable: true} = Activity.list(%{})
+      assert_received :inbox_read
+      assert_received :inbox_read
+      refute_received :inbox_read
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  def capture_inbox_read(_event, _measurements, %{query: query}, owner) do
+    if self() == owner and String.contains?(query, "UNION ALL"), do: send(owner, :inbox_read)
+  end
+
+  test "a Terraform notification names its workspace and stage in Activity" do
+    # The raw run identifier alone made different workspaces indistinguishable.
+    event = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+
+    {:ok, input} =
+      Input.new(%{
+        actor: %{kind: :bot, ref: event["bot_id"]},
+        channel_ref: event["channel"],
+        content: Map.take(event, ["text", "attachments"]),
+        event_kind: :message,
+        event_ref: "Ev-workspace-title",
+        message_ref: event["ts"],
+        occurred_at: DateTime.utc_now(),
+        revision: 1,
+        thread_ref: nil,
+        workspace_ref: "T123"
+      })
+
+    {:ok, _} = Inbox.record(input)
+    assert %{items: [%{title: title}]} = Activity.list(%{})
+    assert title =~ "Run Planning"
+
+    assert title =~
+             event["attachments"]
+             |> hd()
+             |> Map.fetch!("pretext")
+             |> String.split("|")
+             |> List.last()
+             |> String.trim_trailing(">")
+  end
+
   test "attachment-only Slack notifications keep readable searchable request titles" do
     # Most replay rows said source unavailable although Slack retained the alert
     # in attachments. This fallback is harvested from the blocked HCP notification.

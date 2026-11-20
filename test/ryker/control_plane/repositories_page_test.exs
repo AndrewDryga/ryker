@@ -125,12 +125,12 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     assert LazyHTML.query(row, "h3.entity-name a") |> LazyHTML.attribute("href") ==
              ["/repositories/acme-checkout-api"]
 
-    assert Enum.empty?(LazyHTML.query(row, "button, details, .entity-actions"))
+    assert Enum.empty?(LazyHTML.query(row, "button, details[open], .entity-actions"))
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "In Production, Staging · used in 2 channels and 1 schedule · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago"
+             "In Production, Staging · used in 2 channels and 1 schedule"
 
-    assert LazyHTML.query(row, "p.entity-meta strong") |> LazyHTML.text() == "3f9a1c2e"
+    assert LazyHTML.query(row, "details .entity-facts strong") |> LazyHTML.text() == "3f9a1c2e"
   end
 
   test "each repository says which environments it is in, or that it is in none" do
@@ -141,7 +141,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
     row = render([alone]) |> LazyHTML.query("article.entity-row")
 
     assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() ==
-             "In no environment yet · 14 tasks · code from 3f9a1c2e, fetched 2 h ago · Knowledge updated 1 h ago"
+             "In no environment yet"
   end
 
   test "a repository still being set up says which step it is on and since when" do
@@ -676,13 +676,13 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         |> update_in([:knowledge], &Map.merge(&1, knowledge))
         |> render_row()
 
-      assert row |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() =~
+      assert row |> LazyHTML.query("details .entity-facts") |> LazyHTML.text() |> squeeze() =~
                "fetched 2 h ago · " <> meta
     end
 
     fresh = render_row(%{@repository | knowledge: nil})
 
-    assert fresh |> LazyHTML.query("p.entity-meta") |> LazyHTML.text() |> squeeze() =~
+    assert fresh |> LazyHTML.query("details .entity-facts") |> LazyHTML.text() |> squeeze() =~
              "· Knowledge not written yet"
 
     # While a model writes it, it cannot be asked for again.

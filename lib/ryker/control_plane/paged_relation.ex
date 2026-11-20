@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.PagedRelation do
 
   def read(query, order, key, requested_page, options) when is_integer(requested_page) do
     page_size = Keyword.get(options, :page_size, @page_size)
-    total = Repo.aggregate(query, :count)
+    total = Keyword.get_lazy(options, :total, fn -> Repo.aggregate(query, :count) end)
     pages = max(div(total + page_size - 1, page_size), 1)
     page = min(requested_page, pages)
 

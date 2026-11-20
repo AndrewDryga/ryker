@@ -49,7 +49,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
 
     ~H"""
     <div class="behavior-page rules-view">
-      <Kit.toolbar>
+      <Kit.toolbar :if={@view.counts != %{} or @q != ""}>
         <Components.filter_toolbar
           id="behavior-search"
           path="/rules"

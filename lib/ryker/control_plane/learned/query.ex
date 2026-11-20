@@ -48,19 +48,22 @@ defmodule Ryker.ControlPlane.Learned.Query do
     )
   end
 
-  @doc """
-  How many sources each of `knowledge_ids` keeps in its current generation,
-  how many support it directly, and when the oldest was retained, as `{id,
-  {count, direct, oldest_retained_at}}`.
-  """
-  def source_counts(knowledge_ids) do
-    from(s in Knowledge.KnowledgeSource,
-      join: k in Knowledge.ConversationKnowledge,
-      on: k.id == s.knowledge_id and k.source_generation == s.generation,
-      where: k.id in ^knowledge_ids,
+  @doc "Counts sources and direct support at the generation and revision shown on each topic row."
+  def source_counts(topics) do
+    heads = Enum.map(topics, &Map.take(&1, [:id, :source_generation, :version]))
+    types = %{id: :binary_id, source_generation: :integer, version: :integer}
+
+    from(k in values(heads, types),
+      join: s in Knowledge.KnowledgeSource,
+      on:
+        k.id == s.knowledge_id and k.source_generation == s.generation and
+          s.introduced_version <= k.version,
       group_by: k.id,
       select:
-        {k.id, {count(s.observation_id), count(s.direct_support_version), min(s.retained_at)}}
+        {k.id,
+         {count(s.observation_id),
+          filter(count(s.observation_id), s.direct_support_version <= k.version),
+          min(s.retained_at)}}
     )
   end
 
@@ -85,16 +88,25 @@ defmodule Ryker.ControlPlane.Learned.Query do
   edited since must not substitute today's message time.
   """
   def latest_source_at(roots) do
-    from(o in Learning.ConversationObservation,
-      where:
-        fragment(
-          "EXISTS (SELECT 1 FROM ryker_learning_roots(?::text) r WHERE r->>'observation_id' = ?::text AND r->>'revision' = ?::text AND r->>'fingerprint' = ?)",
-          ^roots,
-          o.id,
-          o.revision,
-          o.source_fingerprint
-        ),
-      select: max(o.occurred_at)
+    # Expand this summary's frozen receipts once and probe only the named rows.
+    # The lateral boundary keeps a broad table scan out of a short receipt list.
+    from(
+      source in fragment(
+        """
+        SELECT matched.occurred_at FROM ryker_learning_roots(?::text) root
+        JOIN LATERAL (
+          SELECT o.occurred_at FROM conversation_observations o
+          WHERE o.id = CASE WHEN pg_input_is_valid(root->>'observation_id', 'uuid')
+            THEN (root->>'observation_id')::uuid END
+            AND o.id::text = root->>'observation_id'
+            AND o.revision::text = root->>'revision'
+            AND o.source_fingerprint = root->>'fingerprint'
+          OFFSET 0
+        ) matched ON true
+        """,
+        ^roots
+      ),
+      select: type(max(source.occurred_at), :utc_datetime_usec)
     )
   end
 end

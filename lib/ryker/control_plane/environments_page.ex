@@ -54,8 +54,12 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
           link_row={true}
           tag={if environment.is_default, do: "Default"}
           text={environment.description}
-          meta={meta(environment, @view)}
-        />
+          meta={[used_by(environment, @view)]}
+        >
+          <:details>
+            <Kit.row_details label="Repository access" facts={access_facts(environment, @view)} />
+          </:details>
+        </Kit.entity_row>
       </Kit.entity_list>
       <.first_environment :if={@environments == []} view={@view} />
       <Kit.empty
@@ -71,7 +75,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   @doc "The page's own action: Add an environment opens its form on its own page."
   def add(assigns) do
     ~H"""
-    <.link patch="/environments/new" class="ui-button secondary">
+    <.link patch="/environments/new" class="ui-button primary">
       <Components.icon name={:plus} />Add an environment
     </.link>
     """
@@ -159,18 +163,16 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
     |> Enum.filter(& &1)
   end
 
-  defp meta(environment, view) do
-    snapshot = view.snapshot
+  defp used_by(environment, view) do
+    Environments.used_by(
+      Map.get(view.environment_channels, environment.ref, 0),
+      Enum.count(view.snapshot.webhook_sources, &(&1.environment_ref == environment.ref))
+    )
+  end
 
-    Environments.repository_facts(snapshot, environment) ++
-      [
-        read_only(environment),
-        Environments.emisar_fact(snapshot, environment),
-        Environments.used_by(
-          Map.get(view.environment_channels, environment.ref, 0),
-          Enum.count(snapshot.webhook_sources, &(&1.environment_ref == environment.ref))
-        )
-      ]
+  defp access_facts(environment, view) do
+    Environments.repository_facts(view.snapshot, environment) ++
+      [read_only(environment), Environments.emisar_fact(view.snapshot, environment)]
   end
 
   attr(:view, :map, required: true)

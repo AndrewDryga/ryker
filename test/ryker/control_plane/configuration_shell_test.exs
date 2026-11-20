@@ -90,7 +90,11 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     # not by a status dropdown, and the search keeps the view it searches in.
     for path <- ["/schedules", "/follow-ups"] do
       past =
-        Pages.page(String.split(path, "/", trim: true), %{"view" => "past"}, options()).body
+        Pages.page(
+          String.split(path, "/", trim: true),
+          %{"view" => "past", "q" => "emisar"},
+          options()
+        ).body
         |> LazyHTML.from_fragment()
 
       assert Enum.empty?(LazyHTML.query(past, "select")), path
@@ -127,7 +131,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
     end
   end
 
-  test "the page header keeps a real action opposite the title and renders nothing for an absent one" do
+  test "the page header keeps the title and description together before its optional action" do
     with_action =
       render_component(&Components.page_header/1,
         title: "Settings",
@@ -142,7 +146,7 @@ defmodule Ryker.ControlPlane.ConfigurationShellTest do
            )
            |> LazyHTML.text() == "Settings"
 
-    assert LazyHTML.query(with_action, ".page-heading > .page-action") |> LazyHTML.text() =~
+    assert LazyHTML.query(with_action, ".page-description + .page-action") |> LazyHTML.text() =~
              "Create settings"
 
     assert LazyHTML.query(with_action, ".page-heading + p.page-description") |> LazyHTML.text() ==

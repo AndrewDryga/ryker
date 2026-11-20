@@ -27,7 +27,12 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
 
   @impl true
   def update(assigns, socket) do
-    socket = socket |> assign(assigns) |> keep_diagnostics()
+    socket =
+      socket
+      |> assign(assigns)
+      |> assign_new(:repository_search, fn -> "" end)
+      |> assign_new(:selected_only, fn -> false end)
+      |> keep_diagnostics()
 
     cond do
       not Map.has_key?(socket.assigns, :draft) ->
@@ -110,6 +115,13 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   @impl true
   def handle_event("change", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> assign(:error, nil)}
+
+  def handle_event("filter-repositories", %{"repository_search" => search}, socket)
+      when is_binary(search),
+      do: {:noreply, assign(socket, :repository_search, search)}
+
+  def handle_event("toggle-selected-repositories", _params, socket),
+    do: {:noreply, assign(socket, :selected_only, not socket.assigns.selected_only)}
 
   def handle_event("save", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> save()}
@@ -389,7 +401,22 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       end)
       |> Enum.sort_by(&String.downcase(&1.name))
 
-    assigns = assign(assigns, accounts: snapshot.emisar_connections, choices: choices)
+    search = assigns.repository_search |> String.trim() |> String.downcase()
+
+    visible =
+      for choice <- choices,
+          not assigns.selected_only or choice.chosen,
+          String.contains?(String.downcase(choice.name), search),
+          into: MapSet.new(),
+          do: choice.ref
+
+    assigns =
+      assign(assigns,
+        accounts: snapshot.emisar_connections,
+        choices: choices,
+        visible: visible,
+        default: Enum.find(choices, & &1.default)
+      )
 
     ~H"""
     <div id={@id} class="environment-editor">
@@ -442,7 +469,27 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                 write: the default, unless it picks another. The default is always read and write.
               </p>
               <input type="hidden" name="environment[repositories][]" value="" />
+              <label :if={length(@choices) > 1}>
+                Search repositories
+                <input
+                  type="search"
+                  name="repository_search"
+                  value={@repository_search}
+                  phx-change="filter-repositories"
+                  phx-target={@myself}
+                />
+              </label>
+              <p :if={@choices != []} class="environment-selection">
+                {length(@draft.repositories)} selected<span :if={@default}> · Default: {@default.name}</span>
+              </p>
               <div :if={length(@choices) > 1} class="environment-repositories-choose">
+                <button
+                  type="button"
+                  class="ui-button quiet"
+                  phx-click="toggle-selected-repositories"
+                  phx-target={@myself}
+                  aria-pressed={to_string(@selected_only)}
+                >Selected only</button>
                 <button
                   type="button"
                   class="ui-button quiet"
@@ -450,7 +497,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                   phx-target={@myself}
                   disabled={Enum.all?(@choices, & &1.chosen)}
                 >
-                  Select all
+                  Select all repositories
                 </button>
                 <button
                   type="button"
@@ -462,6 +509,9 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                   Select none
                 </button>
               </div>
+              <p :if={@choices != [] and MapSet.size(@visible) == 0} role="status">
+                No repositories match.
+              </p>
               <div :if={@choices != []} class="environment-repositories">
                 <div class="environment-repositories-head" aria-hidden="true">
                   <span>Repository</span>
@@ -471,6 +521,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                 <div
                   :for={choice <- @choices}
                   class="environment-repository"
+                  hidden={!MapSet.member?(@visible, choice.ref)}
                   data-repository={choice.ref}
                   data-chosen={to_string(choice.chosen)}
                 >

@@ -757,7 +757,26 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "main h1", "Edit Production approvals")
     assert has_element?(view, "nav.kit-back a[href='/integrations/emisar']", "Emisar")
     assert has_element?(view, ".kit-facts dd", "https://emisar.example/api/mcp/rpc")
-    assert has_element?(view, "form[phx-submit=rename-emisar]", "Save name")
+    # A LiveView patch between accounts must mount a fresh hook for each draft,
+    # especially a secret typed for an account the operator has since left.
+    assert has_element?(view, "#emisar-rename-form-production[phx-hook=AccountField]")
+    assert has_element?(view, "#emisar-key-form-production[phx-hook=AccountField]")
+    assert has_element?(view, "form[phx-submit=rename-emisar] button[disabled]", "Save name")
+    assert has_element?(view, "form[phx-submit=rotate-emisar] button[disabled]", "Replace key")
+
+    view
+    |> form("form[phx-submit=rename-emisar]", connection: %{display_name: "New approvals name"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "form[phx-submit=rename-emisar] [role=status]",
+             "Emisar account name was updated."
+           )
+
+    assert has_element?(view, "form[phx-submit=rename-emisar] input[value='New approvals name']")
+    refute has_element?(view, "form[phx-submit=rotate-emisar] .form-feedback")
+    refute has_element?(view, ".page-feedback", "Emisar account name was updated.")
     assert has_element?(view, "form[phx-submit=rotate-emisar]", "Replace key")
 
     assert has_element?(

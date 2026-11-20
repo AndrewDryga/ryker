@@ -201,7 +201,6 @@ defmodule Ryker.ControlPlane.Activity do
   def list(params) do
     mode = if params["mode"] in ~w(shadow all), do: params["mode"], else: "live"
     base_query = Activity.Query.rows(DateTime.utc_now())
-    searchable = Repo.exists?(base_query)
     query = if mode == "all", do: base_query, else: Activity.Query.by_mode(base_query, mode)
 
     query =
@@ -211,13 +210,18 @@ defmodule Ryker.ControlPlane.Activity do
       |> UsageProjection.filter_activity(params)
       |> search(params["q"])
 
+    views = view_counts(query)
+    all_count = Enum.sum(Map.values(views))
+    total = Map.get(views, params["filter"], all_count)
+
     page =
       PagedRelation.read(
         filter(query, params["filter"]),
         [desc: :updated_at, desc: :id],
         "page",
         params,
-        page_size: @page_size
+        page_size: @page_size,
+        total: total
       )
 
     secrets = InspectionRedactor.configured_secrets()
@@ -229,8 +233,8 @@ defmodule Ryker.ControlPlane.Activity do
       page: page.page,
       pages: page.pages,
       mode: mode,
-      searchable: searchable,
-      views: view_counts(query)
+      searchable: all_count > 0 or Repo.exists?(base_query),
+      views: views
     }
   end
 
@@ -243,7 +247,11 @@ defmodule Ryker.ControlPlane.Activity do
   # An episode reads as the name Work gave it; before any turn has named it,
   # a scheduled run as its schedule and anything else as its first message.
   defp present(%{episode_title: title} = row, secrets) when is_binary(title) do
-    %{present(%{row | episode_title: nil}, secrets) | title: redacted(title, secrets, 240)}
+    item = present(%{row | episode_title: nil}, secrets)
+
+    if generic_title?(title) and row.source_available,
+      do: item,
+      else: %{item | title: redacted(title, secrets, 240)}
   end
 
   defp present(%{schedule_title: title} = row, secrets) when is_binary(title) do
@@ -255,12 +263,18 @@ defmodule Ryker.ControlPlane.Activity do
     source = source(row.source)
 
     title =
-      if text in [nil, ""],
-        do: "Message text no longer available",
-        else:
+      cond do
+        text in [nil, ""] and not row.source_available ->
+          "Message text no longer available"
+
+        text in [nil, ""] or preview_marker?(text) ->
+          source_title(row, source)
+
+        true ->
           text
           |> SlackMarkdown.plain(Slack.Names.workspace_from_destination(row.conversation))
           |> String.slice(0, 200)
+      end
 
     row
     |> Map.drop([
@@ -280,6 +294,18 @@ defmodule Ryker.ControlPlane.Activity do
       href: Paths.request(row.id)
     })
   end
+
+  defp generic_title?(title),
+    do: preview_marker?(title) or Regex.match?(~r/^Run run-[[:alnum:]]+$/, title)
+
+  defp preview_marker?(text),
+    do: String.downcase(String.trim(text)) in ["(no preview available)", "[no preview available]"]
+
+  defp source_title(%{source: "slack", conversation: ref}, _source),
+    do: "Message in " <> scope_phrase(ref)
+
+  defp source_title(%{source: "github"}, _source), do: "GitHub request"
+  defp source_title(_row, source), do: source <> " request"
 
   # Rows carry a repository's ref; a person reads its owner/repo name.
   defp repository_names(rows),

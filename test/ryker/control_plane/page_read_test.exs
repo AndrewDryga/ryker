@@ -34,6 +34,29 @@ defmodule Ryker.ControlPlane.PageReadTest do
     assert QueryWork.count(statements, "control_plane_people") == 1
   end
 
+  test "the trace and its model cards read frozen work submissions once per page" do
+    {:ok, %{episode: episode}} = Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
+
+    {_result, statements} =
+      QueryWork.statements(fn ->
+        PageRead.run(fn ->
+          {:ok, _} = Ryker.ControlPlane.EpisodeProjection.fetch(episode.key)
+          Ryker.ControlPlane.ModelRequests.timeline(episode.key, %{})
+        end)
+      end)
+
+    # Each retained turn can carry a multi-megabyte briefing. The model cards
+    # used to fetch the same rows a second time immediately after the trace.
+    reads =
+      Enum.filter(statements, fn statement ->
+        statement.sql =~ ~s(FROM "episode_work_turns" AS e0 WHERE) and
+          statement.sql =~ ~s(."submission") and
+          statement.sql =~ "ORDER BY" and statement.sql =~ "LIMIT"
+      end)
+
+    assert length(reads) == 1
+  end
+
   test "outside a page read every read is fresh" do
     {_names, statements} =
       QueryWork.statements(fn ->

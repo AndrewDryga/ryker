@@ -242,7 +242,7 @@ defmodule Ryker.ControlPlane.PagesTest do
 
     assert LazyHTML.query(empty, ".kit-empty") |> LazyHTML.text() =~ "Create incident room"
 
-    assert Enum.empty?(LazyHTML.query(empty, ".ask-hint"))
+    assert Enum.empty?(LazyHTML.query(empty, ".ask-hint, .kit-toolbar, .kit-counts"))
 
     assert page("/incident-rooms", %{"status" => "closed"}, none).body =~
              "No incident rooms match"

@@ -81,16 +81,16 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     # Every repository is there to work in, and a task picks the one it
     # changes; the first is only the default, so the row says so.
     assert LazyHTML.query(production, ".entity-meta") |> text() ==
-             "2 repositories · default acme/api · Emisar: Production approvals · Used by 2 channels"
+             "Used by 2 channels"
 
     assert LazyHTML.query(document, "#environment-staging .entity-text") |> text() ==
              "Pre-release checks"
 
     assert LazyHTML.query(document, "#environment-staging .entity-meta") |> text() ==
-             "1 repository · default acme/api · No Emisar account · Used by 1 channel"
+             "Used by 1 channel"
 
     assert LazyHTML.query(document, "#environment-ops .entity-meta") |> text() ==
-             "No repositories · No Emisar account · Not used by any channel yet"
+             "Not used by any channel yet"
 
     # Andrew, 2026-09-28, of Edit, Use as default and Remove on every row:
     # "here you can click on entire row, do it here too … by removing edit
@@ -568,7 +568,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute staging.is_default
 
     # The list says how many repositories work there only reads.
-    assert has_element?(view, "#environment-staging .entity-meta", "1 read only")
+    assert has_element?(view, "#environment-staging details", "1 read only")
   end
 
   # Andrew, 2026-10-03, on tenant's editor with all 25 repositories ticked: "i need a way to
@@ -579,6 +579,19 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
 
     {:ok, view, _html} = open("/environments/production/edit")
     editor = "#environment-editor-production"
+
+    # Searching a large environment must not remove the hidden default on save.
+    view
+    |> element("#{editor} input[name=repository_search]")
+    |> render_change(%{"repository_search" => "docs"})
+
+    assert has_element?(view, "[data-repository=api][hidden] input[checked]")
+    assert has_element?(view, "[data-repository=docs]:not([hidden])")
+    assert has_element?(view, ".environment-selection", "2 selected")
+
+    view
+    |> element("#{editor} input[name=repository_search]")
+    |> render_change(%{"repository_search" => ""})
 
     assert has_element?(view, "#{editor} button[phx-click=choose-all][disabled]", "Select all")
 

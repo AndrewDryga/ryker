@@ -76,7 +76,18 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["schedules"], params, options) do
     params = Search.current_or_past(params)
     items = options.projection.schedules.(params)
-    ok("Schedules", SchedulesPage.description(), SchedulesPage.list(items, params))
+    # Keep the switch when the other view has records, including an empty Current view.
+    populated =
+      items != [] or params["q"] not in [nil, ""] or
+        options.projection.schedules.(%{
+          "view" => if(params["view"] == "past", do: "current", else: "past")
+        }) != []
+
+    ok(
+      "Schedules",
+      SchedulesPage.description(),
+      SchedulesPage.list(items, params, DateTime.utc_now(), populated)
+    )
   end
 
   # A schedule that can still change keeps its controls opposite the title.

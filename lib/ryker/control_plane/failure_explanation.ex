@@ -375,23 +375,14 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # The row's line under its facts: what the button does, or what has to
   # change before any button would help. A person's step on another page
   # (granting learning a start where its attempts can be read) is the button.
-  defp next(_level, nil, %{person: true} = fix, _story),
-    do: %{lead: fix.label <> ":", text: fix.effect}
+  defp next(_level, nil, %{person: true} = fix, _story), do: fix.label
 
   defp next(level, retry, _fix, _story) when level in [:ready, :unknown] and not is_nil(retry),
-    do: %{lead: retry.label <> ":", text: retry.effect}
+    do: retry.label
 
-  defp next(:fix_first, _retry, %{} = fix, _story),
-    do: %{lead: "First:", text: fix.effect}
-
-  defp next(:stuck, _retry, %{} = fix, _story),
-    do: %{lead: "Instead:", text: fix.effect}
-
-  defp next(:automatic, _retry, _fix, story),
-    do: %{lead: "Ryker is still trying.", text: story.outlook_note}
-
-  defp next(_level, _retry, _fix, story),
-    do: %{lead: "Nothing to do here.", text: story[:nothing] || story.outlook_note}
+  defp next(level, _retry, %{} = fix, _story) when level in [:fix_first, :stuck], do: fix.label
+  defp next(:automatic, _retry, _fix, _story), do: "Ryker is retrying"
+  defp next(_level, _retry, _fix, _story), do: nil
 
   defp state(:ready, _story), do: {:warn, "Retry should work"}
   defp state(:unknown, _story), do: {:warn, "Needs you"}
@@ -1080,7 +1071,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
           brief[:cause] || "Saving the finished result stopped.",
           brief[:next_step],
           :unknown,
-          "It works if what stopped the saving has been fixed. The model does not run again either way."
+          "A retry can succeed once the saving problem is fixed."
         )
     end
   end

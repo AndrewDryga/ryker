@@ -24,6 +24,23 @@ defmodule Ryker.BootstrapTest do
     assert settings == Bootstrap.load!(environment())
   end
 
+  test "sender setup inherits the public signed ingress origin for the supplied reverse proxy" do
+    # The public GitHub receiver and /v1/hooks share the supplied proxy. A loopback hint
+    # instead sent an external sender back to itself.
+    env = %{"RYKER_GITHUB_PUBLIC_URL" => "https://ingress.example:8443/v1/github"}
+    assert Bootstrap.load!(environment(env)).webhook_public_url == "https://ingress.example:8443"
+
+    assert Bootstrap.load!(
+             environment(Map.put(env, "RYKER_WEBHOOK_PUBLIC_URL", "http://localhost:4320"))
+           ).webhook_public_url ==
+             "http://localhost:4320"
+
+    assert Bootstrap.load!(
+             environment(%{"RYKER_GITHUB_PUBLIC_URL" => "https://elsewhere.example/relay"})
+           ).webhook_public_url ==
+             "http://127.0.0.1:4320"
+  end
+
   test "explicit host overrides are bounded and retired integration variables are ignored" do
     settings =
       Bootstrap.load!(

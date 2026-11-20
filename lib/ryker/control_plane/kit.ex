@@ -256,6 +256,24 @@ defmodule Ryker.ControlPlane.Kit do
     prefix <> "-" <> digest
   end
 
+  attr(:facts, :list, required: true)
+  attr(:label, :string, required: true)
+
+  def row_details(assigns) do
+    assigns = assign(assigns, :facts, Enum.reject(assigns.facts, &(&1 in [nil, "", []])))
+
+    ~H"""
+    <details :if={@facts != []} class="entity-row-details">
+      <summary>{@label}</summary>
+      <p class="entity-facts">
+        <%= for {value, index} <- Enum.with_index(@facts) do %>
+          <span :if={index > 0} aria-hidden="true"> · </span><.fact value={value} />
+        <% end %>
+      </p>
+    </details>
+    """
+  end
+
   attr(:value, :any, required: true)
 
   defp fact(%{value: {:strong, text}} = assigns) do

@@ -160,49 +160,74 @@ defmodule Ryker.ControlPlane.Navigation do
   attr(:viewer, :map, default: nil, doc: "The person signed in (`Viewer`), on a live page")
 
   def mobile(assigns) do
-    groups =
-      Enum.map(@secondary ++ @system, fn
-        {_icon, label, href} when is_binary(href) -> {label, [{label, href}]}
-        {_icon, label, links} -> {label, links}
-      end)
-
-    overflow = @primary |> Enum.drop(2) |> Enum.map(fn {_icon, label, href} -> {label, href} end)
-
     assigns =
-      assigns
-      |> assign(:groups, groups)
-      |> assign(:primary_overflow, overflow)
+      assign(assigns,
+        shortcuts: Enum.take(@primary, 2),
+        overflow: Enum.drop(@primary, 2),
+        groups: @secondary ++ @system
+      )
 
     ~H"""
     <.link
-      :if={@setup}
-      navigate={if @live, do: "/setup"}
-      href={if !@live, do: "/setup"}
-      class="mobile-setup-shortcut"
-      aria-current={if @path == "/setup", do: "page"}
-    >Finish setup</.link>
+      navigate={if @live, do: "/"}
+      href={if !@live, do: "/"}
+      class="mobile-brand"
+      aria-label="Ryker"
+    ><img src="/assets/brand/mark-mint.svg" alt="" width="28" height="28" /></.link>
+    <nav class="mobile-primary" aria-label="Main navigation">
+      <.link
+        :for={{_icon, label, href} <- @shortcuts}
+        navigate={if @live, do: href}
+        href={if !@live, do: href}
+        aria-current={if selected?(@path, href), do: "page"}
+      >{label}</.link>
+    </nav>
     <details class="mobile-manage" id="mobile-manage">
       <summary>More <.icon name={:chevron} /></summary>
       <nav aria-label="Mobile workspace tools">
         <section class="mobile-primary-overflow">
           <.link
-            :for={{name, href} <- @primary_overflow}
+            :if={@setup}
+            navigate={if @live, do: "/setup"}
+            href={if !@live, do: "/setup"}
+            class="mobile-setup-shortcut"
+            aria-current={if @path == "/setup", do: "page"}
+          >Finish setup</.link>
+          <.link
+            :for={{_icon, name, href} <- @overflow}
             navigate={if @live, do: href}
             href={if !@live, do: href}
             aria-current={if selected?(@path, href), do: "page"}
           >{name}</.link>
         </section>
-        <section :for={{label, links} <- @groups}>
-          <strong>{label}</strong><.link
-            :for={{name, href} <- links}
-            navigate={if @live, do: href}
-            href={if !@live, do: href}
-            aria-current={if selected?(@path, href), do: "page"}
-          >{name}</.link>
-        </section>
-        <section :if={@live and Viewer.signed_in_by_link?(@viewer)}>
+        <%= for {icon, label, target} <- @groups do %>
+          <.link
+            :if={is_binary(target)}
+            navigate={if @live, do: target}
+            href={if !@live, do: target}
+            aria-current={if selected?(@path, target), do: "page"}
+          >{label}</.link>
+          <details
+            :if={is_list(target)}
+            class="mobile-nav-group"
+            id={"mobile-nav-#{icon}"}
+            name="mobile-destinations"
+            open={Enum.any?(target, fn {_name, href} -> selected?(@path, href) end)}
+          >
+            <summary>{label}</summary>
+            <.link
+              :for={{name, href} <- target}
+              navigate={if @live, do: href}
+              href={if !@live, do: href}
+              aria-current={if selected?(@path, href), do: "page"}
+            >{name}</.link>
+          </details>
+        <% end %>
+        <section :if={@viewer} class="mobile-account">
           <strong>{@viewer.name}</strong>
+          <small :if={detail(@viewer)}>{detail(@viewer)}</small>
           <button
+            :if={@live and Viewer.signed_in_by_link?(@viewer)}
             id="mobile-sign-out"
             type="button"
             phx-click="sign-out"

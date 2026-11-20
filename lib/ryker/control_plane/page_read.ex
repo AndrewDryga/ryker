@@ -35,6 +35,9 @@ defmodule Ryker.ControlPlane.PageRead do
     end
   end
 
+  @doc "Returns a value already loaded by another part of this page."
+  def fetch(key), do: Map.fetch(Process.get(@scope, %{}), key)
+
   @doc """
   What `read` returns, read once within a page read under `key`, and every
   time outside one.

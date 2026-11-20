@@ -105,22 +105,29 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     selected = selected_id(params["item"])
     query = listed(kind, source_parent, search, selected)
 
+    page_options =
+      case {kind, search, selected} do
+        {"knowledge", "", nil} -> [total: counts.knowledge]
+        {"context", "", nil} -> [total: counts.context]
+        _filtered -> []
+      end
+
     page =
       PagedRelation.read(
         query,
         [desc: :updated_at, desc: :id],
         "page",
         params,
-        page_size: @page_size
+        [{:page_size, @page_size} | page_options]
       )
 
     items = page.items
     ids = items |> Enum.map(& &1.source_episode_id) |> Enum.reject(&is_nil/1)
     lookup = lookup(items, ids)
-    knowledge_ids = if kind == "knowledge", do: Enum.map(items, & &1.id), else: []
+    topics = if kind == "knowledge", do: items, else: []
 
     available_ids = if kind == "knowledge", do: available_ids(items), else: MapSet.new()
-    source_counts = source_counts(knowledge_ids)
+    source_counts = source_counts(topics)
     history = history(selected, kind, secrets, params)
 
     %{
@@ -138,42 +145,51 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       history_page: history.page,
       history_pages: history.pages,
       items:
-        Enum.map(items, fn row ->
-          rendered = item(row, lookup, secrets)
-
-          case kind do
-            "knowledge" ->
-              {count, direct, oldest} = Map.get(source_counts, row.id, {0, 0, nil})
-
-              expiry =
-                row.source_dependencies
-                |> Learning.LearningSources.oldest(oldest)
-                |> expires_at()
-
-              Map.merge(rendered, %{
-                available: MapSet.member?(available_ids, row.id),
-                source_count: count,
-                source_path: source_path("knowledge", row.id, count),
-                direct_source_count: direct,
-                inherited_source_count: count - direct,
-                version: row.version,
-                expires_at: expiry
-              })
-
-            "context" ->
-              count = row.source_dependencies |> source_ids() |> length()
-
-              Map.merge(rendered, %{
-                source_count: count,
-                source_path: source_path("context", row.id, count)
-              })
-
-            "sources" ->
-              rendered
-          end
-        end)
+        Enum.map(
+          items,
+          &listed_item(&1, lookup, secrets, %{available: available_ids, counts: source_counts})
+        )
     }
   end
+
+  defp listed_item(%Knowledge.ConversationKnowledge{} = row, lookup, secrets, sources) do
+    {count, direct, oldest} = Map.get(sources.counts, row.id, {0, 0, nil})
+
+    reference =
+      Learning.LearningSources.knowledge_reference(
+        row.id,
+        row.source_generation,
+        row.version
+      )
+
+    oldest =
+      if row.source_dependencies == [reference],
+        do: oldest,
+        else: Learning.LearningSources.oldest(row.source_dependencies, oldest)
+
+    row
+    |> base(lookup, expires_at(oldest))
+    |> Map.merge(preview(row, secrets))
+    |> Map.merge(%{
+      available: MapSet.member?(sources.available, row.id),
+      source_count: count,
+      source_path: source_path("knowledge", row.id, count),
+      direct_source_count: direct,
+      inherited_source_count: count - direct,
+      version: row.version
+    })
+  end
+
+  defp listed_item(%Continuity.ConversationSummary{} = row, lookup, secrets, _sources) do
+    count = row.source_dependencies |> source_ids() |> length()
+
+    Map.merge(item(row, lookup, secrets), %{
+      source_count: count,
+      source_path: source_path("context", row.id, count)
+    })
+  end
+
+  defp listed_item(row, lookup, secrets, _sources), do: item(row, lookup, secrets)
 
   @doc """
   Presents learned rows the way `/memory/learned` does: sanitized state, safe
@@ -420,7 +436,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     state = InspectionRedactor.document(knowledge.state, secrets)
 
     %{
-      title: knowledge_title(knowledge, secrets),
+      title: if(knowledge.forgotten_at, do: "Forgotten knowledge", else: knowledge_title(state)),
       text: if(knowledge.forgotten_at, do: @forgotten_text, else: knowledge_text(state)),
       forgotten_at: knowledge.forgotten_at,
       groups: [],
@@ -581,6 +597,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp knowledge_text(state, _erased_text), do: state["summary"] || ""
 
   defp base(item, lookup) do
+    oldest = Learning.LearningSources.oldest(item.source_dependencies, item.updated_at)
+    base(item, lookup, expires_at(oldest))
+  end
+
+  defp base(item, lookup, expiry) do
     %{
       id: item.id,
       conversation: Slack.Names.destination(item.conversation_ref),
@@ -589,10 +610,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       at: item.updated_at,
       changed_at: item.updated_at,
       source_at: nil,
-      expires_at:
-        item.source_dependencies
-        |> Learning.LearningSources.oldest(item.updated_at)
-        |> expires_at(),
+      expires_at: expiry,
       repository: RepositoryNames.name(lookup.names, item.repository_ref),
       request_path:
         if(Map.has_key?(lookup.episodes, item.source_episode_id),
