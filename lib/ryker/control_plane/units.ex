@@ -37,22 +37,25 @@ defmodule Ryker.ControlPlane.Units do
 
   @doc """
   A count in a few characters, for a narrow cell or a chart's axis: "950",
-  "1.5k", "12k", "1.25M". The usage chart's axis wrote its own, a million as
+  "1.5k", "12k", "1.25M", "1.05B". The usage chart's axis wrote its own, a million as
   "1.00m", beside a table that wrote "1M" (2026-10-08).
   """
   @spec compact(non_neg_integer()) :: String.t()
-  def compact(count) when count >= 1_000_000 do
-    millions =
-      (count / 1_000_000)
+  # At two decimal places, this is the first count that would read "1000M".
+  def compact(count) when count >= 999_995_000, do: scaled_count(count, 1_000_000_000, "B")
+  def compact(count) when count >= 1_000_000, do: scaled_count(count, 1_000_000, "M")
+  def compact(count) when count >= 1_000, do: decimal(count / 1_000) <> "k"
+  def compact(count), do: Wording.number(count)
+
+  defp scaled_count(count, scale, suffix) do
+    value =
+      (count / scale)
       |> :erlang.float_to_binary(decimals: 2)
       |> String.trim_trailing("0")
       |> String.trim_trailing(".")
 
-    millions <> "M"
+    value <> suffix
   end
-
-  def compact(count) when count >= 1_000, do: decimal(count / 1_000) <> "k"
-  def compact(count), do: Wording.number(count)
 
   @doc "A size in binary units: 512 bytes, 12 KiB, 3.4 MiB, 1.2 GiB."
   @spec bytes(non_neg_integer()) :: String.t()

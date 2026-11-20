@@ -19,6 +19,15 @@ defmodule Ryker.ControlPlane.UnitsTest do
              ["950", "1.5k", "12k", "1M", "1.25M", "2.5M"]
   end
 
+  # A seven-day total appeared as 1051.08M next to smaller figures in millions.
+  test "counts that round to a billion use billions on every summary" do
+    assert Units.compact(999_994_999) == "999.99M"
+    assert Units.compact(999_995_000) == "1B"
+    assert Units.compact(1_000_000_000) == "1B"
+    assert Units.compact(1_051_080_000) == "1.05B"
+    assert Units.compact(2_500_000_000) == "2.5B"
+  end
+
   test "a size reads in binary units, named as such" do
     assert Enum.map(
              [512, 12_400, 3_565_158, 24_741_605_376],
