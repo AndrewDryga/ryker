@@ -223,5 +223,8 @@ defmodule Ryker.ControlPlane.Assets do
   defp cache_control(conn, "brand/" <> _),
     do: put_resp_header(conn, "cache-control", @brand_cache_control)
 
-  defp cache_control(conn, _asset), do: put_resp_header(conn, "cache-control", "no-cache")
+  # Only the current content-addressed directory reaches this clause. Relative
+  # module imports share its digest, so a return visit needs no revalidation.
+  defp cache_control(conn, _asset),
+    do: put_resp_header(conn, "cache-control", "public, max-age=31536000, immutable")
 end

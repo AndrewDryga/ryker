@@ -35,6 +35,10 @@ defmodule Ryker.ControlPlane.AssetsTest do
     else
       response = get(String.replace_prefix(path, "/assets", ""))
       assert response.status == 200, path
+      # A return visit revalidated two sequential module-import waves before LiveView could join.
+      assert Plug.Conn.get_resp_header(response, "cache-control") == [
+               "public, max-age=31536000, immutable"
+             ]
 
       imports =
         for [_, relative] <- Regex.scan(~r/^import .* from "([^"\s]+)"/m, response.resp_body) do
@@ -48,13 +52,16 @@ defmodule Ryker.ControlPlane.AssetsTest do
 
   # Every page load downloaded the console's scripts and stylesheets again, about 650 KB
   # uncompressed, because every response leaves BrowserGuard marked no-store (2026-10-04). A
-  # script or stylesheet now carries an ETag of its bytes: the browser keeps it, asks whether it
-  # changed, and a deploy that changed it answers with the new bytes.
+  # release now gives every asset a digest-scoped URL. A forced revalidation can still use its ETag.
   test "a script is kept by the browser until its bytes change" do
     first = get("/workspace.css")
     assert first.status == 200
     assert [etag] = Plug.Conn.get_resp_header(first, "etag")
-    assert Plug.Conn.get_resp_header(first, "cache-control") == ["no-cache"]
+
+    assert Plug.Conn.get_resp_header(first, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
+
     assert first.resp_body == File.read!("priv/static/workspace.css")
 
     again = get("/workspace.css", [{"if-none-match", etag}])
@@ -118,7 +125,10 @@ defmodule Ryker.ControlPlane.AssetsTest do
       |> Assets.call([])
 
     assert guarded.status == 200
-    assert Plug.Conn.get_resp_header(guarded, "cache-control") == ["no-cache"]
+
+    assert Plug.Conn.get_resp_header(guarded, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
   end
 
   defp get(path, headers \\ []) do
