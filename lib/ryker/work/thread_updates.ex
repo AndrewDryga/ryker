@@ -112,6 +112,53 @@ defmodule Ryker.Work.ThreadUpdates do
        do: docs
   end
 
+  @doc "Catches a handoff at final validation, giving the same session one correction before acceptance."
+  def before_final(%{turn: %{thread_receipt: %{} = original} = turn} = claim) do
+    checkpoint = turn.thread_update_checkpoint || %{}
+    previous = checkpoint["receipt"] || original
+
+    with %Ingress.Inbox.Entry{} = opening <-
+           Repo.peek(Ingress.Inbox.Entry.Query.by_id(original["opening"])),
+         true <- same_thread?(opening, claim.episode) do
+      entries = received(opening)
+      current = receipt(opening, entries)
+
+      cond do
+        current == previous -> :ok
+        checkpoint["reconsidered"] -> {:error, :work_validation_state_changed}
+        true -> reconsider(claim, previous, current, entries)
+      end
+    else
+      _ -> {:error, :work_validation_state_changed}
+    end
+  end
+
+  def before_final(_claim), do: :ok
+
+  defp reconsider(claim, previous, current, entries) do
+    ids = current["inputs"] -- previous["inputs"]
+    checkpoint = %{"receipt" => current, "exposed_ids" => ids, "reconsidered" => true}
+
+    with [_ | _] = docs <- disclose(claim, entries, checkpoint),
+         note = correction(docs),
+         # The validator fits a rejection into 4 KiB. Never mark a clipped message as seen.
+         {:ok, %{"violations" => [^note]}} <- Work.ValidationIntent.new({:reject, [note]}, nil) do
+      claim.turn |> Work.Turn.Changeset.expose_thread_updates(checkpoint) |> Repo.update!()
+      {:reject, [note]}
+    else
+      _ -> {:error, :work_validation_state_changed}
+    end
+  end
+
+  defp correction(docs) do
+    messages =
+      Enum.map(docs, &Map.take(&1, ~w(actor_ref event_kind source_item_ref revision text)))
+
+    "New Slack messages arrived while you worked. Reconsider the draft using your existing findings. " <>
+      "Answer any outstanding request. A handoff supplies context and grants no new authority. " <>
+      CanonicalJSON.encode!(messages)
+  end
+
   @doc "Checks a briefing against human revisions received in its Slack thread, including an initially empty thread."
   def verify(episode, %{thread_update_checkpoint: %{"receipt" => receipt}}),
     do: verify_receipt(episode, receipt)

@@ -171,6 +171,75 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              KnowledgeSnapshot.authorize_submission(claim.episode, claim.session, forged)
   end
 
+  test "a quiet tool-free turn receives the handoff in its own semantic correction" do
+    thread = "1787832000.000100"
+    {request, _} = record_thread_message("Which URL do I use?", thread, nil, "UASK")
+
+    claim =
+      claim_episode_payload!("final-handoff", Ryker.Ingress.Input.document(request),
+        destination: request.destination
+      )
+
+    assert {:ok, prepared} = SubmissionBuilder.prepare(claim)
+
+    bind_remote_turn!(claim, prepared.submission,
+      selection_ledger: prepared.ledger,
+      thread_receipt: prepared.thread_receipt
+    )
+
+    message =
+      ~s({"delivery":"reply","message":"Setup instructions","decision_reason":null,"outcome":{"state":"complete","artifact_refs":[],"record_refs":[]},"title":null})
+
+    hash = :crypto.hash(:sha256, message) |> Base.encode16(case: :lower)
+
+    assert {:ok, staged} =
+             Custody.stage_candidate(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               nil,
+               nil,
+               message,
+               hash,
+               1
+             )
+
+    record_thread_message("I’m doing it rn", "1787832001.000100", thread, "UHELP")
+    current = %{claim | turn: staged, session: Repo.get!(Ryker.Work.Session, claim.session.id)}
+
+    settings = %{
+      validation_context: fn binding ->
+        Ryker.Work.ValidationContext.build(binding.episode, binding.turn)
+      end
+    }
+
+    assert {:ok, corrected} =
+             Ryker.Work.Executor.Validation.ensure_validation_intent(
+               current,
+               hash,
+               1,
+               [],
+               settings
+             )
+
+    assert corrected.turn.id == staged.id
+    assert corrected.turn.submission == prepared.submission
+    assert %{"verdict" => "reject", "violations" => [note]} = corrected.turn.validation_intent
+    assert note =~ "I’m doing it rn"
+    assert note =~ "UHELP"
+
+    assert {:ok, replay} =
+             Ryker.Work.Executor.Validation.ensure_validation_intent(
+               corrected,
+               hash,
+               1,
+               [],
+               settings
+             )
+
+    assert replay.turn.validation_intent == corrected.turn.validation_intent
+  end
+
   test "a handoff received after final validation holds the unsent answer for reconsideration" do
     # The original takeover was routed quietly before a stale setup reply landed.
     thread = "1787832000.000100"

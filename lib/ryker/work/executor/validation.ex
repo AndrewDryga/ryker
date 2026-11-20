@@ -50,12 +50,16 @@ defmodule Ryker.Work.Executor.Validation do
   end
 
   defp validate_and_freeze(claim, requirements, artifacts, workspace, settings) do
-    with :ok <- unchanged_workspace_requirements(claim, requirements) do
+    with :ok <- unchanged_workspace_requirements(claim, requirements),
+         :ok <- Ryker.Work.ThreadUpdates.before_final(claim) do
       case validate(claim, claim.turn.candidate, artifacts, workspace, settings) do
         {:accept, result} -> freeze_verdict(claim, :accept, result)
         {:reject, violations} -> freeze_verdict(claim, {:reject, violations}, nil)
         {:error, reason} -> {:error, reason}
       end
+    else
+      {:reject, notes} -> freeze_verdict(claim, {:reject, notes}, nil)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -284,16 +288,27 @@ defmodule Ryker.Work.Executor.Validation do
     do: {:error, {:work_execution_blocked, reason}}
 
   defp validate_frozen_candidate(settings, claim, key, verdict) do
-    settings.api.validate_frozen_candidate(
-      settings.client,
-      claim.session.coop_session_id,
-      claim.turn.coop_turn_id,
-      key,
-      claim.turn.candidate_attempt,
-      claim.turn.candidate_sha256,
-      verdict
-    )
+    with :ok <- authorize_thread_correction(claim, verdict) do
+      settings.api.validate_frozen_candidate(
+        settings.client,
+        claim.session.coop_session_id,
+        claim.turn.coop_turn_id,
+        key,
+        claim.turn.candidate_attempt,
+        claim.turn.candidate_sha256,
+        verdict
+      )
+    end
   end
+
+  defp authorize_thread_correction(
+         %{turn: %{thread_update_checkpoint: %{"reconsidered" => true}}} = claim,
+         {:reject, _notes}
+       ) do
+    Ryker.Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session)
+  end
+
+  defp authorize_thread_correction(_claim, _verdict), do: :ok
 
   defp validation_context(claim, artifacts, workspace, settings) do
     case settings.validation_context.(claim) do
