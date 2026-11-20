@@ -126,6 +126,12 @@ defmodule Ryker.Records.TaskOffers do
         "kind" => "task_offer",
         "record_ref" => result.record.ref,
         "status" => "started",
+        "task_card_delivered" =>
+          Slack.TaskCards.delivered_in?(result.episode.id, %{
+            transport: entry.destination_transport,
+            conversation_ref: entry.destination_conversation_ref,
+            thread_ref: entry.destination_thread_ref
+          }),
         "continuation" => nil
       }
     else

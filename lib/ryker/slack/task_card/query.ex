@@ -76,6 +76,10 @@ defmodule Ryker.Slack.TaskCard.Query do
   def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [slack_task_cards: c], desc: c.updated_at, desc: c.id)
 
+  def delivered_and_active(queryable) do
+    where(queryable, [slack_task_cards: c], c.status == :active and not is_nil(c.message_ref))
+  end
+
   @doc "The active card of `episode_id` whose last check is recorded."
   def checked_for(episode_id) do
     where(

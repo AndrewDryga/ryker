@@ -1424,6 +1424,48 @@ defmodule Ryker.Publication.CustodyTest do
     assert repeated.turn.delivery_document == nil
   end
 
+  # A single Slack task produced a card, a start announcement and a PR announcement.
+  # Only an active card already posted in the reply's own thread can carry routine status.
+  for availability <- [:delivered, :blocked, :other_thread, :pending] do
+    @availability availability
+    test "publication reports identify whether a #{@availability} card can carry routine updates" do
+      name = "card-report-#{@availability}"
+      %{claim: claim, task: task} = task_episode!(name)
+      %{claim: work} = corrected_candidate!(claim, name, "one")
+      episode = work.episode
+      ["slack", workspace, channel] = String.split(episode.destination_conversation_ref, ":")
+
+      Repo.insert!(%Ryker.Slack.TaskCard{
+        record_id: task.id,
+        episode_id: episode.id,
+        ref: "task-card:#{task.id}",
+        workspace_ref: workspace,
+        channel_ref: channel,
+        thread_ref:
+          if(@availability == :other_thread,
+            do: "different",
+            else: episode.destination_thread_ref
+          ),
+        message_ref: if(@availability != :pending, do: "1787832001.000200"),
+        last_error_code: if(@availability == :blocked, do: "slack_api_error"),
+        status: if(@availability == :blocked, do: :blocked, else: :active)
+      })
+
+      publish_task_publication!(work, name, "one", report: false)
+      assert {:ok, report} = Custody.claim_next(name, 60, :work)
+
+      [event] =
+        episode.id
+        |> Episodes.Event.Query.by_episode_id()
+        |> Episodes.Event.Query.admitted_inputs(report.episode.active_input_refs)
+        |> Episodes.Event.Query.select_payloads()
+        |> Repo.all()
+
+      assert get_in(event, ["payload", "content", "task_card_delivered"]) ==
+               (@availability == :delivered)
+    end
+  end
+
   defmodule BrowserPublisher do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher

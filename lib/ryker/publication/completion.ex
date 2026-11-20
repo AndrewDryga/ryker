@@ -4,6 +4,7 @@ defmodule Ryker.Publication.Completion do
   alias Ryker.Ingress
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.Slack
   alias Ryker.Work
 
   @source "publication-result"
@@ -212,11 +213,20 @@ defmodule Ryker.Publication.Completion do
   end
 
   defp admit_once(episode, turn, identity, now, outcome) do
+    destination = turn_destination(turn, episode)
+
+    outcome =
+      Map.put(
+        outcome,
+        "task_card_delivered",
+        Slack.TaskCards.delivered_in?(episode.id, destination)
+      )
+
     with {:ok, input} <-
            Ingress.Input.new(%{
              actor: %{kind: :system, ref: @source},
              content: outcome,
-             destination: turn_destination(turn, episode),
+             destination: destination,
              event_kind: :event,
              event_ref: identity,
              native_input_id: identity,
@@ -277,7 +287,7 @@ defmodule Ryker.Publication.Completion do
         ),
       "error_code" => publication.last_error_code,
       "request" =>
-        "Continue the original request using this publication outcome. Read get_work_state for the saved review and receipt, then explain the actual result in your own words. Do not change files merely to report the outcome."
+        "Continue the original request using this publication outcome. Read get_work_state for the saved review and receipt, then answer any outstanding question or new blocker. If task_card_delivered is true and only routine status changed, finish silently. Otherwise report the result once."
     }
   end
 

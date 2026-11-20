@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "id": "requester-lacks-dashboard-credential-access",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "slack-thread:dashboard-connection-setup"
+    ],
+    "captured_at": "2026-11-20T16:46:00Z"
+  },
+  "clock": {
+    "start": "2026-11-20T10:13:24.146019Z"
+  },
+  "actors": [
+    {
+      "kind": "human",
+      "actor_ref": "slack:user:U-setup",
+      "authority": "read_only",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-setup"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "kind": "input",
+      "actor_ref": "slack:user:U-setup",
+      "occurred_at": "2026-11-20T10:13:24.146019Z",
+      "destination": {
+        "transport": "slack",
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1794822033.981039"
+      },
+      "payload": {
+        "text": "wanted to try with a local Metabase instance, but still same issue, i need a service account with the right perms which i can’t handle here",
+        "captured_prior_messages": [
+          {
+            "actor_ref": "ryker",
+            "occurred_at": "2026-11-20T08:42:03.238869Z",
+            "content": {
+              "text": "You raised BigQuery access early. I prepared the read-only permissions, but I left the JSON key as a separate setup step and didn’t confirm who would issue it or whether it was ready before Metabase went live."
+            }
+          },
+          {
+            "actor_ref": "ryker",
+            "occurred_at": "2026-11-20T08:47:51.537899Z",
+            "content": {
+              "text": "Yes, we can define the BigQuery connection as code. I scoped the PR to the Secret Manager handoff and left connection setup in the Metabase UI."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "delivery_count",
+        "count": 1
+      },
+      {
+        "kind": "started_tasks",
+        "count": 0
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "When the requester says they cannot issue the credential, identify the administrator action in ordinary words. Do not send them to create a key or repeat the PR summary and entire setup checklist. No answer relies on the later manual resolution.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "slack",
+    "busy-thread",
+    "dashboard-setup"
+  ]
+}

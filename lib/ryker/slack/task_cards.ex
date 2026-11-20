@@ -173,6 +173,22 @@ defmodule Ryker.Slack.TaskCards do
     |> Repo.one()
   end
 
+  @doc "Whether this exact Slack destination already has a posted task card that can receive updates."
+  def delivered_in?(episode_id, %{transport: "slack", conversation_ref: ref, thread_ref: thread}) do
+    case ConversationRef.parse_slack(ref) do
+      {:ok, workspace, channel} ->
+        episode_id
+        |> TaskCard.Query.message_in_thread(workspace, channel, thread)
+        |> TaskCard.Query.delivered_and_active()
+        |> Repo.exists?()
+
+      :error ->
+        false
+    end
+  end
+
+  def delivered_in?(_episode_id, _destination), do: false
+
   # The message of the card that shows `episode_id`'s task in exactly this
   # Slack conversation and thread, or nil when there is none. A publication's
   # review and pull request are that card's to show (`Ryker.Publication.Executor`).
