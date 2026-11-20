@@ -8,6 +8,11 @@ builds and structurally checks it in a job without signing rights, then a separa
 `checksums.txt` through GitHub OIDC and cosign, records build provenance and publishes the
 finalized changelog section.
 
+The same workflow builds Linux amd64 controller and Coop VM images at the release tag and checks
+them before handing them to the publisher. The protected publish job pushes the images to
+`ghcr.io/andrewdryga/ryker` and `ghcr.io/andrewdryga/ryker-worker-vm`, attests both digests, and
+includes their digest references in `container-images.txt`. Use those references when deploying.
+
 Pushing a version tag is the release-publication boundary. All release preparation before that
 push is reversible without rewriting a published release.
 
@@ -65,7 +70,9 @@ Before the first release:
 6. restrict allowed Actions to GitHub-authored actions and the SHA-pinned third-party actions in
    the workflows, and require approval for first-time external contributors;
 7. keep the default Actions token read-only; the release job declares its narrow write and OIDC
-   permissions itself.
+   permissions itself;
+8. after first publication, make both GHCR packages public so operators can pull the images
+   anonymously. Package visibility is managed in GitHub Packages.
 
 Ryker has no automatic production deployment. The continuous-delivery boundary publishes
 verified service artifacts; an operator explicitly installs and configures them on the target
@@ -116,12 +123,13 @@ finished (a later push cancels the one before it) does the workflow run CI itsel
 
 - `ryker_X.Y.Z_elixir_linux_amd64.tar.gz`;
 - `checksums.txt`;
-- `checksums.txt.bundle`.
+- `checksums.txt.bundle`
+- `container-images.txt` with the two published OCI image digests.
 
 The workflow smoke-tests its local artifacts before creating the draft, records provenance, and
 only then makes the release public.
 
-Verify downloaded assets before using them: put the three files in one directory and run
+To verify the Elixir archive, put it and the checksum files in one directory and run
 `scripts/check-release.sh DIRECTORY vX.Y.Z` from this repository. It verifies the OIDC-signed
 manifest with cosign and the archive's checksum before the archive is listed, extracted, or
 executed. It ends by starting the archive, so it runs on Linux amd64, the one
@@ -134,3 +142,17 @@ If the workflow fails before a release is published, inspect and delete any inco
 retrying. Fix the cause and replace the unpublished tag only after confirming no public asset
 exists. Once any release is public, never rewrite its tag or assets; correct it with a new patch
 release.
+
+## Deploying the Coop VM image
+
+The worker image needs a Linux amd64 host with KVM. Give the container read/write access to
+`/dev/kvm`, a durable directory at `/state` owned by UID 1000 and group 993, and one operator
+Ed25519 public key mounted at `/secrets/operator.pub`. The SSH port is bound to loopback at 2222
+inside the container. Keep a separate state directory for each worker.
+
+Set `WORKER_ID` to a stable lowercase DNS label, `DATA_GIB` to the virtual disk size in GiB,
+and `RYKER_WORKER_CONTROLLER` to the controller's HTTPS origin. The guest firewall permits
+private traffic to the addresses and TCP port of that origin. Copy the controller's public fleet
+CA to `/var/lib/coop/worker-ca.pem` inside the guest, sign in to the model provider there, and put
+the one-time worker enrollment token at `/var/lib/coop/enroll-token`. The worker keeps its
+enrollment and model sign-in on its guest disk.

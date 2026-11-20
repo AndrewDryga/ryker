@@ -1,0 +1,33 @@
+#cloud-config
+users:
+  - name: coop
+    homedir: /var/lib/coop
+    groups: [sudo]
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    shell: /bin/bash
+    lock_passwd: true
+ssh_pwauth: false
+disable_root: true
+mounts:
+  - ["LABEL=COOPTOOLS", /opt/coop-tools, iso9660, "ro,nosuid,nodev", "0", "0"]
+  - ["LABEL=cidata", /opt/coop-seed, iso9660, "ro,nosuid,nodev,noexec", "0", "0"]
+write_files:
+  - path: /etc/systemd/system/coop-prepare.service
+    content: |
+      [Unit]
+      Description=Install the Coop worker tools
+      Wants=network-online.target
+      After=network-online.target
+      RequiresMountsFor=/opt/coop-tools /opt/coop-seed
+      StartLimitIntervalSec=0
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash /opt/coop-tools/prepare.sh
+      RemainAfterExit=yes
+      Restart=on-failure
+      RestartSec=30
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, --no-block, coop-prepare.service]

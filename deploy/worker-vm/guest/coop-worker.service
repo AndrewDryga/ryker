@@ -1,0 +1,21 @@
+[Unit]
+Description=Coop outbound worker for Ryker
+Requires=docker.service coop-egress.service
+After=docker.service network-online.target coop-egress.service
+StartLimitIntervalSec=0
+RequiresMountsFor=/opt/coop-seed
+
+[Service]
+EnvironmentFile=/opt/coop-seed/controller.env
+User=coop
+Group=coop
+SupplementaryGroups=docker
+EnvironmentFile=/etc/coop-worker.env
+WorkingDirectory=/var/lib/coop
+UMask=0077
+ExecStart=/usr/local/bin/coop-connect
+Restart=always
+RestartSec=15
+TimeoutStopSec=90
+[Install]
+WantedBy=multi-user.target

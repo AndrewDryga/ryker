@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh the guest firewall's private Ryker gateway addresses
+After=network-online.target
+RequiresMountsFor=/opt/coop-seed
+
+[Service]
+EnvironmentFile=/opt/coop-seed/controller.env
+Type=oneshot
+ExecStart=/bin/bash /opt/coop-tools/egress.sh
