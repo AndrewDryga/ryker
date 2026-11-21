@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - **Build presets on the Models page.** **Add preset** opens a page that picks the lead's models
   and each role's with the same rows every list of models uses: a model, a reasoning effort, fast
