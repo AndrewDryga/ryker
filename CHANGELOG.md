@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.0
+
+- **Upgrade the controller before the workers.** Workers built from this release report each
+  model account's limits in their poll, and an older controller refuses a poll it cannot read.
+  Deploy the new controller image first, then the new worker image.
+
+- **Settings › Models shows each account's limits.** Under every model account is what its
+  provider last reported: each window's use and reset ("5-hour limit · 18% left · resets in 42
+  min"), credits, the plan, and when the worker checked. A model whose account has used up a
+  window says so beside its account.
+
+- **Claude models can be chosen.** Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 are
+  priced and offered on the Models page, on new installations and on upgrade, without replacing a
+  price you already saved.
+
+- **Slack and GitHub setup guides.** Integrations › Slack walks through creating Ryker's Slack app
+  from its manifest, with a link that opens Slack's form already filled in and the manifest to
+  copy. Integrations › GitHub follows GitHub's own App form from top to bottom: the Redirect URI,
+  the webhook URL and a webhook secret shown with a copy button before anything is saved (the same
+  one after a reload), the permissions and events to set, then the App ID and key to bring back.
+  Replacing a connected App's key keeps its webhook secret.
+
+- **Connecting a worker you run yourself.** While no worker has connected, Settings › Advanced
+  shows the steps: install co:op, sign in the model accounts, make a one-time token here, then run
+  the commands it shows, with this installation's worker address and certificate authority filled
+  in.
+
+- **Environments.** The repository search has its own field, and Select all and Select none act
+  on what the search shows. A newly connected Emisar account serves no environment until you
+  choose it there; until now the first account was saved on every environment that had none.
+
+- **Add repositories** says when each repository last changed, newest first.
+
+- **Setup** finishes its last step with any reply Ryker delivered in Slack, in any channel, a
+  quick reply included.
+
+- **Easier to read.** The console's type is larger, and every page shares one column: the same
+  left edge and width for its header, cards and forms.
+
+- **Fixes.** A restore that Coop refused while a repository's default branch had not been
+  refreshed is sent again under a new key instead of failing the work.
+
 ## 0.2.2
 
 - Ryker is rebuilt in Elixir. It installs with Docker Compose (`./install.sh`), keeps every queue
