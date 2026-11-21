@@ -40,8 +40,11 @@ Use the narrowest validation that proves the current edit while iterating:
 
 1. Run the owning test after each code change, for example
    `scripts/elixir-test.sh test/ryker/work/executor_test.exs:120`. It runs against the
-   shared test database and finishes in about a second. `scripts/elixir-test.sh --stale` runs
-   only the test files that reference what changed since its previous `--stale` run.
+   shared test database and finishes in about a second. A run that names a file committing
+   for real (`Ryker.ConcurrencyCase`, an unboxed run), or names no file, gets a database of
+   its own instead, so a killed run cannot leave work there for every later claim test.
+   `scripts/elixir-test.sh --stale` runs only the test files that reference what changed
+   since its previous `--stale` run.
    `make quick` checks everything changed since HEAD in about ten seconds: format and Credo
    on the changed files, compile warnings, the compile-time cycle check, ShellCheck and the
    self-test of each changed script, the three source audits and each changed file's owning

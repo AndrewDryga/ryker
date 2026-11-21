@@ -86,7 +86,35 @@ if ! use_test_database_server; then
   fi
 fi
 
-if [[ ${RYKER_TEST_ISOLATED:-0} == 1 ]]; then
+# A test that commits for real (Ryker.ConcurrencyCase, an unboxed run, a
+# `sandbox: false` tag) leaves its rows behind when its run is killed or fails
+# before its cleanup. In the shared ryker_test every later run's claim tests
+# then claimed that work instead of their own: one episode left on 2026-11-19
+# failed 219 of 404 tests there the next day, the pre-commit hook's included.
+# So a run that may reach one gets a database of its own, as the gate's runs
+# do. A run of named files that commit nothing keeps the shared database,
+# which is already migrated.
+commits_for_real() {
+  local argument path named=0
+  local pattern='use Ryker\.ConcurrencyCase|unboxed_run|sandbox: false'
+
+  for argument in "$@"; do
+    # A test file may carry a line number: test/ryker/x_test.exs:120.
+    path=${argument%%:*}
+    if [[ -d $path ]]; then
+      named=1
+      grep -r -q -E --include='*_test.exs' "$pattern" "$path" && return 0
+    elif [[ -f $path || $path == *.exs ]]; then
+      named=1
+      [[ -f $path ]] && grep -q -E "$pattern" "$path" && return 0
+    fi
+  done
+
+  # No file named: the whole suite, or the part of it --stale picks.
+  ((named == 0))
+}
+
+if [[ ${RYKER_TEST_ISOLATED:-0} == 1 ]] || commits_for_real "$@"; then
   export PGDATABASE="ryker_test_$$_${RANDOM}"
   isolate=1
 else

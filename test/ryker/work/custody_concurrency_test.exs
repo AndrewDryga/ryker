@@ -65,7 +65,6 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
       after
         send(ingress.pid, :inspect_episode)
         stop_tasks([ingress, acceptance])
-        cleanup(command)
       end
     end)
   end
@@ -111,7 +110,6 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
                  1
       after
         stop_tasks(contenders)
-        cleanup(command)
       end
     end)
   end
@@ -186,7 +184,6 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
       after
         send(first.pid, :commit)
         stop_tasks([first, second])
-        cleanup(command)
       end
     end)
   end
@@ -220,7 +217,6 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
         assert Repo.get!(Session, session.id).activity_cursor == 1
       after
         stop_tasks([preflight, activity])
-        cleanup(command)
       end
     end)
   end
@@ -299,7 +295,6 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
       after
         send(writer.pid, :write_goals)
         stop_tasks([writer, validation])
-        cleanup(command)
       end
     end)
   end
@@ -379,7 +374,6 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
       after
         send(validation.pid, :finish_validation)
         stop_tasks([validation, writing])
-        cleanup(command)
       end
     end)
   end
@@ -546,6 +540,7 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
         turn_ref: "turn:resume:#{id}"
       })
 
+    clean_up_on_exit(fn -> cleanup(command) end)
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =
@@ -696,6 +691,7 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
         turn_ref: "turn:#{suffix}"
       })
 
+    clean_up_on_exit(fn -> cleanup(command) end)
     assert {:ok, _transition} = Episodes.apply(command)
 
     assert {:ok, _session} =

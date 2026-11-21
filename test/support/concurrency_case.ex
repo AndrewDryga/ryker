@@ -18,21 +18,46 @@ defmodule Ryker.ConcurrencyCase do
     end
   end
 
-  # An unboxed test commits for real, and a row it forgets outlives it: every
-  # later test that needs an empty database refuses to start, far from the
-  # cause. Nineteen such failures in a dev-check on 2026-09-11, and 67 in
-  # `make check` on 2026-09-28 from one withdrawn case. In a database this run
-  # owns alone, the test that left a row fails and names its table.
-  setup do
-    if exclusive_database?() do
-      before = committed_rows()
-      on_exit(fn -> assert_no_rows_left!(before) end)
+  # An unboxed test commits for real, so it runs only in a database its run
+  # owns. In the shared ryker_test, a run killed or failed before its cleanup
+  # left its episode to every later run, whose claim tests claimed it instead
+  # of their own work: 219 of 404 tests failed there on 2026-11-20 from one
+  # episode left the day before, the pre-commit hook's included.
+  # scripts/elixir-test.sh gives a run that names such a file a database of
+  # its own.
+  setup_all %{module: module} do
+    unless exclusive_database?() do
+      raise "#{inspect(module)} commits for real, so it runs only in a database its run " <>
+              "owns, not #{Repo.config()[:database]}; scripts/elixir-test.sh gives it one"
     end
 
     :ok
   end
 
+  # A row an unboxed test forgets outlives it: every later test that needs an
+  # empty database refuses to start, far from the cause. Nineteen such
+  # failures in a dev-check on 2026-09-11, and 67 in `make check` on
+  # 2026-09-28 from one withdrawn case. So the test that left a row fails and
+  # names its table.
+  setup do
+    before = committed_rows()
+    on_exit(fn -> assert_no_rows_left!(before) end)
+    :ok
+  end
+
   defp exclusive_database?, do: exclusive_database?(Repo.config()[:database] || "")
+
+  @doc """
+  Deletes what `cleanup` names once the test ends, however it ends.
+
+  Register it before the first committing write: a failure before a test's
+  `try`, or a test killed at its timeout, skips that `after`, and ExUnit runs
+  `on_exit` either way. An episode a custody test left in staged setup on
+  2026-11-19 was claimed by every claim test after it.
+  """
+  def clean_up_on_exit(cleanup) do
+    on_exit(fn -> Sandbox.unboxed_run(Repo, cleanup) end)
+  end
 
   # `scripts/elixir-test.sh` names an isolated database ryker_test_<pid>_<n>,
   # and a gate partition's ryker_test_<pid>_<n>_p<k>; the shared ryker_test may

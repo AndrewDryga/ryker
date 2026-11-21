@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: flywheel-check quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions slow-tests serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: flywheel-check quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions slow-tests serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check elixir-test-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -215,6 +215,9 @@ gate-check:
 quick-check-check:
 	scripts/quick-check_test.sh
 
+elixir-test-check:
+	scripts/elixir-test_test.sh
+
 agent-guard-check:
 	scripts/agent-guard_test.sh
 
@@ -237,7 +240,7 @@ eval-trend-check:
 flywheel-check:
 	scripts/flywheel_test.sh
 
-script-checks: flywheel-check watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check
+script-checks: flywheel-check watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check elixir-test-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check
 
 # Known advisories for the locked Hex packages, and packages their maintainers
 # retired. Both read the network, so the full gate runs them and dev-check

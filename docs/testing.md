@@ -11,6 +11,12 @@ Run the owning ExUnit file while editing:
 scripts/elixir-test.sh test/ryker/work/executor_test.exs
 ```
 
+It runs in the shared, already migrated `ryker_test`. A test that commits for real
+(`Ryker.ConcurrencyCase`, `Sandbox.unboxed_run`, `@tag sandbox: false`) leaves its rows there when
+its run is killed, and every later claim test then claims them, so a run that names such a file,
+or names no file at all, gets a database of its own that it drops at exit
+(`scripts/elixir-test_test.sh`). `Ryker.ConcurrencyCase` refuses any other database.
+
 The same commands work inside a Coop box. A box has no Docker, so Coop starts `compose.test.yml`
 as the box's sidecar and `.agent/project.yaml` names it in `PGHOST`. The box compiles into
 `_build/box`, because the checkout's `_build` belongs to the macOS host and compiled NIFs are per
