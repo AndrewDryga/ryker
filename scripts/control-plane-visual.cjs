@@ -120,6 +120,28 @@ async function checkSharedFilterControls(page, width) {
   if (width > 800) assert(primary.every(control => control.center === primary[0].center), 'Filter controls sit on one baseline');
 }
 
+// Andrew, 2026-11-20, of an environment's Remove environment card: "button outside of block".
+// A long description could squeeze a card's actions until its button crossed the card's edge,
+// which no page-wide overflow check sees.
+async function checkControlsInsideCards(page) {
+  const outside = await page.evaluate(() => {
+    const found = [];
+    for (const card of document.querySelectorAll('.kit-card')) {
+      const box = card.getBoundingClientRect();
+      if (box.width === 0) continue;
+      for (const control of card.querySelectorAll('button, a.ui-button, select, input:not([type=hidden])')) {
+        const rect = control.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        if (rect.left < box.left - 0.5 || rect.right > box.right + 0.5) {
+          found.push(`${control.textContent.trim().slice(0, 40) || control.tagName} in ${card.getAttribute('aria-label') || card.id || 'a card'}`);
+        }
+      }
+    }
+    return found;
+  });
+  assert.deepEqual(outside, [], 'A control crosses the edge of its card');
+}
+
 async function checkKeyboardFocus(page) {
   await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Tab');
@@ -289,6 +311,7 @@ async function discover(page) {
             assert(result.layout.scrollWidth <= width, 'Page overflows horizontally');
             if (sharedPageGutterPages.has(name)) await checkSharedPageGutter(page, width);
             await checkSharedFilterControls(page, width);
+            await checkControlsInsideCards(page);
             await checkKeyboardFocus(page);
             if (/^(setup|integrations|settings)/.test(name)) await checkSettingsPage(page, name);
             if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);
