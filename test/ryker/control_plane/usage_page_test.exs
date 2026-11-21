@@ -516,7 +516,7 @@ defmodule Ryker.ControlPlane.UsagePageTest do
       ).resp_body
 
     [_, link] = Regex.run(~r/td:first-child a\.usage-source \{([^}]+)\}/, css)
-    assert link =~ "font-size:13px"
+    assert link =~ "font-size:15px"
     assert link =~ "color:var(--ryker-text-secondary)"
   end
 
