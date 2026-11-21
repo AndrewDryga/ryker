@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Phoenix.HTML.Safe
   alias Ryker.Accounting
   alias Ryker.Backoff
+  alias Ryker.BundledCoop
   alias Ryker.ConsoleAccess
   alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
   alias Ryker.ControlPlane.{ChannelPage, Components, ConfigurationGuide, ConsolePeople}
@@ -30,6 +31,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.{PathRef, Paths, RelearnForm, RelearnPanel, RepositoriesPage}
   alias Ryker.ControlPlane.{RepositoryChoices, RequestFilters, Router}
   alias Ryker.ControlPlane.{SettingsPage, SettingsView, UsageProjection, Viewer}
+  alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention
@@ -139,6 +141,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_failure: nil,
        github_feedback: nil,
        github_webhook_secret: nil,
+       worker_connect: nil,
+       worker_token: nil,
+       worker_token_error: nil,
        setup_reveal: nil,
        settings_confirm: nil,
        setup_progress: nil,
@@ -239,6 +244,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        # A secret is shown once, on the page it was made on or returned to; it
        # stayed on every settings page after that (2026-10-04 review).
        github_feedback: nil,
+       worker_token: nil,
+       worker_token_error: nil,
        setup_reveal: socket.assigns.carried_reveal,
        carried_reveal: nil,
        settings_confirm: nil,
@@ -912,6 +919,32 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   def handle_event("save-slack-choices", _params, socket), do: {:noreply, socket}
+
+  # A token is shown once, on the page it was made on, and a new one replaces it.
+  def handle_event(
+        "create-worker-token",
+        %{"worker" => %{"name" => name, "install" => install}},
+        socket
+      )
+      when is_binary(name) and is_binary(install) do
+    socket =
+      case CoopFleet.worker_token(String.trim(name), String.trim(install), actor(socket)) do
+        {:ok, issued} ->
+          assign(socket,
+            worker_token: %{
+              token: issued.token,
+              worker: issued.worker_id,
+              install: issued.workspace_ref
+            },
+            worker_token_error: nil
+          )
+
+        {:error, reason} ->
+          assign(socket, worker_token: nil, worker_token_error: IntegrationErrors.message(reason))
+      end
+
+    {:noreply, assign_worker_connect(socket)}
+  end
 
   def handle_event("connect-github", %{"connection" => params}, socket) do
     case IntegrationSetup.connect_github(params, actor(socket)) do
@@ -1967,7 +2000,33 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       access: if(section == :access, do: access_people())
     )
     |> assign_github_webhook_secret()
+    |> assign_worker_connect()
   end
+
+  # Advanced's steps to connect a worker, while none has connected to an installation that
+  # takes workers of its own (`WorkerConnect`): the bundled worker connects itself.
+  defp assign_worker_connect(
+         %{
+           assigns: %{
+             settings_section: :system,
+             settings_form: nil,
+             settings: {:ok, %{worker_installs: []}}
+           }
+         } = socket
+       ) do
+    connect =
+      unless BundledCoop.distribution?() do
+        %{
+          connection: CoopFleet.worker_connection(),
+          token: socket.assigns.worker_token,
+          error: socket.assigns.worker_token_error
+        }
+      end
+
+    assign(socket, :worker_connect, connect)
+  end
+
+  defp assign_worker_connect(socket), do: assign(socket, :worker_connect, nil)
 
   # The webhook secret GitHub's form asks for before the App exists, which the
   # GitHub page shows until the App is connected and the App's form sends back
@@ -2992,6 +3051,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             section={@settings_section}
             github_feedback={@github_feedback}
             github_webhook_secret={@github_webhook_secret}
+            worker_connect={@worker_connect}
             emisar_form_feedback={@emisar_form_feedback}
             notice={@setup_notice}
             failure={@setup_failure}

@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.BundledCoop
   alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
   alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
-  alias Ryker.ControlPlane.{SetupPage, ShortTime}
+  alias Ryker.ControlPlane.{SetupPage, ShortTime, WorkerConnect}
   alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
   alias Ryker.ConversationRef
   alias Ryker.GitHub
@@ -62,6 +62,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:github_webhook_secret, :string,
     default: nil,
     doc: "The webhook secret the GitHub page shows until the App is connected"
+  )
+
+  attr(:worker_connect, :map,
+    default: nil,
+    doc: "Advanced's steps to connect a worker while none has: connection, token and error"
   )
 
   attr(:emisar_form_feedback, :map, default: %{})
@@ -277,6 +282,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
         >
           {Wording.count(@model_usage.unattributed, "run")} could not be assigned to a category from retained history.
         </p>
+        <WorkerConnect.card
+          :if={@section == :system and @worker_connect}
+          connection={@worker_connect.connection}
+          accounts={@view.snapshot.work.model_accounts}
+          token={@worker_connect.token}
+          error={@worker_connect.error}
+        />
         <.live_component
           :for={key <- editors(@section)}
           module={SettingsEditor}

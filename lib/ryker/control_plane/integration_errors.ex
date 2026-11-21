@@ -163,6 +163,15 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
   def message(:webhook_secret_too_short),
     do: "A signing secret needs at least 32 characters. Leave it empty and Ryker creates one."
 
+  def message({:invalid_coop_worker_enrollment, :worker_id}),
+    do: "A worker name can use letters, numbers, dots, dashes, underscores and colons."
+
+  def message({:invalid_coop_worker_enrollment, :workspace_ref}),
+    do: "An install name can use letters, numbers, dots, dashes, underscores and colons."
+
+  def message(:coop_worker_enrollment_not_authorized),
+    do: "A worker by that name was removed. Choose another name."
+
   def message(:webhook_secret_missing),
     do: "Reload the page, put the webhook secret it shows into GitHub, then connect again."
 

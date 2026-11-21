@@ -2809,6 +2809,11 @@ html:has(.kit-modal) { overflow:hidden; }
 /* Integrations › Slack's app setup guide reuses the Setup page's numbered steps. Its link to
    Slack and the manifest sit under the step that uses them. */
 .ryker-app .slack-guide .setup-step-why code { font-size:15px; }
+/* Settings › Advanced's steps to connect a worker reuse the same numbered steps, each with what
+   to run under it. */
+.worker-connect-steps .copy-block, .worker-connect-form { margin-top:12px; }
+.ryker-app .worker-connect .setup-step-why code { font-size:15px; }
+.settings-page .worker-connect .copy-block pre { white-space:pre; overflow-x:auto; overflow-wrap:normal; }
 .ryker-app .slack-guide-create { margin-top:14px; }
 .slack-guide .ui-disclosure { margin-top:14px; }
 /* YAML keeps each line whole, so a long line scrolls rather than wraps into what reads as two. */
