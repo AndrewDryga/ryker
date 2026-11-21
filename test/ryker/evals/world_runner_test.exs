@@ -365,6 +365,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
   test "shipped token-rate reference data does not make a disposable world dirty" do
     assert Repo.aggregate(PricingRate, :count) ==
              length(Ryker.Accounting.Pricing.settings_defaults())
+
     assert WorldDatabase.disposable_database(false) == :ok
   end
 
