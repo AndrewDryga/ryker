@@ -330,6 +330,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
     assert LazyHTML.text(worker) =~ "1 GiB"
     assert LazyHTML.text(worker) =~ "measured 2 min ago"
+    assert Enum.empty?(LazyHTML.query(worker, ".kit-caveat"))
     assert LazyHTML.text(storage) =~ "10 GiB"
     assert LazyHTML.text(storage) =~ "1 hour"
 
@@ -353,8 +354,15 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert stale_line =~ "unknown"
     assert stale_line =~ "0 bytes"
     assert Enum.empty?(LazyHTML.query(document, "#storage-worker-b meter"))
-    assert stale_line =~ "Out of date"
     refute stale_line =~ "not taking new copies"
+
+    # A stale reading is an amber clock beside when it was measured, with the
+    # caveat as its tooltip. Andrew, 2026-11-21, of the "Out of date" line this
+    # card used to add: "definitely do not add whole new block of text!"
+    refute stale_line =~ "Out of date"
+    caveat = LazyHTML.query(document, "#storage-worker-b .storage-measured .kit-caveat")
+    assert [hint] = LazyHTML.attribute(caveat, "title")
+    assert hint =~ "Out of date"
 
     none = render([], %{@storage | workers: [], preview: [], budget: %{}})
 

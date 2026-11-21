@@ -1917,6 +1917,9 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .state-word[data-tone=bad]::before { background:var(--ryker-error); }
 /* A state with a hint says why on hover and keyboard focus (tooltips.mjs); the dotted underline says there is more to read. */
 .state-word[data-hint] { cursor:help; text-decoration:underline dotted; text-decoration-color:color-mix(in srgb, currentColor 55%, transparent); text-underline-offset:3px; }
+/* Kit.caveat_mark: a caveat on a figure is a small amber clock with a tooltip, never a line of text (2026-11-21). */
+.kit-caveat { display:inline-flex; flex:none; align-items:center; color:var(--ryker-warning); cursor:help; border-radius:999px; }
+.ryker-app .kit-caveat .ui-icon { width:16px; height:16px; }
 /* The way back from a sub-page (Kit.back, 2026-09-27): the first thing on every sub-page, above its title. The parent page's name in secondary text with an arrow, on a 32px target whose hover ground shows it is a control; the arrow lines up with the title's left edge. */
 .ryker-app .kit-back { display:block; margin:0 0 12px; }
 .ryker-app .kit-back a { display:inline-flex; align-items:center; gap:6px; min-height:32px; margin-left:-8px; padding:4px 10px 4px 6px; border-radius:6px; font-size:15px; line-height:22px; font-weight:500; color:var(--ryker-text-secondary); text-decoration:none; }
@@ -2106,13 +2109,15 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .storage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:12px; }
 .storage-worker { min-width:0; padding:14px 16px; background:var(--ryker-surface-raised); border:1px solid var(--ryker-stroke); border-radius:10px; }
 .working-copies-storage > h2 { margin:0; font-size:16px; line-height:22px; }
-.storage-worker h3 { margin:0 0 12px; font-size:16px; overflow-wrap:anywhere; }
+.storage-worker-head { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 12px; margin:0 0 12px; }
+.storage-worker h3 { margin:0; font-size:16px; overflow-wrap:anywhere; }
+.storage-measured { display:inline-flex; align-items:center; gap:6px; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
 .storage-worker p { margin:8px 0 0; color:var(--ryker-text-secondary); font-size:14px; }
-.storage-worker .storage-figures { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0; }
+.storage-worker .storage-figures { display:grid; grid-template-columns:repeat(auto-fit,minmax(104px,1fr)); gap:12px 16px; margin:0; }
 .storage-figures dt, .storage-figures dd { padding:0; border:0; }
 .storage-figures dt { color:var(--ryker-text-secondary); font-size:14px; }
 .storage-figures dd { margin:3px 0 0; color:var(--ryker-text); font-size:19px; font-weight:600; font-variant-numeric:tabular-nums; }
-.storage-figures > :last-child dd { color:var(--ryker-accent-strong); }
+.storage-figures > .storage-freeable dd { color:var(--ryker-accent-strong); }
 .storage-worker meter { display:block; appearance:none; width:100%; height:5px; margin-top:14px; border:0; border-radius:5px; background:var(--ryker-stroke); }
 .storage-worker meter::-webkit-meter-bar { height:5px; border:0; border-radius:5px; background:var(--ryker-stroke); }
 .storage-worker meter::-webkit-meter-optimum-value { background:var(--ryker-accent-strong); border-radius:5px; }
@@ -2324,16 +2329,19 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-accounts .settings-ladder-actions { grid-template-columns:32px; margin-top:2px; }
 .settings-accounts .settings-ladder-remove { grid-column:1; }
 /* An account's allowance as its provider reported it: a line per window under the account, the
-   check time last. A used-up window, and a model whose account is used up, say so in the warning
-   colour. */
+   check time last. A used-up window says so in the warning colour; a model whose account is used
+   up, and a check that may be out of date, carry Kit's amber clock. */
 .settings-account-limits { display:grid; gap:2px; margin:8px 0 2px; font-size:14px; line-height:21px; color:var(--ryker-text); font-variant-numeric:tabular-nums; }
 .settings-account-limits p { margin:0; }
 /* A narrow screen wraps between the parts of a line, never inside an amount or a time. */
-.settings-account-amount, .settings-account-limits time, .settings-ladder-note time { white-space:nowrap; }
+.settings-account-amount, .settings-account-limits time { white-space:nowrap; }
 .settings-account-limit[data-used-up] { color:var(--ryker-warning); }
 .settings-account-checked { color:var(--ryker-text-secondary); font-size:13px; line-height:19px; }
 .settings-account-limits[data-state=stale] .settings-account-limit { color:var(--ryker-text-secondary); }
-.settings-ladder-note { margin:2px 0 0; font-size:13px; line-height:19px; color:var(--ryker-warning); }
+.settings-account-checked .kit-caveat { margin-left:6px; vertical-align:-3px; }
+/* An account choice and, when its allowance is used up, the clock that says so beside it. */
+.settings-ladder-account { display:flex; align-items:center; gap:8px; min-width:0; }
+.settings-ladder-account > select { flex:1 1 auto; min-width:0; }
 .settings-field .settings-ladder-part input[type=text] { max-width:none; min-height:36px; padding:6px 10px; font-size:14px; line-height:21px; }
 .settings-field .settings-ladder-part .form-feedback { max-width:none; margin:0; padding:6px 10px; }
 @media (max-width:800px) {

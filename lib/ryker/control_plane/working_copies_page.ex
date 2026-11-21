@@ -278,16 +278,33 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
       <h2 :if={@storage.workers != []}>Worker storage</h2>
       <div :if={@storage.workers != []} class="storage-grid">
         <article :for={worker <- @storage.workers} class="storage-worker" id={"storage-" <> worker.id}>
-          <h3>{worker.id}</h3>
+          <div class="storage-worker-head">
+            <h3>{worker.id}</h3>
+            <span :if={worker.measurement != :unknown && worker.measured_at} class="storage-measured">
+              <Kit.caveat_mark
+                :if={worker.measurement == :stale}
+                hint="Out of date: the worker hasn't reported its storage since then"
+              />
+              <ShortTime.time at={worker.measured_at} now={@now} prefix="measured " />
+            </span>
+          </div>
           <p :if={worker.measurement == :unknown}>No storage report yet.</p>
           <%= if worker.measurement != :unknown do %>
-            <p :if={worker.measurement == :stale} class="storage-refusal">Out of date</p>
             <dl class="storage-figures">
               <div>
                 <dt>In use</dt><dd>{size(worker.bytes["protected_bytes"])}</dd>
               </div>
-              <div>
+              <div class="storage-freeable">
                 <dt>Can be freed</dt><dd>{size(worker.bytes["disposable_bytes"])}</dd>
+              </div>
+              <div :if={is_integer(worker.reclaimed_bytes)}>
+                <dt>Freed so far</dt><dd>{size(worker.reclaimed_bytes)}</dd>
+              </div>
+              <div :if={
+                is_integer(worker.bytes["unattributed_bytes"]) &&
+                  worker.bytes["unattributed_bytes"] > 0
+              }>
+                <dt>Outside copies</dt><dd>{size(worker.bytes["unattributed_bytes"])}</dd>
               </div>
             </dl>
             <meter
@@ -298,21 +315,6 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
               aria-label={"#{worker.id} · share available for cleanup"}
               aria-valuetext={"#{size(worker.bytes["disposable_bytes"])} of #{size(total)} can be freed"}
             />
-            <p :if={worker.measured_at}>
-              <ShortTime.time
-                at={worker.measured_at}
-                now={@now}
-                prefix="measured "
-              />
-            </p>
-            <p :if={is_integer(worker.reclaimed_bytes)}>
-              Freed so far {size(worker.reclaimed_bytes)}
-            </p>
-            <p :if={
-              is_integer(worker.bytes["unattributed_bytes"]) && worker.bytes["unattributed_bytes"] > 0
-            }>
-              Space outside copies {size(worker.bytes["unattributed_bytes"])}
-            </p>
           <% end %>
           <p :if={worker.allocation == "refused"} class="storage-refusal">
             New copies paused · {refusal(worker.refusal_reason)}

@@ -360,6 +360,25 @@ defmodule Ryker.ControlPlane.Kit do
   defp hint({_tone, _word, hint}), do: hint
   defp hint(_state), do: nil
 
+  attr(:hint, :string, required: true, doc: "What is wrong with the figure, shown as its tooltip")
+  attr(:id, :string, default: nil)
+
+  @doc """
+  A figure that needs a caveat, such as a reading the worker has not refreshed
+  or an account whose limit is used up: a small amber clock beside the figure,
+  with the caveat as its tooltip on hover and keyboard focus. It never adds a
+  line of its own. Andrew, 2026-11-21, of an "Out of date" line on a worker's
+  storage card: "Maybe just add some yellow clock icon with tooltip or simply
+  nothing but definitely do not add whole new block of text!"
+  """
+  def caveat_mark(assigns) do
+    ~H"""
+    <span id={@id} class="kit-caveat" role="img" aria-label={@hint} title={@hint} tabindex="0"><Components.icon name={
+      :clock
+    } /></span>
+    """
+  end
+
   attr(:href, :string, required: true, doc: "The page this sub-page belongs to")
   attr(:label, :string, required: true, doc: "That page's name, such as All topics or Activity")
   attr(:navigate, :boolean, default: false, doc: "Inside a LiveView, open it without reloading")

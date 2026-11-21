@@ -28,7 +28,8 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
           plan: String.t() | nil,
           auth: String.t() | nil,
           resets: %{available: non_neg_integer() | nil, expires_at: [DateTime.t()]} | nil,
-          used_up: window() | nil
+          used_up: window() | nil,
+          credits: window() | nil
         }
 
   @doc "Every account any worker reported, by `provider@name`."
@@ -69,7 +70,8 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
       plan: account["plan"],
       auth: account["auth"],
       resets: resets,
-      used_up: Enum.find(windows, & &1.used_up)
+      used_up: Enum.find(windows, & &1.used_up),
+      credits: Enum.find(windows, &credits?/1)
     }
   end
 
@@ -87,6 +89,14 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
       do: :stale,
       else: :current
   end
+
+  # A balance the account can still spend once a window is used up, such as
+  # Codex's credits: VA1's account showed "Weekly limit used up" on every model
+  # while 59,231.90 credits were left (2026-11-21).
+  defp credits?(%{label: label, detail: detail, used_up: false}) when is_binary(detail),
+    do: Regex.match?(~r/credits\z/i, label)
+
+  defp credits?(_window), do: false
 
   # "5-hour limit · 18% left": a time window says it is a limit; credits and a
   # model's own window keep the provider's name.

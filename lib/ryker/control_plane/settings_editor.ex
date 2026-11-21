@@ -992,26 +992,30 @@ defmodule Ryker.ControlPlane.SettingsEditor do
             </div>
             <div class="settings-ladder-part">
               <label for={"#{@id}-#{row.index}-account"}>Account</label>
-              <select
-                id={"#{@id}-#{row.index}-account"}
-                name={"#{@name}[#{row.index}][account]"}
-                aria-invalid={to_string(not is_nil(@error))}
-              >
-                <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
-                <option
-                  :for={account <- row.accounts}
-                  value={account}
-                  selected={row.entry["account"] == account}
+              <%!-- A used-up account is a clock beside it, with when it resets
+              as its tooltip; a line under the box made the row taller than
+              its neighbours (Andrew, 2026-11-21: "this looks ugly too"). --%>
+              <div class="settings-ladder-account">
+                <select
+                  id={"#{@id}-#{row.index}-account"}
+                  name={"#{@name}[#{row.index}][account]"}
+                  aria-invalid={to_string(not is_nil(@error))}
                 >
-                  {account}
-                </option>
-              </select>
-              <p :if={row.used_up} class="settings-ladder-note" id={"#{@id}-#{row.index}-used-up"}>
-                <span>{row.used_up.label} used up</span><span :if={row.used_up.resets_at}> · <ShortTime.time
-                  at={row.used_up.resets_at}
-                  prefix="resets "
-                /></span>
-              </p>
+                  <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
+                  <option
+                    :for={account <- row.accounts}
+                    value={account}
+                    selected={row.entry["account"] == account}
+                  >
+                    {account}
+                  </option>
+                </select>
+                <Kit.caveat_mark
+                  :if={row.used_up}
+                  id={"#{@id}-#{row.index}-used-up"}
+                  hint={used_up_hint(row.used_up)}
+                />
+              </div>
             </div>
             <%!-- Each button keeps its own slot, so every row's choices line up
             whichever buttons it has. --%>
@@ -1798,7 +1802,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           :if={@limits.checked_at && @limits.state in [:current, :stale]}
           at={@limits.checked_at}
           prefix="checked "
-        /><span :if={@limits.state == :stale}>, may be out of date</span>
+        /><Kit.caveat_mark
+          :if={@limits.state == :stale}
+          hint="May be out of date: the worker's last check of this account failed or is over 20 minutes old"
+        />
       </p>
     </div>
     """
@@ -1847,8 +1854,23 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       used_up: nil
     }
 
-  defp used_up(%{account_limits: %{} = limits}, entry),
-    do: get_in(limits, [SettingsSections.ladder_account(entry), :used_up])
+  defp used_up(%{account_limits: %{} = limits}, entry) do
+    case Map.get(limits, SettingsSections.ladder_account(entry)) do
+      %{used_up: %{} = window} = account -> Map.put(window, :credits, account[:credits])
+      _usable_or_unreported -> nil
+    end
+  end
 
   defp used_up(_view, _entry), do: nil
+
+  # "5-hour limit used up · resets in 42 min · Credits: 59,231.90 left"
+  defp used_up_hint(window) do
+    [
+      "#{window.label} used up",
+      window[:resets_at] && "resets #{ShortTime.text(window.resets_at, DateTime.utc_now())}",
+      window[:credits] && "#{window.credits.label}: #{window.credits.detail}"
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.join(" · ")
+  end
 end

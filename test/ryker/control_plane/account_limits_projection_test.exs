@@ -103,6 +103,23 @@ defmodule Ryker.ControlPlane.AccountLimitsProjectionTest do
       ])
 
     assert closed.used_up.label == "Weekly limit"
+    assert closed.credits == nil
+
+    # An account out of its window can still spend credits it has left: say so
+    # beside it rather than read as blocked (VA1, 2026-11-21: every model said
+    # "Weekly limit used up" while 59,231.90 credits were left).
+    %{"codex@funded" => funded} =
+      entries([
+        account("codex@funded", %{
+          "limits" => [
+            limit("Weekly", %{"used_percent" => 100}),
+            limit("Credits", %{"remaining" => "59231.9000"})
+          ]
+        })
+      ])
+
+    assert funded.used_up.label == "Weekly limit"
+    assert {funded.credits.label, funded.credits.detail} == {"Credits", "59,231.90 left"}
   end
 
   # The worker reads every five minutes; a check four reads old, or one whose

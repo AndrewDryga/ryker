@@ -2233,11 +2233,18 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, limits <> " .settings-account-limit[data-used-up]", "5-hour limit")
     refute has_element?(view, limits <> " .settings-account-limit[data-used-up]", "Weekly limit")
 
+    # A model on that account carries a clock beside the account whose tooltip
+    # says when it resets. The line it had under the box made its row taller
+    # than its neighbours (Andrew, 2026-11-21: "this looks ugly too").
     for {field, kind} <- [request_models: :routing_models, other_models: :learning_models] do
-      note = view |> element("#settings-#{field}-#{kind}-0-used-up") |> render()
+      mark =
+        view
+        |> element("#settings-#{field}-#{kind}-0-used-up")
+        |> render()
+        |> LazyHTML.from_fragment()
 
-      assert note |> LazyHTML.from_fragment() |> words() ==
-               "5-hour limit used up · resets in 42 min"
+      assert LazyHTML.attribute(mark, "title") == ["5-hour limit used up · resets in 42 min"]
+      assert words(mark) == ""
     end
 
     # A worker that no longer reports the account leaves it without figures.
