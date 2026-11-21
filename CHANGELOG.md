@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 - **Cleanup failures are easier to scan.** The reason and actions come first, and the
   checklist opens on demand. Known worker error codes appear when Ryker has saved them.
