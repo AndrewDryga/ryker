@@ -620,6 +620,62 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert has_element?(view, "#{editor}-default-docs[checked]")
   end
 
+  # Andrew, 2026-11-20, of the picker's Selected only, Select all repositories and Select none:
+  # "buttons are super confusing, i would prefer to select all, if not all then search with
+  # ability to quickly select all matches, or none". Select all ticked every repository whatever
+  # the search showed.
+  test "a search selects or clears only the repositories it shows" do
+    installation!()
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{ref: "web", display_name: "beta/web", github_repository: "beta/web"},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    environment!("production", "Production", ~w(docs), default: true)
+    {:ok, view, _html} = open("/environments/production/edit")
+    editor = "#environment-editor-production"
+    refute has_element?(view, "#{editor} button", "Selected only")
+    assert has_element?(view, "#{editor} label[for$=repository-search]", "Search repositories")
+
+    search = fn text ->
+      view
+      |> element("#{editor} input[name=repository_search]")
+      |> render_change(%{"repository_search" => text})
+    end
+
+    search.("acme")
+
+    view
+    |> element("#{editor} button[phx-click=choose-all]", "Select all 2 matches")
+    |> render_click()
+
+    assert has_element?(view, "#{editor}-repository-api[checked]")
+    assert has_element?(view, "#{editor}-repository-docs[checked]")
+    refute has_element?(view, "#{editor}-repository-web[checked]")
+
+    search.("beta")
+
+    view
+    |> element("#{editor} button[phx-click=choose-all]", "Select the match")
+    |> render_click()
+
+    assert has_element?(view, ".environment-selection", "3 selected")
+
+    search.("acme")
+
+    view
+    |> element("#{editor} button[phx-click=choose-none]", "Select none of them")
+    |> render_click()
+
+    refute has_element?(view, "#{editor}-repository-api[checked]")
+    refute has_element?(view, "#{editor}-repository-docs[checked]")
+    assert has_element?(view, "#{editor}-repository-web[checked]")
+    assert has_element?(view, ".environment-selection", "1 selected")
+  end
+
   test "a refused environment keeps the draft and says what to fix in words" do
     installation!()
     environment!("production", "Production", ~w(api), default: true)

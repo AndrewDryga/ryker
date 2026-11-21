@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   alias Ryker.ControlPlane.{Components, Environments, FormDraft, Kit, SettingsView}
   alias Ryker.IntegrationSetup
   alias Ryker.Settings
+  alias Ryker.Wording
 
   @impl true
   def update(assigns, socket) do
@@ -31,7 +32,6 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       socket
       |> assign(assigns)
       |> assign_new(:repository_search, fn -> "" end)
-      |> assign_new(:selected_only, fn -> false end)
       |> keep_diagnostics()
 
     cond do
@@ -120,9 +120,6 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       when is_binary(search),
       do: {:noreply, assign(socket, :repository_search, search)}
 
-  def handle_event("toggle-selected-repositories", _params, socket),
-    do: {:noreply, assign(socket, :selected_only, not socket.assigns.selected_only)}
-
   def handle_event("save", %{"environment" => params}, socket),
     do: {:noreply, socket |> put_draft(params) |> save()}
 
@@ -157,14 +154,19 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   def handle_event("restore", _kept, socket), do: {:reply, %{restored: false}, socket}
 
   # Unticking two dozen repositories one by one to keep three (Andrew, 2026-10-03, on tenant:
-  # "i need a way to select/deselect each").
+  # "i need a way to select/deselect each"). Both act on what the search shows, so a search
+  # picks a group in one click (Andrew, 2026-11-20: "i would prefer to select all, if not all
+  # then search with ability to quickly select all matches, or none"); with no search that is
+  # every repository.
   def handle_event("choose-all", _params, socket) do
-    refs = Enum.map(socket.assigns.view.snapshot.repositories, & &1.ref)
+    refs = Enum.uniq(socket.assigns.draft.repositories ++ matching(socket.assigns))
     {:noreply, socket |> choose(refs) |> assign(:error, nil)}
   end
 
-  def handle_event("choose-none", _params, socket),
-    do: {:noreply, socket |> choose([]) |> assign(:error, nil)}
+  def handle_event("choose-none", _params, socket) do
+    refs = socket.assigns.draft.repositories -- matching(socket.assigns)
+    {:noreply, socket |> choose(refs) |> assign(:error, nil)}
+  end
 
   @impl true
   def handle_async(:diagnostic_access, {:ok, {:ok, result}}, socket) do
@@ -205,6 +207,26 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
     access = access(%{}, draft, repositories)
 
     assign(socket, draft: with_repositories(draft, repositories, access, nil), dirty: true)
+  end
+
+  # What the two buttons do to the repositories shown: all of them without a search.
+  defp choose_label(:all, false, _shown), do: "Select all"
+  defp choose_label(:none, false, _shown), do: "Select none"
+  defp choose_label(:all, true, 1), do: "Select the match"
+  defp choose_label(:none, true, 1), do: "Unselect the match"
+  defp choose_label(:all, true, shown), do: "Select all #{Wording.count(shown, "match")}"
+  defp choose_label(:none, true, _shown), do: "Select none of them"
+
+  # The repositories the search shows, by name as the list writes it; every one without a search.
+  defp matching(%{view: %{snapshot: snapshot}, repository_search: search}) do
+    search = search |> String.trim() |> String.downcase()
+
+    for repository <- snapshot.repositories,
+        snapshot
+        |> Environments.repository_name(repository.ref)
+        |> String.downcase()
+        |> String.contains?(search),
+        do: repository.ref
   end
 
   defp put_draft(socket, params) do
@@ -401,20 +423,18 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
       end)
       |> Enum.sort_by(&String.downcase(&1.name))
 
-    search = assigns.repository_search |> String.trim() |> String.downcase()
-
-    visible =
-      for choice <- choices,
-          not assigns.selected_only or choice.chosen,
-          String.contains?(String.downcase(choice.name), search),
-          into: MapSet.new(),
-          do: choice.ref
+    visible = MapSet.new(matching(assigns))
+    shown = Enum.filter(choices, &MapSet.member?(visible, &1.ref))
 
     assigns =
       assign(assigns,
         accounts: snapshot.emisar_connections,
         choices: choices,
         visible: visible,
+        searching: String.trim(assigns.repository_search) != "",
+        shown: length(shown),
+        all_shown_chosen: Enum.all?(shown, & &1.chosen),
+        none_shown_chosen: not Enum.any?(shown, & &1.chosen),
         default: Enum.find(choices, & &1.default)
       )
 
@@ -469,45 +489,48 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                 write: the default, unless it picks another. The default is always read and write.
               </p>
               <input type="hidden" name="environment[repositories][]" value="" />
-              <label :if={length(@choices) > 1}>
-                Search repositories
+              <%!-- The search has its label above it like every other field, and the count is
+              a quiet line beside the two buttons (Andrew, 2026-11-20: the search sat inline after
+              its label and a large count line under it "looks a bit ugly"). --%>
+              <div :if={length(@choices) > 1} class="environment-repositories-search">
+                <label for={"#{@id}-repository-search"}>Search repositories</label>
                 <input
+                  id={"#{@id}-repository-search"}
                   type="search"
                   name="repository_search"
                   value={@repository_search}
+                  placeholder="Owner or repository name"
                   phx-change="filter-repositories"
                   phx-target={@myself}
                 />
-              </label>
-              <p :if={@choices != []} class="environment-selection">
-                {length(@draft.repositories)} selected<span :if={@default}> · Default: {@default.name}</span>
-              </p>
-              <div :if={length(@choices) > 1} class="environment-repositories-choose">
-                <button
-                  type="button"
-                  class="ui-button quiet"
-                  phx-click="toggle-selected-repositories"
-                  phx-target={@myself}
-                  aria-pressed={to_string(@selected_only)}
-                >Selected only</button>
-                <button
-                  type="button"
-                  class="ui-button quiet"
-                  phx-click="choose-all"
-                  phx-target={@myself}
-                  disabled={Enum.all?(@choices, & &1.chosen)}
+              </div>
+              <div :if={@choices != []} class="environment-repositories-bar">
+                <p class="environment-selection">
+                  {length(@draft.repositories)} selected<span :if={@default}> · Default: {@default.name}</span>
+                </p>
+                <div
+                  :if={length(@choices) > 1 and @shown > 0}
+                  class="environment-repositories-choose"
                 >
-                  Select all repositories
-                </button>
-                <button
-                  type="button"
-                  class="ui-button quiet"
-                  phx-click="choose-none"
-                  phx-target={@myself}
-                  disabled={not Enum.any?(@choices, & &1.chosen)}
-                >
-                  Select none
-                </button>
+                  <button
+                    type="button"
+                    class="ui-button secondary"
+                    phx-click="choose-all"
+                    phx-target={@myself}
+                    disabled={@all_shown_chosen}
+                  >
+                    {choose_label(:all, @searching, @shown)}
+                  </button>
+                  <button
+                    type="button"
+                    class="ui-button secondary"
+                    phx-click="choose-none"
+                    phx-target={@myself}
+                    disabled={@none_shown_chosen}
+                  >
+                    {choose_label(:none, @searching, @shown)}
+                  </button>
+                </div>
               </div>
               <p :if={@choices != [] and MapSet.size(@visible) == 0} role="status">
                 No repositories match.
