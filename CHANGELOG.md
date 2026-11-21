@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
 - **Routing can recover from a worker interruption.** Messages keep their retry budget
   while the worker is still running their command or is within its reconnect window.
