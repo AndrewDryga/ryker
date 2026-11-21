@@ -69,6 +69,33 @@ defmodule Ryker.Work.FailureCauseTest do
     end
   end
 
+  # Tasks on a tenant repository stopped on 2026-11-21 saying Ryker couldn't get the code
+  # from GitHub, and its owner asked what was wrong with the GitHub integration: GitHub had
+  # served every fetch. A submodule Ryker can't follow is the repository's to fix, by path.
+  test "a submodule Ryker cannot follow names the repository, the path and what to change" do
+    assert %{cause: cause, next_step: next_step} =
+             FailureCause.explain(
+               "coop_worker_source_unresolved: " <>
+                 ErrorDetail.detail({:coop_worker_source_unresolved, "acme/app", "vendor/lib"})
+             )
+
+    assert cause =~ "acme/app has a submodule at vendor/lib"
+    assert cause =~ ".gitmodules"
+    assert next_step =~ "vendor/lib"
+    assert next_step =~ "run the task again"
+    refute cause =~ "from GitHub to give the worker"
+    refute cause =~ "coop_worker"
+
+    assert %{cause: cause, next_step: next_step} =
+             FailureCause.explain(
+               ErrorDetail.detail({:coop_worker_companion_unresolved, "acme/tools", ~S|lib "a"|})
+             )
+
+    assert cause =~ "acme/tools is in this task's environment"
+    assert cause =~ ~S|submodule at lib "a"|
+    assert next_step =~ "Take acme/tools out of the environment"
+  end
+
   # A retained task retried its stop dozens of times while the page hid the
   # worker's saved uncertain-operation refusal behind a generic wrapper.
   test "an uncertain cancellation keeps the worker's reason distinct from a rejected operation" do

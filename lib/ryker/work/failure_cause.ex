@@ -47,6 +47,12 @@ defmodule Ryker.Work.FailureCause do
   # environment (tenantcorp/tenant-core and skypjack/entt, 2026-10-03).
   @refused_source ~r/\{:coop_worker_(source|companion)_refused, "([A-Za-z0-9._\/-]+)", "([A-Za-z0-9._\/-]+)"\}/
 
+  # A submodule .gitmodules doesn't link to one GitHub repository, as the saved
+  # term names the repository and the submodule's path in it. Tasks stopped on
+  # one read "couldn't get the repository's code from GitHub", a fetch said to
+  # be brief, and the owner asked what was wrong with GitHub (2026-11-21).
+  @unresolved_source ~r/\{:coop_worker_(source|companion)_unresolved, "([A-Za-z0-9._\/-]+)", "((?:[^"\\]|\\.)*)"\}/
+
   @project_setup_refusal ~r/\{:coop_worker_project_setup_refused,\s*"((?:[^"\\]|\\.)*)",\s*:(not_found|invalid_path|invalid_environment|invalid_settings|invalid_yaml)\}/
   @project_setup_reasons %{
     "not_found" => "is missing from the task's source commit",
@@ -247,6 +253,9 @@ defmodule Ryker.Work.FailureCause do
       refused = refused_source(detail) ->
         refused
 
+      unresolved = unresolved_source(detail) ->
+        unresolved
+
       refused = project_setup_refusal(detail) ->
         refused
 
@@ -420,6 +429,39 @@ defmodule Ryker.Work.FailureCause do
         }
 
       _other ->
+        nil
+    end
+  end
+
+  defp unresolved_source(detail) do
+    case Regex.run(@unresolved_source, detail, capture: :all_but_first) do
+      ["companion", repository, escaped] ->
+        path = decoded_sentence(escaped)
+
+        %{
+          cause:
+            "#{repository} is in this task's environment and has a submodule at #{path} that " <>
+              ".gitmodules doesn't link to one GitHub repository. Ryker can't fetch that " <>
+              "submodule, so the worker couldn't get #{repository}'s code.",
+          next_step:
+            "Take #{repository} out of the environment, or give #{path} one GitHub URL in the " <>
+              ".gitmodules that declares it. Then run the task again."
+        }
+
+      ["source", repository, escaped] ->
+        path = decoded_sentence(escaped)
+
+        %{
+          cause:
+            "#{repository} has a submodule at #{path} that .gitmodules doesn't link to one " <>
+              "GitHub repository. Ryker can't fetch that submodule, so the worker couldn't " <>
+              "get the code.",
+          next_step:
+            "Give #{path} one GitHub URL in the .gitmodules that declares it, or remove that " <>
+              "submodule. Then run the task again."
+        }
+
+      nil ->
         nil
     end
   end

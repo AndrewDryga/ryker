@@ -1314,6 +1314,65 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert Repo.get!(Session, session.id).worker_job_document == nil
   end
 
+  # Tasks on a tenant repository spent eight tries in two minutes on 2026-11-21, each page
+  # saying Ryker couldn't get the code from GitHub, while the repository's every preparation
+  # failed after its fetch on what its submodules declared. Such a refusal reached the job as
+  # "source unavailable", a wait. It stops the job, naming the repository and the path.
+  test "a submodule declaration Ryker cannot follow stops the job, naming the repository and the path",
+       %{session: session} do
+    unresolved = fn _root, ref, _selector ->
+      {:error, {:coop_worker_source_unresolved, "example/" <> ref, "vendor/lib"}}
+    end
+
+    assert JobAuthority.ensure_pinned(session, "/private/source", unresolved) ==
+             {:error, {:coop_worker_source_unresolved, "example/app", "vendor/lib"}}
+
+    snapshot = add_repository!("tools", 19)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: ["app", "tools"]},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :contributor and &1.scope_kind == :environment and
+            &1.repository_ref == "app")
+      )
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: template.policy_name,
+        policy_digest: template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_context: %{
+          "context_ref" => "production",
+          "primary_repository" => "app",
+          "read_only_repositories" => ["tools"],
+          "parallel_goal_limit" => 1
+        }
+      )
+      |> Repo.update!()
+
+    prepare = fn
+      _root, "tools", _selector ->
+        {:error, {:coop_worker_source_unresolved, "example/tools", "vendor/lib"}}
+
+      _root, "app", _selector ->
+        {:ok, %{source: source()}}
+    end
+
+    assert JobAuthority.ensure_pinned(session, nil, prepare) ==
+             {:error, {:coop_worker_companion_unresolved, "example/tools", "vendor/lib"}}
+
+    assert Repo.get!(Session, session.id).worker_job_document == nil
+  end
+
   test "invalid persisted authority is never silently rebuilt", %{session: session} do
     assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
 

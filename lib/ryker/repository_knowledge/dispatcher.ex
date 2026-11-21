@@ -49,7 +49,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     "repository_knowledge_session_unaddressable" => :repository_knowledge_session_unaddressable,
     "repository_knowledge_attempt_expired" => :repository_knowledge_attempt_expired,
     "repository_knowledge_removed" => :repository_knowledge_removed,
-    "repository_knowledge_validation_unconfirmed" => :repository_knowledge_validation_unconfirmed
+    "repository_knowledge_validation_unconfirmed" => :repository_knowledge_validation_unconfirmed,
+    "repository_knowledge_source_refused" => :repository_knowledge_source_refused
   }
 
   @spec run_once(map()) :: {:ok, atom() | term()} | {:error, term()}
@@ -286,7 +287,41 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
         {:error, :repository_knowledge_lease_lost}
 
       {:error, reason} ->
-        unresolved(claim, run, reason)
+        if source_refused?(reason),
+          do: refused_source(claim, run, target, settings, reason),
+          else: unresolved(claim, run, reason)
+    end
+  end
+
+  # A submodule Ryker was never given, or one .gitmodules doesn't link to one
+  # GitHub repository, refuses every try alike. Retried as a moment's fault,
+  # two repositories of one environment tried once a minute all day, 575 times
+  # (2026-11-21). The attempt ends, the write waits for the next daily check,
+  # and the entry says why.
+  defp source_refused?({code, repository, submodule})
+       when code in [
+              :coop_worker_source_refused,
+              :coop_worker_companion_refused,
+              :coop_worker_source_unresolved,
+              :coop_worker_companion_unresolved
+            ],
+       do: is_binary(repository) and is_binary(submodule)
+
+  defp source_refused?(_reason), do: false
+
+  # The ended run is stopped at once on Coop's word that its session was never
+  # created; a pass that cannot ask yet tries again shortly.
+  defp refused_source(claim, run, target, settings, reason) do
+    Logger.warning(
+      "repository knowledge for #{run.repository_ref} stops until the next daily check: " <>
+        inspect(reason, limit: 8, printable_limit: 300)
+    )
+
+    with {:ok, ended} <- Custody.end_attempt(claim, run.id, :repository_knowledge_source_refused) do
+      case Executor.step(claim, ended, target, settings) do
+        {:ok, :stopped} -> Custody.give_up_write(claim, :repository_knowledge_source_refused)
+        _not_stopped_yet -> Custody.yield(claim, settings.step_delay_seconds)
+      end
     end
   end
 

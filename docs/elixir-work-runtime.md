@@ -138,7 +138,11 @@ tools own durable records. The generic Delivery module owns external message cus
 
   A submodule from any other repository stops the job at once. The error is
   `coop_worker_source_refused`, or `coop_worker_companion_refused` for a read-only repository of
-  the environment. Either error names the repository and the submodule.
+  the environment. Either error names the repository and the submodule. So does a gitlink that
+  `.gitmodules` doesn't link to one GitHub repository (no entry, two entries, or a URL that isn't
+  a GitHub repository's), as `coop_worker_source_unresolved` or `coop_worker_companion_unresolved`
+  with the submodule's path. A git command or a GitHub lookup that fails is
+  `coop_worker_source_unavailable`, which waits and is tried again.
 - Ryker resolves the selector through the authorized GitHub repository. Coop fetches and verifies
   that frozen source and returns the session's
   version-1 `source` binding (`requested`, `remote_identity`, `default_ref`, `default_commit`,

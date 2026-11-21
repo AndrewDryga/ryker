@@ -135,6 +135,11 @@ defmodule Ryker.RepositoryKnowledge do
   defp cause(:repository_knowledge_worker_refused),
     do: "the worker did not start the read."
 
+  defp cause(:repository_knowledge_source_refused),
+    do:
+      "one of its submodules can't be fetched: Ryker wasn't given that submodule's " <>
+        "repository, or .gitmodules doesn't link it to one GitHub repository."
+
   defp cause(_reason), do: "Ryker could not finish reading the repository."
 
   # -- PubSub ------------------------------------------------------------------

@@ -335,11 +335,13 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
   end
 
   test "unconfigured repositories and ambiguous or external declarations never gain authority" do
+    unresolved = {:coop_worker_source_unresolved, "example/primary", "vendor/child"}
+
     for {url, expected} <- [
-          {"https://evil.invalid/example/child.git", :coop_worker_source_unavailable},
-          {"https://github.com@example.invalid/a/b", :coop_worker_source_unavailable},
-          {"https://github.com/example/child.git?token=secret", :coop_worker_source_unavailable},
-          {"../../outside.git", :coop_worker_source_unavailable},
+          {"https://evil.invalid/example/child.git", unresolved},
+          {"https://github.com@example.invalid/a/b", unresolved},
+          {"https://github.com/example/child.git?token=secret", unresolved},
+          {"../../outside.git", unresolved},
           # tenantcorp/tenant-core vendors skypjack/entt, which Ryker was never given: every task
           # in its environment spent eight tries in two minutes on it and then could not say
           # why (2026-10-03). No retry fetches it, so the refusal names it at once.
@@ -483,15 +485,91 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
 
     git!(["-C", primary, "add", ".gitmodules"])
     commit!(primary, "duplicate declaration")
-    assert prepare.() == {:error, :coop_worker_source_unavailable}
+    assert prepare.() == {:error, {:coop_worker_source_unresolved, "example/primary", "child"}}
 
     git!(["-C", primary, "rm", ".gitmodules"])
     commit!(primary, "missing declaration")
-    assert prepare.() == {:error, :coop_worker_source_unavailable}
+    assert prepare.() == {:error, {:coop_worker_source_unresolved, "example/primary", "child"}}
 
     assert Path.wildcard(
              Path.join([directory, "state", "coop-source-mirrors", "*", ".coop-gitlinks-*"])
            ) == []
+  end
+
+  # Every preparation of a tenant repository failed after its fetch for ten hours on
+  # 2026-11-21, about 600 of them, though no git command failed: each said only
+  # :coop_worker_source_unavailable, the error a retry may fix. Four tasks spent eight tries
+  # in two minutes on it, and each page said Ryker couldn't get the code from GitHub, which
+  # had served every fetch. What a commit declares is the same on every try, so the first
+  # try stops and names the submodule's path, however deep it nests.
+  test "a submodule without one GitHub repository in .gitmodules stops at once, named by its path" do
+    directory = fixture_root()
+    leaf = remote!(directory, "leaf")
+    middle = remote!(directory, "middle")
+    primary = remote!(directory, "primary")
+    leaf_commit = git!(["-C", leaf, "rev-parse", "HEAD"])
+
+    # A clone added with `git add` inside another repository is a gitlink that no .gitmodules
+    # declares.
+    gitlink!(middle, "embedded", leaf_commit)
+    commit!(middle, "embedded clone")
+    middle_commit = git!(["-C", middle, "rev-parse", "HEAD"])
+    submodule!(primary, "vendor/middle", middle_commit, "../middle.git")
+
+    resolver = fn
+      "example/middle" -> {:ok, identity("middle", middle, 2)}
+      _unknown -> {:error, :submodule_not_configured}
+    end
+
+    prepare = fn ->
+      ManagedSources.prepare_from_remote(
+        Path.join(directory, "state"),
+        identity("primary", primary, 1),
+        "main",
+        nil,
+        resolver
+      )
+    end
+
+    assert prepare.() ==
+             {:error,
+              {:coop_worker_source_unresolved, "example/primary", "vendor/middle/embedded"}}
+
+    gitlink!(primary, "tools/embedded", leaf_commit)
+    commit!(primary, "embedded clone")
+
+    assert prepare.() ==
+             {:error, {:coop_worker_source_unresolved, "example/primary", "tools/embedded"}}
+  end
+
+  # Nor did the log keep which submodule repository GitHub was asked about, or its answer,
+  # when that lookup failed: the same ten hours could not tell a declaration from GitHub.
+  test "a submodule repository GitHub would not describe is logged with GitHub's answer" do
+    directory = fixture_root()
+    primary = remote!(directory, "primary")
+    child = remote!(directory, "child")
+    child_commit = git!(["-C", child, "rev-parse", "HEAD"])
+    submodule!(primary, "vendor/child", child_commit, "https://github.com/example/moved.git")
+    snapshot = %{repositories: [], github_bindings: []}
+
+    resolver =
+      &ManagedSources.resolve_repository(snapshot, &1, fn "example/moved" ->
+        {:error, {:github_api_error, 301}}
+      end)
+
+    {result, log} =
+      with_log(fn ->
+        ManagedSources.prepare_from_remote(
+          Path.join(directory, "state"),
+          identity("primary", primary, 1),
+          "main",
+          nil,
+          resolver
+        )
+      end)
+
+    assert result == {:error, :coop_worker_source_unavailable}
+    assert log =~ ~r/example\/moved\b.*github_api_error, 301/
   end
 
   defp program!(directory, name, body) do
@@ -518,6 +596,10 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     git!(["-C", remote, "add", "README.md"])
     commit!(remote, "initial")
     remote
+  end
+
+  defp gitlink!(repository, path, commit) do
+    git!(["-C", repository, "update-index", "--add", "--cacheinfo", "160000,#{commit},#{path}"])
   end
 
   defp submodule!(repository, path, commit, url) do

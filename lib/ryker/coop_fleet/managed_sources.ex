@@ -33,11 +33,12 @@ defmodule Ryker.CoopFleet.ManagedSources do
   @resolutions "ryker-resolutions.json"
   @resolutions_kept 16
 
-  # Every failure is the same error to the caller, which retries it; the log
-  # says which step failed. On 2026-10-03 a task on tenant gave up on
-  # tenantcorp/tenant-infra and nothing said whether the repository, its
-  # binding, its token or the fetch was missing.
-  @spec prepare(String.t(), String.t(), map() | nil) :: {:ok, map()} | {:error, atom()}
+  # Every failure a retry may fix is the same error to the caller, which
+  # retries it; the log says which step failed. On 2026-10-03 a task on
+  # tenant gave up on tenantcorp/tenant-infra and nothing said whether the
+  # repository, its binding, its token or the fetch was missing.
+  @spec prepare(String.t(), String.t(), map() | nil) ::
+          {:ok, map()} | {:error, atom() | tuple()}
   def prepare(storage_root, repository_ref, requested) do
     with {:inputs, true} <-
            {:inputs,
@@ -101,8 +102,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   Returns `{:ok, prepared}`, or `{:error, reason}`: `:invalid_coop_worker_source`
   for inputs it refuses, `{:coop_worker_source_refused, repository, submodule}`
-  for a submodule Ryker was never given, and `:coop_worker_source_unavailable`
-  for anything a retry may fix.
+  for a submodule Ryker was never given, `{:coop_worker_source_unresolved,
+  repository, path}` for a submodule whose `.gitmodules` entry is missing,
+  doubled or not a GitHub repository, and `:coop_worker_source_unavailable` for
+  anything a retry may fix.
   """
   @spec prepare_from_remote(
           String.t(),
@@ -112,7 +115,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
           (String.t() -> {:ok, map()} | {:error, atom()}) | nil,
           keyword()
         ) ::
-          {:ok, map()} | {:error, atom()}
+          {:ok, map()} | {:error, atom() | tuple()}
   def prepare_from_remote(
         storage_root,
         %{
@@ -162,6 +165,12 @@ defmodule Ryker.CoopFleet.ManagedSources do
       # the caller stops at once and says which one.
       {:error, {:submodule_not_configured, submodule}} ->
         {:error, {:coop_worker_source_refused, github_repository, submodule}}
+
+      # Nor does a retry change what the commit declares: a submodule no
+      # .gitmodules entry ties to one GitHub repository stops it at once too,
+      # named by its path in this repository.
+      {:error, {:submodule_unresolved, path}} ->
+        {:error, {:coop_worker_source_unresolved, github_repository, path}}
 
       _unavailable ->
         {:error, :coop_worker_source_unavailable}
@@ -324,6 +333,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
          binding: binding
        }, declarations}
     else
+      {:error, {:submodule_unresolved, path}} -> {:error, {:submodule_unresolved, path}}
       _failure -> {:error, :coop_worker_source_unavailable}
     end
   end
@@ -442,7 +452,13 @@ defmodule Ryker.CoopFleet.ManagedSources do
       {:error, :not_public} ->
         {:error, :submodule_not_configured}
 
-      _unavailable ->
+      # GitHub's answer is the only record of why this submodule can't be read.
+      unavailable ->
+        Logger.warning(
+          "GitHub did not say whether submodule repository #{slug} is public: " <>
+            inspect(unavailable, limit: 8, printable_limit: 200)
+        )
+
         {:error, :submodule_not_authorized}
     end
   end
@@ -509,6 +525,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
       else
         {:error, {:submodule_not_configured, submodule}} ->
           {:halt, {:error, {:submodule_not_configured, submodule}}}
+
+        # A path the submodule's own .gitmodules names lies under the submodule.
+        {:error, {:submodule_unresolved, path}} ->
+          {:halt, {:error, {:submodule_unresolved, declaration.path <> "/" <> path}}}
 
         _unavailable ->
           {:halt, {:error, :submodule_not_authorized}}
@@ -627,7 +647,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   defp gitlink_entry(_ordinary, links), do: {:cont, {:ok, links}}
 
-  defp declared_links(git, mirror, commit, repository, token, links) do
+  defp declared_links(git, mirror, commit, repository, token, [first | _] = links) do
     with {:ok, entry} <-
            git_raw(git, mirror, ["ls-tree", "-z", commit, "--", ".gitmodules"], token),
          true <- Regex.match?(~r/\A100(?:644|755) blob [a-f0-9]{40}\t\.gitmodules\x00\z/, entry),
@@ -644,7 +664,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
          {:ok, declarations} <- parse_modules(config) do
       bind_declarations(links, declarations, repository)
     else
-      _invalid -> {:error, :invalid_submodule_declaration}
+      # Reading .gitmodules may fetch it, and a fetch may pass on a retry.
+      {:error, reason} when reason in [:git, :git_timeout] -> {:error, reason}
+      # What the commit declares, or fails to, is the same on every try.
+      _undeclared -> {:error, {:submodule_unresolved, first.path}}
     end
   end
 
@@ -655,7 +678,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
            {:ok, slug} <- submodule_repository(repository, url) do
         {:cont, {:ok, [Map.put(link, :repository, slug) | result]}}
       else
-        _invalid -> {:halt, {:error, :invalid_submodule_declaration}}
+        _undeclared -> {:halt, {:error, {:submodule_unresolved, link.path}}}
       end
     end)
     |> case do

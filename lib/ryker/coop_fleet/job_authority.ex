@@ -534,6 +534,9 @@ defmodule Ryker.CoopFleet.JobAuthority do
       {:error, {:coop_worker_source_refused, repository, submodule}} ->
         {:error, {:coop_worker_source_refused, repository, submodule}}
 
+      {:error, {:coop_worker_source_unresolved, repository, path}} ->
+        {:error, {:coop_worker_source_unresolved, repository, path}}
+
       _unavailable ->
         {:error, :coop_worker_source_unavailable}
     end
@@ -584,6 +587,9 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
         {:error, {:coop_worker_source_refused, repository, submodule}} ->
           {:halt, {:error, {:coop_worker_companion_refused, repository, submodule}}}
+
+        {:error, {:coop_worker_source_unresolved, repository, path}} ->
+          {:halt, {:error, {:coop_worker_companion_unresolved, repository, path}}}
 
         error ->
           {:halt, error}

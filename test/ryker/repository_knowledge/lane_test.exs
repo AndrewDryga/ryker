@@ -385,8 +385,10 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   end
 
   # tenant's RYKER.md for tenantcorp/tenant-core retried its session 456 times on 2026-10-03,
-  # once a minute, and nothing anywhere said why: the step's error was dropped.
-  test "a step that keeps failing says why in the log" do
+  # once a minute, and nothing anywhere said why: the step's error was dropped. A submodule
+  # Ryker was never given refuses every try alike, and two repositories still tried once a
+  # minute all day, 575 times (2026-11-21): the write now stops until the next daily check.
+  test "a source no retry can fetch stops the write until the next check, and says why" do
     github!()
     coop = coop!([answer_json()])
     ready!()
@@ -396,8 +398,15 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
         drain(settings(coop, api: RefusedPreparationAPI), 4)
       end)
 
-    assert log =~ "repository knowledge for emisar could not take its next step"
+    assert log =~ "repository knowledge for emisar stops until the next daily check"
     assert log =~ "skypjack/entt"
+    refute log =~ "could not take its next step"
+
+    entry = Inspectors.repository_knowledge("emisar")
+    assert {entry.phase, entry.error_code} == {:idle, "repository_knowledge_source_refused"}
+    assert entry.error =~ "submodules can't be fetched"
+    assert DateTime.diff(entry.next_check_at, Repo.now!()) > 23 * 3_600
+    assert {:error, :not_found} = Ryker.RepositoryKnowledge.Custody.fetch_outstanding("emisar")
   end
 
   # With no worker taking the repository's sessions the write waited a minute
