@@ -1335,6 +1335,19 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, "#settings-publication .section-head h2", "Pull requests")
     assert has_element?(view, "#settings-publication-form input[name=branch_prefix]")
 
+    # Andrew, 2026-11-21, of "681 events in the last day." between Replace
+    # credentials and Disconnect: "text too close to button and looks ugly".
+    # The count reads with "Connected as", ahead of the guide, and Disconnect
+    # sits in the form's own row of buttons.
+    step = view |> element("#github-app") |> render() |> LazyHTML.from_fragment()
+
+    assert step
+           |> LazyHTML.query(".settings-actions button")
+           |> Enum.map(&String.trim(LazyHTML.text(&1))) == ["Replace credentials", "Disconnect"]
+
+    ids = step |> LazyHTML.query("#github-events, .github-guide, form") |> Enum.map(&tag_or_id/1)
+    assert ids == ["github-events", "ol", "form"]
+
     view |> element("button[phx-value-action=disconnect-github]", "Disconnect") |> render_click()
     assert has_element?(view, "#confirm-disconnect-github", "Disconnect GitHub?")
     assert {:ok, _key} = Credentials.fetch(:github_private_key, "primary")
@@ -3008,6 +3021,13 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   # An element's words as a reader sees them, with the markup's spacing folded.
   defp words(html), do: html |> LazyHTML.text() |> String.split() |> Enum.join(" ")
+
+  defp tag_or_id(node) do
+    case LazyHTML.attribute(node, "id") do
+      [id] when id != "" -> id
+      _none -> node |> LazyHTML.tag() |> hd()
+    end
+  end
 
   defp usage_poll(worker, usage) do
     %{

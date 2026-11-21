@@ -1256,6 +1256,16 @@ defmodule Ryker.ControlPlane.SettingsPage do
           <strong>Credentials → Key pairs</strong>
           and upload it below.
         </p>
+        <%!-- What GitHub sent is the connection's state, so it reads with
+        "Connected as", not squeezed between the form's button and Disconnect
+        (Andrew, 2026-11-21: "text too close to button and looks ugly"). --%>
+        <p id="github-events" class="settings-lede">
+          <span :if={local_address?(@view.github_callback_url)}>
+            GitHub can't reach this computer, so it lists every delivery to this address as failed.
+            Ryker collects the same events from GitHub every 30 seconds instead.
+          </span>
+          {github_events(@view.github_events)}
+        </p>
         <ol class="setup-instructions github-guide">
           <li>
             In the GitHub account or organization that will own the App, open <strong>Settings → Developer settings → GitHub Apps</strong>. Choose <strong>New GitHub App</strong>, or
@@ -1335,27 +1345,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <.github_form
           label={if @ready, do: "Replace credentials", else: "Verify GitHub App"}
           webhook_secret={@webhook_secret}
-        />
+        >
+          <:action :if={@ready}>
+            <button
+              type="button"
+              class="ui-button secondary"
+              phx-click="confirm-settings-action"
+              phx-value-action="disconnect-github"
+              phx-value-ref="github"
+            >Disconnect</button>
+          </:action>
+        </.github_form>
         <Components.form_feedback
           :if={@app_feedback}
           tone={@app_feedback.tone}
           message={@app_feedback.message}
         />
-        <p id="github-events" class="settings-lede">
-          <span :if={local_address?(@view.github_callback_url)}>
-            GitHub can't reach this computer, so it lists every delivery to this address as failed.
-            Ryker collects the same events from GitHub every 30 seconds instead.
-          </span>
-          {github_events(@view.github_events)}
-        </p>
-        <button
-          :if={@ready}
-          type="button"
-          class="ui-button secondary"
-          phx-click="confirm-settings-action"
-          phx-value-action="disconnect-github"
-          phx-value-ref="github"
-        >Disconnect</button>
       </.setup_step>
       <.setup_step
         id="github-repositories"
@@ -1539,6 +1544,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   attr(:label, :string, required: true)
   attr(:webhook_secret, :string, default: nil)
+  slot(:action, doc: "A button beside the form's own, such as Disconnect")
 
   # The webhook secret travels with the form exactly as the guide above showed
   # it. Without one the connected App keeps its own.
@@ -1603,6 +1609,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </details>
       <div class="settings-actions">
         <button class="ui-button primary" type="submit" phx-disable-with="Connecting…">{@label}</button>
+        {render_slot(@action)}
       </div>
     </form>
     """
