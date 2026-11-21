@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.3.1
 
 - **Claude Fable 5.2, GPT-6.2 Astra and Sol, and GPT-6.1 Terra can be chosen.** They are priced
