@@ -79,44 +79,23 @@ defmodule Ryker.ControlPlane.RepositoryImport do
           <p :if={@loading} role="status">
             Checking current GitHub access. You can select repositories while it loads.
           </p>
-          <label class="repository-search">
-            <span>Search {length(@repositories)} repositories</span><input
-              id="repository-search"
-              type="search"
-              placeholder="Owner or repository name"
-              data-repository-search
-            />
-          </label>
-          <div class="repository-select-all">
-            <button type="button" class="ui-button quiet" data-repository-select="all">
-              Select all shown
-            </button>
-            <button type="button" class="ui-button quiet" data-repository-select="none">
-              Select none
-            </button>
-          </div>
-          <div class="repository-import-actions">
-            <button
-              class="ui-button primary"
-              type="submit"
-              name="import_mode"
-              value="selected"
-              data-repository-add-selected
-              phx-disable-with="Adding…"
-              disabled
-            >
-              Add 0 selected
-            </button>
-            <button
-              :if={@addable > 0}
-              class="ui-button secondary"
-              type="submit"
-              name="import_mode"
-              value="all"
-              disabled={@loading}
-              phx-disable-with="Adding…"
-            >Add all {@addable} available</button>
-            <.link patch="/repositories" class="ui-button secondary">Cancel</.link>
+          <div class="repository-import-toolbar">
+            <label class="repository-search">
+              <span>Search {length(@repositories)} repositories</span><input
+                id="repository-search"
+                type="search"
+                placeholder="Owner or repository name"
+                data-repository-search
+              />
+            </label>
+            <div class="repository-select-all">
+              <button type="button" class="ui-button quiet" data-repository-select="all">
+                Select all shown
+              </button>
+              <button type="button" class="ui-button quiet" data-repository-select="none">
+                Select none
+              </button>
+            </div>
           </div>
           <%!-- Newest push first, as GitHub reports it, and each row says when that was
           (Andrew, 2026-11-20: "can we show here when last change was made to the repo?"):
@@ -148,6 +127,29 @@ defmodule Ryker.ControlPlane.RepositoryImport do
               </.dynamic_tag>
             </li>
           </ul>
+          <div class="repository-import-actions">
+            <button
+              class="ui-button primary"
+              type="submit"
+              name="import_mode"
+              value="selected"
+              data-repository-add-selected
+              phx-disable-with="Adding…"
+              disabled
+            >
+              Add 0 selected
+            </button>
+            <button
+              :if={@addable > 0}
+              class="ui-button secondary"
+              type="submit"
+              name="import_mode"
+              value="all"
+              disabled={@loading}
+              phx-disable-with="Adding…"
+            >Add all {@addable} available</button>
+            <.link patch="/repositories" class="ui-button secondary">Cancel</.link>
+          </div>
         </form>
       </div>
     </div>

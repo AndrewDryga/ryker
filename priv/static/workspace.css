@@ -2090,7 +2090,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .repository-import li { border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
 .repository-import .repository-choice { display:grid; grid-template-columns:20px minmax(0,1fr) fit-content(35%); align-items:center; gap:10px; min-height:44px; }
 .repository-import label.repository-choice { cursor:pointer; }
-.repository-import li input { width:18px; height:18px; accent-color:var(--ryker-mint); }
+.repository-import li input { width:18px; height:18px; accent-color:var(--ryker-mint); scroll-margin-block-end:80px; }
 .repository-import li strong { min-width:0; overflow-wrap:anywhere; }
 .repository-choice-detail { grid-column:3; font-size:14px; color:var(--ryker-text-secondary); text-align:end; overflow-wrap:anywhere; }
 /* Each repository says under its name when it last changed, newest first. */
@@ -2098,9 +2098,16 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .repository-import li .repository-choice-name time { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .repository-search, .settings-people-search { display:grid; gap:6px; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .ryker-app :is(.repository-search, .settings-people-search) input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:15px; }
-.repository-import-actions { display:flex; flex-wrap:wrap; gap:8px; }
-.repository-select-all { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; }
+.repository-import-toolbar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px 16px; }
+.repository-import-toolbar .repository-search { flex:1 1 200px; min-width:0; max-width:420px; }
+.repository-select-all { display:flex; flex-wrap:wrap; gap:8px; }
+.repository-import-actions { position:sticky; bottom:0; z-index:1; display:flex; flex-wrap:wrap; gap:8px; padding:12px 0 max(12px, env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--ryker-stroke); background:var(--ryker-surface-raised); }
 .ryker-app .repository-import-actions .ui-button:disabled { opacity:.55; cursor:not-allowed; }
+@media (max-width:600px) {
+  /* Keep the focused checkbox in view even when the footer wraps. */
+  .repository-import li input { scroll-margin-block-end:180px; }
+  .ryker-app .repository-import-actions .ui-button { padding-inline:10px; font-size:14px; }
+}
 .repository-discovery-error { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .repository-discovery-error .form-feedback { flex:1; margin:0; }
 /* Working copies: one storage line per worker, then the copies. */

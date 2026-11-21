@@ -19,6 +19,10 @@ scopes and reinstall the app to grant it.
 - **Cleanup can recover when a worker's planning response is lost.** When the worker
   confirms the previous safety check failed internally, Ryker requests a fresh check.
 
+- **Add repositories has a compact search toolbar and a sticky footer.** Search shares
+  a row with the selection buttons when there is room, and the Add buttons stay in view
+  while you scroll the list.
+
 ## 0.6.1
 
 - **Cleanup failures are easier to scan.** The reason and actions come first, and the

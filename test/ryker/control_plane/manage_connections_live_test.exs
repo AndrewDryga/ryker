@@ -368,7 +368,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   # unticking 32, and "Add all 37" beside his 5 read as a wrong count.
   # Selection itself is test/js/repository_picker_test.mjs; this pins what the
   # server draws before the hook runs.
-  test "the repository picker starts with nothing ticked and counts what it will add" do
+  test "the repository picker groups search with selection and puts submission after the list" do
     picker =
       render_component(&RepositoryImport.repository_import/1,
         repositories: [
@@ -383,17 +383,23 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     assert Enum.empty?(LazyHTML.query(picker, "input[name='repository_ids[]'][checked]"))
 
-    assert LazyHTML.query(picker, "button[data-repository-select=all]") |> LazyHTML.text() =~
+    toolbar = LazyHTML.query(picker, ".repository-import-toolbar")
+    assert [_search] = LazyHTML.query(toolbar, "input[type=search]") |> Enum.to_list()
+
+    assert LazyHTML.query(toolbar, "button[data-repository-select=all]") |> LazyHTML.text() =~
              "Select all shown"
 
-    assert LazyHTML.query(picker, "button[data-repository-select=none]") |> LazyHTML.text() =~
+    assert LazyHTML.query(toolbar, "button[data-repository-select=none]") |> LazyHTML.text() =~
              "Select none"
 
-    add_selected = LazyHTML.query(picker, "button[data-repository-add-selected][disabled]")
+    # On the instance with 379 rows, reaching a footer by scrolling to the
+    # last choice would be impractical. The footer follows the list and stays
+    # in reach while scrolling through it.
+    actions = LazyHTML.query(picker, "ul + .repository-import-actions")
+    add_selected = LazyHTML.query(actions, "button[data-repository-add-selected][disabled]")
     assert LazyHTML.text(add_selected) =~ "Add 0 selected"
-    # The installation that exposed this had 379 rows between selection and submission.
-    assert [_list] = LazyHTML.query(picker, ".repository-import-actions ~ ul") |> Enum.to_list()
-    assert LazyHTML.query(picker, "button[value=all]") |> LazyHTML.text() =~ "Add all 2"
+    assert LazyHTML.query(actions, "button[value=all]") |> LazyHTML.text() =~ "Add all 2"
+    assert LazyHTML.query(actions, "a[href='/repositories']") |> LazyHTML.text() == "Cancel"
   end
 
   # Andrew, 2026-11-20, of Add repositories listing hundreds of repositories: "can we show here
