@@ -350,19 +350,12 @@ defmodule Ryker.ControlPlane.SetupPageTest do
              "Production approvals · 1 environment without an Emisar account"
   end
 
-  test "connecting an Emisar account says which environments use it now" do
-    # Connecting used to say only "Emisar account is connected." while the
-    # routes it created stayed out of sight. The first account is given to
-    # every environment without one and a later one to none, so the outcome
-    # names where approvals now go, or that the account still has to be chosen.
-    assert Integrations.emisar_connected(["Production"]) ==
-             "Emisar account is connected. Production uses it now."
-
-    assert Integrations.emisar_connected(["Production", "Staging", "Ops chat"]) ==
-             "Emisar account is connected. Production, Staging and Ops chat use it now."
-
-    assert Integrations.emisar_connected([]) ==
-             "Emisar account is connected. No environment uses it yet: choose it for one on the Environments page."
+  test "connecting an Emisar account says where to choose it" do
+    # Connecting used to say only "Emisar account is connected." while the account served
+    # environments out of sight. An account serves no environment until one chooses it, so the
+    # outcome says where.
+    assert Integrations.emisar_connected() ==
+             "Emisar account is connected. Choose it for an environment on the Environments page."
   end
 
   # Andrew, 2026-09-28: "same issue on many other pages, we need more

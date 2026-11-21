@@ -605,7 +605,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How the Emisar connection works", [
       {"Connect an account",
        [
-         "Create an agent API key in Emisar under AI agents and add it here. The first account serves every environment without one, and you choose others on the Environments page."
+         "Create an agent API key in Emisar under AI agents and add it here. Then choose the account for each environment on the Environments page."
        ]},
       {"What the states mean", [Integrations.meanings(:emisar)]},
       {"When something looks wrong",

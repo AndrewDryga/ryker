@@ -1656,7 +1656,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         variant={:hint}
         icon={:plug}
         title="No Emisar account yet"
-        text="Create an agent API key in Emisar under AI agents and connect it here. The first account serves every environment that has none."
+        text="Create an agent API key in Emisar under AI agents and connect it here. Then choose it for each environment that should use it."
       >
         <.link patch="/integrations/emisar/new" class="ui-button primary">Connect an account</.link>
       </Kit.empty>

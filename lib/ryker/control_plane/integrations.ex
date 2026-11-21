@@ -503,21 +503,12 @@ defmodule Ryker.ControlPlane.Integrations do
   defp account_names(accounts), do: Wording.count(length(accounts), "account")
 
   @doc """
-  What connecting an account did, by the names of the environments that use
-  it now: the first account serves every environment that had none, and a
-  later one waits to be chosen for one.
+  What connecting an account did: it serves no environment until one chooses it, so the
+  notice says where to.
   """
-  @spec emisar_connected([String.t()]) :: String.t()
-  def emisar_connected([]) do
-    "Emisar account is connected. No environment uses it yet: choose it for one on the " <>
-      "Environments page."
-  end
-
-  def emisar_connected([_one] = names),
-    do: "Emisar account is connected. #{Wording.list(names)} uses it now."
-
-  def emisar_connected(names),
-    do: "Emisar account is connected. #{Wording.list(names)} use it now."
+  @spec emisar_connected() :: String.t()
+  def emisar_connected,
+    do: "Emisar account is connected. Choose it for an environment on the Environments page."
 
   @doc "The environments whose work has no Emisar account, as one fact."
   @spec unassigned(pos_integer()) :: String.t()

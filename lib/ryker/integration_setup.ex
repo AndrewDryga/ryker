@@ -389,10 +389,11 @@ defmodule Ryker.IntegrationSetup do
   Verifies an Emisar account and makes it usable at once.
 
   Connecting is the operator saying "use this account for approvals", so the
-  account is watched for approval decisions from the start. The first account
-  also serves every environment that has none, and a default environment is
-  made for Chat when there is none: a connection that waited for two more
-  switches did nothing. A later account changes no environment.
+  account is watched for approval decisions from the start. It serves no
+  environment until someone chooses it on that environment's page: until
+  2026-11-20 the first account was saved on every environment that had none,
+  and an environment's page then showed it chosen though nobody had (Andrew:
+  "if I click save im adding first connected emisar account unwillingly").
   """
   @spec connect_emisar(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def connect_emisar(params, actor_ref, options \\ []) when is_map(params) do
@@ -427,12 +428,6 @@ defmodule Ryker.IntegrationSetup do
          ref: ref,
          account_ref: identity.account_ref,
          account_label: identity.account_label,
-         environments:
-           for(
-             environment <- snapshot.environments,
-             environment.emisar_connection_ref == ref,
-             do: environment.ref
-           ),
          rpc_url: rpc_url,
          settings_revision: snapshot.installation.revision,
          status: :connected
@@ -455,59 +450,8 @@ defmodule Ryker.IntegrationSetup do
            {:ok, _credential} <-
              Credentials.verify(:emisar, connection.ref, :verified, actor_ref),
            {:ok, _watched_again} <- Emisar.Approvals.token_replaced(connection.ref),
-           do: serve_environments(connection.ref, actor_ref)
+           do: Settings.fetch()
     end)
-  end
-
-  # The account work may use belongs to its environment
-  # (`Ryker.Emisar.Connections`). Only the installation's first account is
-  # placed anywhere automatically: connecting never moves an environment an
-  # operator already gave an account, and a second account starts with none.
-  # An account lets a task record an approval that Ryker then only reads; what
-  # the model may run in Emisar is still Emisar's decision.
-  defp serve_environments(ref, actor_ref, attempts \\ 3) do
-    snapshot = Settings.fetch!()
-
-    if Enum.map(snapshot.emisar_connections, & &1.ref) == [ref] do
-      case assign_first_account(snapshot, ref, actor_ref) do
-        {:error, {:settings_conflict, _current}} when attempts > 1 ->
-          serve_environments(ref, actor_ref, attempts - 1)
-
-        result ->
-          result
-      end
-    else
-      {:ok, snapshot}
-    end
-  end
-
-  defp assign_first_account(snapshot, ref, actor_ref) do
-    with {:ok, snapshot, _default} <- ensure_default_environment(snapshot, actor_ref) do
-      snapshot.environments
-      |> Enum.filter(&is_nil(&1.emisar_connection_ref))
-      |> set_emisar_account(ref, snapshot, actor_ref)
-    end
-  end
-
-  # Chat and every conversation without its own setting work in the default
-  # environment; when none is chosen, Ryker makes "Default" the default.
-  defp ensure_default_environment(snapshot, actor_ref) do
-    case Settings.default_environment(snapshot) do
-      %Settings.Environment{} = environment ->
-        {:ok, snapshot, environment}
-
-      nil ->
-        attributes =
-          case Settings.environment(snapshot, "default") do
-            nil -> %{ref: "default", display_name: "Default", is_default: true}
-            _existing -> %{ref: "default", is_default: true}
-          end
-
-        with {:ok, saved} <-
-               Settings.put_environment(attributes, snapshot.installation.revision, actor_ref) do
-          {:ok, saved, Settings.default_environment(saved)}
-        end
-    end
   end
 
   @doc """

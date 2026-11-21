@@ -1047,12 +1047,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # is used; a refused one keeps its form open and says why.
   def handle_event("connect-emisar", %{"connection" => params}, socket) do
     case IntegrationSetup.connect_emisar(params, actor(socket)) do
-      {:ok, _connection} = result ->
+      {:ok, _connection} ->
         {:noreply,
          socket
          |> refresh_settings()
          |> assign(setup_failure: nil, setup_reveal: nil)
-         |> return_with("/integrations/emisar", emisar_connected(result))}
+         |> return_with("/integrations/emisar", Integrations.emisar_connected())}
 
       {:error, reason} ->
         {:noreply, failed(socket, reason)}
@@ -2312,23 +2312,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A form that did what it was for returns to its list, carrying what it did.
   defp return_with(socket, path, notice),
     do: socket |> assign(carried_notice: notice) |> push_patch(to: path)
-
-  # Connecting says where the account is used now, by environment name.
-  defp emisar_connected({:ok, %{environments: refs}}) do
-    names =
-      case SettingsView.fetch() do
-        {:ok, view} ->
-          Enum.map(
-            refs,
-            &(Environments.find(view.snapshot, &1) || %{display_name: &1}).display_name
-          )
-
-        {:error, _unavailable} ->
-          refs
-      end
-
-    Integrations.emisar_connected(names)
-  end
 
   # A removal at the revision the page shows. A removed environment's page is
   # gone, so it returns to the list; one the settings refuse names who still

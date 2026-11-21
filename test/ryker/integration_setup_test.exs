@@ -3,7 +3,6 @@ defmodule Ryker.IntegrationSetupTest do
   import Ecto.Query
   alias Ryker.ControlPlane.{IntegrationErrors, Integrations}
   alias Ryker.{Credentials, Episodes, IntegrationSetup, Repo, Settings}
-  alias Ryker.Emisar.Connections
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.{Access, Auth, Binding, Router}
@@ -1403,15 +1402,15 @@ defmodule Ryker.IntegrationSetupTest do
     assert [%{ref: ^ref}] = Settings.fetch!().emisar_connections
   end
 
-  # Connecting an account once saved it with approval monitoring off and no
-  # route, so a fresh connection did nothing until someone found two more
-  # switches. The first account now serves every environment that has none,
-  # and a default environment is made for Chat when there is none, so work
-  # that starts right after connecting can record an approval Ryker watches.
-  test "the first Emisar account serves every environment without one" do
+  # Connecting is the operator saying "use this account for approvals", so it is watched at
+  # once. Until 2026-11-20 the first account was also saved on every environment that had none,
+  # and an environment's page then showed it chosen though nobody had (Andrew: "if I click save
+  # im adding first connected emisar account unwillingly"). An environment uses an account only
+  # once someone chooses it there.
+  test "connecting an Emisar account watches it and gives it to no environment" do
     put_payments!()
 
-    assert {:ok, %{ref: ref, status: :connected, environments: environments}} =
+    assert {:ok, %{ref: ref, status: :connected} = result} =
              IntegrationSetup.connect_emisar(
                %{
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
@@ -1421,64 +1420,30 @@ defmodule Ryker.IntegrationSetupTest do
                requester: Requester
              )
 
-    assert environments == ["default", "payments"]
+    refute Map.has_key?(result, :environments)
     snapshot = Settings.fetch!()
     assert [%{monitoring_enabled: true, enabled_for_new_work: true}] = snapshot.emisar_connections
-    assert %Environment{ref: "default"} = Settings.default_environment(snapshot)
 
-    for environment <- ["payments", "default"] do
-      assert {:ok, %{connection_ref: ^ref}} = Connections.resolve(snapshot, environment)
-    end
+    assert Enum.map(snapshot.environments, &{&1.ref, &1.emisar_connection_ref}) == [
+             {"payments", nil}
+           ]
+
+    assert Settings.default_environment(snapshot) == nil
+
+    # Chosen on the environment's page, work there uses it.
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "payments", emisar_connection_ref: ref},
+        snapshot.installation.revision,
+        @actor
+      )
 
     assert pin_work!("channel", "payments").emisar_connection_ref == ref
-    assert pin_work!("chat", "default").emisar_connection_ref == ref
 
     # The setup and integrations pages read the same settings, with nothing
     # left out of the running system.
     assert %{status: :on, state: {:on, "Connected"}} =
-             Integrations.emisar(%{snapshot: snapshot, readiness: %{left_out: %{}}})
-  end
-
-  test "connecting another account never takes over an environment that has one" do
-    put_payments!()
-
-    assert {:ok, %{ref: first}} =
-             IntegrationSetup.connect_emisar(
-               %{
-                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
-                 "token" => "emisar-token-that-is-long-enough"
-               },
-               @actor,
-               requester: Requester
-             )
-
-    {:ok, _snapshot} =
-      Settings.put_environment(
-        %{ref: "staging", display_name: "Staging"},
-        Settings.fetch!().installation.revision,
-        @actor
-      )
-
-    assert {:ok, %{ref: second, environments: []}} =
-             IntegrationSetup.connect_emisar(
-               %{
-                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
-                 "token" => "other-emisar-token-long-enough"
-               },
-               @actor,
-               requester: Requester
-             )
-
-    assert second != first
-    snapshot = Settings.fetch!()
-
-    assert Map.new(snapshot.environments, &{&1.ref, &1.emisar_connection_ref}) == %{
-             "default" => first,
-             "payments" => first,
-             "staging" => nil
-           }
-
-    assert Enum.find(snapshot.emisar_connections, &(&1.ref == second)).monitoring_enabled
+             Integrations.emisar(%{snapshot: Settings.fetch!(), readiness: %{left_out: %{}}})
   end
 
   # "Remove account" takes the account off the environments that use it. It is
@@ -1496,6 +1461,13 @@ defmodule Ryker.IntegrationSetupTest do
                @actor,
                requester: Requester
              )
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "payments", emisar_connection_ref: ref},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
 
     assert pin_work!("pinned", "payments").emisar_connection_ref == ref
 

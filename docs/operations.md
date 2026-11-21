@@ -312,10 +312,8 @@ schedule never switches to the default environment.
 Ryker notices steps 4 and 6 itself, and step 5 as soon as a joined channel has an environment.
 Connecting Emisar is the one recommended extra: it is optional and never blocks setup, but without
 it Ryker cannot act on anything that is running. A connected account is watched for approval
-decisions at once, and the installation's first account is given to every environment that has
-none, creating "Default" first when no environment exists yet. A later account, or an environment
-added later, is chosen on the Environments page; the Emisar page counts the environments without
-an account. Every integration is managed afterwards
+decisions at once, and serves no environment until it is chosen on that environment's page; the
+Emisar page counts the environments without an account. Every integration is managed afterwards
 under **Integrations**, and models, retention, prices and advanced placement under **Settings**.
 
 The UI treats four facts separately: a setting can be saved, the runtime revision can be applied,

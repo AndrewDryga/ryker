@@ -979,8 +979,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   # Andrew, 2026-10-01, setting up the tenant workspace: "after new emisar account connected i see
   # form again maybe redirect me here: …/integrations/emisar". Connecting lands on the accounts,
-  # says where the new one is used, and offers no form.
-  test "connecting an Emisar account lands on the accounts and says where it is used" do
+  # says where to choose the new one for an environment, and offers no form.
+  test "connecting an Emisar account lands on the accounts and says where to choose it" do
     initialize!()
     {:ok, view, _html} = open("/integrations/emisar/new")
 
@@ -998,7 +998,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> render_submit()
 
     assert_patch(view, "/integrations/emisar")
-    assert has_element?(view, ".form-feedback-success", "Emisar account is connected")
+    assert has_element?(view, ".form-feedback-success", "Choose it for an environment")
     refute has_element?(view, "form[phx-submit=connect-emisar]")
     assert [%{display_name: "Tenant App, Inc."}] = Settings.fetch!().emisar_connections
   end

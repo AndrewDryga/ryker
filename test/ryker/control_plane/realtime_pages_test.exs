@@ -334,7 +334,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     {:ok, view, _html} = open("/setup")
     refute has_element?(view, "#setup-emisar[data-state=done]")
 
-    assert {:ok, _connected} =
+    assert {:ok, %{ref: ref}} =
              Ryker.IntegrationSetup.connect_emisar(
                %{
                  "rpc_url" => "https://emisar.example/api/mcp/rpc",
@@ -342,6 +342,20 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
                },
                "control-plane:local"
              )
+
+    # A connected account serves no environment until one chooses it, and the step says so.
+    assert shows?(fn ->
+             has_element?(view, "#setup-emisar", "Give an environment this account")
+           end)
+
+    refute has_element?(view, "#setup-emisar[data-state=done]")
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", emisar_connection_ref: ref},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
 
     assert shows?(fn -> has_element?(view, "#setup-emisar[data-state=done]", "Emisar") end)
     assert has_element?(view, ".setup-meter > span[data-optional=true][data-done=true]")
