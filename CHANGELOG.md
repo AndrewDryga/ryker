@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- **No more deadlocks between a worker's poll, a command and a task's turn.** Sending a command,
+  and retention's cleanup, now lock the workers holding a session before the session, the order a
+  poll and placement already used. PostgreSQL broke a three-way cycle of these twice on 21 Nov.
+
+- **A worker's progress isn't held up by redaction.** Preparing a worker's events read the
+  configured secrets once per field of every event while the worker's row was locked; a large
+  batch ran past the 15-second limit and lock waits piled up behind it. They're read once per
+  batch now. A tool's answer no longer fails when the check for new thread messages that follows
+  it times out on a busy task.
+
+- **A worker that missed an acknowledgement catches up.** A worker resends events Ryker already
+  kept when it never heard they were kept (its VM replaced mid-poll, for example). Ryker refused
+  the whole batch as a conflict, 20,000 times over six hours for one VA1 worker. Events it already
+  holds are now checked against what it stored, and the rest are applied.
+
+- **A submodule Ryker can't fetch stops a task at once and is named.** A submodule whose
+  `.gitmodules` entry is missing, listed twice or not a GitHub repository used to read as GitHub
+  failing for a moment: the task retried eight times, then said Ryker couldn't get the code from
+  GitHub. It now stops on the first try, and the failure page names the repository and the
+  submodule's path. A repository's RYKER.md write stops on such a submodule, or one Ryker was never
+  given, until the next daily check instead of retrying every minute.
+
+- **Kinds of work still on the models Ryker shipped move to the newest.** GPT-6.2 Sol replaces
+  GPT-5.6 Sol, and GPT-6.1 Terra replaces GPT-5.6 Terra for conversation, on upgrade and on new
+  installations; both cost less. A model you chose yourself, and every fallback, stays.
+
+- **Presets are added on the Models page.** Paste what `coop presets NAME --export-job` prints
+  under Settings › Models › Presets, instead of placing a file in the controller's state volume.
+  Code reviews and Code changes offer a preset once one can run, and aren't shown while there is
+  nothing to choose. A file placed under `/var/lib/ryker/presets` is no longer read: paste it
+  instead.
+
+- **Calmer type and a wider menu.** Text is a step smaller than in 0.3.0 (body 16 px, nothing
+  under 13 px), and the left menu is wider, with its items lined up under the logo.
+
+- **A caveat is a small amber clock, not a line of text.** A worker's storage reading that is out
+  of date, an account whose limit is used up, and an account check that may be stale show a clock
+  whose tooltip says why. Integrations › GitHub shows the day's event count with the connection,
+  and Disconnect sits beside Replace credentials.
+
 ## 0.3.1
 
 - **Claude Fable 5.2, GPT-6.2 Astra and Sol, and GPT-6.1 Terra can be chosen.** They are priced
