@@ -113,8 +113,8 @@ async function checkSharedFilterControls(page, width) {
     assert.equal(control.borderStyle, 'solid', 'Filter controls use a solid border');
     assert.equal(control.borderColor, controls[0].borderColor, 'Filter controls use the same border color');
     assert.equal(control.borderRadius, '8px', 'Filter controls use the shared corner radius');
-    assert.equal(control.fontSize, '14px', 'Filter controls use the shared type size');
-    assert.equal(control.lineHeight, '20px', 'Filter controls use the shared text line height');
+    assert.equal(control.fontSize, '16px', 'Filter controls use the shared type size');
+    assert.equal(control.lineHeight, '23px', 'Filter controls use the shared text line height');
   }
   const primary = controls.filter(control => control.primary);
   if (width > 800) assert(primary.every(control => control.center === primary[0].center), 'Filter controls sit on one baseline');
