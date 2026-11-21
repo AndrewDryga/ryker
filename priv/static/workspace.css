@@ -2337,17 +2337,27 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-accounts .settings-ladder-order { margin-top:8px; }
 .settings-accounts .settings-ladder-actions { grid-template-columns:32px; margin-top:2px; }
 .settings-accounts .settings-ladder-remove { grid-column:1; }
-/* Presets in the same box: a row per saved preset with its name and what it runs, and a box to
-   paste the next one into (2026-11-21). */
-.settings-presets { --ladder-columns:20px minmax(0, 1fr) 32px; }
-.settings-presets .settings-ladder-entry { align-items:start; }
-.settings-presets .settings-ladder-order { margin-top:1px; }
-.settings-presets .settings-ladder-actions { grid-template-columns:32px; }
-.settings-presets .settings-ladder-remove { grid-column:1; }
-.settings-preset-name { display:flex; align-items:center; gap:8px; margin:0; font-size:15px; line-height:22px; }
-.settings-preset-summary { margin:2px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
-.settings-presets-empty { margin:0; padding:12px; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
-.settings-field .settings-presets textarea { display:block; width:100%; max-width:none; box-sizing:border-box; min-height:120px; font:13px/20px var(--ryker-font-mono); }
+/* A preset's roles (2026-11-21): a card per role on the sunken surface, its name and what it does
+   on one line with Remove at its end, then its models in the box every list of models uses, and
+   Add role as a dashed card where the next one lands. */
+.settings-role-list { display:grid; gap:12px; margin:0; padding:0; list-style:none; }
+.settings-role { display:grid; gap:12px; box-sizing:border-box; max-width:800px; padding:16px; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-sunken); }
+.settings-role-head { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 3fr) 32px; align-items:end; gap:12px; }
+.settings-role-part, .settings-role-models { display:grid; gap:4px; min-width:0; }
+.settings-role-part > label, .settings-role-label { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
+.settings-field .settings-role-part :is(input[type=text], select) { max-width:none; }
+.ryker-app .settings-page .settings-role-remove { width:32px; min-width:32px; min-height:32px; margin-bottom:4px; padding:0; }
+.settings-role > .settings-help { margin-top:-6px; }
+.settings-optional { margin-left:4px; font-weight:400; color:var(--ryker-text-secondary); }
+.settings-field textarea.settings-instructions { min-height:88px; font:15px/23px var(--ryker-font-sans); }
+.ryker-app .settings-role-add { display:flex; align-items:center; gap:10px; box-sizing:border-box; width:100%; max-width:800px; min-height:44px; margin:0; padding:10px 16px; border:1px dashed var(--ryker-stroke-strong); border-radius:8px; background:none; color:var(--ryker-text-secondary); font:inherit; font-size:14px; line-height:21px; font-weight:500; text-align:left; cursor:pointer; }
+.ryker-app .settings-role-add .ui-icon { width:14px; height:14px; }
+.ryker-app .settings-role-add:hover { background:var(--ryker-hover-bg); color:var(--ryker-text); }
+.ryker-app .settings-role-add:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; }
+@media (max-width:800px) {
+  .settings-role-head { grid-template-columns:minmax(0, 1fr) 32px; }
+  .settings-role-head > .settings-role-part:nth-child(2) { grid-row:2; grid-column:1; }
+}
 /* An account's allowance as its provider reported it: a line per window under the account, the
    check time last. A used-up window says so in the warning colour; a model whose account is used
    up, and a check that may be out of date, carry Kit's amber clock. */
@@ -2365,8 +2375,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-field .settings-ladder-part input[type=text] { max-width:none; min-height:36px; padding:6px 10px; font-size:14px; line-height:21px; }
 .settings-field .settings-ladder-part .form-feedback { max-width:none; margin:0; padding:6px 10px; }
 @media (max-width:800px) {
-  .settings-accounts .settings-ladder-entry, .settings-presets .settings-ladder-entry { grid-template-columns:var(--ladder-columns); }
-  .settings-accounts .settings-ladder-part, .settings-accounts .settings-ladder-actions, .settings-presets .settings-ladder-part, .settings-presets .settings-ladder-actions { grid-column:auto; }
+  .settings-accounts .settings-ladder-entry { grid-template-columns:var(--ladder-columns); }
+  .settings-accounts .settings-ladder-part, .settings-accounts .settings-ladder-actions { grid-column:auto; }
   .settings-accounts .settings-ladder-part > label { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 }
 .settings-evidence { font:13px/20px var(--ryker-font-mono); color:var(--ryker-text-secondary); overflow-wrap:anywhere; }

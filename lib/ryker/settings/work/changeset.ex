@@ -6,7 +6,6 @@ defmodule Ryker.Settings.Work.Changeset do
   alias Ryker.LocalRouting
   alias Ryker.Settings.Work
 
-  @target ~r/\A(codex|claude):[a-z0-9][a-z0-9._-]{0,63}\/(low|medium|high|xhigh)(\+fast)?@[a-z0-9][a-z0-9_-]{0,63}\z/
   @model_fields Work.model_fields()
   # A request can move between these three kinds of work, so Ryker pins one
   # set of permissions for all of them (`Ryker.Ingress.WorkProfile`), and Coop
@@ -72,7 +71,7 @@ defmodule Ryker.Settings.Work.Changeset do
     end)
   end
 
-  # Each preset is a whole `coop presets NAME --export-job` under its own name.
+  # Each preset is a whole recipe as `coop presets NAME --export-job` writes it, under its own name.
   # Whether its accounts are signed in is checked where a choice or a job uses it.
   defp validate_presets(changeset) do
     validate_change(changeset, :presets, fn :presets, presets ->
@@ -166,7 +165,7 @@ defmodule Ryker.Settings.Work.Changeset do
   defp model_reason(models, accounts, offered) do
     cond do
       length(models) not in 1..Work.most_models() -> :length
-      not Enum.all?(models, &(is_binary(&1) and Regex.match?(@target, &1))) -> :format
+      not Enum.all?(models, &Work.target?/1) -> :format
       Enum.uniq(models) != models -> :duplicate
       Enum.any?(models, &(Work.account(&1) not in accounts)) -> :unknown_account
       Enum.any?(models, &(price_key(&1) not in offered)) -> :unpriced

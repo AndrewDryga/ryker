@@ -10,8 +10,8 @@ defmodule Ryker.Settings.Work do
   sign-ins require repair rather than fallback. A model is `provider:model/effort@account`, one
   account each, and Coop takes at most four.
 
-  `presets` holds the Coop recipes an owner saved, each the output of
-  `coop presets NAME --export-job` under its name; code reviews
+  `presets` holds the Coop recipes an owner built on the Models page, each
+  under its name as `coop presets NAME --export-job` writes one; code reviews
   (`code_review_preset`) and code changes (`contributor_preset`) may run one.
 
   `model_accounts` lists the accounts the worker has signed in, as
@@ -40,6 +40,7 @@ defmodule Ryker.Settings.Work do
   @providers ~w(codex claude)
   @efforts ~w(low medium high xhigh)
   @account ~r/\A(codex|claude)@[a-z0-9][a-z0-9_-]{0,63}\z/
+  @target ~r/\A(codex|claude):[a-z0-9][a-z0-9._-]{0,63}\/(low|medium|high|xhigh)(\+fast)?@[a-z0-9][a-z0-9_-]{0,63}\z/
   @most_models 4
   @most_accounts 16
   @most_presets 16
@@ -93,6 +94,14 @@ defmodule Ryker.Settings.Work do
   @doc "Whether `value` names a model the way a local server lists one."
   @spec local_model?(term()) :: boolean()
   def local_model?(value), do: is_binary(value) and Regex.match?(@local_model, value)
+
+  @doc """
+  Whether `value` is a model with every part chosen, as a kind of work or a
+  preset saves it: `provider:model/effort@account`, with `+fast` after the
+  effort for the provider's fast mode.
+  """
+  @spec target?(term()) :: boolean()
+  def target?(value), do: is_binary(value) and Regex.match?(@target, value)
 
   @doc "Whether `value` is an account as Model accounts lists it: `provider@name`."
   @spec account?(term()) :: boolean()

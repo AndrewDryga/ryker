@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   """
   alias Ryker.ControlPlane.Environments
   alias Ryker.ConversationRef
+  alias Ryker.CoopFleet
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.Webhooks
@@ -114,6 +115,15 @@ defmodule Ryker.ControlPlane.SettingsSections do
      "After the provider model has decided, the local model is asked the same routing prompt. " <>
        "Its page, See how it compares, shows how often it would have decided the same. Routing " <>
        "still uses only the provider model's decision."}
+  ]
+  # What a preset's role does, in the words a person picks between, each with
+  # what it can do then (Coop's native, consult and delegate modes).
+  @role_modes [
+    {"consult", "Gives a second opinion", "Reads only. The lead asks it, then decides."},
+    {"delegate", "Does the work it's given",
+     "Can change files, and the lead checks what it did. Code reviews can't run a preset with one."},
+    {"native", "Works in the lead's session",
+     "A helper inside the lead's own session, on one model and the account every lead model uses."}
   ]
   @weekdays [
     {"1", "Monday"},
@@ -573,32 +583,93 @@ defmodule Ryker.ControlPlane.SettingsSections do
     },
     # Andrew, 2026-11-21: "how do I use presets in models selector?!" A preset
     # was a file only a shell on the controller could add, so an install on
-    # Nomad could never offer one. Presets are saved here now, pasted as Coop
-    # exports them, and Code reviews and Code changes above offer each one
-    # whose accounts are listed.
+    # Nomad could never offer one. Pasting what Coop exports came next, and
+    # then (Andrew, the same day: "cant you build a nice ux here to build
+    # preset instead of copy-pasting yaml? Like one we have to select fallback
+    # models") a page per preset whose lead and roles pick each model with the
+    # rows the lists of models use. Code reviews and Code changes above offer
+    # each one whose accounts are listed.
     %{
       key: :model_presets,
       domain: :work,
-      kind: :singleton,
+      kind: :collection,
       schema: Settings.Work,
+      item_key: :name,
+      item_label: "preset",
       title: "Presets",
       description:
-        "A preset is a Coop recipe: a lead model and the models it asks for a second opinion " <>
-          "or hands work to. Code reviews and code changes can run one.",
+        "A lead model and the roles it can call: models it asks for a second opinion or " <>
+          "hands work to. Code reviews and code changes can run one.",
+      empty: {:cards, "No presets yet", "Build one from the models and accounts on this page."},
       fields: [
         %{
-          name: :presets,
-          kind: :presets,
-          label: "Saved presets",
+          name: :name,
+          kind: :text,
+          label: "Name",
+          placeholder: "review",
+          identity: true,
           help:
-            "Make one with coop presets init, then paste what coop presets NAME --export-job " <>
-              "prints. Its accounts must be listed under Model accounts.",
+            "Lowercase letters, numbers, dots, dashes and underscores. It can't change later.",
           errors: %{
-            format: "Paste the whole output of coop presets NAME --export-job, unchanged.",
-            length: "Keep at most 16 presets.",
-            in_use:
-              "A preset that code reviews or code changes use can't be removed. Choose " <>
-                "another for them first."
+            required: "Name the preset, such as review.",
+            format:
+              "Write the name in lowercase letters, numbers, dots, dashes and underscores, " <>
+                "such as review.",
+            already_bound:
+              "A preset with this name is saved already. Choose another name, or edit that " <>
+                "preset.",
+            length: "Keep at most 16 presets. Remove one to add another."
+          }
+        },
+        %{
+          name: :lead,
+          kind: :ladder,
+          label: "Lead",
+          default: :standard_model,
+          help:
+            "Does the work and calls the roles below when it needs them. The next model takes " <>
+              "over when one hits a usage limit.",
+          errors:
+            Map.take(@ladder_errors, [:length, :cast, :format, :duplicate, :unknown_account])
+        },
+        %{
+          name: :lead_prompt,
+          kind: :textarea,
+          label: "Lead instructions",
+          placeholder:
+            "Anything the lead should always do, such as: ask the critic before changing a public API.",
+          errors: %{length: "Keep the lead's instructions under 32 KB."}
+        },
+        %{
+          name: :roles,
+          kind: :roles,
+          label: "Roles",
+          help:
+            "Models the lead can call while it works. It decides when, from what each role is for.",
+          errors: %{
+            length: "Keep at most 16 roles.",
+            role_name:
+              "Name each role in lowercase letters, numbers and dashes, starting with a letter, " <>
+                "such as critic.",
+            role_names: "Give each role a name of its own.",
+            mode: "Choose what each role does.",
+            role_models:
+              "Choose a model, a reasoning effort and an account for each of a role's models.",
+            duplicate:
+              "A role lists the same model, effort and account twice. Change one or remove it.",
+            unknown_account: @ladder_errors.unknown_account,
+            native:
+              "A role in the lead's session runs one model, on the account every lead model uses.",
+            accounts:
+              "The lead and its roles share one sign-in per provider, so every model of one " <>
+                "provider here uses the same account.",
+            hints: "List at most 16 short phrases under When to call it for each role.",
+            role_prompt: "Keep each role's instructions under 32 KB.",
+            read_only:
+              "Code reviews run this preset, and they can't change files. Make every role give " <>
+                "a second opinion or work in the lead's session, or choose other models for code " <>
+                "reviews first.",
+            size: "This preset is too long to save. Shorten the roles' instructions."
           }
         }
       ]
@@ -944,10 +1015,18 @@ defmodule Ryker.ControlPlane.SettingsSections do
     |> Enum.map(fn fields -> {Map.get(hd(fields), :group), fields} end)
   end
 
-  @doc "Every kind of work's list of models, in the order the Models page shows them."
+  @doc """
+  Every kind of work's list of models, in the order the Models page shows
+  them. A preset's lead is a list too, but of a preset, not a kind of work.
+  """
   @spec ladder_fields() :: [map()]
-  def ladder_fields,
-    do: for(section <- @sections, field <- section.fields, field.kind == :ladder, do: field)
+  def ladder_fields do
+    for section <- @sections,
+        section.kind == :singleton,
+        field <- section.fields,
+        field.kind == :ladder,
+        do: field
+  end
 
   @doc "The words a composite control shows for one of its parts."
   @spec subfield_label(String.t()) :: String.t()
@@ -1112,6 +1191,78 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp swap(entries, index) do
     {first, [a, b | rest]} = Enum.split(entries, index)
     first ++ [b, a | rest]
+  end
+
+  @doc "What a preset's role can do: `{mode, label, what it does then}`, in the order offered."
+  @spec role_modes() :: [{String.t(), String.t(), String.t()}]
+  def role_modes, do: @role_modes
+
+  @doc "The most roles one preset holds."
+  @spec most_roles() :: pos_integer()
+  def most_roles, do: CoopFleet.JobPreset.most_roles()
+
+  @doc """
+  One step on a preset's roles in a draft: add a role, or remove one. A new
+  role gives a second opinion on the lead's first model, so its account
+  already suits the lead's; most roles then change only the model. A step the
+  roles cannot take leaves them as they are.
+  """
+  @spec role_step([map()], String.t(), integer() | nil, [map()]) :: [map()]
+  def role_step(roles, "add", _index, lead) do
+    model =
+      case lead do
+        [first | _fallbacks] -> first
+        [] -> Map.new(@ladder_parts, &{&1, ""})
+      end
+
+    role = %{"name" => "", "mode" => "consult", "models" => [model], "when" => "", "prompt" => ""}
+
+    if length(roles) < most_roles() do
+      roles ++ [role]
+    else
+      roles
+    end
+  end
+
+  def role_step(roles, "remove", index, _lead)
+      when is_integer(index) and index in 0..(length(roles) - 1)//1,
+      do: List.delete_at(roles, index)
+
+  def role_step(roles, _action, _index, _lead), do: roles
+
+  @doc "One step on the models of the preset's role at `role`, as `ladder_step/4` takes one."
+  @spec role_models_step([map()], integer() | nil, String.t(), integer() | nil, map()) :: [map()]
+  def role_models_step(roles, role, action, index, view)
+      when is_integer(role) and role in 0..(length(roles) - 1)//1 do
+    List.update_at(roles, role, fn entry ->
+      Map.put(entry, "models", ladder_step(Map.get(entry, "models", []), action, index, view))
+    end)
+  end
+
+  def role_models_step(roles, _role, _action, _index, _view), do: roles
+
+  @doc "Which of code reviews and code changes run the preset `name`, in those words."
+  @spec preset_uses(map(), String.t() | nil) :: [String.t()]
+  def preset_uses(view, name) do
+    for {field, words} <- [code_review_preset: "code reviews", contributor_preset: "code changes"],
+        Map.get(view.snapshot.work, field) == name,
+        do: words
+  end
+
+  @doc """
+  What a refused removal of the preset `name` says: which of code reviews and
+  code changes run it, and what to change first.
+  """
+  @spec preset_in_use(map(), String.t() | nil) :: String.t()
+  def preset_in_use(view, name) do
+    case preset_uses(view, name) do
+      [] ->
+        "Another setting still uses it. Change that setting first."
+
+      uses ->
+        Wording.capitalize(Wording.list(uses)) <>
+          " run this preset. Choose other models for them under Other work first."
+    end
   end
 
   @doc "What an empty account row shows: how an account is written."
@@ -1299,23 +1450,37 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   defp ladder_entries(value), do: value |> numbered() |> Enum.map(&ladder_fields/1)
   defp account_entries(value), do: value |> numbered() |> Enum.map(&text/1)
+  defp role_entries(value), do: value |> numbered() |> Enum.map(&role_fields/1)
 
-  @doc """
-  A pasted `coop presets NAME --export-job`: its name and recipe, or `:error`
-  for text that is not one. Whether the recipe can run is the settings' check.
-  """
-  @spec preset_export(String.t()) :: {:ok, String.t(), map()} | :error
-  def preset_export(text) when is_binary(text) do
-    case Jason.decode(text) do
-      {:ok, %{"preset" => %{"name" => name}} = recipe} when is_binary(name) -> {:ok, name, recipe}
-      _not_an_export -> :error
-    end
+  # A preset's role as the form holds it: its name, what it does, its models
+  # as a list of models holds them, when to call it and its instructions.
+  defp role_fields(%{} = role) do
+    %{
+      "name" => text(Map.get(role, "name")),
+      "mode" => text(Map.get(role, "mode")),
+      "models" => ladder_entries(Map.get(role, "models")),
+      "when" => text(Map.get(role, "when")),
+      "prompt" => text(Map.get(role, "prompt"))
+    }
   end
 
-  def preset_export(_mismatched), do: :error
+  defp role_fields(_mismatched), do: role_fields(%{})
 
-  # A saved recipe as the form carries it.
-  defp preset_text(recipe), do: Jason.encode!(recipe, pretty: true)
+  # A role as its preset saves it, the way Coop's export writes one: its
+  # models as targets and when to call it as a list of phrases.
+  defp role_attributes(role) do
+    %{
+      "name" => String.trim(role["name"]),
+      "mode" => role["mode"],
+      "targets" => Enum.map(role["models"], &ladder_target/1),
+      "when" =>
+        role["when"]
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "")),
+      "prompt" => role["prompt"]
+    }
+  end
 
   defp ladder_fields(%{} = entry), do: Map.new(@ladder_parts, &{&1, text(Map.get(entry, &1))})
   defp ladder_fields(_mismatched), do: Map.new(@ladder_parts, &{&1, ""})
@@ -1392,11 +1557,16 @@ defmodule Ryker.ControlPlane.SettingsSections do
     end
   end
 
+  # A new preset's lead starts as Standard work's model, the one most work
+  # runs on, so a preset that changes only its roles needs no model chosen.
+  defp default(%{default: :standard_model} = field, view),
+    do: form_value(field, Enum.take(view.snapshot.work.standard_models || [], 1))
+
   defp default(%{default: value}, _view) when is_binary(value), do: value
   defp default(field, _view), do: form_value(field, nil)
 
   @doc "The collection row being edited, or nil for a new one."
-  @spec current_item(map(), map(), term()) :: struct() | nil
+  @spec current_item(map(), map(), term()) :: map() | nil
   def current_item(_section, _view, nil), do: nil
 
   def current_item(section, view, item_key) do
@@ -1404,9 +1574,25 @@ defmodule Ryker.ControlPlane.SettingsSections do
   end
 
   @doc "The saved rows of a collection section."
-  @spec items(map(), map()) :: [struct()]
+  @spec items(map(), map()) :: [map()]
   def items(%{key: :pricing}, view), do: view.snapshot.pricing_rates
   def items(%{key: :webhooks}, view), do: view.snapshot.webhook_sources
+
+  # A saved preset is a recipe as Coop's export writes it; its page edits
+  # the parts a person chose.
+  def items(%{key: :model_presets}, view) do
+    for {name, recipe} <- Enum.sort(view.snapshot.work.presets || %{}) do
+      preset = Map.get(recipe, "preset", %{})
+
+      %{
+        name: name,
+        lead: Map.get(recipe, "targets", []),
+        lead_prompt: Map.get(preset, "lead_prompt", ""),
+        roles: Map.get(preset, "roles", [])
+      }
+    end
+  end
+
   def items(_section, _view), do: []
 
   @doc """
@@ -1431,7 +1617,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   defp submitted_value(%{kind: :ladder}, value), do: ladder_entries(value)
   defp submitted_value(%{kind: :accounts}, value), do: account_entries(value)
-  defp submitted_value(%{kind: :presets}, value), do: account_entries(value)
+  defp submitted_value(%{kind: :roles}, value), do: role_entries(value)
   defp submitted_value(_field, value) when is_binary(value), do: value
   defp submitted_value(field, _mismatched), do: empty_value(field)
 
@@ -1503,23 +1689,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp cast_field(%{kind: :accounts}, value),
     do: {:ok, value |> account_entries() |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))}
 
-  # The form always sends the list, even empty, so removing the last preset saves.
-  defp cast_field(%{kind: :presets}, ""), do: :skip
+  # A preset with no roles sends none.
+  defp cast_field(%{kind: :roles}, ""), do: {:ok, []}
 
-  defp cast_field(%{kind: :presets}, value) do
-    value
-    |> account_entries()
-    |> Enum.reject(&(String.trim(&1) == ""))
-    |> Enum.reduce_while({:ok, %{}}, fn text, {:ok, presets} ->
-      case preset_export(text) do
-        {:ok, name, recipe} when not is_map_key(presets, name) ->
-          {:cont, {:ok, Map.put(presets, name, recipe)}}
+  defp cast_field(%{kind: :roles}, value),
+    do: {:ok, value |> role_entries() |> Enum.map(&role_attributes/1)}
 
-        _invalid_or_repeated ->
-          {:halt, :error}
-      end
-    end)
-  end
+  # Instructions are kept as written, an empty box as no instructions.
+  defp cast_field(%{kind: :textarea}, value) when is_binary(value), do: {:ok, value}
 
   defp cast_field(%{kind: :boolean}, value), do: {:ok, value in ["true", "on", true]}
 
@@ -1584,7 +1761,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp kind_error(:decimal), do: :decimal
   defp kind_error(:date), do: :date
   defp kind_error(:time), do: :time
-  defp kind_error(:presets), do: :format
   defp kind_error(_kind), do: :invalid
 
   @doc "The form name of a field."
@@ -1618,6 +1794,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def row_value(%{kind: :ladder}, models), do: Work.ExecutionTarget.present(models || []).compact
   def row_value(%{kind: :accounts}, accounts), do: Enum.join(accounts || [], ", ")
+
+  def row_value(%{kind: :roles}, [_ | _] = roles),
+    do: roles |> Enum.map(&to_string(&1["name"])) |> Wording.list()
+
+  def row_value(%{kind: :roles}, _none), do: "No roles"
   def row_value(field, value), do: form_value(field, value)
 
   # A saved value rendered for its control.
@@ -1632,10 +1813,19 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp form_value(%{kind: :accounts}, accounts) when is_list(accounts), do: accounts
   defp form_value(%{kind: :accounts}, _absent), do: []
 
-  defp form_value(%{kind: :presets}, %{} = presets),
-    do: presets |> Enum.sort() |> Enum.map(fn {_name, recipe} -> preset_text(recipe) end)
+  defp form_value(%{kind: :roles}, roles) when is_list(roles) do
+    Enum.map(roles, fn role ->
+      %{
+        "name" => text(role["name"]),
+        "mode" => text(role["mode"]),
+        "models" => role["targets"] |> List.wrap() |> Enum.map(&ladder_entry/1),
+        "when" => role["when"] |> List.wrap() |> Enum.join(", "),
+        "prompt" => text(role["prompt"])
+      }
+    end)
+  end
 
-  defp form_value(%{kind: :presets}, _absent), do: []
+  defp form_value(%{kind: :roles}, _absent), do: []
 
   defp form_value(%{kind: :lifecycle} = field, value),
     do: Map.new(subfields(field), &{&1, Enum.join(Map.get(value || %{}, &1, []), ", ")})

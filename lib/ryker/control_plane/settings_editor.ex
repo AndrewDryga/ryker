@@ -152,24 +152,34 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     {:noreply, write(socket, save_command(socket, payload))}
   end
 
-  # Adding, removing and moving a model on a kind of work's list changes only
-  # the draft; nothing is saved until Save changes, as with every other edit.
+  # Adding, removing and moving a model on a list changes only the draft;
+  # nothing is saved until Save changes, as with every other edit. A
+  # preset's role names itself, so its own models change.
   def handle_event("ladder", %{"field" => name, "action" => action} = params, socket) do
+    %{section: section, view: view} = socket.assigns
+    index = position(params["index"])
+
+    case {Enum.find(section.fields, &(SettingsSections.field_name(&1) == name)),
+          position(params["role"])} do
+      {%{kind: :ladder}, nil} ->
+        steps(socket, name, &SettingsSections.ladder_step(&1, action, index, view))
+
+      {%{kind: :roles}, role} when is_integer(role) ->
+        steps(socket, name, &SettingsSections.role_models_step(&1, role, action, index, view))
+
+      _not_a_list ->
+        {:noreply, socket}
+    end
+  end
+
+  # Adding a role to a preset, or removing one, changes only the draft too.
+  def handle_event("role", %{"field" => name, "action" => action} = params, socket) do
     %{section: section, draft: draft} = socket.assigns
+    lead = Map.get(draft, "lead", [])
+    index = position(params["index"])
 
-    if Enum.any?(
-         section.fields,
-         &(&1.kind == :ladder and SettingsSections.field_name(&1) == name)
-       ) do
-      entries =
-        draft
-        |> Map.get(name, [])
-        |> SettingsSections.ladder_step(action, position(params["index"]), socket.assigns.view)
-
-      draft = Map.put(draft, name, entries)
-
-      {:noreply,
-       assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, message: "")}
+    if Enum.any?(section.fields, &(&1.kind == :roles and SettingsSections.field_name(&1) == name)) do
+      steps(socket, name, &SettingsSections.role_step(&1, action, index, lead))
     else
       {:noreply, socket}
     end
@@ -201,37 +211,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         {:refused, sentence} ->
           {:noreply, assign(socket, message: "", refusal: {name, index, sentence})}
       end
-    else
-      {:noreply, socket}
-    end
-  end
-
-  # A pasted preset is a row of the draft until Save; Add opens a box to paste
-  # into, and Remove drops a row.
-  def handle_event("presets", %{"field" => name, "action" => action} = params, socket) do
-    %{section: section, draft: draft} = socket.assigns
-    entries = Map.get(draft, name, [])
-
-    entries =
-      case {action, position(params["index"])} do
-        {"add", _index} ->
-          if Enum.any?(entries, &(String.trim(&1) == "")), do: entries, else: entries ++ [""]
-
-        {"remove", index} when is_integer(index) ->
-          List.delete_at(entries, index)
-
-        _unknown ->
-          entries
-      end
-
-    if Enum.any?(
-         section.fields,
-         &(&1.kind == :presets and SettingsSections.field_name(&1) == name)
-       ) do
-      draft = Map.put(draft, name, entries)
-
-      {:noreply,
-       assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, message: "")}
     else
       {:noreply, socket}
     end
@@ -293,6 +272,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp expected(socket), do: socket.assigns.expected_revision
 
+  # One step on a list in the draft, by the function that takes it.
+  defp steps(socket, name, step) do
+    draft = Map.update(socket.assigns.draft, name, step.([]), step)
+    {:noreply, assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, message: "")}
+  end
+
   defp position(value) when is_binary(value) do
     case Integer.parse(value) do
       {position, ""} -> position
@@ -305,7 +290,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # A removed row's page is gone, so the removal returns to the list, which
   # says what was removed, as a save does.
   defp removed(socket, {:ok, snapshot}, name) do
-    view = SettingsView.view(snapshot)
+    view = saved_view(socket, snapshot)
     send(self(), {:settings_item_saved, view, socket.assigns.paths.list, "#{name} was removed."})
     assign(socket, view: view, removing: nil)
   end
@@ -313,7 +298,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # The list moved while the question was open. The row may read differently
   # now, so the question stays open against what is saved now.
   defp removed(socket, {:error, {:settings_conflict, current}}, _name) do
-    view = SettingsView.view(current)
+    view = saved_view(socket, current)
 
     assign(socket,
       view: view,
@@ -324,10 +309,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   end
 
   defp removed(socket, {:error, {:invalid_settings, errors}}, _name) do
+    reasons = Enum.map(errors, &elem(&1, 1))
+
     message =
-      if Enum.any?(errors, fn {_field, reason} -> reason == :referenced end),
-        do: "Another setting still uses it. Change that setting first.",
-        else: "It could not be removed. Reload the page and try again."
+      cond do
+        :in_use in reasons ->
+          SettingsSections.preset_in_use(socket.assigns.view, socket.assigns.removing)
+
+        :referenced in reasons ->
+          "Another setting still uses it. Change that setting first."
+
+        true ->
+          "It could not be removed. Reload the page and try again."
+      end
 
     assign(socket, :remove_error, message)
   end
@@ -436,7 +430,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp section_error(_errors),
     do: "This change was refused. Check the values and save again."
 
-  defp saved_view(%{assigns: %{section: %{key: :other_models}}}, snapshot),
+  # Every card on the Models page reads the presets and whether a worker takes
+  # fast mode, so a save on any of them keeps both for the cards beside it.
+  defp saved_view(%{assigns: %{section: %{domain: :work}}}, snapshot),
     do: snapshot |> SettingsView.view() |> SettingsView.with_model_presets()
 
   defp saved_view(_socket, snapshot), do: SettingsView.view(snapshot)
@@ -571,7 +567,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         <.editor
           id={@id}
           section={@section}
-          view={@view}
+          view={Map.put(@view, :account_limits, @account_limits)}
           draft={@draft}
           dirty={@dirty}
           errors={@errors}
@@ -922,56 +918,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   )
 
   # A kind of work's models, in the order Coop tries them. Its help, under its
-  # title, says where Ryker uses them. Each model is one numbered row of a
-  # bordered list under the column names the rows share, with its move and
-  # remove buttons at its end, and Add fallback lands a row under the last
-  # (Andrew, 2026-09-27: "no need to say "First choice" and "Fallback 1" just
-  # design properly so we see where items start and finish"). The buttons
-  # change only the draft; the account choice lists the accounts of the chosen
-  # model's provider, and says so when there is none yet.
+  # title, says where Ryker uses them; the models are `ladder_box/1`.
   defp field(%{field: %{kind: :ladder}} = assigns) do
-    %{field: field, value: entries, view: view} = assigns
-    saved = Map.get(view.snapshot.work, field.name) || []
-    models = SettingsSections.ladder_models(view, saved, entries)
-    efforts = SettingsSections.ladder_efforts()
-
-    rows =
-      entries
-      |> Enum.with_index()
-      |> Enum.map(fn {entry, index} ->
-        accounts = SettingsSections.ladder_accounts(view, entry["model"])
-
-        %{
-          index: index,
-          entry: entry,
-          accounts: accounts,
-          model_prompt: not offered?(models, entry["model"]),
-          effort_prompt: not List.keymember?(efforts, entry["effort"], 0),
-          account_prompt: account_prompt(entry, accounts),
-          used_up: used_up(view, entry)
-        }
-      end)
+    %{field: field, view: view} = assigns
 
     assigns =
       assign(assigns,
         name: SettingsSections.field_name(field),
-        models: models,
-        efforts: efforts,
-        rows: rows,
-        count: length(entries),
-        most: Settings.most_work_models(),
-        # The Fast box only where a worker takes fast mode, or a model already asks for it, so
-        # it can be unticked: a +fast job waits for a worker that accepts one.
-        fast: view[:fast_mode] == true or Enum.any?(entries, &(&1["fast"] == "true")),
+        saved: Map.get(view.snapshot.work, field.name) || [],
         usage: if(view[:model_usage], do: view.model_usage.categories[field.name])
       )
 
     ~H"""
-    <fieldset
-      class={["settings-field settings-ladder", @fast && "settings-ladder-with-fast"]}
-      id={@id}
-      aria-describedby={help_id(@id, @field)}
-    >
+    <fieldset class="settings-field settings-ladder" id={@id} aria-describedby={help_id(@id, @field)}>
       <legend>{@field.label}</legend>
       <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
       <div :if={@usage} class="model-usage">
@@ -983,147 +942,157 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           <span>No runs recorded in 30 days</span>
         <% end %>
       </div>
-      <div class="settings-ladder-box">
-        <%!-- The column names, once for every row; each choice also keeps
-        its own label, shown where the row stacks on a narrow screen. --%>
-        <div class="settings-ladder-columns" aria-hidden="true">
-          <span>Model</span><span>Reasoning effort</span><span :if={@fast}>Fast</span><span>Account</span>
-        </div>
-        <ol class="settings-ladder-list">
-          <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
-            <span class="settings-ladder-order" aria-hidden="true">{row.index + 1}</span>
-            <div class="settings-ladder-part">
-              <label for={"#{@id}-#{row.index}-model"}>Model</label>
-              <select
-                id={"#{@id}-#{row.index}-model"}
-                name={"#{@name}[#{row.index}][model]"}
+      <.ladder_box
+        id={@id}
+        name={@name}
+        field={@name}
+        label={@field.label}
+        entries={@value}
+        saved={@saved}
+        view={@view}
+        invalid={not is_nil(@error)}
+        myself={@myself}
+      />
+      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
+    </fieldset>
+    """
+  end
+
+  # A preset's roles, a card each: its name and what it does, its models in
+  # the box a list of models uses, when the lead calls it and what it is
+  # told. Add role lands a card under the last (Andrew, 2026-11-21: "build
+  # preset instead of copy-pasting yaml? Like one we have to select fallback
+  # models"). The buttons change only the draft, as a list's do.
+  defp field(%{field: %{kind: :roles}} = assigns) do
+    %{field: field, value: roles} = assigns
+    modes = SettingsSections.role_modes()
+
+    rows =
+      roles
+      |> Enum.with_index()
+      |> Enum.map(fn {role, index} ->
+        mode = Enum.find(modes, &(elem(&1, 0) == role["mode"]))
+
+        %{
+          index: index,
+          role: role,
+          label: if(String.trim(role["name"]) == "", do: "#{index + 1}", else: role["name"]),
+          mode_text: mode && elem(mode, 2)
+        }
+      end)
+
+    assigns =
+      assign(assigns,
+        name: SettingsSections.field_name(field),
+        modes: modes,
+        rows: rows,
+        most: SettingsSections.most_roles()
+      )
+
+    ~H"""
+    <fieldset
+      class="settings-field settings-ladder settings-roles"
+      id={@id}
+      aria-describedby={help_id(@id, @field)}
+    >
+      <legend>{@field.label}</legend>
+      <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
+      <ol :if={@rows != []} class="settings-role-list">
+        <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-role">
+          <div class="settings-role-head">
+            <div class="settings-role-part">
+              <label for={"#{@id}-#{row.index}-name"}>Role name</label>
+              <input
+                type="text"
+                id={"#{@id}-#{row.index}-name"}
+                name={"#{@name}[#{row.index}][name]"}
+                value={row.role["name"]}
+                placeholder="critic"
+                autocomplete="off"
+                spellcheck="false"
                 aria-invalid={to_string(not is_nil(@error))}
-              >
-                <option :if={row.model_prompt} value="" selected>Choose a model</option>
-                <optgroup :for={{provider, options} <- @models} label={provider}>
-                  <option
-                    :for={{value, label} <- options}
-                    value={value}
-                    selected={row.entry["model"] == value}
-                  >
-                    {label}
-                  </option>
-                </optgroup>
-              </select>
+              />
             </div>
-            <div class="settings-ladder-part">
-              <label for={"#{@id}-#{row.index}-effort"}>Reasoning effort</label>
+            <div class="settings-role-part">
+              <label for={"#{@id}-#{row.index}-mode"}>What it does</label>
               <select
-                id={"#{@id}-#{row.index}-effort"}
-                name={"#{@name}[#{row.index}][effort]"}
-                aria-invalid={to_string(not is_nil(@error))}
+                id={"#{@id}-#{row.index}-mode"}
+                name={"#{@name}[#{row.index}][mode]"}
+                aria-describedby={row.mode_text && "#{@id}-#{row.index}-mode-help"}
               >
-                <option :if={row.effort_prompt} value="" selected>Choose an effort</option>
+                <option :if={is_nil(row.mode_text)} value="" selected>Choose what it does</option>
                 <option
-                  :for={{value, label} <- @efforts}
+                  :for={{value, label, _does} <- @modes}
                   value={value}
-                  selected={row.entry["effort"] == value}
+                  selected={row.role["mode"] == value}
                 >
                   {label}
                 </option>
               </select>
             </div>
-            <%!-- Andrew, 2026-11-21: "can we also allow using fast mode?" The
-            provider's fast mode, about twice as fast for more of the plan or a
-            higher price, asked of Coop as +fast after the effort. --%>
-            <div :if={@fast} class="settings-ladder-part settings-ladder-fast">
-              <label for={"#{@id}-#{row.index}-fast"}>Fast mode</label>
-              <input type="hidden" name={"#{@name}[#{row.index}][fast]"} value="" />
-              <input
-                type="checkbox"
-                id={"#{@id}-#{row.index}-fast"}
-                name={"#{@name}[#{row.index}][fast]"}
-                value="true"
-                checked={row.entry["fast"] == "true"}
-                title="Fast mode: about twice as fast, for more of the plan's allowance or a higher price. A model without one runs at standard speed."
-              />
-            </div>
-            <div class="settings-ladder-part">
-              <label for={"#{@id}-#{row.index}-account"}>Account</label>
-              <%!-- A used-up account is a clock beside it, with when it resets
-              as its tooltip; a line under the box made the row taller than
-              its neighbours (Andrew, 2026-11-21: "this looks ugly too"). --%>
-              <div class="settings-ladder-account">
-                <select
-                  id={"#{@id}-#{row.index}-account"}
-                  name={"#{@name}[#{row.index}][account]"}
-                  aria-invalid={to_string(not is_nil(@error))}
-                >
-                  <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
-                  <option
-                    :for={account <- row.accounts}
-                    value={account}
-                    selected={row.entry["account"] == account}
-                  >
-                    {account}
-                  </option>
-                </select>
-                <Kit.caveat_mark
-                  :if={row.used_up}
-                  id={"#{@id}-#{row.index}-used-up"}
-                  hint={used_up_hint(row.used_up)}
-                />
-              </div>
-            </div>
-            <%!-- Each button keeps its own slot, so every row's choices line up
-            whichever buttons it has. --%>
-            <div class="settings-ladder-actions">
-              <button
-                :if={row.index > 0}
-                type="button"
-                class="ui-button quiet settings-ladder-up"
-                phx-click="ladder"
-                phx-value-field={@name}
-                phx-value-action="up"
-                phx-value-index={row.index}
-                phx-target={@myself}
-                title="Move up"
-                aria-label={"Move model #{row.index + 1} for #{@field.label} up"}
-              ><Components.icon name={:arrow_up} /></button>
-              <button
-                :if={row.index < @count - 1}
-                type="button"
-                class="ui-button quiet settings-ladder-down"
-                phx-click="ladder"
-                phx-value-field={@name}
-                phx-value-action="down"
-                phx-value-index={row.index}
-                phx-target={@myself}
-                title="Move down"
-                aria-label={"Move model #{row.index + 1} for #{@field.label} down"}
-              ><Components.icon name={:arrow_down} /></button>
-              <button
-                :if={@count > 1}
-                type="button"
-                class="ui-button quiet settings-ladder-remove"
-                phx-click="ladder"
-                phx-value-field={@name}
-                phx-value-action="remove"
-                phx-value-index={row.index}
-                phx-target={@myself}
-                title="Remove"
-                aria-label={"Remove model #{row.index + 1} for #{@field.label}"}
-              ><Components.icon name={:close} /></button>
-            </div>
-          </li>
-        </ol>
-        <%!-- Add sits where the new row lands, as the list's last row. --%>
-        <button
-          :if={@count < @most}
-          type="button"
-          class="settings-ladder-add"
-          phx-click="ladder"
-          phx-value-field={@name}
-          phx-value-action="add"
-          phx-target={@myself}
-          aria-label={"Add fallback for #{@field.label}"}
-        ><Components.icon name={:plus} /><span>Add fallback</span></button>
-      </div>
+            <button
+              type="button"
+              class="ui-button quiet settings-role-remove"
+              phx-click="role"
+              phx-value-field={@name}
+              phx-value-action="remove"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              title="Remove role"
+              aria-label={"Remove role #{row.label}"}
+            ><Components.icon name={:close} /></button>
+          </div>
+          <p :if={row.mode_text} class="settings-help" id={"#{@id}-#{row.index}-mode-help"}>
+            {row.mode_text}
+          </p>
+          <div class="settings-role-models">
+            <span class="settings-role-label">Models</span>
+            <.ladder_box
+              id={"#{@id}-#{row.index}-models"}
+              name={"#{@name}[#{row.index}][models]"}
+              field={@name}
+              role={row.index}
+              label={"role #{row.label}"}
+              entries={row.role["models"]}
+              view={@view}
+              invalid={not is_nil(@error)}
+              myself={@myself}
+            />
+          </div>
+          <div class="settings-role-part">
+            <label for={"#{@id}-#{row.index}-when"}>When to call it</label>
+            <input
+              type="text"
+              id={"#{@id}-#{row.index}-when"}
+              name={"#{@name}[#{row.index}][when]"}
+              value={row.role["when"]}
+              placeholder="plan review, security, tradeoffs"
+              autocomplete="off"
+            />
+          </div>
+          <div class="settings-role-part">
+            <label for={"#{@id}-#{row.index}-prompt"}>
+              Instructions <span class="settings-optional">Optional</span>
+            </label>
+            <textarea
+              id={"#{@id}-#{row.index}-prompt"}
+              name={"#{@name}[#{row.index}][prompt]"}
+              class="settings-instructions"
+              rows="3"
+              placeholder="How it should answer, such as: look for security problems first."
+            >{row.role["prompt"]}</textarea>
+          </div>
+        </li>
+      </ol>
+      <button
+        :if={length(@rows) < @most}
+        type="button"
+        class="settings-role-add"
+        phx-click="role"
+        phx-value-field={@name}
+        phx-value-action="add"
+        phx-target={@myself}
+      ><Components.icon name={:plus} /><span>Add role</span></button>
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
     </fieldset>
     """
@@ -1137,115 +1106,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # unfinished. A removal that is refused says which models run on the
   # account over the page, so the row that asked never grows (Andrew,
   # 2026-09-27: a row that "extends and design breaks").
-  # The saved presets, a row each: its name, what it runs and Remove. A row
-  # being pasted is a box until its text reads as an export; a preset whose
-  # accounts are not all listed carries Kit's amber clock, since the choices
-  # above leave it out until they are.
-  defp field(%{field: %{kind: :presets}} = assigns) do
-    %{field: field, value: entries, view: view} = assigns
-    accounts = view.snapshot.work.model_accounts
-
-    rows =
-      entries
-      |> Enum.with_index()
-      |> Enum.map(fn {text, index} ->
-        case SettingsSections.preset_export(text) do
-          {:ok, name, recipe} ->
-            %{
-              index: index,
-              text: text,
-              name: name,
-              summary: preset_summary(recipe),
-              missing: preset_missing(recipe, accounts)
-            }
-
-          :error ->
-            %{index: index, text: text, name: nil, summary: nil, missing: []}
-        end
-      end)
-
-    assigns =
-      assign(assigns,
-        name: SettingsSections.field_name(field),
-        rows: rows,
-        adding?: Enum.any?(rows, &is_nil(&1.name)),
-        count: length(entries),
-        most: Settings.most_work_presets()
-      )
-
-    ~H"""
-    <fieldset
-      class="settings-field settings-ladder settings-presets"
-      id={@id}
-      aria-describedby={help_id(@id, @field)}
-    >
-      <legend>{@field.label}</legend>
-      <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
-      <input type="hidden" name={"#{@name}[sent]"} value="1" />
-      <div class="settings-ladder-box">
-        <p :if={@rows == []} class="settings-presets-empty">No presets yet.</p>
-        <ol :if={@rows != []} class="settings-ladder-list">
-          <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
-            <span class="settings-ladder-order" aria-hidden="true">{row.index + 1}</span>
-            <div :if={row.name} class="settings-ladder-part settings-preset">
-              <input type="hidden" name={"#{@name}[#{row.index}]"} value={row.text} />
-              <p class="settings-preset-name">
-                <strong>{row.name}</strong>
-                <Kit.caveat_mark
-                  :if={row.missing != []}
-                  id={"#{@id}-#{row.index}-accounts"}
-                  hint={"Not offered until #{Wording.list(row.missing)} #{if length(row.missing) == 1, do: "is", else: "are"} listed under Model accounts"}
-                />
-              </p>
-              <p class="settings-preset-summary">{row.summary}</p>
-            </div>
-            <div :if={is_nil(row.name)} class="settings-ladder-part">
-              <label for={"#{@id}-#{row.index}-export"}>Preset {row.index + 1}</label>
-              <textarea
-                id={"#{@id}-#{row.index}-export"}
-                name={"#{@name}[#{row.index}]"}
-                rows="6"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="Paste what coop presets NAME --export-job prints"
-                aria-invalid={to_string(String.trim(row.text) != "")}
-              >{row.text}</textarea>
-              <Components.form_feedback
-                :if={String.trim(row.text) != ""}
-                message="This isn't a whole export yet. Paste everything coop presets NAME --export-job printed."
-                tone={:error}
-              />
-            </div>
-            <div class="settings-ladder-actions">
-              <button
-                type="button"
-                class="ui-button quiet settings-ladder-remove"
-                phx-click="presets"
-                phx-value-field={@name}
-                phx-value-action="remove"
-                phx-value-index={row.index}
-                phx-target={@myself}
-                title="Remove"
-                aria-label={"Remove #{row.name || "preset #{row.index + 1}"}"}
-              ><Components.icon name={:close} /></button>
-            </div>
-          </li>
-        </ol>
-        <button
-          :if={@count < @most and not @adding?}
-          type="button"
-          class="settings-ladder-add"
-          phx-click="presets"
-          phx-value-field={@name}
-          phx-value-action="add"
-          phx-target={@myself}
-        ><Components.icon name={:plus} /><span>Add preset</span></button>
-      </div>
-      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
-    </fieldset>
-    """
-  end
-
   defp field(%{field: %{kind: :accounts}} = assigns) do
     %{field: field, value: entries, error: error, refusal: refusal} = assigns
     name = SettingsSections.field_name(field)
@@ -1362,6 +1222,26 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         target={@myself}
       />
     </fieldset>
+    """
+  end
+
+  # Instructions are optional prose, written in a box that grows with them.
+  defp field(%{field: %{kind: :textarea}} = assigns) do
+    ~H"""
+    <div class="settings-field">
+      <label for={@id}>{@field.label} <span class="settings-optional">Optional</span></label>
+      <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
+      <textarea
+        id={@id}
+        name={SettingsSections.field_name(@field)}
+        class="settings-instructions"
+        rows="3"
+        placeholder={@field[:placeholder]}
+        aria-describedby={help_id(@id, @field)}
+        aria-invalid={to_string(not is_nil(@error))}
+      >{@value}</textarea>
+      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
+    </div>
     """
   end
 
@@ -1575,6 +1455,212 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     """
   end
 
+  attr(:id, :string, required: true, doc: "The element id each row's choices build theirs on")
+
+  attr(:name, :string,
+    required: true,
+    doc: "What the choices are sent as: lead, roles[0][models]"
+  )
+
+  attr(:field, :string, required: true, doc: "The form field its buttons change")
+  attr(:role, :integer, default: nil, doc: "The preset's role these models are, if a role's")
+  attr(:label, :string, required: true, doc: "What the models are for, in the buttons' names")
+  attr(:entries, :list, required: true)
+  attr(:saved, :list, default: [], doc: "The models saved before, kept on offer")
+  attr(:view, :map, required: true)
+  attr(:invalid, :boolean, default: false)
+  attr(:myself, :any, required: true)
+
+  # A list of models in the order Coop tries them: one numbered row each in a
+  # bordered box under the column names the rows share, with its move and
+  # remove buttons at its end, and Add fallback as the last row, where the new
+  # model lands (Andrew, 2026-09-27: "no need to say "First choice" and
+  # "Fallback 1" just design properly so we see where items start and
+  # finish"). The account choice lists the accounts of the chosen model's
+  # provider, and says so when there is none yet. A kind of work's list and
+  # each part of a preset are this one box.
+  defp ladder_box(assigns) do
+    %{entries: entries, view: view} = assigns
+    models = SettingsSections.ladder_models(view, assigns.saved, entries)
+    efforts = SettingsSections.ladder_efforts()
+
+    rows =
+      entries
+      |> Enum.with_index()
+      |> Enum.map(fn {entry, index} ->
+        accounts = SettingsSections.ladder_accounts(view, entry["model"])
+
+        %{
+          index: index,
+          entry: entry,
+          accounts: accounts,
+          model_prompt: not offered?(models, entry["model"]),
+          effort_prompt: not List.keymember?(efforts, entry["effort"], 0),
+          account_prompt: account_prompt(entry, accounts),
+          used_up: used_up(view, entry)
+        }
+      end)
+
+    assigns =
+      assign(assigns,
+        models: models,
+        efforts: efforts,
+        rows: rows,
+        count: length(entries),
+        most: Settings.most_work_models(),
+        # The Fast box only where a worker takes fast mode, or a model already asks for it, so
+        # it can be unticked: a +fast job waits for a worker that accepts one.
+        fast: view[:fast_mode] == true or Enum.any?(entries, &(&1["fast"] == "true"))
+      )
+
+    ~H"""
+    <div class={["settings-ladder-box", @fast && "settings-ladder-with-fast"]}>
+      <%!-- The column names, once for every row; each choice also keeps
+      its own label, shown where the row stacks on a narrow screen. --%>
+      <div class="settings-ladder-columns" aria-hidden="true">
+        <span>Model</span><span>Reasoning effort</span><span :if={@fast}>Fast</span><span>Account</span>
+      </div>
+      <ol class="settings-ladder-list">
+        <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
+          <span class="settings-ladder-order" aria-hidden="true">{row.index + 1}</span>
+          <div class="settings-ladder-part">
+            <label for={"#{@id}-#{row.index}-model"}>Model</label>
+            <select
+              id={"#{@id}-#{row.index}-model"}
+              name={"#{@name}[#{row.index}][model]"}
+              aria-invalid={to_string(@invalid)}
+            >
+              <option :if={row.model_prompt} value="" selected>Choose a model</option>
+              <optgroup :for={{provider, options} <- @models} label={provider}>
+                <option
+                  :for={{value, label} <- options}
+                  value={value}
+                  selected={row.entry["model"] == value}
+                >
+                  {label}
+                </option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="settings-ladder-part">
+            <label for={"#{@id}-#{row.index}-effort"}>Reasoning effort</label>
+            <select
+              id={"#{@id}-#{row.index}-effort"}
+              name={"#{@name}[#{row.index}][effort]"}
+              aria-invalid={to_string(@invalid)}
+            >
+              <option :if={row.effort_prompt} value="" selected>Choose an effort</option>
+              <option
+                :for={{value, label} <- @efforts}
+                value={value}
+                selected={row.entry["effort"] == value}
+              >
+                {label}
+              </option>
+            </select>
+          </div>
+          <%!-- Andrew, 2026-11-21: "can we also allow using fast mode?" The
+          provider's fast mode, about twice as fast for more of the plan or a
+          higher price, asked of Coop as +fast after the effort. --%>
+          <div :if={@fast} class="settings-ladder-part settings-ladder-fast">
+            <label for={"#{@id}-#{row.index}-fast"}>Fast mode</label>
+            <input type="hidden" name={"#{@name}[#{row.index}][fast]"} value="" />
+            <input
+              type="checkbox"
+              id={"#{@id}-#{row.index}-fast"}
+              name={"#{@name}[#{row.index}][fast]"}
+              value="true"
+              checked={row.entry["fast"] == "true"}
+              title="Fast mode: about twice as fast, for more of the plan's allowance or a higher price. A model without one runs at standard speed."
+            />
+          </div>
+          <div class="settings-ladder-part">
+            <label for={"#{@id}-#{row.index}-account"}>Account</label>
+            <%!-- A used-up account is a clock beside it, with when it resets
+            as its tooltip; a line under the box made the row taller than
+            its neighbours (Andrew, 2026-11-21: "this looks ugly too"). --%>
+            <div class="settings-ladder-account">
+              <select
+                id={"#{@id}-#{row.index}-account"}
+                name={"#{@name}[#{row.index}][account]"}
+                aria-invalid={to_string(@invalid)}
+              >
+                <option :if={row.account_prompt} value="" selected>{row.account_prompt}</option>
+                <option
+                  :for={account <- row.accounts}
+                  value={account}
+                  selected={row.entry["account"] == account}
+                >
+                  {account}
+                </option>
+              </select>
+              <Kit.caveat_mark
+                :if={row.used_up}
+                id={"#{@id}-#{row.index}-used-up"}
+                hint={used_up_hint(row.used_up)}
+              />
+            </div>
+          </div>
+          <%!-- Each button keeps its own slot, so every row's choices line up
+          whichever buttons it has. --%>
+          <div class="settings-ladder-actions">
+            <button
+              :if={row.index > 0}
+              type="button"
+              class="ui-button quiet settings-ladder-up"
+              phx-click="ladder"
+              phx-value-field={@field}
+              phx-value-role={@role}
+              phx-value-action="up"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              title="Move up"
+              aria-label={"Move model #{row.index + 1} for #{@label} up"}
+            ><Components.icon name={:arrow_up} /></button>
+            <button
+              :if={row.index < @count - 1}
+              type="button"
+              class="ui-button quiet settings-ladder-down"
+              phx-click="ladder"
+              phx-value-field={@field}
+              phx-value-role={@role}
+              phx-value-action="down"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              title="Move down"
+              aria-label={"Move model #{row.index + 1} for #{@label} down"}
+            ><Components.icon name={:arrow_down} /></button>
+            <button
+              :if={@count > 1}
+              type="button"
+              class="ui-button quiet settings-ladder-remove"
+              phx-click="ladder"
+              phx-value-field={@field}
+              phx-value-role={@role}
+              phx-value-action="remove"
+              phx-value-index={row.index}
+              phx-target={@myself}
+              title="Remove"
+              aria-label={"Remove model #{row.index + 1} for #{@label}"}
+            ><Components.icon name={:close} /></button>
+          </div>
+        </li>
+      </ol>
+      <button
+        :if={@count < @most}
+        type="button"
+        class="settings-ladder-add"
+        phx-click="ladder"
+        phx-value-field={@field}
+        phx-value-role={@role}
+        phx-value-action="add"
+        phx-target={@myself}
+        aria-label={"Add fallback for #{@label}"}
+      ><Components.icon name={:plus} /><span>Add fallback</span></button>
+    </div>
+    """
+  end
+
   defp input_type(:integer), do: "number"
   defp input_type(:date), do: "date"
   defp input_type(:time), do: "time"
@@ -1762,6 +1848,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       slack_notice(Integrations.slack(view))
     ]
     |> Enum.filter(& &1)
+  end
+
+  # Sixteen presets is as many as a job may choose between.
+  defp notices(%{key: :model_presets}, view) do
+    if length(SettingsSections.items(%{key: :model_presets}, view)) >=
+         Settings.most_work_presets(),
+       do: [%{text: "Keep at most 16 presets. Remove one to add another.", blocks_add: true}],
+       else: []
   end
 
   defp notices(_section, _view), do: []
@@ -2041,41 +2135,4 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     |> Enum.reject(&(&1 in [nil, false]))
     |> Enum.join(" · ")
   end
-
-  # "Lead gpt-6.2-sol · asks critic and thinker · hands work to fast"
-  defp preset_summary(%{"targets" => [lead | _], "preset" => %{"roles" => roles}})
-       when is_binary(lead) and is_list(roles) do
-    by_mode = Enum.group_by(roles, & &1["mode"], & &1["name"])
-
-    [
-      "Lead #{lead_model(lead)}",
-      role_words("asks", by_mode["consult"]),
-      role_words("hands work to", by_mode["delegate"]),
-      role_words("runs alongside", by_mode["native"])
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-  end
-
-  defp preset_summary(_recipe), do: nil
-
-  defp lead_model(target) do
-    case Work.target_parts(target) do
-      %{model: model} -> model
-      nil -> target
-    end
-  end
-
-  defp role_words(_verb, nil), do: nil
-  defp role_words(verb, names), do: "#{verb} #{Wording.list(names)}"
-
-  defp preset_missing(%{"targets" => targets, "preset" => %{"roles" => roles}}, accounts)
-       when is_list(targets) and is_list(roles) do
-    (targets ++ Enum.flat_map(roles, &List.wrap(&1["targets"])))
-    |> Enum.map(&Settings.work_account/1)
-    |> Enum.uniq()
-    |> Enum.reject(&(&1 in accounts))
-  end
-
-  defp preset_missing(_recipe, _accounts), do: []
 end

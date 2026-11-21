@@ -119,6 +119,8 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/environments/new", Ryker.ControlPlane.WorkbenchLive)
     live("/environments/:ref/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/models/local-routing", Ryker.ControlPlane.WorkbenchLive)
+    live("/settings/models/presets/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/settings/models/presets/:item/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/prices/new", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/prices/:item/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/integrations/emisar/new", Ryker.ControlPlane.WorkbenchLive)

@@ -1552,12 +1552,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert LazyHTML.query(models, "main section.kit-card > header.section-head h2") |> texts() ==
              cards
 
-    for card <- cards do
+    for card <- cards -- ["Presets"] do
       assert models
              |> LazyHTML.query("section.kit-card[aria-label='#{card}'] form button[type=submit]")
              |> texts() == ["Save changes"],
              card
     end
+
+    # Presets is a list, each preset a page of its own.
+    assert models
+           |> LazyHTML.query("section.kit-card[aria-label=Presets] a.settings-editor-add")
+           |> texts() == ["Add preset"]
   end
 
   test "instructions typed before setup do not stop the console from creating settings" do
@@ -1574,89 +1579,189 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert {:ok, %{text: "Existing guidance"}} = Ryker.Instructions.get(:global)
   end
 
-  # Andrew, 2026-11-21: "how do I use presets in models selector?!" and "whats the point of
-  # dropdowns that have only one option?" A preset was a file only a shell on the controller
-  # could add. It is pasted on the Models page now, as Coop exports it, and until one can run,
-  # Code reviews and Code changes offer nothing to choose and are not shown.
-  test "a pasted preset is offered for reviews and code changes once its accounts are listed" do
-    snapshot = initialize!()
-    form_id = "#settings-other_models-form"
-    presets_form = "#settings-model_presets-form"
+  # Andrew, 2026-11-21: "how do I use presets in models selector?!", then "cant you build a nice
+  # ux here to build preset instead of copy-pasting yaml? Like one we have to select fallback
+  # models". A preset was a file only a shell on the controller could add, then an export to paste.
+  # Now its lead and each role pick their models with the rows every list of models uses, and the
+  # page saves exactly the recipe Coop's export would have held. Until a preset can run, Code
+  # reviews and Code changes offer nothing to choose and are not shown ("whats the point of
+  # dropdowns that have only one option?").
+  test "a preset built from model rows saves as Coop's recipe and is offered once it can run" do
+    initialize!()
+    list_accounts!(["codex@default", "claude@review"])
+    other = "#settings-other_models-form"
+    form = "#settings-model_presets-form"
     {:ok, view, _} = open("/settings/models")
 
-    refute has_element?(view, "#{form_id} select[name=code_review_preset]")
-    refute has_element?(view, "#{form_id} select[name=contributor_preset]")
-    assert has_element?(view, "#{form_id} select[name='contributor_models[0][model]']")
-    assert has_element?(view, "#{presets_form} .settings-presets-empty", "No presets yet.")
+    refute has_element?(view, "#{other} select[name=code_review_preset]")
+    assert has_element?(view, "section[aria-label=Presets] .kit-empty", "No presets yet")
+    view |> element("section[aria-label=Presets] a", "Add preset") |> render_click()
+    assert_patch(view, "/settings/models/presets/new")
+    assert has_element?(view, "main h1", "Add a preset")
 
-    %{"job" => job} =
-      "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
+    # The lead starts as Standard work's model; a role starts as a second opinion on it.
+    assert has_element?(
+             view,
+             "#{form} select[name='lead[0][model]'] option[selected]",
+             "gpt-6.2-sol"
+           )
 
-    review = Map.take(job, ["preset", "targets"])
-
-    writer =
-      review
-      |> put_in(["preset", "name"], "writer")
-      |> update_in(["preset", "roles"], fn [role] -> [Map.put(role, "mode", "delegate")] end)
-
-    view |> element("#{presets_form} button", "Add preset") |> render_click()
-    view |> form(presets_form, %{"presets" => %{"0" => Jason.encode!(review)}}) |> render_change()
-    assert has_element?(view, "#{presets_form} .settings-preset-name", "review")
-    assert has_element?(view, "#{presets_form} .settings-preset-summary", "asks reader")
-    view |> element("#{presets_form} button", "Add preset") |> render_click()
-    view |> form(presets_form, %{"presets" => %{"1" => Jason.encode!(writer)}}) |> render_submit()
-    refute has_element?(view, "#{presets_form} .settings-error"), render(view)
-    assert Settings.fetch!().work.presets == %{"review" => review, "writer" => writer}
-
-    # Its consult role runs on claude@review, which is not listed yet.
-    {:ok, view, _} = open("/settings/models")
-
-    caveat =
-      "#{presets_form} .kit-caveat[title='Not offered until claude@review is listed under Model accounts']"
-
-    assert has_element?(view, caveat)
-    refute has_element?(view, "#{form_id} select[name=code_review_preset]")
-
-    {:ok, _} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "claude@review"]},
-        Settings.fetch!().installation.revision,
-        @actor
-      )
-
-    {:ok, view, _} = open("/settings/models")
-    refute has_element?(view, "#{presets_form} .kit-caveat")
+    view |> element("#{form} button", "Add role") |> render_click()
 
     assert has_element?(
              view,
-             "#{form_id} select[name=code_review_preset] option",
-             "Standard work models"
+             "#{form} select[name='roles[0][mode]'] option[selected]",
+             "second opinion"
            )
 
-    refute has_element?(view, "#{form_id} select[name=code_review_preset] option[value=writer]")
-    selected = %{"contributor_preset" => "writer", "code_review_preset" => "review"}
-    view |> form(form_id, selected) |> render_change()
-    assert has_element?(view, "#{form_id} details summary", "Lead")
-    refute has_element?(view, "#{form_id} select[name='contributor_models[0][model]']")
-    view |> form(form_id, selected) |> render_submit()
-    refute has_element?(view, "#{form_id} .settings-error"), render(view |> element(form_id))
-    saved = Settings.fetch!().work
-    assert {saved.code_review_preset, saved.contributor_preset} == {"review", "writer"}
-    assert saved.contributor_models == snapshot.work.contributor_models
+    view
+    |> form(form, %{
+      "name" => "review",
+      "roles" => %{
+        "0" => %{"name" => "critic", "models" => %{"0" => %{"model" => "claude:claude-opus-5-5"}}}
+      }
+    })
+    |> render_change()
 
-    # A preset in use stays until another is chosen for its work.
-    {:ok, view, _} = open("/settings/models")
-    view |> element("#{presets_form} button[aria-label='Remove writer']") |> render_click()
-    view |> form(presets_form) |> render_submit()
-    assert has_element?(view, "#{presets_form} .settings-error", "can't be removed")
-    assert Map.has_key?(Settings.fetch!().work.presets, "writer")
+    # A Claude model offers the Claude accounts.
+    assert has_element?(
+             view,
+             "#{form} select[name='roles[0][models][0][account]'] option",
+             "review"
+           )
 
-    view |> form(form_id, %{"contributor_preset" => ""}) |> render_submit()
+    view
+    |> form(form, %{
+      "roles" => %{
+        "0" => %{
+          "models" => %{"0" => %{"effort" => "high", "account" => "review"}},
+          "when" => "plan review, security"
+        }
+      }
+    })
+    |> render_submit()
+
+    assert_patch(view, "/settings/models")
+    assert has_element?(view, ".form-feedback-success", "review was added.")
+
+    assert Settings.fetch!().work.presets == %{
+             "review" => %{
+               "targets" => ["codex:gpt-6.2-sol/medium@default"],
+               "preset" => %{
+                 "version" => 1,
+                 "name" => "review",
+                 "lead_prompt" => "",
+                 "roles" => [
+                   %{
+                     "name" => "critic",
+                     "mode" => "consult",
+                     "targets" => ["claude:claude-opus-5-5/high@review"],
+                     "when" => ["plan review", "security"],
+                     "prompt" => ""
+                   }
+                 ]
+               }
+             }
+           }
+
+    assert has_element?(view, "section[aria-label=Presets] .entity-row-link", "review")
+
+    assert has_element?(
+             view,
+             "section[aria-label=Presets] .entity-row",
+             "Lead gpt-6.2-sol · asks critic"
+           )
+
+    assert has_element?(view, "#{other} select[name=code_review_preset] option[value=review]")
+    assert has_element?(view, "#{other} select[name=contributor_preset] option[value=review]")
+
+    # Without one of its accounts it runs nowhere, so it is not offered and its row says why.
+    list_accounts!(["codex@default"])
     {:ok, view, _} = open("/settings/models")
-    view |> element("#{presets_form} button[aria-label='Remove writer']") |> render_click()
-    view |> form(presets_form) |> render_submit()
-    refute has_element?(view, "#{presets_form} .settings-error"), render(view)
-    assert Map.keys(Settings.fetch!().work.presets) == ["review"]
+    refute has_element?(view, "#{other} select[name=code_review_preset]")
+
+    assert has_element?(
+             view,
+             "section[aria-label=Presets] .state-word[title='Not offered until claude@review is listed under Model accounts']",
+             "Not offered"
+           )
+  end
+
+  # Every card on the Models page saves on its own, and each save hands the page a fresh view.
+  # Until 2026-11-21 only Other work's save carried the presets, so saving Requests or Model
+  # accounts took Code reviews and Code changes off the page until it was reloaded.
+  test "saving another Models card keeps the presets on offer for reviews and code changes" do
+    initialize!()
+    list_accounts!(["codex@default", "claude@review"])
+    put_preset!("review", [role("critic", "consult", "claude:claude-opus-5-5/high@review")])
+    other = "#settings-other_models-form"
+    {:ok, view, _} = open("/settings/models")
+    assert has_element?(view, "#{other} select[name=code_review_preset] option[value=review]")
+
+    view
+    |> form("#settings-request_models-form", %{
+      "routing_models" => %{"0" => %{"effort" => "high"}}
+    })
+    |> render_submit()
+
+    assert Settings.fetch!().work.routing_models == ["codex:gpt-6.2-sol/high@default"]
+    assert has_element?(view, "#{other} select[name=code_review_preset] option[value=review]")
+  end
+
+  # Code reviews only read, so a preset they run may not gain a role that changes files, and the
+  # page says so at the roles rather than as a refusal of the whole form. Removing it is refused
+  # the same way, naming the work that runs it, until that work runs something else.
+  test "a preset that code reviews run stays read-only and stays until they run another" do
+    initialize!()
+    list_accounts!(["codex@default", "claude@review"])
+    put_preset!("review", [role("critic", "consult", "claude:claude-opus-5-5/high@review")])
+    save_work!(%{code_review_preset: "review"})
+    form = "#settings-model_presets-form"
+
+    # A new preset can't take a saved one's name.
+    {:ok, view, _} = open("/settings/models/presets/new")
+    view |> form(form, %{"name" => "review"}) |> render_submit()
+
+    assert has_element?(
+             view,
+             "#{form} .settings-error",
+             "A preset with this name is saved already."
+           )
+
+    {:ok, view, _} = open("/settings/models/presets/review/edit")
+    assert has_element?(view, "main h1", "Edit review")
+    assert has_element?(view, "#{form} input[name=name][readonly]")
+
+    view |> form(form, %{"roles" => %{"0" => %{"mode" => "delegate"}}}) |> render_submit()
+    assert has_element?(view, "#{form} .settings-error", "Code reviews run this preset")
+    assert [%{"mode" => "consult"}] = Settings.fetch!().work.presets["review"]["preset"]["roles"]
+
+    remove = fn view ->
+      view
+      |> element("#settings-model_presets-remove-card button", "Remove preset")
+      |> render_click()
+
+      view
+      |> element("#settings-model_presets-remove button[phx-click=delete-item]")
+      |> render_click()
+    end
+
+    remove.(view)
+
+    assert has_element?(
+             view,
+             "#settings-model_presets-remove",
+             "Code reviews run this preset. Choose other models for them under Other work first."
+           )
+
+    assert Map.has_key?(Settings.fetch!().work.presets, "review")
+
+    save_work!(%{code_review_preset: nil})
+    {:ok, view, _} = open("/settings/models/presets/review/edit")
+    remove.(view)
+    assert_patch(view, "/settings/models")
+    assert has_element?(view, ".form-feedback-success", "review was removed.")
+    assert Settings.fetch!().work.presets == %{}
   end
 
   test "each kind of work has its own models, chosen by model, effort and account" do
@@ -3127,6 +3232,29 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, snapshot} = Settings.initialize(@actor)
     snapshot
   end
+
+  defp save_work!(attributes) do
+    {:ok, snapshot} =
+      Settings.save_work(attributes, Settings.fetch!().installation.revision, @actor)
+
+    snapshot
+  end
+
+  defp list_accounts!(accounts), do: save_work!(%{model_accounts: accounts})
+
+  defp put_preset!(name, roles) do
+    {:ok, snapshot} =
+      Settings.put_work_preset(
+        %{name: name, lead: ["codex:gpt-6.2-sol/medium@default"], lead_prompt: "", roles: roles},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    snapshot
+  end
+
+  defp role(name, mode, target),
+    do: %{"name" => name, "mode" => mode, "targets" => [target], "when" => [], "prompt" => ""}
 
   # What the browser keeps of a form while its page is away
   # (`settings-draft.mjs`): the revision and saved values it began from, and

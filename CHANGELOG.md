@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Build presets on the Models page.** **Add preset** opens a page that picks the lead's models
+  and each role's with the same rows every list of models uses: a model, a reasoning effort, fast
+  mode and an account, with fallbacks in order. A role gives a second opinion, does the work it's
+  given, or works inside the lead's session, and says when the lead should call it. Ryker saves
+  the recipe Coop's export would hold, so pasting that export is gone. A preset that code reviews
+  run can't gain a role that changes files.
+
+- **Saving a card on the Models page keeps the preset choices.** Saving Requests or Model accounts
+  took Code reviews and Code changes off the page until it was reloaded.
+
 ## 0.5.1
 
 - **Routing can recover from a worker interruption.** Messages keep their retry budget

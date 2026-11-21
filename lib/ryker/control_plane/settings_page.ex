@@ -33,6 +33,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.Work
 
   @weekdays ~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
+  # The lists whose rows each have a page of their own, the settings editor's form.
+  @item_forms [:pricing, :webhooks, :model_presets]
 
   @doc "The title of one page: the name it has in the sidebar, or Set up Ryker."
   @spec title(atom()) :: String.t()
@@ -238,6 +240,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         view={@view}
         commands={@commands}
         confirm={@confirm}
+        account_limits={@account_limits}
       />
       <%= if is_nil(@form) do %>
         <SetupPage.render :if={@section == :setup} view={@view} params={@params} />
@@ -508,6 +511,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
+  attr(:account_limits, :map, default: nil, doc: "What each account's provider last reported")
 
   # The one thing a page of one form adds or edits, in its card; a row that is
   # gone says so and leads back to its list instead of showing an empty form.
@@ -519,7 +523,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     """
   end
 
-  defp form_page(%{form: {key, item}} = assigns) when key in [:pricing, :webhooks] do
+  defp form_page(%{form: {key, item}} = assigns) when key in @item_forms do
     collection = section!(key)
 
     assigns =
@@ -548,6 +552,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       form={{:form, @item}}
       label={heading(@section, @form, @view).title}
       paths={paths(@key)}
+      account_limits={@account_limits}
     />
     <.gone
       :if={!@found}
@@ -613,6 +618,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # Where each list section of these pages lives: its list, and the address its
   # rows' forms are under (`/new` adds one, `/<key>/edit` edits one).
   defp paths(:pricing), do: %{list: "/settings/prices", items: "/settings/prices"}
+
+  defp paths(:model_presets),
+    do: %{list: "/settings/models", items: "/settings/models/presets"}
 
   defp paths(:webhooks),
     do: %{list: "/integrations/webhooks", items: "/integrations/webhooks/sources"}
@@ -2227,7 +2235,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       back: {"Webhooks", "/integrations/webhooks"}
     }
 
-  defp heading(section, {key, item_key}, view) when key in [:pricing, :webhooks] do
+  defp heading(section, {key, item_key}, view) when key in @item_forms do
     collection = section!(key)
     noun = Map.get(collection, :item_label, "entry")
 
@@ -2247,9 +2255,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
     %{
       title: title,
       description: form_description(key),
-      back: {"All " <> String.downcase(page(section).title), paths(key).list}
+      back: {back(section, key), paths(key).list}
     }
   end
+
+  # A preset's page returns to the Models page, of which presets are one card.
+  defp back(section, :model_presets), do: page(section).title
+  defp back(section, _key), do: "All " <> String.downcase(page(section).title)
 
   defp edit_title(%{display_name: name}, _noun), do: "Edit " <> name
   defp edit_title(%{name: name}, _noun), do: "Edit " <> name
@@ -2260,6 +2272,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp form_description(:webhooks),
     do: "Where a sender posts its events, how Ryker reads them and where Ryker works on them."
+
+  defp form_description(:model_presets),
+    do: "A lead model and the roles it can call, on the models and accounts of the Models page."
 
   defp page(:setup),
     do: %{title: "Set up Ryker", description: "Connect Ryker to Slack and your code."}

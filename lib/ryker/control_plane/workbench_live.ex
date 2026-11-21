@@ -1715,6 +1715,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @form_lists %{
     ["environments"] => {:environments, :environment},
     ["settings", "prices"] => {:pricing, :pricing},
+    ["settings", "models", "presets"] => {:model, :model_presets},
     ["integrations", "emisar"] => {:emisar, :emisar},
     ["integrations", "webhooks", "credentials"] => {:webhooks, :webhook_credential},
     ["integrations", "webhooks", "sources"] => {:webhooks, :webhooks}

@@ -83,6 +83,8 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/repositories/new", :repositories},
     {"/environments/new", :environments},
     {"/environments/:ref/edit", :environments},
+    {"/settings/models/presets/new", :presets},
+    {"/settings/models/presets/:item/edit", :presets},
     {"/settings/prices/new", :prices},
     {"/settings/prices/:item/edit", :prices},
     {"/integrations/emisar/new", :emisar},
@@ -656,6 +658,25 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Local routing model",
        [
          "A small model you run yourself can answer each routing prompt after the provider model has decided. Its card shows how often the two agree, and routing never uses its answer."
+       ]}
+    ])
+  end
+
+  defp help(:presets) do
+    page("How presets work", [
+      {"Roles",
+       [
+         "A preset is a lead model with roles it can call: one that gives a second opinion, one that does the work it's given, or a helper inside the lead's own session.",
+         "The lead decides when to call each role, from its name and when to call it."
+       ]},
+      {"Where presets run",
+       [
+         "Code reviews and Code changes on the Models page can run a preset instead of their models. Code reviews only read, so they offer a preset only when none of its roles changes files."
+       ]},
+      {"Accounts",
+       [
+         "The lead and its roles share one sign-in per provider, so every model of one provider in a preset uses the same account.",
+         "A preset whose account is no longer listed under Model accounts isn't offered until it is listed again."
        ]}
     ])
   end

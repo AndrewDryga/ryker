@@ -824,23 +824,29 @@ the Mac.
 
 ## Using a Coop preset for Models
 
-A preset is a Coop recipe: a lead model and the roles it consults or hands work to, in
-Coop's global preset format. Make one with `coop presets init`, then run
-`coop presets NAME --export-job` and paste the whole output into **Settings → Models →
-Presets** (**Add preset**), and save. The export holds the lead targets, account names, roles
-and prompt text. List those accounts under **Settings → Models → Model accounts** and sign them
-in on the workers that run the job; until every one is listed the preset carries an amber
-clock and isn't offered.
+A preset is a Coop recipe: a lead model and the roles it can call. Build one under **Settings →
+Models → Presets** with **Add preset**. Name it, choose the lead's models the way each kind of
+work's models are chosen, a model, a reasoning effort and an account per row with fallbacks
+in order, then add each role: its name, what it does, its models, when the lead should call it
+and, if you like, its instructions. A role gives a second opinion (Coop's `consult`), does the
+work it's given and may change files (`delegate`), or works inside the lead's own session
+(`native`, one model on the account every lead model uses). The lead and its roles share one
+sign-in per provider, so every model of one provider in a preset uses the same account. Ryker
+saves the recipe `coop presets NAME --export-job` would print for the same choices.
+
+Each model's account must be listed under **Settings → Models → Model accounts** and signed in
+on the workers that run the job. A preset whose account was removed from that list says **Not
+offered** and isn't offered until the account is listed again.
 
 Once a preset can run, **Settings → Models → Other work** offers it for **Code reviews** and
 **Code changes**; with none, those two choices aren't shown. **Standard work models** keeps
 reviews on Standard work's models, and **Contributor work models** keeps code changes on
-Contributor work's models and fallback order. A review preset may have only read-only roles; a
-delegate needs a writable contributor job. A reviewer assignment, the review label, or a PR
-comment addressed to the App asking it to review uses the review choice. Confirmed changes use
-the code-change choice and the existing publication approval.
+Contributor work's models and fallback order. A review preset may have only read-only roles, so
+a preset that code reviews run can't gain a role that changes files. A reviewer assignment, the
+review label, or a PR comment addressed to the App asking it to review uses the review choice.
+Confirmed changes use the code-change choice and the existing publication approval.
 
-To change a preset, remove it, paste the new export and save. New jobs read the saved recipe and
+A preset's page edits it in place; its name can't change. New jobs read the saved recipe and
 pin it with their sources; jobs already admitted keep their role instructions. A preset that
 code reviews or code changes use can't be removed until another is chosen there. Jobs that use a
 recipe require a worker advertising `job-preset:1`.

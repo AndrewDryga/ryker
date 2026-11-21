@@ -78,7 +78,16 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   end
 
   # A generated identifier is not an editable field, so the form carries the row
-  # it is editing separately. Without it every save would create a new row.
+  # it is editing separately. Without it every save would create a new row. A
+  # preset's page says which saved preset it edits, so a new one under a name
+  # already saved is refused instead of saved over that one.
+  defp identify(%{key: :model_presets}, attributes, params) do
+    case Map.get(params, "item_key") do
+      key when is_binary(key) and key != "" -> Map.merge(attributes, %{name: key, edits: key})
+      _new_preset -> attributes
+    end
+  end
+
   defp identify(section, attributes, params) do
     case Map.get(params, "item_key") do
       key when is_binary(key) and key != "" -> Map.put(attributes, section.item_key, key)
@@ -108,6 +117,9 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   defp put(%{key: :pricing}, attributes, revision, actor_ref),
     do: Settings.put_pricing_rate(attributes, revision, actor_ref)
 
+  defp put(%{key: :model_presets}, attributes, revision, actor_ref),
+    do: Settings.put_work_preset(attributes, revision, actor_ref)
+
   # A source may reference only a credential this deployment registered. Saving
   # an unregistered name would leave a route that cannot start, and accepting an
   # arbitrary name would make the form a way to read the process environment.
@@ -127,6 +139,9 @@ defmodule Ryker.ControlPlane.SettingsCommands do
 
   defp remove(%{key: :pricing}, id, revision, actor_ref),
     do: Settings.delete_pricing_rate(id, revision, actor_ref)
+
+  defp remove(%{key: :model_presets}, name, revision, actor_ref),
+    do: Settings.delete_work_preset(name, revision, actor_ref)
 
   defp remove(%{key: :webhooks}, name, revision, actor_ref),
     do: Settings.delete_webhook_source(name, revision, actor_ref)

@@ -6,6 +6,7 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   @name ~r/\A[a-z0-9][a-z0-9._-]{0,63}\z/
   @role_name ~r/\A[a-z][a-z0-9-]{0,63}\z/
+  @most_roles 16
   @target ~r/\A(?:codex|claude)(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?(?:\/(?:low|medium|high|xhigh))?(?:\+fast)?@[a-z0-9][a-z0-9_-]{0,63}\z/
 
   def name?(name), do: Reference.matches?(name, @name)
@@ -21,9 +22,9 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   def valid?(job), do: not Map.has_key?(job, "preset")
 
-  defp roles?(roles, leads, read_only) when is_list(roles) and length(roles) <= 16 do
+  defp roles?(roles, leads, read_only) when is_list(roles) and length(roles) <= @most_roles do
     Enum.all?(roles, &role?(&1, read_only)) and Enum.uniq_by(roles, & &1["name"]) == roles and
-      Enum.all?(leads, &accounts_match?(&1, roles))
+      one_account_per_provider?(leads, roles) and native_on_lead_account?(leads, roles)
   end
 
   defp roles?(_roles, _leads, _read_only), do: false
@@ -40,18 +41,33 @@ defmodule Ryker.CoopFleet.JobPreset do
   defp mode?("native", [_one], _read_only), do: true
   defp mode?(_mode, _targets, _read_only), do: false
 
-  # A box mounts one login per provider. Native roles run inside the current
-  # lead's session, including when a retry moves to a different lead target.
-  defp accounts_match?(lead, roles) do
-    lead_account = Settings.Work.account(lead)
-    targets = [lead | Enum.flat_map(roles, & &1["targets"])]
-    accounts = targets |> Enum.map(&Settings.Work.account/1) |> Enum.uniq()
-    providers = Enum.map(accounts, &hd(String.split(&1, "@", parts: 2)))
+  @doc """
+  Whether one sign-in per provider serves each lead model and every role
+  beside it: a box mounts one login per provider.
+  """
+  @spec one_account_per_provider?([String.t()], [map()]) :: boolean()
+  def one_account_per_provider?(leads, roles) do
+    Enum.all?(leads, fn lead ->
+      accounts =
+        [lead | Enum.flat_map(roles, & &1["targets"])]
+        |> Enum.map(&Settings.Work.account/1)
+        |> Enum.uniq()
 
-    Enum.uniq(providers) == providers and
-      Enum.all?(roles, fn role ->
-        role["mode"] != "native" or Settings.Work.account(hd(role["targets"])) == lead_account
-      end)
+      providers = Enum.map(accounts, &hd(String.split(&1, "@", parts: 2)))
+      Enum.uniq(providers) == providers
+    end)
+  end
+
+  @doc """
+  Whether each native role runs on the account of every lead model: it runs
+  inside the lead's session, including when a retry moves to another lead.
+  """
+  @spec native_on_lead_account?([String.t()], [map()]) :: boolean()
+  def native_on_lead_account?(leads, roles) do
+    for role <- roles, role["mode"] == "native", lead <- leads, reduce: true do
+      matched ->
+        matched and Settings.Work.account(hd(role["targets"])) == Settings.Work.account(lead)
+    end
   end
 
   defp targets?(values) when is_list(values) and length(values) in 1..4 do
@@ -63,9 +79,18 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   defp targets?(_values), do: false
 
-  defp hints?(values) when is_list(values) and length(values) <= 16,
+  @doc "Whether `values` are a role's `when` hints: at most sixteen short phrases, none blank."
+  @spec hints?(term()) :: boolean()
+  def hints?(values) when is_list(values) and length(values) <= 16,
     do: Enum.all?(values, &(is_binary(&1) and byte_size(&1) <= 512 and String.trim(&1) != ""))
 
-  defp hints?(_values), do: false
-  defp prompt?(text), do: is_binary(text) and byte_size(text) <= 32 * 1024 and String.valid?(text)
+  def hints?(_values), do: false
+
+  @doc "Whether `text` fits as the lead's or a role's instructions: UTF-8, at most 32 KiB."
+  @spec prompt?(term()) :: boolean()
+  def prompt?(text), do: is_binary(text) and byte_size(text) <= 32 * 1024 and String.valid?(text)
+
+  @doc "The most roles one preset holds."
+  @spec most_roles() :: pos_integer()
+  def most_roles, do: @most_roles
 end

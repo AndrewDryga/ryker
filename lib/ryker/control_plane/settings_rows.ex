@@ -5,7 +5,9 @@ defmodule Ryker.ControlPlane.SettingsRows do
   a sender posts to, when it has one.
   """
   alias Ryker.ControlPlane.{Integrations, SettingsSections, ShortTime}
+  alias Ryker.Settings
   alias Ryker.Slack
+  alias Ryker.Wording
   alias Ryker.Work
 
   @type row :: %{
@@ -49,6 +51,27 @@ defmodule Ryker.ControlPlane.SettingsRows do
     })
   end
 
+  # A preset reads as what it runs: its lead, what it calls each role for
+  # and which work runs it. One whose accounts are not all listed says so,
+  # since Code reviews and Code changes leave it out until they are.
+  def present(%{key: :model_presets}, preset, view) do
+    missing = preset_missing(preset, view.snapshot.work.model_accounts)
+    uses = SettingsSections.preset_uses(view, preset.name)
+
+    row(%{
+      icon: :cards,
+      name: preset.name,
+      state:
+        if missing != [] do
+          {:warn, "Not offered",
+           "Not offered until #{Wording.list(missing)} " <>
+             Wording.word(length(missing), "is", "are") <> " listed under Model accounts"}
+        end,
+      text: preset_summary(preset),
+      meta: [if(uses != [], do: "Runs " <> Wording.list(uses))]
+    })
+  end
+
   def present(section, item, _view) do
     [first | rest] = section.fields
 
@@ -71,6 +94,11 @@ defmodule Ryker.ControlPlane.SettingsRows do
 
   def removal(%{key: :webhooks}),
     do: "Ryker stops accepting events at its address. Events already received stay."
+
+  def removal(%{key: :model_presets}) do
+    "Code reviews and code changes stop offering it. Work already running keeps the copy it " <>
+      "started with."
+  end
 
   def removal(_section), do: "It is removed from these settings."
 
@@ -101,6 +129,32 @@ defmodule Ryker.ControlPlane.SettingsRows do
       value when value in ["", nil] -> nil
       value -> value
     end
+  end
+
+  # "Lead gpt-6.2-sol · asks critic and thinker · hands work to fast"
+  defp preset_summary(%{lead: lead, roles: roles}) do
+    by_mode = Enum.group_by(roles, & &1["mode"], & &1["name"])
+
+    [
+      "Lead " <> model_name(List.first(lead)),
+      role_words("asks", by_mode["consult"], ""),
+      role_words("hands work to", by_mode["delegate"], ""),
+      role_words("works with", by_mode["native"], " in its session")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp role_words(_verb, nil, _after), do: nil
+  defp role_words(verb, names, after_names), do: "#{verb} #{Wording.list(names)}#{after_names}"
+
+  # The accounts a preset runs on that Model accounts does not list.
+  defp preset_missing(%{lead: lead, roles: roles}, accounts) do
+    (lead ++ Enum.flat_map(roles, &List.wrap(&1["targets"])))
+    |> Enum.map(&Settings.work_account/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.reject(&(&1 in accounts))
   end
 
   defp model_name(target) do

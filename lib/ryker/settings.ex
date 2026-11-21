@@ -48,6 +48,8 @@ defmodule Ryker.Settings do
   }
   @retention_fields Map.keys(@retention_defaults)
   @application_failures [:assembly_failed, :runtime_start_failed]
+  # What a preset's form writes (`put_work_preset/3`).
+  @preset_fields [:name, :edits, :lead, :lead_prompt, :roles]
   # Each kind of item a list of settings holds: the snapshot list it is in,
   # the field that names it, and the changeset module that writes it.
   @items %{
@@ -524,6 +526,73 @@ defmodule Ryker.Settings do
       end)
     end
   end
+
+  @doc """
+  Adds a preset built under Settings › Models › Presets, or saves over the
+  saved one `edits` names. A saved preset keeps its name, and a new one may
+  not take a saved one's. Returns `t:write_result/0`.
+  """
+  @spec put_work_preset(map(), revision(), String.t()) :: write_result()
+  def put_work_preset(attributes, expected_revision, actor_ref) do
+    with :ok <- authorize(actor_ref),
+         {:ok, attributes} <- Validation.attributes(attributes, @preset_fields) do
+      save(:work, expected_revision, actor_ref, &put_preset(&1, attributes))
+    end
+  end
+
+  defp put_preset(snapshot, attributes) do
+    presets = snapshot.work.presets || %{}
+    edits = Map.get(attributes, :edits)
+    attributes = if edits, do: Map.put(attributes, :name, edits), else: attributes
+    name = Map.get(attributes, :name)
+
+    if is_nil(edits) and is_map_key(presets, name),
+      do: Repo.rollback({:invalid_settings, [name: :already_bound]})
+
+    case CoopFleet.PresetCatalog.build(attributes, snapshot.work.model_accounts) do
+      {:ok, recipe} -> write_presets(snapshot, Map.put(presets, name, recipe))
+      {:error, errors} -> Repo.rollback({:invalid_settings, errors})
+    end
+  end
+
+  @doc """
+  Removes a saved preset. One that code reviews or code changes run stays,
+  refused as `{:presets, :in_use}`. Returns `t:write_result/0`.
+  """
+  @spec delete_work_preset(String.t(), revision(), String.t()) :: write_result()
+  def delete_work_preset(name, expected_revision, actor_ref) do
+    with :ok <- authorize(actor_ref) do
+      save(:work, expected_revision, actor_ref, &delete_preset(&1, name))
+    end
+  end
+
+  defp delete_preset(snapshot, name) do
+    presets = snapshot.work.presets || %{}
+
+    if is_map_key(presets, name),
+      do: write_presets(snapshot, Map.delete(presets, name)),
+      else: Repo.rollback({:invalid_settings, [name: :unknown]})
+  end
+
+  # A preset is saved with the rest of the Work settings, so code reviews and
+  # code changes are checked against what it becomes. What that leaves them
+  # unable to run is said at the part of the preset to change.
+  defp write_presets(snapshot, presets) do
+    changeset =
+      snapshot.work
+      |> __MODULE__.Work.Changeset.update(%{presets: presets}, snapshot)
+      |> validate_work_presets()
+
+    case Validation.errors(changeset) do
+      [] -> write_changeset(snapshot.work, changeset)
+      errors -> Repo.rollback({:invalid_settings, Enum.map(errors, &preset_error/1)})
+    end
+  end
+
+  # Code reviews can't change files, so a preset they run keeps every role read-only.
+  defp preset_error({:code_review_preset, :invalid}), do: {:roles, :read_only}
+  defp preset_error({:presets, :length}), do: {:name, :length}
+  defp preset_error(error), do: error
 
   defp validate_work_presets(changeset) do
     accounts = Ecto.Changeset.get_field(changeset, :model_accounts)
