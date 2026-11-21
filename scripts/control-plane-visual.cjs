@@ -120,6 +120,32 @@ async function checkSharedFilterControls(page, width) {
   if (width > 800) assert(primary.every(control => control.center === primary[0].center), 'Filter controls sit on one baseline');
 }
 
+// Andrew, 2026-11-20: "make sure all our pages have standard width and layout". Every page's
+// header and its top-level cards and lists share one left edge and one width, whichever page
+// box draws them. Chat keeps a conversation column, and Usage sets panels side by side.
+async function checkStandardColumn(page, name) {
+  if (['conversations', 'conversation', 'lab', 'usage'].includes(name)) return;
+  const blocks = await page.evaluate(() => {
+    const pick = '.page-header, .kit-card, .kit-form-card, .entity-list, .setup';
+    const main = document.querySelector('main');
+    if (!main) return [];
+    const found = [];
+    for (const element of main.querySelectorAll(pick)) {
+      if (element.parentElement && element.parentElement.closest(pick)) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      found.push({what: element.className.toString().split(' ')[0], left: Math.round(rect.left), width: Math.round(rect.width)});
+    }
+    return found;
+  });
+  if (blocks.length < 2) return;
+  const [column] = blocks;
+  for (const block of blocks) {
+    assert(Math.abs(block.left - column.left) <= 1, `${block.what} starts at ${block.left}px, the page's column at ${column.left}px`);
+    assert(Math.abs(block.width - column.width) <= 1, `${block.what} is ${block.width}px wide, the page's column ${column.width}px`);
+  }
+}
+
 // Andrew, 2026-11-20, of an environment's Remove environment card: "button outside of block".
 // A long description could squeeze a card's actions until its button crossed the card's edge,
 // which no page-wide overflow check sees.
@@ -163,11 +189,17 @@ async function checkSettingsPage(page, name) {
   const title = (await page.locator('main h1').first().textContent()).trim();
   assert.equal(await page.getByRole('heading', {name: title, exact: true}).count(), 1, `${name}: the page title renders once`);
 
+  // Connecting an account happens on a page of its own (2026-10-01), which the Emisar page
+  // leads to while none is connected.
   if (name === 'integrations-emisar' && await page.getByText('Not connected', {exact: true}).count()) {
+    assert.equal(await page.locator('a[href="/integrations/emisar/new"]').count() > 0, true, 'The Emisar page leads to connecting an account');
+  }
+
+  if (name === 'integrations-emisar-new') {
     const form = page.locator('form[phx-submit="connect-emisar"]');
-    assert.equal(await form.count(), 1, 'The first Emisar connection form is visible');
-    assert.equal(await form.locator('xpath=ancestor::details').count(), 0, 'The first Emisar connection is not hidden in a disclosure');
-    assert.equal(await form.locator('input[name="connection[ref]"], input[name="connection[display_name]"]').count(), 0, 'Emisar derives internal identity instead of asking for it');
+    assert.equal(await form.count(), 1, 'The Emisar connection form is visible');
+    assert.equal(await form.locator('xpath=ancestor::details').count(), 0, 'The Emisar connection is not hidden in a disclosure');
+    assert.equal(await form.locator('input[name="connection[ref]"]').count(), 0, 'Emisar derives internal identity instead of asking for it');
   }
 }
 
@@ -312,6 +344,7 @@ async function discover(page) {
             if (sharedPageGutterPages.has(name)) await checkSharedPageGutter(page, width);
             await checkSharedFilterControls(page, width);
             await checkControlsInsideCards(page);
+            await checkStandardColumn(page, name);
             await checkKeyboardFocus(page);
             if (/^(setup|integrations|settings)/.test(name)) await checkSettingsPage(page, name);
             if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);

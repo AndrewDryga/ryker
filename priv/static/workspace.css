@@ -189,7 +189,7 @@
 .ryker-app .page-surface { --text:var(--ryker-text); --muted:var(--ryker-text-secondary); --line:var(--ryker-stroke); --accent:var(--ryker-accent-strong); --panel:var(--ryker-surface-raised); --panel-raised:var(--ryker-surface-sunken); --cyan:var(--ryker-accent-strong); --bg:var(--ryker-surface); padding:32px; color:var(--text); }
 .page-surface .secondary-page { max-width:1440px; margin:auto; }
 /* The shared page shell (approved 2026-09-09): one 28px title, an optional real action opposite it, the description 8px under, then help, toolbar, count, content and history down one left edge with 24px between sections. 16px/24px body, 13px/18px metadata. The base stylesheet paints any bare <header> as a sticky dark bar; this one is a heading, not chrome. */
-.ryker-app .page-header { position:static; top:auto; z-index:auto; display:block; background:none; border:0; backdrop-filter:none; padding:0; margin:0 0 24px; }
+.ryker-app .page-header { position:static; top:auto; z-index:auto; display:block; max-width:1040px; background:none; border:0; backdrop-filter:none; padding:0; margin:0 0 24px; }
 .page-heading { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px 24px; }
 .ryker-app .page-heading h1 { margin:0; font-size:30px; line-height:1.2; font-weight:600; letter-spacing:-.6px; color:var(--ink); overflow-wrap:anywhere; }
 /* The title and the record's state read as one line: the state is seen with the name. */
@@ -496,7 +496,7 @@
 .ryker-app a:hover { text-decoration:underline; text-underline-offset:3px; }
 .ryker-app .ui-eyebrow { font-size:14px; letter-spacing:.08em; margin-bottom:8px; }
 /* Activity's gutter and content width: a request opened from Activity reads at the same width. */
-.episode-workbench { width:100%; max-width:1440px; padding:32px; margin:0 auto; }
+.episode-workbench { width:100%; max-width:1504px; padding:32px; margin:0 auto; }
 .episode-workbench > * { max-width:1040px; }
 .episode-location { display:flex; align-items:center; flex-wrap:wrap; gap:8px 20px; margin:0; }
 .episode-location time { color:var(--secondary); }
@@ -929,7 +929,10 @@
 .task-start-history a { display:inline-flex; align-items:center; min-height:44px; }
 /* The instructions pages share every other page's gutters and width; the
    editor is one section in the page's reading order, not a card above it. */
-.ryker-app .native-page > .instructions-page { max-width:1440px; margin:auto; padding:32px; }
+/* Every page's column is 1440px wide inside a 32px gutter, whichever box draws it: a native page
+   pads itself, a page-surface page is padded by its main, so both start at the same left edge
+   (Andrew, 2026-11-20: "make sure all our pages have standard width and layout"). */
+.ryker-app .native-page > .instructions-page { max-width:1504px; margin:auto; padding:32px; }
 
 .participation[data-rules-state="not_recorded"] .participation-rules .case-event-summary { color:var(--ryker-text-secondary); }
 
@@ -1854,10 +1857,6 @@
 .github-action button { min-height:44px; white-space:normal; }
 .github-action-error { padding:12px; border:1px solid currentColor; border-radius:4px; }
 
-/* A secondary page header keeps its action over the content column, not the far edge. */
-.secondary-page > .page-header,
-.settings-page:has(> .environments-page, #settings-pricing) > .page-header { max-width:1040px; }
-.secondary-page:has(> .kit-form-card .repository-import) > .page-header { max-width:760px; }
 
 /* Manage pages (2026-09-24): one list and state language for Channels,
    Repositories, Automations, Instructions, Memory and Settings (Kit). Rows sit
@@ -2206,7 +2205,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    label, one line of help and the field; a list is Kit rows; a connection is
    a dot and a word; a question before anything destructive says what it does.
    Errors keep the error tone and successes the success tone. */
-.ryker-app .native-page > .settings-page { box-sizing:border-box; max-width:1440px; margin:0 auto; padding:32px 32px 64px; }
+.ryker-app .native-page > .settings-page { box-sizing:border-box; max-width:1504px; margin:0 auto; padding:32px 32px 64px; }
 .settings-page .page-feedback { max-width:720px; margin:0 0 16px; }
 /* Kit section heads are <header>s, and the base stylesheet paints every bare header as a sticky banner. */
 .settings-page .section-head { position:static; top:auto; z-index:auto; padding:0; border:0; background:none; backdrop-filter:none; }
@@ -2243,7 +2242,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-field { display:grid; gap:6px; min-width:0; margin:0; padding:0; border:0; }
 .settings-field > label, .settings-field > legend { padding:0; font-size:16px; line-height:23px; font-weight:600; color:var(--ryker-text); }
 .settings-field > legend { margin:0 0 6px; }
-.settings-help { max-width:640px; margin:0; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); }
+.settings-help { max-width:640px; margin:0; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .settings-field :is(input[type=text], input[type=search], input[type=password], input[type=number], input[type=url], input[type=date], input[type=time], input:not([type])), .settings-field select, .settings-field textarea { box-sizing:border-box; width:100%; max-width:480px; min-height:40px; padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background-color:var(--ryker-control-bg); color:var(--ryker-control-text); font-size:16px; line-height:25px; }
 .settings-field select { padding-right:36px; }
 .settings-field textarea { max-width:none; min-height:180px; font:15px/1.5 var(--ryker-font-mono); resize:vertical; }
@@ -2251,7 +2250,9 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-field input[readonly] { color:var(--ryker-text-secondary); background-color:var(--ryker-surface-sunken); }
 .settings-field :is(input, select, textarea):focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:1px; }
 .settings-field :is(input, select, textarea)[aria-invalid=true] { border-color:var(--ryker-error); }
-.settings-field input[type=file] { width:auto; max-width:100%; padding:0; border:0; background:none; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); }
+/* A file input's own width is its button and file name, wider than a 320px screen's field:
+   it fills the field instead, which shows the same button and name. */
+.settings-field input[type=file] { width:100%; max-width:480px; min-width:0; padding:0; border:0; background:none; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); }
 .settings-field input[type=file]::file-selector-button { margin-right:12px; padding:7px 14px; border:1px solid var(--ryker-stroke-strong); border-radius:8px; background:var(--ryker-surface-raised); color:var(--ryker-text); font:inherit; font-weight:600; cursor:pointer; }
 .settings-field .form-feedback { margin:2px 0 0; }
 .settings-field-boolean { grid-template-columns:18px minmax(0,1fr); column-gap:10px; row-gap:2px; align-items:start; }
@@ -2428,10 +2429,10 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    (Andrew, 2026-11-20: the search sat inline after its label and the count read as a heading). */
 .environment-repositories-search { display:grid; gap:6px; max-width:480px; margin:12px 0 0; }
 .environment-repositories-search > label { font-size:15px; line-height:21px; font-weight:600; color:var(--ryker-text); }
-.environment-repositories-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; max-width:640px; margin:12px 0 0; }
+.environment-repositories-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; margin:12px 0 0; }
 .ryker-app .environment-selection { margin:0; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); }
 .environment-repositories-choose { display:flex; flex-wrap:wrap; gap:8px; }
-.environment-repositories { display:grid; grid-template-columns:minmax(0,1fr) 168px 64px; max-width:640px; margin:4px 0 0; }
+.environment-repositories { display:grid; grid-template-columns:minmax(0,1fr) 168px 64px; margin:4px 0 0; }
 .environment-repositories-head, .environment-repository { display:contents; }
 .environment-repository[hidden] { display:none; }
 .environment-repositories-head > span { padding:0 0 6px; border-bottom:1px solid var(--ryker-stroke); font-size:14px; line-height:19px; font-weight:600; color:var(--ryker-text-secondary); }
@@ -2687,7 +2688,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    into the content"). One card, as wide as a readable form, holds the form;
    its groups of fields are parted by hairlines and its actions sit under the
    last one. The page's title says what it adds or edits. */
-.kit-form-card, .environment-editor, .kit-form-card ~ .kit-remove-card, .environment-editor ~ .kit-remove-card { max-width:760px; }
+/* A form's card is as wide as every other card; its fields keep their own readable widths. */
+.environment-editor { max-width:1040px; }
 .kit-form-card .settings-form, .kit-form-card .settings-editor > form { gap:24px; }
 .kit-form-card :is(.kit-form-section, .settings-group) + :is(.kit-form-section, .settings-group) { padding-top:24px; border-top:1px solid var(--ryker-stroke); }
 .kit-form-section { display:grid; gap:20px; min-width:0; }
@@ -2758,7 +2760,7 @@ html:has(.kit-modal) { overflow:hidden; }
 /* Setup and Integrations (2026-09-24 day 2 redesign): onboarding at /setup is
    an ordered stepper with one open step and a calm ready state, Emisar its
    optional fourth step since 2026-10-02; the Integrations overview is Kit rows. */
-.setup { max-width:640px; margin-top:28px; }
+.setup { max-width:1040px; margin-top:28px; }
 .setup-progress { margin:0 0 28px; }
 .ryker-app .setup-progress p { margin:0 0 10px; font-size:16px; line-height:23px; color:var(--ryker-text-secondary); }
 .setup-progress strong { font-weight:600; color:var(--ryker-text); }
@@ -2873,7 +2875,7 @@ html:has(.kit-modal) { overflow:hidden; }
    These rules add only the gutter a native page carries itself, the button
    that shows newer rows, the two usage charts side by side, and a room's own
    words. */
-.ryker-app .native-page > .activity-page { max-width:1440px; margin:auto; padding:32px; }
+.ryker-app .native-page > .activity-page { max-width:1504px; margin:auto; padding:32px; }
 .activity-page .new-activity { display:flex; align-items:center; justify-content:center; gap:8px; box-sizing:border-box; width:100%; max-width:1040px; min-height:40px; margin:8px 0 0; padding:8px 12px; border:1px solid var(--ryker-stroke); border-radius:8px; background:none; font-size:15px; line-height:21px; font-weight:500; color:var(--ryker-text); cursor:pointer; }
 .activity-page .new-activity:hover { background:var(--ryker-hover-bg); }
 .activity-page .new-activity .ui-icon { width:13px; height:13px; }
@@ -3044,6 +3046,9 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 @media (min-width:1280px) {
   html[data-page-help=open] .ryker-app main:has(> .page-help) { display:grid; grid-template-columns:minmax(0, 1fr) 272px; column-gap:32px; align-items:start; }
   html[data-page-help=open] .ryker-app main.native-page:has(> .page-help) { padding-right:64px; }
+  /* The help column brings its own gap, so a page that pads itself keeps only its left gutter:
+     its column is then as wide as a page-surface page's beside the same help. */
+  html[data-page-help=open] .ryker-app main.native-page:has(> .page-help) > :is(.settings-page, .activity-page, .instructions-page, .episode-workbench) { padding-right:0; }
   html[data-page-help=open] .ryker-app main:has(> .page-help) > :not(.page-help, .page-help-toggle) { grid-column:1; min-width:0; margin:0; }
   html[data-page-help=open] .ryker-app main > .page-help { grid-column:2; grid-row:1; position:sticky; top:32px; max-height:calc(100vh - 64px); overflow-y:auto; }
   html[data-page-help=open] .ryker-app main.native-page > .page-help { top:0; max-height:100vh; padding:32px 0; }
