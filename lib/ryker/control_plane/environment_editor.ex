@@ -489,29 +489,20 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                 write: the default, unless it picks another. The default is always read and write.
               </p>
               <input type="hidden" name="environment[repositories][]" value="" />
-              <%!-- The search has its label above it like every other field, and the count is
-              a quiet line beside the two buttons (Andrew, 2026-11-20: the search sat inline after
-              its label and a large count line under it "looks a bit ugly"). --%>
-              <div :if={length(@choices) > 1} class="environment-repositories-search">
-                <label for={"#{@id}-repository-search"}>Search repositories</label>
-                <input
-                  id={"#{@id}-repository-search"}
-                  type="search"
-                  name="repository_search"
-                  value={@repository_search}
-                  placeholder="Owner or repository name"
-                  phx-change="filter-repositories"
-                  phx-target={@myself}
-                />
-              </div>
-              <div :if={@choices != []} class="environment-repositories-bar">
-                <p class="environment-selection">
-                  {length(@draft.repositories)} selected<span :if={@default}> · Default: {@default.name}</span>
-                </p>
-                <div
-                  :if={length(@choices) > 1 and @shown > 0}
-                  class="environment-repositories-choose"
-                >
+              <div :if={length(@choices) > 1} class="environment-repositories-bar">
+                <div class="environment-repositories-search">
+                  <label for={"#{@id}-repository-search"}>Search repositories</label>
+                  <input
+                    id={"#{@id}-repository-search"}
+                    type="search"
+                    name="repository_search"
+                    value={@repository_search}
+                    placeholder="Owner or repository name"
+                    phx-change="filter-repositories"
+                    phx-target={@myself}
+                  />
+                </div>
+                <div :if={@shown > 0} class="environment-repositories-choose">
                   <button
                     type="button"
                     class="ui-button secondary"
@@ -593,6 +584,9 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
                   </span>
                 </div>
               </div>
+              <p :if={@choices != []} class="environment-selection" role="status">
+                {length(@draft.repositories)} selected<span :if={@default}> · Default: {@default.name}</span>
+              </p>
               <p :if={@choices == []} class="settings-help">
                 No repositories are added yet.
                 <.link navigate="/repositories/new">Add repositories</.link>

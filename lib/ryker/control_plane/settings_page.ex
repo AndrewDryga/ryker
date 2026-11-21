@@ -1479,6 +1479,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
       phx-value-kind="github"
     />
 
+    <.live_component
+      :if={@ready}
+      module={SettingsEditor}
+      id="settings-repository-imports"
+      section={section!(:repository_imports)}
+      view={@view}
+      commands={@commands}
+    />
     <details :if={@ready} class="settings-disclosure github-examples">
       <summary>How to request work on GitHub</summary>
       <div id="github-usage">

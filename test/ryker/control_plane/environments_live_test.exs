@@ -640,6 +640,15 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute has_element?(view, "#{editor} button", "Selected only")
     assert has_element?(view, "#{editor} label[for$=repository-search]", "Search repositories")
 
+    # The count and the default used to occupy the toolbar, pushing search
+    # onto a row of its own even on wide screens with room for both controls.
+    toolbar = "#{editor} .environment-repositories-bar"
+    summary = "#{editor} .environment-repositories + .environment-selection[role=status]"
+    assert has_element?(view, "#{toolbar} input[type=search]")
+    assert has_element?(view, "#{toolbar} button[phx-click=choose-all]")
+    assert has_element?(view, "#{toolbar} button[phx-click=choose-none]")
+    assert has_element?(view, summary, "1 selected · Default: acme/docs")
+
     search = fn text ->
       view
       |> element("#{editor} input[name=repository_search]")
@@ -662,7 +671,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     |> element("#{editor} button[phx-click=choose-all]", "Select the match")
     |> render_click()
 
-    assert has_element?(view, ".environment-selection", "3 selected")
+    assert has_element?(view, summary, "3 selected · Default: acme/docs")
 
     search.("acme")
 
@@ -673,7 +682,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute has_element?(view, "#{editor}-repository-api[checked]")
     refute has_element?(view, "#{editor}-repository-docs[checked]")
     assert has_element?(view, "#{editor}-repository-web[checked]")
-    assert has_element?(view, ".environment-selection", "1 selected")
+    assert has_element?(view, summary, "1 selected · Default: beta/web")
   end
 
   test "a refused environment keeps the draft and says what to fix in words" do

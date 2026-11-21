@@ -205,6 +205,22 @@ defmodule Ryker.ControlPlane.SettingsSections do
       ]
     },
     %{
+      key: :repository_imports,
+      domain: :github,
+      kind: :singleton,
+      schema: Settings.GitHub,
+      title: "Repository imports",
+      description: "Applies when the GitHub App gains access to a repository.",
+      fields: [
+        %{
+          name: :auto_add_repositories,
+          kind: :boolean,
+          label: "Automatically add new repositories",
+          help: "Choose a repository in an environment before work can use it."
+        }
+      ]
+    },
+    %{
       key: :publication,
       domain: :publication,
       kind: :singleton,

@@ -20,7 +20,6 @@ defmodule Ryker.ControlPlane.RepositoryImport do
   use Phoenix.Component
   alias Ryker.ControlPlane.{Components, Kit, ShortTime}
 
-  attr(:view, :map, required: true)
   attr(:repositories, :list, required: true)
 
   attr(:discovery, :any,
@@ -96,12 +95,6 @@ defmodule Ryker.ControlPlane.RepositoryImport do
               Select none
             </button>
           </div>
-          <label class="member-choice"><input
-            type="checkbox"
-            name="auto_add_repositories"
-            value="true"
-            checked={@view.snapshot.github.auto_add_repositories}
-          /> Add new repositories automatically when the app gets access to them</label>
           <div class="repository-import-actions">
             <button
               class="ui-button primary"
@@ -130,22 +123,28 @@ defmodule Ryker.ControlPlane.RepositoryImport do
           hundreds of repositories read as one list in no order. --%>
           <ul>
             <li :for={repository <- @repositories} data-repository-name={repository.full_name}>
-              <label><input
-                type="checkbox"
-                name="repository_ids[]"
-                value={repository.repository_id}
-                disabled={repository.already_present}
-              />
-              <span class="repository-choice-name">
-                <strong>{repository.full_name}</strong>
-                <ShortTime.time
-                  :if={repository.pushed_at}
-                  at={repository.pushed_at}
-                  prefix="Changed "
+              <.dynamic_tag
+                tag_name={if repository.already_present, do: "div", else: "label"}
+                class="repository-choice"
+              >
+                <input
+                  :if={!repository.already_present}
+                  type="checkbox"
+                  name="repository_ids[]"
+                  value={repository.repository_id}
                 />
-              </span><span>{if repository.already_present,
-                do: "Already added",
-                else: repository.default_branch}</span></label>
+                <span class="repository-choice-name">
+                  <strong>{repository.full_name}</strong>
+                  <ShortTime.time
+                    :if={repository.pushed_at}
+                    at={repository.pushed_at}
+                    prefix="Changed "
+                  />
+                </span>
+                <span class="repository-choice-detail">{if repository.already_present,
+                  do: "Already added",
+                  else: repository.default_branch}</span>
+              </.dynamic_tag>
             </li>
           </ul>
         </form>

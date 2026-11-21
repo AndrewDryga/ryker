@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Repository imports have their own GitHub setting.** The picker shows already-added
+  repositories without a checkbox. Set automatic imports under Integrations → GitHub.
+
+- **The environment's repository picker keeps search beside bulk selection.** The selected
+  count and default repository are shown below the list.
+
 ## 0.6.0
 
 - **Build presets on the Models page.** **Add preset** opens a page that picks the lead's models

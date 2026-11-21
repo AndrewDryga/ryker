@@ -1927,9 +1927,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         )
       end
 
-    case IntegrationSetup.import_github_repositories(repositories, actor(socket),
-           auto_add_repositories: Map.get(params, "auto_add_repositories") == "true"
-         ) do
+    case IntegrationSetup.import_github_repositories(repositories, actor(socket)) do
       # The picker marks what is now added, so a second "Add selected" cannot
       # repeat the first. An import that added everything chosen returns to
       # the list, which has the new rows and says so; anything else stays on
@@ -3168,7 +3166,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
               label="Add repositories"
             >
               <Ryker.ControlPlane.RepositoryImport.repository_import
-                view={elem(@settings, 1)}
                 repositories={@github_repositories}
                 discovery={@github_repository_discovery}
                 notice={import_notice(@repository_notice)}

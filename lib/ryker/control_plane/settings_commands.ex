@@ -102,6 +102,9 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   defp write(%{domain: :slack}, attributes, revision, _params, actor_ref),
     do: Settings.save_slack(attributes, revision, actor_ref)
 
+  defp write(%{domain: :github}, attributes, revision, _params, actor_ref),
+    do: Settings.save_github(attributes, revision, actor_ref)
+
   defp write(%{domain: :publication}, attributes, revision, _params, actor_ref),
     do: Settings.save_publication(attributes, revision, actor_ref)
 

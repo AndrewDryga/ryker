@@ -2088,16 +2088,16 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .repository-import form { display:grid; gap:16px; }
 .repository-import ul { margin:0; padding:0; list-style:none; }
 .repository-import li { border-bottom:1px solid color-mix(in srgb, var(--ryker-text) 7%, transparent); }
-.repository-import li label { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:44px; cursor:pointer; }
+.repository-import .repository-choice { display:grid; grid-template-columns:20px minmax(0,1fr) fit-content(35%); align-items:center; gap:10px; min-height:44px; }
+.repository-import label.repository-choice { cursor:pointer; }
 .repository-import li input { width:18px; height:18px; accent-color:var(--ryker-mint); }
 .repository-import li strong { min-width:0; overflow-wrap:anywhere; }
-.repository-import li span { font-size:14px; color:var(--ryker-text-secondary); }
+.repository-choice-detail { grid-column:3; font-size:14px; color:var(--ryker-text-secondary); text-align:end; overflow-wrap:anywhere; }
 /* Each repository says under its name when it last changed, newest first. */
-.repository-import li .repository-choice-name { display:grid; gap:2px; min-width:0; padding:6px 0; font-size:15px; color:var(--ryker-text); }
+.repository-import li .repository-choice-name { grid-column:2; display:grid; gap:2px; min-width:0; padding:6px 0; font-size:15px; color:var(--ryker-text); }
 .repository-import li .repository-choice-name time { font-size:13px; line-height:18px; color:var(--ryker-text-secondary); }
 .repository-search, .settings-people-search { display:grid; gap:6px; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 .ryker-app :is(.repository-search, .settings-people-search) input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:15px; }
-.repository-import .member-choice { display:flex; align-items:center; gap:8px; font-size:15px; line-height:22px; color:var(--ryker-text); }
 .repository-import-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .repository-select-all { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0; }
 .ryker-app .repository-import-actions .ui-button:disabled { opacity:.55; cursor:not-allowed; }
@@ -2466,12 +2466,11 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
    the default; the arrows move one place up or down. */
 /* An environment's repositories: every added repository once, by name, in a
    grid of what it is, what work may do in it and whether it is the default. */
-/* The search has its label above it, and the count is a quiet line beside the two buttons
-   (Andrew, 2026-11-20: the search sat inline after its label and the count read as a heading). */
-.environment-repositories-search { display:grid; gap:6px; max-width:480px; margin:12px 0 0; }
+/* Search and bulk selection share a toolbar. The summary follows the choices. */
+.environment-repositories-search { display:grid; flex:1 1 280px; min-width:0; max-width:480px; gap:6px; }
 .environment-repositories-search > label { font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
-.environment-repositories-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; margin:12px 0 0; }
-.ryker-app .environment-selection { margin:0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
+.environment-repositories-bar { display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px 16px; margin:12px 0 0; }
+.ryker-app .environment-selection { margin:4px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); overflow-wrap:anywhere; }
 .environment-repositories-choose { display:flex; flex-wrap:wrap; gap:8px; }
 .environment-repositories { display:grid; grid-template-columns:minmax(0,1fr) 168px 64px; margin:4px 0 0; }
 .environment-repositories-head, .environment-repository { display:contents; }

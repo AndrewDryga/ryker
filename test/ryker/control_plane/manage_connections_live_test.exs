@@ -137,12 +137,15 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     assert has_element?(view, "#repository-picker li[data-repository-name='acme/api']")
 
+    assert has_element?(view, "#repository-picker li[data-repository-name='acme/api'] input")
+
     assert has_element?(
              view,
-             "#repository-picker li[data-repository-name='acme/web'] input[disabled]"
+             "#repository-picker li[data-repository-name='acme/web']",
+             "Already added"
            )
 
-    assert has_element?(view, "#repository-picker li", "Already added")
+    refute has_element?(view, "#repository-picker li[data-repository-name='acme/web'] input")
     assert asked(github) == 1
 
     # Given access to another repository, the App lists it after a Refresh.
@@ -157,6 +160,50 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
     assert has_element?(view, "#repository-picker li[data-repository-name='acme/docs']")
     assert asked(github) == 2
+  end
+
+  test "automatic imports are a GitHub setting that a manual import leaves alone", %{
+    github: github
+  } do
+    # The preference used to live in the picker, so saving it meant submitting
+    # a manual import and an old picker could overwrite a newer setting.
+    connect_github!()
+    answer!(github, [repository("acme/api", 11)])
+
+    {:ok, integration, _html} = open("/integrations/github")
+    form_selector = "#settings-repository-imports-form"
+    checkbox = "#{form_selector} input[type=checkbox][name=auto_add_repositories]"
+
+    assert has_element?(integration, checkbox)
+    refute has_element?(integration, "#{checkbox}[checked]")
+
+    integration
+    |> form(form_selector, %{"auto_add_repositories" => "true"})
+    |> render_change()
+
+    assert Settings.fetch!().github.auto_add_repositories
+    assert Settings.fetch!().repositories == []
+
+    {:ok, picker, _html} = open("/repositories/new")
+    render_async(picker)
+    refute has_element?(picker, "input[name=auto_add_repositories]")
+
+    picker
+    |> form("#repository-picker", %{"repository_ids" => ["11"]})
+    |> render_submit(%{"import_mode" => "selected"})
+
+    assert_patch(picker, "/repositories")
+    assert Settings.fetch!().github.auto_add_repositories
+
+    {:ok, integration, _html} = open("/integrations/github")
+    assert has_element?(integration, "#{checkbox}[checked]")
+
+    integration
+    |> form(form_selector, %{"auto_add_repositories" => "false"})
+    |> render_change()
+
+    refute Settings.fetch!().github.auto_add_repositories
+    assert has_element?(picker, "#repository-acme-api")
   end
 
   test "a return visit offers the previous verified choices while checking current access", %{
@@ -297,7 +344,6 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
         ] do
       document =
         render_component(&RepositoryImport.repository_import/1,
-          view: ready_view(),
           repositories: [],
           discovery: :complete,
           notice: {tone, message}
@@ -319,7 +365,6 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   test "the repository picker starts with nothing ticked and counts what it will add" do
     picker =
       render_component(&RepositoryImport.repository_import/1,
-        view: ready_view(),
         repositories: [
           repository("acme/api", 1),
           repository("acme/web", 2, true),
@@ -351,7 +396,6 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   test "each repository on the picker says when it last changed" do
     picker =
       render_component(&RepositoryImport.repository_import/1,
-        view: ready_view(),
         repositories: [
           repository("acme/api", 1, false, "2026-11-18T09:00:00Z"),
           repository("acme/archive", 2, false, nil)
@@ -917,12 +961,6 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
       repository_id: id
     }
   end
-
-  defp ready_view,
-    do: %{
-      github_connection: :ready,
-      snapshot: %{repositories: [], github: %{auto_add_repositories: false}}
-    }
 
   test "GitHub usage gives copyable requests for the installed App and explains its labels" do
     connect_github!()

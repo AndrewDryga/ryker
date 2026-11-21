@@ -10,7 +10,8 @@ import {createRepositoryPicker} from "../../priv/static/repository-picker.mjs"
 function fixture(names, present = []) {
   const listeners = {}
   const rows = names.map(name => {
-    const box = {checked: false, value: name, disabled: present.includes(name), matches: selector => selector === "input[type=checkbox]"}
+    const box = present.includes(name) ? null :
+      {checked: false, value: name, disabled: false, matches: selector => selector === "input[type=checkbox]"}
     return {dataset: {repositoryName: name}, hidden: false, querySelector: () => box, box}
   })
   const search = {value: "", matches: selector => selector === "[data-repository-search]"}
@@ -50,17 +51,17 @@ test("select all and none act on the rows the search shows, never on ones alread
   assert.deepEqual(page.rows.map(row => row.hidden), [false, false, true])
 
   page.click("all")
-  assert.deepEqual(page.rows.map(row => row.box.checked), [true, false, false])
+  assert.deepEqual(page.rows.map(row => row.box?.checked ?? null), [true, null, false])
   assert.equal(page.addSelected.textContent, "Add 1 selected")
 
   page.search.value = ""
   page.listeners.input({target: page.search})
   page.click("all")
-  assert.deepEqual(page.rows.map(row => row.box.checked), [true, false, true])
+  assert.deepEqual(page.rows.map(row => row.box?.checked ?? null), [true, null, true])
   assert.equal(page.addSelected.textContent, "Add 2 selected")
 
   page.click("none")
-  assert.deepEqual(page.rows.map(row => row.box.checked), [false, false, false])
+  assert.deepEqual(page.rows.map(row => row.box?.checked ?? null), [false, null, false])
   assert.equal(page.addSelected.disabled, true)
 
   picker.destroyed()

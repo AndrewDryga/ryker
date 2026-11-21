@@ -342,7 +342,7 @@ defmodule Ryker.IntegrationSetup do
           &import_repository(&1, ryker_actor_id, actor_ref, &2)
         )
 
-      with :ok <- switch_github_on(added, actor_ref, options) do
+      with :ok <- switch_github_on(added, actor_ref) do
         {:ok,
          %{
            added: Enum.reverse(added),
@@ -353,35 +353,19 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
-  # Adding a repository keeps GitHub on (verifying the App switched it on)
-  # and saves the auto-add choice. The save used to be
-  # ignored: on 2026-09-26 it did not happen, and GitHub read "Add a repository
-  # to start" with two repositories added. It is written against the current
-  # settings, and a refusal is the import's answer.
-  defp switch_github_on(added, actor_ref, options) do
-    if added != [] or Keyword.has_key?(options, :auto_add_repositories) do
-      auto_add =
-        Keyword.get_lazy(options, :auto_add_repositories, fn ->
-          Settings.fetch!().github.auto_add_repositories
-        end)
+  # A successful import keeps GitHub on, and a refused settings write is
+  # reported to the importer. The automatic-import preference has its own save.
+  defp switch_github_on([], _actor_ref), do: :ok
 
-      case Settings.save_github(
-             %{enabled: true, auto_add_repositories: auto_add},
-             :current,
-             actor_ref
-           ) do
-        {:ok, _snapshot} ->
-          :ok
+  defp switch_github_on(_added, actor_ref) do
+    case Settings.save_github(%{enabled: true}, :current, actor_ref) do
+      {:ok, _snapshot} ->
+        :ok
 
-        {:error, reason} ->
-          Logger.warning(
-            "GitHub was not switched on after adding repositories: #{inspect(reason)}"
-          )
+      {:error, reason} ->
+        Logger.warning("GitHub was not switched on after adding repositories: #{inspect(reason)}")
 
-          {:error, {:github_not_switched_on, reason}}
-      end
-    else
-      :ok
+        {:error, {:github_not_switched_on, reason}}
     end
   end
 
