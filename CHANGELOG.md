@@ -9,6 +9,8 @@
   accepts fast targets, so deploy the new worker image too. Cost estimates still use each model's
   standard prices.
 
+## 0.4.0
+
 - **No more deadlocks between a worker's poll, a command and a task's turn.** Sending a command,
   and retention's cleanup, now lock the workers holding a session before the session, the order a
   poll and placement already used. PostgreSQL broke a three-way cycle of these twice on 21 Nov.
