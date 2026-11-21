@@ -1827,7 +1827,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert orders |> Enum.uniq() |> length() == 1
 
     assert hd(orders) ==
-             ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra codex:gpt-6-astra codex:gpt-6-luna codex:gpt-6-sol codex:gpt-6.1-sol)
+             ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra codex:gpt-6-astra codex:gpt-6-luna codex:gpt-6-sol codex:gpt-6.1-sol claude:claude-fable-5-1 claude:claude-haiku-5-5 claude:claude-opus-5-5 claude:claude-sonnet-5-5)
 
     deep =
       LazyHTML.query(
@@ -1835,7 +1835,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
         "#settings-request_models-form select[name='deep_models[0][model]']"
       )
 
-    assert deep |> LazyHTML.query("optgroup") |> LazyHTML.attribute("label") == ["Codex"]
+    assert deep |> LazyHTML.query("optgroup") |> LazyHTML.attribute("label") == [
+             "Codex",
+             "Claude"
+           ]
 
     assert deep |> LazyHTML.query("option[selected]") |> LazyHTML.attribute("value") == [
              "codex:gpt-5.6-luna"
@@ -2012,18 +2015,24 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert chosen.(3) == ["", "medium", ""]
   end
 
-  test "a Claude model is offered once its price is saved, on a Claude account" do
+  # Andrew, 2026-11-20: "add support for all latest models". An installation started with
+  # OpenAI's prices alone, so Claude was never offered until someone typed a price for it.
+  test "the current Claude models are offered from the start, and another once its price is saved" do
     initialize!()
     {:ok, view, _html} = open("/settings/models")
     model = "select[name='routing_models[0][model]']"
     requests = "#settings-request_models-form"
-    refute has_element?(view, model <> " optgroup[label=Claude]")
 
-    assert has_element?(
-             view,
-             "#page-help",
-             "Claude model appears once its price is saved"
-           )
+    for current <- ~w(claude-fable-5-1 claude-haiku-5-5 claude-opus-5-5 claude-sonnet-5-5) do
+      assert has_element?(
+               view,
+               model <> " optgroup[label=Claude] option[value='claude:#{current}']",
+               current
+             )
+    end
+
+    refute has_element?(view, model <> " option[value='claude:claude-opus-4-6']")
+    assert has_element?(view, "#page-help", "Another model appears once its price is saved")
 
     snapshot = Settings.fetch!()
 
@@ -2637,7 +2646,10 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> render_click()
 
     refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.id == rate.id))
-    assert length(Settings.fetch!().pricing_rates) == 7
+
+    assert length(Settings.fetch!().pricing_rates) ==
+             length(Ryker.Accounting.Pricing.settings_defaults())
+
     assert Settings.fetch!().installation.revision == 4
     assert_patch(view, "/settings/prices")
     assert has_element?(view, ".form-feedback-success", "test-model was removed.")

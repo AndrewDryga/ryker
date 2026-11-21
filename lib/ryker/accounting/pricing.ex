@@ -14,7 +14,7 @@ defmodule Ryker.Accounting.Pricing do
   alias Ryker.Settings
 
   # The prices a new installation starts with; after that the saved prices
-  # are the only ones any estimate reads.
+  # are the only ones any estimate reads, and the Models page offers the models they price.
   # 5.6 verified 2026-09-05; 6 and 6.1 verified 2026-10-25:
   # https://developers.openai.com/api/docs/models
   # https://developers.openai.com/api/docs/pricing
@@ -23,27 +23,35 @@ defmodule Ryker.Accounting.Pricing do
   # contain several provider calls. Their context lengths, cache writes,
   # service tiers and tool fees are unavailable, so these are baseline
   # estimates at this rate-card date, not historical invoices.
+  # Claude verified 2026-11-20 at https://platform.claude.com/docs/en/about-claude/pricing,
+  # for the models the worker's Claude Code (2.1.319) runs. Haiku 5.5 is priced for prompts
+  # up to 100,000 tokens; longer ones cost five times as much.
+  @openai "https://developers.openai.com/api/docs/pricing"
+  @anthropic "https://platform.claude.com/docs/en/about-claude/pricing"
   @defaults %{
-    "codex:gpt-5.6-sol" => {"4", "0.40", "20", ~D[2026-09-05]},
-    "codex:gpt-5.6-terra" => {"2", "0.20", "12", ~D[2026-09-05]},
-    "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20", ~D[2026-09-05]},
-    "codex:gpt-6.1-sol" => {"2", "0.10", "10", ~D[2026-10-25]},
-    "codex:gpt-6-astra" => {"10", "1", "50", ~D[2026-10-25]},
-    "codex:gpt-6-sol" => {"2", "0.20", "10", ~D[2026-10-25]},
-    "codex:gpt-6-luna" => {"0.10", "0.01", "0.50", ~D[2026-10-25]}
+    "codex:gpt-5.6-sol" => {"4", "0.40", "20", ~D[2026-09-05], @openai},
+    "codex:gpt-5.6-terra" => {"2", "0.20", "12", ~D[2026-09-05], @openai},
+    "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20", ~D[2026-09-05], @openai},
+    "codex:gpt-6.1-sol" => {"2", "0.10", "10", ~D[2026-10-25], @openai},
+    "codex:gpt-6-astra" => {"10", "1", "50", ~D[2026-10-25], @openai},
+    "codex:gpt-6-sol" => {"2", "0.20", "10", ~D[2026-10-25], @openai},
+    "codex:gpt-6-luna" => {"0.10", "0.01", "0.50", ~D[2026-10-25], @openai},
+    "claude:claude-fable-5-1" => {"10", "0.25", "50", ~D[2026-11-20], @anthropic},
+    "claude:claude-opus-5-5" => {"4", "0.20", "20", ~D[2026-11-20], @anthropic},
+    "claude:claude-sonnet-5-5" => {"2", "0.10", "10", ~D[2026-11-20], @anthropic},
+    "claude:claude-haiku-5-5" => {"0.10", "0.01", "0.50", ~D[2026-11-20], @anthropic}
   }
-  @provenance "https://developers.openai.com/api/docs/pricing"
 
   @doc "The prices a new installation's Model prices start with."
   def settings_defaults do
-    Enum.map(@defaults, fn {target, {input, cached, output, day}} ->
+    Enum.map(@defaults, fn {target, {input, cached, output, day, provenance}} ->
       %{
         execution_target: target,
         input_usd_per_million: Decimal.new(input),
         cached_input_usd_per_million: Decimal.new(cached),
         output_usd_per_million: Decimal.new(output),
         effective_from: day,
-        provenance: @provenance
+        provenance: provenance
       }
     end)
   end

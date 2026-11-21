@@ -645,7 +645,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Adding models and accounts",
        [
-         "A Claude model appears once its price is saved under Model prices, written like claude:claude-opus-4-6.",
+         "The models listed are the ones Model prices names. Another model appears once its price is saved there, written like claude:claude-opus-4-6.",
          "Ryker can't see which accounts the worker has signed in. Sign one in with scripts/compose.sh model-login claude@work, then add it under Model accounts."
        ]},
       {"Account limits",
