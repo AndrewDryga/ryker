@@ -345,6 +345,31 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert LazyHTML.query(picker, "button[value=all]") |> LazyHTML.text() =~ "Add all 2"
   end
 
+  # Andrew, 2026-11-20, of Add repositories listing hundreds of repositories: "can we show here
+  # when last change was made to the repo? and maybe order them too?" The list came newest push
+  # first already, and nothing on a row said so.
+  test "each repository on the picker says when it last changed" do
+    picker =
+      render_component(&RepositoryImport.repository_import/1,
+        view: ready_view(),
+        repositories: [
+          repository("acme/api", 1, false, "2026-11-18T09:00:00Z"),
+          repository("acme/archive", 2, false, nil)
+        ],
+        discovery: :complete
+      )
+      |> LazyHTML.from_fragment()
+
+    api = LazyHTML.query(picker, "li[data-repository-name='acme/api']")
+    assert [time] = LazyHTML.query(api, ".repository-choice-name time") |> Enum.to_list()
+    assert LazyHTML.attribute(time, "datetime") == ["2026-11-18T09:00:00Z"]
+    assert LazyHTML.text(time) =~ "Changed "
+
+    # GitHub reports no push for a repository nobody pushed to; its row says nothing of one.
+    archive = LazyHTML.query(picker, "li[data-repository-name='acme/archive']")
+    assert Enum.empty?(LazyHTML.query(archive, "time"))
+  end
+
   test "a retry that cannot run says why at the top of the list" do
     {:ok, view, _html} = open("/repositories")
     render_hook(view, "retry-github-onboarding", %{"repository" => "no-such-repository"})
@@ -881,13 +906,14 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
 
   defp asked(github), do: Agent.get(github, & &1.asked)
 
-  defp repository(full_name, id, present \\ false) do
+  defp repository(full_name, id, present \\ false, pushed_at \\ "2026-11-18T09:00:00Z") do
     %{
       already_present: present,
       default_branch: "main",
       full_name: full_name,
       installation_id: 41,
       permissions: %{"contents" => "write", "metadata" => "read", "pull_requests" => "write"},
+      pushed_at: pushed_at,
       repository_id: id
     }
   end

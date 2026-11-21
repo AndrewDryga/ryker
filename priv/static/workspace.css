@@ -2089,6 +2089,9 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .repository-import li input { width:18px; height:18px; accent-color:var(--ryker-mint); }
 .repository-import li strong { min-width:0; overflow-wrap:anywhere; }
 .repository-import li span { font-size:15px; color:var(--ryker-text-secondary); }
+/* Each repository says under its name when it last changed, newest first. */
+.repository-import li .repository-choice-name { display:grid; gap:2px; min-width:0; padding:6px 0; font-size:16px; color:var(--ryker-text); }
+.repository-import li .repository-choice-name time { font-size:14px; line-height:19px; color:var(--ryker-text-secondary); }
 .repository-search, .settings-people-search { display:grid; gap:6px; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); }
 .ryker-app :is(.repository-search, .settings-people-search) input { box-sizing:border-box; width:100%; max-width:420px; min-height:var(--ryker-control-height); padding:8px 12px; border:1px solid var(--ryker-control-border); border-radius:8px; background:var(--ryker-control-bg); color:var(--ryker-text); font:inherit; font-size:16px; }
 .repository-import .member-choice { display:flex; align-items:center; gap:8px; font-size:16px; line-height:23px; color:var(--ryker-text); }

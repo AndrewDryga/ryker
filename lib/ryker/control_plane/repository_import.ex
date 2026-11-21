@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.RepositoryImport do
   2026-10-03: "envs should not include all repos by default").
   """
   use Phoenix.Component
-  alias Ryker.ControlPlane.{Components, Kit}
+  alias Ryker.ControlPlane.{Components, Kit, ShortTime}
 
   attr(:view, :map, required: true)
   attr(:repositories, :list, required: true)
@@ -125,6 +125,9 @@ defmodule Ryker.ControlPlane.RepositoryImport do
             >Add all {@addable} available</button>
             <.link patch="/repositories" class="ui-button secondary">Cancel</.link>
           </div>
+          <%!-- Newest push first, as GitHub reports it, and each row says when that was
+          (Andrew, 2026-11-20: "can we show here when last change was made to the repo?"):
+          hundreds of repositories read as one list in no order. --%>
           <ul>
             <li :for={repository <- @repositories} data-repository-name={repository.full_name}>
               <label><input
@@ -133,7 +136,14 @@ defmodule Ryker.ControlPlane.RepositoryImport do
                 value={repository.repository_id}
                 disabled={repository.already_present}
               />
-              <strong>{repository.full_name}</strong><span>{if repository.already_present,
+              <span class="repository-choice-name">
+                <strong>{repository.full_name}</strong>
+                <ShortTime.time
+                  :if={repository.pushed_at}
+                  at={repository.pushed_at}
+                  prefix="Changed "
+                />
+              </span><span>{if repository.already_present,
                 do: "Already added",
                 else: repository.default_branch}</span></label>
             </li>
