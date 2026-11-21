@@ -406,7 +406,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert {entry.phase, entry.error_code} == {:idle, "repository_knowledge_source_refused"}
     assert entry.error =~ "submodules can't be fetched"
     assert DateTime.diff(entry.next_check_at, Repo.now!()) > 23 * 3_600
-    assert {:error, :not_found} = Ryker.RepositoryKnowledge.Custody.fetch_outstanding("emisar")
+    assert Ryker.RepositoryKnowledge.Custody.fetch_outstanding("emisar") == {:error, :not_found}
   end
 
   # With no worker taking the repository's sessions the write waited a minute
