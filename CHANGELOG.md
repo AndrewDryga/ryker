@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.4.0
 
 - **No more deadlocks between a worker's poll, a command and a task's turn.** Sending a command,
