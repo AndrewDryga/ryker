@@ -1818,9 +1818,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
     case Enum.min(expiries, DateTime, fn -> nil end) do
       nil -> count
-      first -> count <> ", the first expires " <> ShortTime.day(first, Date.utc_today())
+      first -> count <> ", the first expires " <> nowrap(ShortTime.day(first, Date.utc_today()))
     end
   end
+
+  defp nowrap(words), do: String.replace(words, " ", "\u00a0")
 
   # :none for a row that names no saved account yet; a saved account the worker
   # has not reported says its limit is unavailable.
