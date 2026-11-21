@@ -15,7 +15,8 @@ defmodule Ryker.Accounting.Pricing do
 
   # The prices a new installation starts with; after that the saved prices
   # are the only ones any estimate reads, and the Models page offers the models they price.
-  # 5.6 verified 2026-09-05; 6 and 6.1 verified 2026-10-25:
+  # 5.6 verified 2026-09-05; 6 and 6.1 verified 2026-10-25; 6.2 and 6.1 Terra verified
+  # 2026-11-21, which Codex's own model list offers from client 0.166.0 and 0.153.0:
   # https://developers.openai.com/api/docs/models
   # https://developers.openai.com/api/docs/pricing
   # Codex ACP src/TokenCount.ts reports fresh input separately from cache reads;
@@ -24,18 +25,23 @@ defmodule Ryker.Accounting.Pricing do
   # service tiers and tool fees are unavailable, so these are baseline
   # estimates at this rate-card date, not historical invoices.
   # Claude verified 2026-11-20 at https://platform.claude.com/docs/en/about-claude/pricing,
-  # for the models the worker's Claude Code (2.1.319) runs. Haiku 5.5 is priced for prompts
-  # up to 100,000 tokens; longer ones cost five times as much.
+  # for the models the worker's Claude Code (2.1.319) runs, and Fable 5.2 on 2026-11-21, which
+  # the worker's Claude Code 2.1.330 and its adapter 0.109.0 accept. Haiku 5.5 is priced for
+  # prompts up to 100,000 tokens; longer ones cost five times as much.
   @openai "https://developers.openai.com/api/docs/pricing"
   @anthropic "https://platform.claude.com/docs/en/about-claude/pricing"
   @defaults %{
     "codex:gpt-5.6-sol" => {"4", "0.40", "20", ~D[2026-09-05], @openai},
     "codex:gpt-5.6-terra" => {"2", "0.20", "12", ~D[2026-09-05], @openai},
     "codex:gpt-5.6-luna" => {"0.20", "0.02", "1.20", ~D[2026-09-05], @openai},
+    "codex:gpt-6.2-astra" => {"8", "0.40", "40", ~D[2026-11-21], @openai},
+    "codex:gpt-6.2-sol" => {"2", "0.10", "10", ~D[2026-11-21], @openai},
+    "codex:gpt-6.1-terra" => {"1", "0.05", "5", ~D[2026-11-21], @openai},
     "codex:gpt-6.1-sol" => {"2", "0.10", "10", ~D[2026-10-25], @openai},
     "codex:gpt-6-astra" => {"10", "1", "50", ~D[2026-10-25], @openai},
     "codex:gpt-6-sol" => {"2", "0.20", "10", ~D[2026-10-25], @openai},
     "codex:gpt-6-luna" => {"0.10", "0.01", "0.50", ~D[2026-10-25], @openai},
+    "claude:claude-fable-5-2" => {"8", "0.20", "40", ~D[2026-11-21], @anthropic},
     "claude:claude-fable-5-1" => {"10", "0.25", "50", ~D[2026-11-20], @anthropic},
     "claude:claude-opus-5-5" => {"4", "0.20", "20", ~D[2026-11-20], @anthropic},
     "claude:claude-sonnet-5-5" => {"2", "0.10", "10", ~D[2026-11-20], @anthropic},

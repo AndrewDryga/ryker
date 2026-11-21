@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Claude Fable 5.2, GPT-6.2 Astra and Sol, and GPT-6.1 Terra can be chosen.** They are priced
+  and offered on the Models page, on new installations and on upgrade, without replacing a price
+  you already saved: Fable 5.2 at $8 in, $0.20 cache reads and $40 out per million tokens, GPT-6.2
+  Astra at $8, $0.40 and $40, GPT-6.2 Sol at $2, $0.10 and $10, and GPT-6.1 Terra at $1, $0.05 and
+  $5. Workers run a newer co:op, with Claude Code 2.1.330 and its editor adapter 0.109.0, the
+  first to accept Fable 5.2, and Codex 0.170.0. Deploy the new worker image too: older workers
+  refuse Fable 5.2.
+
 ## 0.3.0
 
 - **Upgrade the controller before the workers.** Workers built from this release report each

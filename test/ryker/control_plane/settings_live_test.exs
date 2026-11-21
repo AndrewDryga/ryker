@@ -1864,7 +1864,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert orders |> Enum.uniq() |> length() == 1
 
     assert hd(orders) ==
-             ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra codex:gpt-6-astra codex:gpt-6-luna codex:gpt-6-sol codex:gpt-6.1-sol claude:claude-fable-5-1 claude:claude-haiku-5-5 claude:claude-opus-5-5 claude:claude-sonnet-5-5)
+             ~w(codex:gpt-5.6-luna codex:gpt-5.6-sol codex:gpt-5.6-terra codex:gpt-6-astra codex:gpt-6-luna codex:gpt-6-sol codex:gpt-6.1-sol codex:gpt-6.1-terra codex:gpt-6.2-astra codex:gpt-6.2-sol claude:claude-fable-5-1 claude:claude-fable-5-2 claude:claude-haiku-5-5 claude:claude-opus-5-5 claude:claude-sonnet-5-5)
 
     deep =
       LazyHTML.query(
@@ -2060,7 +2060,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     model = "select[name='routing_models[0][model]']"
     requests = "#settings-request_models-form"
 
-    for current <- ~w(claude-fable-5-1 claude-haiku-5-5 claude-opus-5-5 claude-sonnet-5-5) do
+    for current <-
+          ~w(claude-fable-5-1 claude-fable-5-2 claude-haiku-5-5 claude-opus-5-5 claude-sonnet-5-5) do
       assert has_element?(
                view,
                model <> " optgroup[label=Claude] option[value='claude:#{current}']",
