@@ -2057,35 +2057,22 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     {:ok, view, _html} = open("/settings/models")
     limits = "#settings-model_accounts-model_accounts-0-limits"
+    lines = view |> element(limits) |> render() |> LazyHTML.from_fragment() |> LazyHTML.query("p")
 
-    assert has_element?(
-             view,
-             limits <> " .settings-account-limit[data-used-up]",
-             "5-hour limit · used up"
-           )
-
-    assert has_element?(view, limits <> " .settings-account-limit", "resets in 42 min")
-    assert has_element?(view, limits <> " .settings-account-limit", "Weekly limit · 60% left")
-
-    assert has_element?(
-             view,
-             limits <> " .settings-account-checked",
+    assert Enum.map(lines, &words/1) == [
+             "5-hour limit · used up · resets in 42 min",
+             "Weekly limit · 60% left",
              "pro plan · checked just now"
-           )
+           ]
 
-    assert view
-           |> element(limits)
-           |> render()
-           |> LazyHTML.from_fragment()
-           |> LazyHTML.query("p")
-           |> Enum.count() == 3
+    assert has_element?(view, limits <> " .settings-account-limit[data-used-up]", "5-hour limit")
+    refute has_element?(view, limits <> " .settings-account-limit[data-used-up]", "Weekly limit")
 
     for {field, kind} <- [request_models: :routing_models, other_models: :learning_models] do
-      assert has_element?(
-               view,
-               "#settings-#{field}-#{kind}-0-used-up",
+      note = view |> element("#settings-#{field}-#{kind}-0-used-up") |> render()
+
+      assert note |> LazyHTML.from_fragment() |> words() ==
                "5-hour limit used up · resets in 42 min"
-             )
     end
 
     # A worker that no longer reports the account leaves it without figures.
@@ -2843,6 +2830,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   defp restore_env({name, nil}), do: System.delete_env(name)
   defp restore_env({name, value}), do: System.put_env(name, value)
+
+  # An element's words as a reader sees them, with the markup's spacing folded.
+  defp words(html), do: html |> LazyHTML.text() |> String.split() |> Enum.join(" ")
 
   defp usage_poll(worker, usage) do
     %{

@@ -1007,11 +1007,10 @@ defmodule Ryker.ControlPlane.SettingsEditor do
                 </option>
               </select>
               <p :if={row.used_up} class="settings-ladder-note" id={"#{@id}-#{row.index}-used-up"}>
-                {row.used_up.label} used up<ShortTime.time
-                  :if={row.used_up.resets_at}
+                <span>{row.used_up.label} used up</span><span :if={row.used_up.resets_at}> · <ShortTime.time
                   at={row.used_up.resets_at}
-                  prefix=" · resets "
-                />
+                  prefix="resets "
+                /></span>
               </p>
             </div>
             <%!-- Each button keeps its own slot, so every row's choices line up
@@ -1784,11 +1783,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     ~H"""
     <div class="settings-account-limits" id={@id} data-state={@limits.state}>
       <p :for={window <- @limits.windows} class="settings-account-limit" data-used-up={window.used_up}>
-        <span>{window.label}</span><span :if={window.detail}> · {window.detail}</span><ShortTime.time
-          :if={window.resets_at}
+        <span>{window.label}</span><span :if={window.detail}> · <span class="settings-account-amount">{window.detail}</span></span><span :if={
+          window.resets_at
+        }> · <ShortTime.time
           at={window.resets_at}
-          prefix=" · resets "
-        />
+          prefix="resets "
+        /></span>
       </p>
       <p :if={@limits.resets} class="settings-account-limit">
         {reset_credits(@limits.resets)}
