@@ -1313,9 +1313,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def preset_export(_mismatched), do: :error
 
-  @doc "A saved recipe as the form carries it."
-  @spec preset_text(map()) :: String.t()
-  def preset_text(recipe), do: Jason.encode!(recipe, pretty: true)
+  # A saved recipe as the form carries it.
+  defp preset_text(recipe), do: Jason.encode!(recipe, pretty: true)
 
   defp ladder_fields(%{} = entry), do: Map.new(@ladder_parts, &{&1, text(Map.get(entry, &1))})
   defp ladder_fields(_mismatched), do: Map.new(@ladder_parts, &{&1, ""})
