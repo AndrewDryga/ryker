@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
   stale rather than as current.
   """
   alias Ryker.CoopFleet
+  alias Ryker.Wording
 
   @stale_after_seconds 20 * 60
 
@@ -112,9 +113,29 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
   defp detail(%{"remaining" => "unlimited"}, nil, false), do: "unlimited"
 
   defp detail(%{"remaining" => remaining}, nil, false) when is_binary(remaining),
-    do: remaining <> " left"
+    do: amount(remaining) <> " left"
 
   defp detail(%{"note" => note}, nil, false), do: note
+
+  # The provider's own amount in its own unit, read the way a person writes a
+  # number: Codex sent its credit balance as "45229.7698855000" (2026-11-21).
+  defp amount(remaining) do
+    if Regex.match?(~r/\A\d+(\.\d+)?\z/, remaining) do
+      rounded = remaining |> Decimal.new() |> Decimal.round(2) |> Decimal.to_string(:normal)
+      [whole | fraction] = String.split(rounded, ".")
+      whole = Wording.number(String.to_integer(whole))
+
+      case fraction do
+        [cents] when cents not in ["0", "00"] ->
+          whole <> "." <> String.pad_trailing(cents, 2, "0")
+
+        _whole ->
+          whole
+      end
+    else
+      remaining
+    end
+  end
 
   defp resets(nil), do: nil
 

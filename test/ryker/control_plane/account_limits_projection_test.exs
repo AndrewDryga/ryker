@@ -52,6 +52,8 @@ defmodule Ryker.ControlPlane.AccountLimitsProjectionTest do
             limit("Fable 5", %{"used_percent" => 3}),
             limit("Credits", %{"remaining" => "unlimited"}),
             limit("Weekly credits", %{"remaining" => "12.50"}),
+            limit("Monthly credits", %{"remaining" => "45229.7698855000"}),
+            limit("Daily credits", %{"remaining" => "300.0"}),
             limit("Extra usage", %{"note" => "disabled"})
           ],
           "reset_credits" => %{"available" => 2, "expires_at" => ["2026-12-21T03:00:00Z"]}
@@ -68,6 +70,8 @@ defmodule Ryker.ControlPlane.AccountLimitsProjectionTest do
              {"Fable 5", "97% left"},
              {"Credits", "unlimited"},
              {"Weekly credits", "12.50 left"},
+             {"Monthly credits", "45,229.77 left"},
+             {"Daily credits", "300 left"},
              {"Extra usage", "disabled"}
            ]
 
