@@ -39,14 +39,14 @@ defmodule Ryker.Settings.Work do
   @most_models 4
   @most_accounts 16
   @models [
-    routing_models: ["codex:gpt-5.6-sol/medium@default"],
-    conversation_models: ["codex:gpt-5.6-terra/medium@default"],
-    standard_models: ["codex:gpt-5.6-sol/medium@default"],
-    deep_models: ["codex:gpt-5.6-sol/xhigh@default"],
-    contributor_models: ["codex:gpt-5.6-sol/medium@default"],
-    schedule_models: ["codex:gpt-5.6-sol/medium@default"],
-    incident_models: ["codex:gpt-5.6-sol/medium@default"],
-    learning_models: ["codex:gpt-5.6-sol/medium@default"]
+    routing_models: ["codex:gpt-6.2-sol/medium@default"],
+    conversation_models: ["codex:gpt-6.1-terra/medium@default"],
+    standard_models: ["codex:gpt-6.2-sol/medium@default"],
+    deep_models: ["codex:gpt-6.2-sol/xhigh@default"],
+    contributor_models: ["codex:gpt-6.2-sol/medium@default"],
+    schedule_models: ["codex:gpt-6.2-sol/medium@default"],
+    incident_models: ["codex:gpt-6.2-sol/medium@default"],
+    learning_models: ["codex:gpt-6.2-sol/medium@default"]
   ]
   @model_fields Keyword.keys(@models)
   @maximum_ready_routing_sessions 5

@@ -324,8 +324,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert rows |> LazyHTML.query(".entity-text") |> Enum.count() == 6
     assert LazyHTML.query(document, "#setting-report .entity-meta") |> LazyHTML.text() =~ "Off"
     models = LazyHTML.query(document, "#setting-model .entity-meta") |> LazyHTML.text()
-    assert models =~ "gpt-5.6-sol"
-    assert models =~ "gpt-5.6-terra"
+    assert models =~ "gpt-6.2-sol"
+    assert models =~ "gpt-6.1-terra"
 
     assert LazyHTML.query(document, "#setting-pricing .entity-meta") |> LazyHTML.text() =~
              "#{prices} prices"
@@ -902,7 +902,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              {"#webhook-credential-name", "grafana"},
              {"#webhook-credential-secret", "32 characters or more"}
            ]},
-          {"/settings/prices/new", [{"#settings-pricing-execution_target", "codex:gpt-5.6-sol"}]},
+          {"/settings/prices/new", [{"#settings-pricing-execution_target", "codex:gpt-6.2-sol"}]},
           {"/environments/new", [{"input[name='environment[display_name]']", "Production"}]}
         ] do
       {:ok, view, _html} = open(path)
@@ -1663,7 +1663,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     end
 
     deep = "#settings-request_models-form select[name='deep_models[0]"
-    assert has_element?(view, deep <> "[model]'] option[value='codex:gpt-5.6-sol'][selected]")
+    assert has_element?(view, deep <> "[model]'] option[value='codex:gpt-6.2-sol'][selected]")
     assert has_element?(view, deep <> "[effort]'] option[value=xhigh][selected]", "Extra high")
     assert has_element?(view, deep <> "[account]'] option[value=default][selected]", "default")
 
@@ -1675,7 +1675,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     work = Settings.fetch!().work
     assert work.deep_models == ["codex:gpt-5.6-luna/high@default"]
-    assert work.standard_models == ["codex:gpt-5.6-sol/medium@default"]
+    assert work.standard_models == ["codex:gpt-6.2-sol/medium@default"]
 
     # A model no price covers is still runnable, but its cost is not priced.
     snapshot = Settings.fetch!()
@@ -1976,7 +1976,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     assert Settings.fetch!().work.routing_models == [
              "codex:gpt-5.6-terra/low@personal",
-             "codex:gpt-5.6-sol/medium@default"
+             "codex:gpt-6.2-sol/medium@default"
            ]
 
     # One model and at most three fallbacks. Both accounts are in use, so a
@@ -2018,7 +2018,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view |> form(requests) |> render_submit()
 
     assert Settings.fetch!().work.routing_models == [
-             "codex:gpt-5.6-sol/medium@default",
+             "codex:gpt-6.2-sol/medium@default",
              "codex:gpt-5.6-luna/low@default"
            ]
   end
@@ -2146,7 +2146,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     |> render_submit()
 
     assert Settings.fetch!().work.routing_models == [
-             "codex:gpt-5.6-sol/medium@default",
+             "codex:gpt-6.2-sol/medium@default",
              "claude:claude-opus-4-6/medium@work"
            ]
 
@@ -2293,7 +2293,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
                "in on the worker, then add it there."
            )
 
-    assert Settings.fetch!().work.routing_models == ["codex:gpt-5.6-sol/medium@default"]
+    assert Settings.fetch!().work.routing_models == ["codex:gpt-6.2-sol/medium@default"]
 
     # An account a saved model still uses cannot be renamed out of the list.
     view
@@ -2303,8 +2303,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#settings-model_accounts .settings-error",
-             "codex@default still runs gpt-5.6-sol for Routing, Standard work, Deep work, " <>
-               "Contributor work, Scheduled work, Incident rooms and Learning, and gpt-5.6-terra " <>
+             "codex@default still runs gpt-6.2-sol for Routing, Standard work, Deep work, " <>
+               "Contributor work, Scheduled work, Incident rooms and Learning, and gpt-6.1-terra " <>
                "for Conversation. Choose another account for those models above first, then " <>
                "remove codex@default."
            )
@@ -2332,7 +2332,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              question,
-             "codex@default still runs gpt-5.6-sol for Routing"
+             "codex@default still runs gpt-6.2-sol for Routing"
            )
 
     # The row is as it was: still there, and saying nothing.
@@ -2426,7 +2426,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#settings-pricing .settings-field:has(#settings-pricing-execution_target) .settings-error",
-             "Write the provider and model joined by a colon, like codex:gpt-5.6-sol."
+             "Write the provider and model joined by a colon, like codex:gpt-6.2-sol."
            )
 
     refute Enum.any?(Settings.fetch!().pricing_rates, &(&1.execution_target == "claude-haiku"))

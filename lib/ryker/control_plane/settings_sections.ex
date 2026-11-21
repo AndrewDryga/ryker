@@ -842,10 +842,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :execution_target,
           kind: :text,
           label: "Model",
-          placeholder: "codex:gpt-5.6-sol",
+          placeholder: "codex:gpt-6.2-sol",
           help: "The provider and model, joined by a colon.",
           errors: %{
-            format: "Write the provider and model joined by a colon, like codex:gpt-5.6-sol."
+            format: "Write the provider and model joined by a colon, like codex:gpt-6.2-sol."
           }
         },
         %{

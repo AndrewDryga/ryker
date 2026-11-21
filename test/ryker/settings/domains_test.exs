@@ -38,12 +38,12 @@ defmodule Ryker.Settings.DomainsTest do
     # Each new job freezes its work kind's ordered target ladder. Reject malformed
     # settings before they can produce a job Coop cannot admit: one model and at
     # most three fallbacks.
-    assert snapshot.work.routing_models == ["codex:gpt-5.6-sol/medium@default"]
-    assert snapshot.work.conversation_models == ["codex:gpt-5.6-terra/medium@default"]
-    assert snapshot.work.deep_models == ["codex:gpt-5.6-sol/xhigh@default"]
+    assert snapshot.work.routing_models == ["codex:gpt-6.2-sol/medium@default"]
+    assert snapshot.work.conversation_models == ["codex:gpt-6.1-terra/medium@default"]
+    assert snapshot.work.deep_models == ["codex:gpt-6.2-sol/xhigh@default"]
     assert snapshot.work.model_accounts == ["codex@default"]
 
-    sol = "codex:gpt-5.6-sol/medium@default"
+    sol = "codex:gpt-6.2-sol/medium@default"
 
     for {models, reason} <- [
           {[], :length},
