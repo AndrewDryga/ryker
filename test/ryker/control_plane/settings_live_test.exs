@@ -527,6 +527,43 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert view.setup.steps.request
   end
 
+  # Andrew, 2026-11-20, at 5 of 6 on Setup: "I already sent test message in different channel but
+  # it wants me to use specific one, any message in slack channel succesfuly processed should
+  # finish the onboarding". Only a Work reply in a channel with an environment counted, so a
+  # quick reply, or a reply in any other channel, left the step open.
+  test "Setup's request step is done by any reply Ryker delivered in Slack, a quick reply included" do
+    snapshot = initialize!()
+
+    {:ok, _snapshot} =
+      Settings.put_environment(
+        %{ref: "production", display_name: "Production", repositories: []},
+        snapshot.installation.revision,
+        @actor
+      )
+
+    joined!("CINFRA", "production")
+    joined!("CRANDOM", nil)
+
+    asked =
+      Answers.slack_message!(
+        workspace: "T0123456789",
+        channel: "CRANDOM",
+        text: "hi Ryker, are you there?",
+        ts: "1791029840.480120"
+      )
+
+    {:ok, view} = SettingsView.fetch()
+    refute view.setup.steps.request
+
+    Answers.quick_reply!(asked, "Hi! I'm here.", "1791029841.000100", DateTime.utc_now())
+
+    {:ok, view} = SettingsView.fetch()
+    assert view.setup.steps.request
+
+    step = Enum.find(SetupPage.steps(view), &(&1.key == :request))
+    assert step.short =~ "any channel it is in"
+  end
+
   test "Setup's channel step is done once a joined channel has an environment" do
     # Channels choose an environment now, not a repository. A channel Ryker
     # joined before any environment existed has none, and its work runs

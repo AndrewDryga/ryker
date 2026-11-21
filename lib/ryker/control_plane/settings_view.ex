@@ -14,9 +14,9 @@ defmodule Ryker.ControlPlane.SettingsView do
   alias Ryker.Config
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness
-  alias Ryker.ConversationRef
   alias Ryker.CoopFleet
   alias Ryker.Credentials
+  alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.GitHub
   alias Ryker.Repo
@@ -228,11 +228,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   # the App is verified, which switches it on.
   defp setup_status(%{snapshot: snapshot} = connections, joined) do
     configured = Enum.filter(joined, &is_binary(&1.environment_ref))
-
-    successful_request =
-      configured
-      |> Enum.map(&ConversationRef.slack(&1.workspace_ref, &1.channel_ref))
-      |> successful_channel_request?()
+    successful_request = successful_slack_request?()
 
     steps = %{
       slack: Integrations.slack(connections).status in [:on, :broken],
@@ -289,13 +285,18 @@ defmodule Ryker.ControlPlane.SettingsView do
       is_binary(github.bot_login) and github.bot_login != ""
   end
 
-  defp successful_channel_request?([]), do: false
-
-  # A reply Ryker delivered in a set-up channel, however the conversation went on: one that then
-  # asked the person something waits for their answer, and the step stayed open on tenant while
-  # it did (2026-10-04).
-  defp successful_channel_request?(conversations) do
-    Repo.exists?(Work.Turn.Query.delivered_in_conversations("slack", conversations))
+  # A reply Ryker delivered in Slack proves the whole path, in whichever channel it was asked and
+  # however the conversation went on: one that then asked the person something waits for their
+  # answer, and the step stayed open on tenant while it did (2026-10-04). Until 2026-11-20 only a
+  # Work reply in a channel with an environment counted (Andrew: "I already sent test message in
+  # different channel but it wants me to use specific one, any message in slack channel
+  # succesfuly processed should finish the onboarding"), so a quick reply never did either.
+  defp successful_slack_request? do
+    Repo.exists?(Work.Turn.Query.delivered_on("slack")) or
+      Repo.exists?(
+        Delivery.RoutingResponse.Query.delivered_messages()
+        |> Delivery.RoutingResponse.Query.on_transport("slack")
+      )
   end
 
   defp verified?(credentials, kinds) do

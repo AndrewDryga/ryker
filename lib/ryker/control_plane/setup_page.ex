@@ -443,9 +443,12 @@ defmodule Ryker.ControlPlane.SetupPage do
 
     %{
       title: "Send a real request",
-      short: "Ask Ryker something real in that channel. Ryker notices the reply on its own.",
+      short:
+        "Ask Ryker something real in any channel it is in. Ryker notices the reply on its own.",
       why: "A reply in Slack proves the whole path works, from Slack to your code and back.",
-      how: "In #{name || "that channel"}, mention @#{bot(view)} with a real question, such as",
+      how:
+        "In #{if name, do: "#{name} or any other channel Ryker is in", else: "any channel Ryker is in"}, " <>
+          "mention @#{bot(view)} with a real question, such as",
       example: "@#{bot(view)} what does this repository do?",
       detected: "Ryker notices its reply on its own.",
       minutes: 2,

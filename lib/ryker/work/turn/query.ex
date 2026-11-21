@@ -506,14 +506,12 @@ defmodule Ryker.Work.Turn.Query do
     })
   end
 
-  @doc "Turns whose reply reached one of `conversations` on `transport`."
-  def delivered_in_conversations(transport, conversations) do
+  @doc "Turns whose reply reached a conversation on `transport`."
+  def delivered_on(transport) do
     from(t in all(),
       join: e in Episodes.Episode,
       on: e.id == t.episode_id,
-      where:
-        e.destination_transport == ^transport and e.destination_conversation_ref in ^conversations and
-          not is_nil(t.external_receipt)
+      where: e.destination_transport == ^transport and not is_nil(t.external_receipt)
     )
   end
 

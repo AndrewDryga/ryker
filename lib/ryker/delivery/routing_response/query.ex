@@ -128,6 +128,9 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
     )
   end
 
+  def on_transport(queryable \\ all(), transport),
+    do: where(queryable, [delivery_routing_responses: r], r.transport == ^transport)
+
   def delivered_messages(queryable \\ all()) do
     where(
       queryable,
