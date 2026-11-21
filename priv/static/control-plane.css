@@ -31,13 +31,13 @@ code{font-family:var(--ryker-font-mono);font-size:.9em}.eyebrow{color:var(--acce
 :root { --inspection-muted: var(--ryker-text-secondary); --inspection-line: var(--ryker-stroke); }
 .request-context-readable { padding: 6px 18px 18px; }
 .request-context-readable section { margin-top: 22px; }
-.request-context-readable h3 { font-size: 16px; color: var(--ryker-text); margin: 0 0 12px; }
+.request-context-readable h3 { font-size: 15px; color: var(--ryker-text); margin: 0 0 12px; }
 .request-context-readable pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; font: 13px/1.7 var(--ryker-font-mono); }
-.context-omission { padding: 10px 12px; background: var(--ryker-warning-soft); border-left: 2px solid var(--ryker-warning); font-size: 14px; }
+.context-omission { padding: 10px 12px; background: var(--ryker-warning-soft); border-left: 2px solid var(--ryker-warning); font-size: 13px; }
 .context-field { padding: 8px 0 8px 12px; border-left: 1px solid var(--ryker-stroke); overflow-wrap: anywhere; }
 .context-field h4 { margin: 0 0 4px; font-size: 13px; color: var(--ryker-text-secondary); font-weight: 500; }
-.context-field p { margin: 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+.context-field p { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 .context-field ul { padding-left: 20px; margin: 8px 0; }
 .context-field li { padding: 5px 0; }
 .context-absent { color: var(--ryker-disabled-text); }
-.context-candidate { padding: 12px; border-bottom: 1px solid var(--ryker-stroke); font-size: 14px; }
+.context-candidate { padding: 12px; border-bottom: 1px solid var(--ryker-stroke); font-size: 13px; }

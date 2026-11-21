@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.ExecutionCardDesignTest do
     # The same console displayed an 11.7px command beside 14px unpadded output.
     stylesheet = File.read!("priv/static/workspace.css")
     assert [_, text] = Regex.run(~r/\n\.action-console pre\s*\{([^}]+)\}/, stylesheet)
-    assert text =~ "font:15px/23px var(--ryker-font-mono)"
+    assert text =~ "font:14px/21px var(--ryker-font-mono)"
     assert text =~ "padding:12px 16px"
     assert text =~ "white-space:pre-wrap"
     assert text =~ "overflow-wrap:anywhere"
@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.ExecutionCardDesignTest do
     rules = Regex.scan(~r/\n\.case-card-heading h3\s*\{([^}]+)\}/, stylesheet)
     assert length(rules) == 1
     [[_, heading]] = rules
-    assert heading =~ ~r/font-size:\s*20px\s*;/
+    assert heading =~ ~r/font-size:\s*18px\s*;/
   end
 
   test "message identity, content and details share one frame separate from the card title" do

@@ -115,7 +115,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert message =~ "padding:6px var(--message-inset) 14px"
     assert message =~ "background:transparent"
     refute message =~ "border:"
-    assert message =~ "font-size:18px"
+    assert message =~ "font-size:16px"
 
     # Retained event bodies use inline Slack rendering, not paragraph markup;
     # their original line breaks must survive the shared message surface.
@@ -125,7 +125,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert retained_body =~ "white-space:pre-wrap"
 
     assert [_, sender] = Regex.run(~r/^\.ui-message-header strong \{([^}]+)\}/m, css)
-    assert sender =~ "font-size:15px"
+    assert sender =~ "font-size:14px"
     assert sender =~ "font-weight:600"
     assert sender =~ "color:var(--ink)"
 
@@ -152,17 +152,17 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     assert group =~ "font-size:13px"
     assert [_, source] = Regex.run(~r/^\.prompt-source-title \{([^}]+)\}/m, css)
-    assert source =~ "font-size:16px"
+    assert source =~ "font-size:15px"
 
     assert [_, field_label] =
              Regex.run(~r/^\.prompt-source-body \.context-field h4 \{([^}]+)\}/m, css)
 
-    assert field_label =~ "font-size:14px"
+    assert field_label =~ "font-size:13px"
 
     assert [_, field_value] =
              Regex.run(~r/^\.prompt-source-body \.context-field p \{([^}]+)\}/m, css)
 
-    assert field_value =~ "font-size:16px"
+    assert field_value =~ "font-size:15px"
   end
 
   test "cards use spacing instead of decorative dividers between titles and explanations", %{
@@ -327,13 +327,13 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   # each entry at the cards' body size.
   test "a briefing's saved context reads at the card's own sizes", %{css: css} do
     refute css =~ ".applied-context"
-    assert css =~ ".knowledge-entry-body { max-width:80ch; font-size:16px; line-height:25px; }"
+    assert css =~ ".knowledge-entry-body { max-width:80ch; font-size:15px; line-height:23px; }"
 
     assert css =~
              ".knowledge-actions { display:flex; justify-content:flex-end; margin-top:16px; }"
 
     assert css =~
-             ".ui-activity-note-text { max-width:80ch; color:var(--ryker-text-secondary); font-size:16px; line-height:25px; }"
+             ".ui-activity-note-text { max-width:80ch; color:var(--ryker-text-secondary); font-size:15px; line-height:23px; }"
 
     assert css =~ ".wait-match dd { margin:0; min-width:0;"
   end
@@ -462,8 +462,8 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
 
     [_, heading] = Regex.run(~r/\.case-card-heading h3 \{([^}]+)\}/, css)
 
-    assert heading =~ "font-size:20px"
-    assert heading =~ "line-height:29px"
+    assert heading =~ "font-size:18px"
+    assert heading =~ "line-height:26px"
     assert heading =~ "color:var(--ink)"
 
     [_, metadata] = Regex.run(~r/\.case-card-heading-meta \{([^}]+)\}/, css)
@@ -485,13 +485,13 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert narrow_metadata =~ "text-align:left"
 
     [_, message] = Regex.run(~r/\.ui-message-body \{([^}]+)\}/, css)
-    assert message =~ "font-size:18px"
-    assert message =~ "line-height:27px"
+    assert message =~ "font-size:16px"
+    assert message =~ "line-height:24px"
     assert message =~ "color:var(--ink)"
 
     [_, summary] = Regex.run(~r/\.case-event-summary \{ (margin:[^}]+)\}/, css)
-    assert summary =~ "font-size:16px"
-    assert summary =~ "line-height:23px"
+    assert summary =~ "font-size:15px"
+    assert summary =~ "line-height:22px"
     assert summary =~ "color:var(--ryker-text-secondary)"
   end
 

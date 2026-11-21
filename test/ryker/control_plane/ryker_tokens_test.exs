@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.RykerTokensTest do
     control_plane = control_plane_css()
 
     [_, root] = Regex.run(~r/\n\.ryker-app \{([^}]+)\}/, workspace)
-    assert root =~ "font: 18px/1.5 var(--ryker-font-sans)"
+    assert root =~ "font: 16px/1.5 var(--ryker-font-sans)"
     assert root =~ "letter-spacing:-.012em"
 
     assert workspace =~

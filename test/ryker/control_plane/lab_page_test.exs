@@ -89,7 +89,7 @@ defmodule Ryker.ControlPlane.LabPageTest do
 
     assert hairline =~ "border-top:1px solid"
     [_, heading] = Regex.run(~r/\n\.lab-directory-day > h2 \{([^}]+)\}/, css)
-    assert heading =~ "font-size:14px"
+    assert heading =~ "font-size:13px"
     refute heading =~ "uppercase"
   end
 

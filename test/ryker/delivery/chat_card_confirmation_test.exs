@@ -88,8 +88,8 @@ defmodule Ryker.Delivery.ChatCardConfirmationTest do
 
     assert row =~ "display:flex"
     assert row =~ "align-items:center"
-    assert row =~ "font-size:16px"
-    assert row =~ "line-height:23px"
+    assert row =~ "font-size:15px"
+    assert row =~ "line-height:22px"
     assert row =~ "margin:16px 0 0"
   end
 
