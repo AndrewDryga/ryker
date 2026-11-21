@@ -2,13 +2,22 @@ defmodule Ryker.Slack do
   @moduledoc """
   What the console and other contexts ask of the Slack context: the names
   Slack references read as, links into Slack, whether a value is a Slack id,
-  the words and marks of a task card's phases, and the channel settings a
-  person changes from a channel's page. Each forwards to the module that owns
-  it (`Ryker.Slack.Names`, `Ryker.Slack.Permalink`, `Ryker.Slack.ID`,
-  `Ryker.Slack.TaskCardDetails`, `Ryker.Slack.ChannelConfigurations`), so the
+  the words and marks of a task card's phases, the channel settings a person
+  changes from a channel's page, and the app manifest Slack setup copies. Each
+  forwards to the module that owns it (`Ryker.Slack.Names`,
+  `Ryker.Slack.Permalink`, `Ryker.Slack.ID`, `Ryker.Slack.TaskCardDetails`,
+  `Ryker.Slack.ChannelConfigurations`, `Ryker.Slack.AppManifest`), so the
   console never reaches below this one (`Ryker.Checks.WebNoNestedDomainCalls`).
   """
-  alias Ryker.Slack.{ChannelConfigurations, ID, Names, Permalink, TaskCardDetails}
+  alias Ryker.Slack.{AppManifest, ChannelConfigurations, ID, Names, Permalink, TaskCardDetails}
+
+  @doc "The app manifest Ryker ships, in YAML, to paste into Slack's Create New App."
+  @spec app_manifest() :: String.t()
+  defdelegate app_manifest(), to: AppManifest, as: :text
+
+  @doc "The address that opens Slack's Create New App with that manifest filled in."
+  @spec app_manifest_url() :: String.t()
+  defdelegate app_manifest_url(), to: AppManifest, as: :create_url
 
   @doc "A Slack reference's name in `workspace`, or a description of it when no name is known."
   @spec name(String.t(), String.t()) :: String.t()

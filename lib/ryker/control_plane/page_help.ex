@@ -572,7 +572,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How the Slack connection works", [
       {"Connect Slack",
        [
-         "Paste the app token (xapp-…) and bot token (xoxb-…) from your Slack app, then choose who can manage Ryker."
+         "Create Ryker's Slack app with the steps on this page, paste its app token (xapp-…) and bot token (xoxb-…), then choose who can manage Ryker."
        ]},
       {"Who can manage Ryker",
        [
@@ -582,7 +582,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"What the states mean", [Integrations.meanings(:slack)]},
       {"Missing permissions",
        [
-         "The error lists them. Add them to your Slack app, reinstall the app in the workspace, then verify again."
+         "The error lists them. Update your Slack app with the settings this page shows, reinstall it in the workspace, then verify again."
        ]}
     ])
   end

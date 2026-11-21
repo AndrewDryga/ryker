@@ -851,6 +851,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
       phx-value-kind="slack"
     />
 
+    <.slack_guide :if={!@verified} />
+
     <Kit.section_card
       :if={!@verified}
       class="settings-section"
@@ -929,6 +931,116 @@ defmodule Ryker.ControlPlane.SettingsPage do
     >
       <.slack_form label="Replace tokens" />
     </Kit.section_card>
+
+    <%!-- A Ryker that needs a new permission says which; the app takes it from the manifest. --%>
+    <Kit.section_card
+      :if={@verified}
+      id="slack-app-manifest-update"
+      class="settings-section"
+      title="Ryker's Slack app manifest"
+      lede="When Ryker needs a new permission, paste this on your app's App Manifest page in Slack, save it, then reinstall the app when Slack asks."
+    >
+      <Components.disclosure id="slack-app-manifest-current" label="Show the manifest">
+        <.slack_manifest />
+      </Components.disclosure>
+    </Kit.section_card>
+    """
+  end
+
+  # Andrew, 2026-11-21, of a new install's Slack page that only asked for two
+  # tokens: "we need to show step by step setup guide ... and even slack
+  # manifest to copy". The steps follow Slack's app pages as Slack's own
+  # documentation names them, and the manifest is the one Ryker ships, whose
+  # scopes are the ones connecting verifies (Ryker.Slack.AppManifest).
+  defp slack_guide(assigns) do
+    assigns = assign(assigns, :create_url, Slack.app_manifest_url())
+
+    ~H"""
+    <Kit.section_card
+      id="slack-setup-guide"
+      class="settings-section"
+      title="Create Ryker's Slack app"
+      lede="Ryker works in Slack through an app of its own. Create it once from Ryker's manifest, which asks Slack for every permission Ryker needs, then paste its two tokens below."
+    >
+      <ol class="setup-steps slack-guide" aria-label="Steps to create the Slack app">
+        <.guide_step number={1} title="Create the app from Ryker's manifest">
+          Slack's <strong>Create New App</strong>
+          opens with Ryker's manifest already filled in. Pick
+          the workspace Ryker should work in, choose <strong>Next</strong>, check what the app asks
+          for, then choose <strong>Create</strong>.
+          <:extra>
+            <a
+              class="ui-button primary slack-guide-create"
+              href={@create_url}
+              target="_blank"
+              rel="noopener"
+            >Create the app in Slack</a>
+            <Components.disclosure id="slack-app-manifest" label="Or paste the manifest yourself">
+              <p class="settings-help">
+                In <a href="https://api.slack.com/apps" target="_blank" rel="noopener">your Slack apps</a>,
+                choose <strong>Create New App</strong>, create it from a manifest, pick the workspace and
+                paste this as YAML.
+              </p>
+              <.slack_manifest />
+            </Components.disclosure>
+          </:extra>
+        </.guide_step>
+        <.guide_step number={2} title="Make the app-level token">
+          On the app's <strong>Basic Information</strong>
+          page, under <strong>App-Level Tokens</strong>,
+          generate a token with the <code>connections:write</code>
+          scope. Copy it: it starts with <code>xapp-</code>.
+        </.guide_step>
+        <.guide_step number={3} title="Install the app">
+          Open <strong>Install App</strong>, choose <strong>Install to Workspace</strong>
+          and allow it.
+          Copy the <strong>Bot User OAuth Token</strong>: it starts with <code>xoxb-</code>.
+        </.guide_step>
+        <.guide_step number={4} title="Give it Ryker's icon">
+          On <strong>Basic Information</strong>, upload
+          <a href="/assets/brand/avatar.png" download="ryker-slack-icon.png">Ryker's icon</a>
+          as the app
+          icon. A manifest can't set one.
+        </.guide_step>
+        <.guide_step number={5} title="Paste both tokens below">
+          Choose <strong>Verify Slack</strong>. Then invite Ryker to each channel it should work in with <code>/invite @Ryker</code>.
+        </.guide_step>
+      </ol>
+    </Kit.section_card>
+    """
+  end
+
+  attr(:number, :integer, required: true)
+  attr(:title, :string, required: true)
+  slot(:inner_block, required: true)
+  slot(:extra)
+
+  defp guide_step(assigns) do
+    ~H"""
+    <li class="setup-step" data-state="guide" id={"slack-guide-#{@number}"}>
+      <span class="setup-marker" aria-hidden="true"><span>{@number}</span></span>
+      <div class="setup-step-body">
+        <p class="setup-step-title">{@title}</p>
+        <p class="setup-step-why">{render_slot(@inner_block)}</p>
+        {render_slot(@extra)}
+      </div>
+    </li>
+    """
+  end
+
+  # The manifest exactly as Ryker ships it, with the copy button the console's
+  # other documents use.
+  defp slack_manifest(assigns) do
+    assigns = assign(assigns, :manifest, Slack.app_manifest())
+
+    ~H"""
+    <Components.copy_block label="Copy the manifest">
+      <pre
+        class="model-document-text slack-manifest"
+        tabindex="0"
+        aria-label="Ryker's Slack app manifest"
+      >{@manifest}</pre>
+    </Components.copy_block>
     """
   end
 

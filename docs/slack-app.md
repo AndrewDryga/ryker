@@ -5,18 +5,24 @@ it to your installation. People can then mention `@Ryker` or send it a direct me
 
 ## Create the app
 
-1. Open [Slack app management](https://api.slack.com/apps), choose **Create New App**, then
-   **From an app manifest**.
-2. Select the dedicated workspace, paste `deploy/slack-app-manifest.yaml`, review it, and create
-   the app. Slack validates the manifest before applying it.
-3. On **Basic Information**, upload `deploy/slack-app-icon.png` as the app icon. Slack's manifest
-   schema does not expose an icon field, so this is a separate one-time setting.
-4. Under **App-Level Tokens**, generate a token with `connections:write`.
-5. Install the app to the workspace and copy its bot token.
-6. Open **Integrations → Slack** in Ryker and paste both tokens once. Ryker verifies
+**Integrations → Slack** in Ryker walks through these steps until Slack is connected, with a link
+that opens Slack's **Create New App** with Ryker's manifest filled in and the manifest itself to
+copy. The manifest is `priv/slack/app-manifest.yaml`.
+
+1. Create the app from the manifest: follow **Create the app in Slack** on that page, or open
+   [Slack app management](https://api.slack.com/apps), choose **Create New App**, create it from a
+   manifest and paste the YAML. Pick the workspace, choose **Next**, check the summary Slack
+   shows and choose **Create**. Slack validates the manifest before it creates anything.
+2. On **Basic Information**, under **App-Level Tokens**, generate a token with the
+   `connections:write` scope. It starts with `xapp-`.
+3. Open **Install App**, choose **Install to Workspace** and allow it. Copy the **Bot User OAuth
+   Token**, which starts with `xoxb-`.
+4. On **Basic Information**, upload Ryker's icon as the app icon: the console links it, and it is
+   `brand/ryker/avatar.png` in this repository. Slack's manifest has no icon field.
+5. Paste both tokens on **Integrations → Slack** and choose **Verify Slack**. Ryker verifies
    them, discovers the workspace, app and bot identities, and stores the tokens encrypted. Do not
    type those IDs yourself.
-7. Invite `@Ryker` to the channels where it should work. Ryker detects those invitations and
+6. Invite `@Ryker` to the channels where it should work. Ryker detects those invitations and
    starts each channel in the default environment (or none, when no environment is the default);
    choose a channel's environment and participation in the guided setup or on its page in Ryker.
 
@@ -24,10 +30,12 @@ Operators are the people who can manage Ryker from Slack: those chosen under **I
 Slack** and, unless that page turns it off, the workspace's admins and owners, as Slack reports
 them. Everything below that says "operator" means them (`Ryker.Slack.Operators`).
 
-When updating an existing app, apply the new manifest. On an app created before 2026-09-13 this
+When updating an existing app, paste the new manifest on the app's **App Manifest** page in Slack;
+once Slack is connected, **Integrations → Slack** shows it under **Ryker's Slack app manifest**.
+On an app created before 2026-09-13 this
 renames the app and bot from `Emisar` to `Ryker`, the slash command from `/responder` to `/ryker`
-and the message shortcut callback to `ryker_investigate_message`; upload
-`deploy/slack-app-icon.png` (the Ryker avatar) again under **Basic Information**. Cards posted
+and the message shortcut callback to `ryker_investigate_message`; upload Ryker's icon
+(`brand/ryker/avatar.png`) again under **Basic Information**. Cards posted
 before that release keep their old control ids, and Ryker acknowledges a click on one and does
 nothing else; a shortcut invoked under its old callback, before the manifest is applied, is
 acknowledged the same way.

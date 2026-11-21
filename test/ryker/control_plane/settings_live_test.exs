@@ -1053,6 +1053,47 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(view, ".form-feedback-success", "Slack is disconnected.")
   end
 
+  # Andrew, 2026-11-21, of a new install's Slack page that asked only for two
+  # tokens: "we need to show step by step setup guide ... and even slack
+  # manifest to copy". Nothing on the page said where the tokens come from.
+  test "Slack's page walks through creating the app from Ryker's manifest until Slack is connected" do
+    initialize!()
+    {:ok, view, _html} = open("/integrations/slack")
+    guide = view |> element("#slack-setup-guide") |> render() |> LazyHTML.from_fragment()
+
+    assert guide |> LazyHTML.query(".setup-step-title") |> texts() == [
+             "Create the app from Ryker's manifest",
+             "Make the app-level token",
+             "Install the app",
+             "Give it Ryker's icon",
+             "Paste both tokens below"
+           ]
+
+    # The link opens Slack's Create New App with the manifest Ryker ships filled in.
+    [href] = guide |> LazyHTML.query("a.slack-guide-create") |> LazyHTML.attribute("href")
+    assert "https://api.slack.com/apps?new_app=1&manifest_yaml=" <> encoded = href
+    assert URI.decode(encoded) == File.read!("priv/slack/app-manifest.yaml")
+
+    # The same manifest, to paste by hand, with its copy button.
+    assert guide |> LazyHTML.query("#slack-app-manifest pre.slack-manifest") |> LazyHTML.text() ==
+             File.read!("priv/slack/app-manifest.yaml")
+
+    assert has_element?(
+             view,
+             "#slack-app-manifest .copy-block-button[aria-label='Copy the manifest']"
+           )
+
+    assert has_element?(view, "#slack-guide-2 code", "connections:write")
+    assert has_element?(view, "#slack-guide-4 a[href='/assets/brand/avatar.png'][download]")
+
+    # Once the tokens are verified the guide gives way, and the manifest stays
+    # for the next permission Ryker needs.
+    connect_slack!()
+    {:ok, view, _html} = open("/integrations/slack")
+    refute has_element?(view, "#slack-setup-guide")
+    assert has_element?(view, "#slack-app-manifest-update pre.slack-manifest")
+  end
+
   test "the Slack tokens section shows its fields under its heading, not behind a fold" do
     # Andrew, 2026-09-25: the one section whose job is replacing the tokens
     # showed nothing to fill in. Both fields sat inside a closed "Replace the
@@ -1335,7 +1376,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
                "Who can manage Ryker",
                "New channels",
                "Incident rooms",
-               "Slack tokens"
+               "Slack tokens",
+               "Ryker's Slack app manifest"
              ]
 
     assert LazyHTML.query(slack, "section.kit-card > header.section-head#new-channels h2")

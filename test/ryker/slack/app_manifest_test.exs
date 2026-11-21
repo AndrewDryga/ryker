@@ -1,7 +1,7 @@
 defmodule Ryker.Slack.AppManifestTest do
   use ExUnit.Case, async: true
 
-  @manifest_path "deploy/slack-app-manifest.yaml"
+  @manifest_path "priv/slack/app-manifest.yaml"
 
   test "the shipped Slack app can list configured channel bookmarks" do
     # Both production apps returned missing_scope when the bookmark capability was

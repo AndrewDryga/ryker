@@ -2797,6 +2797,13 @@ html:has(.kit-modal) { overflow:hidden; }
 .ryker-app .setup-step-why { max-width:560px; margin:4px 0 0; font-size:16px; line-height:24px; color:var(--ryker-text); }
 .ryker-app .setup-step-note { max-width:560px; margin:10px 0 0; font-size:15px; line-height:21px; color:var(--ryker-text-secondary); }
 .ryker-app .setup-step-how { max-width:560px; margin:14px 0 0; font-size:16px; line-height:27px; color:var(--ryker-text); }
+/* Integrations › Slack's app setup guide reuses the Setup page's numbered steps. Its link to
+   Slack and the manifest sit under the step that uses them. */
+.ryker-app .slack-guide .setup-step-why code { font-size:15px; }
+.ryker-app .slack-guide-create { margin-top:14px; }
+.slack-guide .ui-disclosure { margin-top:14px; }
+/* YAML keeps each line whole, so a long line scrolls rather than wraps into what reads as two. */
+.settings-page .copy-block pre.slack-manifest { max-height:360px; overflow:auto; white-space:pre; overflow-wrap:normal; }
 .setup-step-how q { color:var(--ryker-text); font-weight:500; }
 .setup-command { display:inline-flex; align-items:center; margin-left:4px; padding-left:10px; border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface-sunken); vertical-align:middle; }
 .ryker-app .setup-command code { font-size:15px; line-height:23px; color:var(--ryker-text); }
