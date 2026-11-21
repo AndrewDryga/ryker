@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - **No more deadlocks between a worker's poll, a command and a task's turn.** Sending a command,
   and retention's cleanup, now lock the workers holding a session before the session, the order a
