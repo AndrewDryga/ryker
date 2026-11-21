@@ -42,16 +42,26 @@ defmodule Ryker.Learning.LearningRootsMigrationTest do
     citing = Enum.map([first, built], &reference/1)
 
     # The built topic stores the first topic's source and its own: three
-    # stored receipts, two distinct.
-    assert checked(citing) == 2
-    assert migrate_down(@fenced) == :ok
-    assert checked(citing) == 3
-    assert migrate_up(@fenced) == :ok
-    assert checked(citing) == 2
+    # stored receipts, two distinct. Once on a fresh heap, and once on one that
+    # rows earlier tests rolled back had grown, the plan CI drew on 2026-11-20.
+    for heap <- [:fresh, :grown] do
+      if heap == :grown, do: grow_sources_heap!(first)
+      assert checked(citing) == {:after_folding, 2}
+      assert migrate_down(@fenced) == :ok
+      assert {:before_folding, _per_loop} = checked(citing)
+      assert migrate_up(@fenced) == :ok
+      assert checked(citing) == {:after_folding, 2}
+    end
   end
 
-  # Stored receipts a filter that keeps none looked at, by the plan's own count;
-  # the raw-receipt branch, which sees only the two references, is not one.
+  # Whether a filter on the expanded receipts ran after the copies were folded,
+  # and how many receipts it looked at and kept none of. PostgreSQL reports that
+  # count per loop, rounded to whole rows. Folded, the check runs once, so its
+  # count is exact. Unfolded, the plan decides how often it runs: on a grown heap
+  # PostgreSQL probed the sources once per cited topic, and the three copies
+  # read as (1 + 2) / 2, printed 2, which failed CI's `== 3` (2026-11-20). So an
+  # unfolded check is told by its place alone. The raw-receipt branch, which sees
+  # only the two references, is not a receipt check.
   defp checked(dependencies) do
     %{rows: [[[%{"Plan" => plan}]]]} =
       SQL.query!(
@@ -60,15 +70,57 @@ defmodule Ryker.Learning.LearningRootsMigrationTest do
         [CanonicalJSON.encode!(dependencies)]
       )
 
-    plan
-    |> nodes()
-    |> Enum.filter(&(Map.get(&1, "Filter", "") =~ "retained_at"))
-    |> Enum.reject(&(Map.get(&1, "Filter", "") =~ "knowledge_id"))
-    |> Enum.map(&Map.get(&1, "Rows Removed by Filter", 0))
-    |> Enum.sum()
+    checks = receipt_checks(plan)
+    place = if Enum.all?(checks, &elem(&1, 0)), do: :after_folding, else: :before_folding
+    {place, checks |> Enum.map(&elem(&1, 1)) |> Enum.sum()}
   end
 
-  defp nodes(plan), do: [plan | Enum.flat_map(Map.get(plan, "Plans", []), &nodes/1)]
+  # Each receipt check in the plan, as {folded before it?, rows it removed}.
+  defp receipt_checks(node) do
+    children = Map.get(node, "Plans", [])
+    filter = Map.get(node, "Filter", "")
+
+    own =
+      if filter =~ "retained_at" and not (filter =~ "knowledge_id"),
+        do: [{Enum.any?(children, &folds?/1), Map.get(node, "Rows Removed by Filter", 0)}],
+        else: []
+
+    own ++ Enum.flat_map(children, &receipt_checks/1)
+  end
+
+  defp folds?(node), do: deduplicates?(node) or Enum.any?(Map.get(node, "Plans", []), &folds?/1)
+
+  defp deduplicates?(%{"Node Type" => "Unique"}), do: true
+
+  defp deduplicates?(%{"Node Type" => "Aggregate", "Strategy" => strategy}),
+    do: strategy != "Plain"
+
+  defp deduplicates?(_node), do: false
+
+  # Rows an earlier test wrote and rolled back stay in the table's heap until a
+  # vacuum. Thirty pages of them made PostgreSQL probe the sources once per cited
+  # topic instead of reading the table once. These name a generation no topic
+  # has, so nothing reaches them before they go.
+  defp grow_sources_heap!(%{"source_ref" => "knowledge:" <> id}) do
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO conversation_knowledge_sources
+        (knowledge_id, observation_id, generation, source_revision, source_fingerprint,
+         retained_at, introduced_version, receipt_fingerprint, receipt)
+      SELECT $1::text::uuid, gen_random_uuid(), 1000000 + g, 1, 'filler', now(), 1,
+        'filler-' || g, '{}'
+      FROM generate_series(1, 2000) g
+      """,
+      [id]
+    )
+
+    SQL.query!(
+      Repo,
+      "DELETE FROM conversation_knowledge_sources WHERE source_fingerprint = 'filler'",
+      []
+    )
+  end
 
   defp topic_reference! do
     {_source, document} = KnowledgeFixtures.learn!(episode!(), "tenant-infra")
