@@ -96,6 +96,19 @@ jobs:
             echo "CHANGELOG.md top section must be ## $version, got ## $heading" >&2
             exit 1
           }
+          test "$(scripts/elixir-release-version.sh)" = "$version"
+      - name: build and verify canonical Elixir release
+        run: |
+          set -eu
+          make release-dist
+          test -f "dist/ryker_${GITHUB_REF_NAME#v}_elixir_linux_amd64.tar.gz" || {
+            echo "the built release is not the tagged version ${GITHUB_REF_NAME#v}" >&2
+            exit 1
+          }
+      - name: Extract release notes after building from the clean tree
+        run: |
+          set -eu
+          version=${GITHUB_REF_NAME#v}
           mkdir -p notes
           awk -v heading="## $version" '
             $0 == heading { found = 1; next }
@@ -104,14 +117,6 @@ jobs:
           ' CHANGELOG.md | grep -v '^<!--' > notes/release-notes.md
           grep -q '[^[:space:]]' notes/release-notes.md || {
             echo "release notes are empty" >&2
-            exit 1
-          }
-      - name: build and verify canonical Elixir release
-        run: |
-          set -eu
-          make release-dist
-          test -f "dist/ryker_${GITHUB_REF_NAME#v}_elixir_linux_amd64.tar.gz" || {
-            echo "the built release is not the tagged version ${GITHUB_REF_NAME#v}" >&2
             exit 1
           }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

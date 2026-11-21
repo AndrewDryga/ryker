@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## 0.2.1
 
 - Ryker is rebuilt in Elixir. It installs with Docker Compose (`./install.sh`), keeps every queue
   in PostgreSQL, runs model work on Coop workers enrolled over mutual TLS, and has a local web
