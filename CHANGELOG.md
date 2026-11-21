@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Routing can recover from a worker interruption.** Messages keep their retry budget
+  while the worker is still running their command or is within its reconnect window.
+  After a successful worker response, recent messages stopped by a command timeout
+  get one recovery attempt using their original operation keys.
+
 ## 0.5.0
 
 - **Fast mode.** Each model on the Models page has a Fast box beside its effort. Ticked, the

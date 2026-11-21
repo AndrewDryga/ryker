@@ -2,11 +2,13 @@ defmodule Ryker.Admission.DispatcherTest do
   use Ryker.DataCase, async: true
   import Ecto.Query, only: [from: 2]
   alias Ryker.Admission
-  alias Ryker.Admission.{Decision, Dispatcher, Executor}
+  alias Ryker.Admission.{Decision, Dispatcher, Executor, FleetSession}
   alias Ryker.Admission.DispatcherTest.ExecutorStub
   alias Ryker.ControlPlane.FailureProjection
+  alias Ryker.CoopFleet
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
@@ -144,6 +146,83 @@ defmodule Ryker.Admission.DispatcherTest do
     assert waiting.execution_generation == 1
     assert waiting.last_error_code == "coop_worker_capacity_unavailable"
     assert waiting.last_error_detail =~ "storage_unavailable"
+  end
+
+  # On 2026-11-21 worker command timeouts exhausted all eight routing attempts
+  # for messages in VA1. A command the worker still owns or a placement inside
+  # its reconnect window needs time to finish with the existing operation keys.
+  test "routing preserves its attempts and keys while the worker can still finish" do
+    entry = record_input!("Ev-dispatch-worker-wait")
+    input_ref = Inbox.ref(entry)
+    {session, placement, command} = worker_command!(entry)
+    timeout = {:coop_worker_command_timeout, command.id}
+    {:ok, stub} = ExecutorStub.start_link({:fail, timeout})
+
+    assert {:ok, {:deferred, ^input_ref, ^timeout}} = Dispatcher.run_once(options(stub))
+
+    assert {:ok, %{attempt_count: 0, execution_generation: 1, status: :pending}} =
+             Inbox.fetch(input_ref)
+
+    lapsed = {:coop_session_replacement_required, session.id, placement.generation}
+    lost_ready_session = {:admission_generation_spent, {:ready_session_unavailable, lapsed}}
+    ExecutorStub.fail(stub, lost_ready_session)
+    time = DateTime.add(@now, 61, :second)
+
+    Repo.update_all(from(p in CoopFleet.Placement, where: p.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -30, :second)]
+    )
+
+    assert {:ok, {:deferred, ^input_ref, {:ready_session_unavailable, ^lapsed}}} =
+             Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> time end))
+
+    assert {:ok, %{attempt_count: 0, execution_generation: 1, status: :pending}} =
+             Inbox.fetch(input_ref)
+
+    # A worker that has gone for good must not hold back the channel forever.
+    Repo.update_all(from(p in CoopFleet.Placement, where: p.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -11 * 60, :second)]
+    )
+
+    later = DateTime.add(time, 61, :second)
+
+    assert {:ok, {:deferred, ^input_ref, {:ready_session_unavailable, ^lapsed}}} =
+             Dispatcher.run_once(Keyword.put(options(stub), :now, fn -> later end))
+
+    assert {:ok, %{attempt_count: 1, execution_generation: 2, status: :pending}} =
+             Inbox.fetch(input_ref)
+  end
+
+  # A VA1 message stopped on a timeout after eight claims. The timeout could
+  # not say whether the mutation ran, so recovery must keep the same keys.
+  test "routing can recover an exhausted command timeout once with its original keys" do
+    entry = record_input!("Ev-dispatch-timeout-recovery")
+    input_ref = Inbox.ref(entry)
+    reason = {:coop_worker_command_timeout, Ecto.UUID.generate()}
+    {:ok, stub} = ExecutorStub.start_link({:fail, reason})
+
+    Repo.update_all(from(e in Inbox.Entry, where: e.id == ^entry.id), set: [attempt_count: 7])
+
+    assert {:ok, {:blocked, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+    assert {:ok, %{execution_generation: 1, status: :blocked}} = Inbox.fetch(input_ref)
+    record_input!("Ev-local-decision", channel_ref: "CLOCAL")
+    ExecutorStub.succeed(stub)
+    assert {:ok, {:decided, _host_decision}} = Dispatcher.run_once(options(stub))
+    assert {:ok, %{status: :blocked}} = Inbox.fetch(input_ref)
+
+    record_input!("Ev-worker-decision", channel_ref: "CRECOVERED")
+    {:ok, fake} = FakeAPI.start_link([decision()])
+
+    assert {:ok, {:decided, %{turn_id: turn_id}}} = Dispatcher.run_once(real_options(fake, @now))
+    assert is_binary(turn_id)
+
+    assert {:ok, %{attempt_count: 0, execution_generation: 1, status: :pending}} =
+             Inbox.fetch(input_ref)
+
+    Repo.update_all(from(e in Inbox.Entry, where: e.id == ^entry.id), set: [attempt_count: 7])
+    ExecutorStub.fail(stub, reason)
+
+    assert {:ok, {:blocked, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+    assert Inbox.recover_after_worker_failure(@now) == {:ok, 0}
   end
 
   test "a poisoned input exhausts its retry budget and releases later messages in its channel" do
@@ -1245,6 +1324,45 @@ defmodule Ryker.Admission.DispatcherTest do
     ]
   end
 
+  defp worker_command!(entry) do
+    digest = String.duplicate("a", 64)
+    now = Repo.now!()
+
+    assert {:ok, session} = FleetSession.ensure(entry, %{name: "read-only", digest: digest})
+    assert {:ok, worker} = CoopWorkers.authorize("worker-routing-wait", "workspace-test", digest)
+
+    placement =
+      Repo.insert!(%CoopFleet.Placement{
+        generation: 1,
+        lease_expires_at: DateTime.add(now, 60, :second),
+        lease_ref: "lease:routing",
+        requirements: %{},
+        requirements_fingerprint: digest,
+        session_id: session.id,
+        state: :active,
+        worker_id: worker.id
+      })
+
+    taken_at = DateTime.add(now, -3 * 60, :second)
+
+    command =
+      Repo.insert!(%CoopFleet.Command{
+        acknowledged_at: taken_at,
+        delivered_at: taken_at,
+        idempotency_key: "routing-command:#{entry.id}",
+        kind: "create_session",
+        payload: %{},
+        payload_fingerprint: digest,
+        placement_generation: placement.generation,
+        placement_id: placement.id,
+        session_id: session.id,
+        status: :acknowledged,
+        worker_id: worker.id
+      })
+
+    {session, placement, command}
+  end
+
   defp record_input!(event_ref, overrides \\ [], record_options \\ []) do
     assert {:ok, input} =
              [
@@ -1289,6 +1407,7 @@ defmodule Ryker.Admission.DispatcherTest do
 
     def start_link(mode), do: Agent.start_link(fn -> mode end)
     def succeed(agent), do: Agent.update(agent, fn _mode -> :succeed end)
+    def fail(agent, reason), do: Agent.update(agent, fn _mode -> {:fail, reason} end)
 
     def run(input_ref, options) do
       case Agent.get(Keyword.fetch!(options, :stub), & &1) do

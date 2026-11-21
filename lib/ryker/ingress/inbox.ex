@@ -252,15 +252,27 @@ defmodule Ryker.Ingress.Inbox do
     do: block(input_ref, lease_ref, error_code, error_detail, generation, nil)
 
   @doc """
-  Stops a message whose reading the worker failed: Coop declared its turn failed because the
-  agent could not start or its account ran out. Its generation is spent, as for any confirmed
-  terminal outcome, and the stop is marked so `recover_after_worker_failure/1` reads the
-  message again once the worker works.
+  Stops a message after a worker failure and marks it for
+  `recover_after_worker_failure/1`. A confirmed terminal outcome spends its
+  generation. An unanswered command keeps its keys so recovery reconciles
+  the same operation.
   """
-  @spec block_after_worker_failure(String.t(), String.t(), String.t(), String.t()) ::
-          {:ok, Entry.t()} | {:error, term()}
-  def block_after_worker_failure(input_ref, lease_ref, error_code, error_detail),
-    do: block(input_ref, lease_ref, error_code, error_detail, :execution, @worker_failure_ref)
+  @spec block_after_worker_failure(
+          String.t(),
+          String.t(),
+          String.t(),
+          String.t(),
+          :same | :execution
+        ) :: {:ok, Entry.t()} | {:error, term()}
+  def block_after_worker_failure(
+        input_ref,
+        lease_ref,
+        error_code,
+        error_detail,
+        generation
+      )
+      when generation in [:same, :execution],
+      do: block(input_ref, lease_ref, error_code, error_detail, generation, @worker_failure_ref)
 
   defp block(input_ref, lease_ref, error_code, error_detail, generation, owner_ref) do
     with {:ok, id} <- input_id(input_ref),

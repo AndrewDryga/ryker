@@ -8,6 +8,7 @@ defmodule Ryker.Admission.Dispatcher do
   """
   alias Ryker.Admission.{Executor, LeaseRenewer, UnavailableNote}
   alias Ryker.Backoff
+  alias Ryker.CoopFleet
   alias Ryker.Delivery
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
@@ -16,6 +17,7 @@ defmodule Ryker.Admission.Dispatcher do
   require Logger
 
   @maximum_attempts 8
+  @worker_wait_ms 15_000
   # A provider that couldn't serve the model passes. OpenAI's was at capacity from about 05:25
   # to 06:10 UTC on 2026-10-13, when a question in Slack ran its five minutes without a word
   # and stopped, and it was read again only because another message came within the hour. Such
@@ -60,8 +62,11 @@ defmodule Ryker.Admission.Dispatcher do
       |> Keyword.put(:renew_lease, renew_lease)
 
     case settings.executor.run(input_ref, executor_options) do
-      {:ok, execution} ->
+      {:ok, %{turn_id: turn_id} = execution} when is_binary(turn_id) ->
         recover_after_worker_failure(settings)
+        {:ok, {:decided, execution}}
+
+      {:ok, execution} ->
         {:ok, {:decided, execution}}
 
       {:error, {:admission_execution_blocked, reason}} ->
@@ -80,7 +85,7 @@ defmodule Ryker.Admission.Dispatcher do
         # claim's decision window closed, and the next claim reattaches to the
         # same operation. Waiting is not failing: Coop's turn timeout ends a
         # turn that never finishes, and readiness names an input left pending.
-        wait(claim, input_ref, reason, settings, settings.now.())
+        wait(claim, input_ref, reason, settings.retry_base_ms, settings.now.())
 
       {:error, reason} ->
         dispatch_failure(claim, input_ref, reason, settings)
@@ -141,15 +146,33 @@ defmodule Ryker.Admission.Dispatcher do
   end
 
   defp dispatch_failure(claim, input_ref, reason, settings) do
-    # A pending predecessor blocks later inputs in the conversation. Genuine
-    # failures stay bounded; capacity waits above never spend this budget.
-    if claim.entry.attempt_count >= @maximum_attempts do
-      {reported_reason, generation} = retry_reason(reason)
-      block(claim, input_ref, reported_reason, generation)
-    else
-      defer(claim, input_ref, reason, settings, settings.now.())
+    {reported_reason, generation} = retry_reason(reason)
+
+    cond do
+      worker_wait?(reported_reason) ->
+        wait(claim, input_ref, reported_reason, @worker_wait_ms, settings.now.())
+
+      claim.entry.attempt_count < @maximum_attempts ->
+        defer(claim, input_ref, reason, settings, settings.now.())
+
+      match?({:coop_worker_command_timeout, _command_id}, reported_reason) and generation == :same ->
+        block_after_worker_failure(claim, input_ref, reported_reason, :same)
+
+      true ->
+        block(claim, input_ref, reported_reason, generation)
     end
   end
+
+  # The worker may still finish this command or renew its placement. Keep
+  # the same operation keys inside those bounded windows.
+  defp worker_wait?({:coop_worker_command_timeout, command_id}),
+    do: CoopFleet.ControlPlane.command_running?(command_id)
+
+  defp worker_wait?({:coop_session_replacement_required, session_id, _generation}),
+    do: CoopFleet.ControlPlane.awaiting_worker?(session_id)
+
+  defp worker_wait?({:ready_session_unavailable, reason}), do: worker_wait?(reason)
+  defp worker_wait?(_reason), do: false
 
   # A person waiting on a model account nobody can fix by retrying hears so;
   # the note is courtesy, so a note that cannot be posted never changes what
@@ -223,14 +246,15 @@ defmodule Ryker.Admission.Dispatcher do
     end
   end
 
-  defp block_after_worker_failure(claim, input_ref, reason) do
+  defp block_after_worker_failure(claim, input_ref, reason, generation \\ :execution) do
     {error_code, error_detail} = describe_error(reason)
 
     case Ingress.Inbox.block_after_worker_failure(
            input_ref,
            claim.lease_ref,
            error_code,
-           error_detail
+           error_detail,
+           generation
          ) do
       {:ok, _entry} -> {:ok, {:blocked, input_ref, reason}}
       {:error, block_reason} -> {:error, {:admission_dispatch_failed, reason, block_reason}}
@@ -288,14 +312,14 @@ defmodule Ryker.Admission.Dispatcher do
     end
   end
 
-  defp wait(claim, input_ref, reason, settings, now) do
+  defp wait(claim, input_ref, reason, delay_ms, now) do
     {error_code, error_detail} = describe_error(reason)
 
     case Ingress.Inbox.wait(
            input_ref,
            claim.lease_ref,
            now,
-           settings.retry_base_ms,
+           delay_ms,
            error_code,
            error_detail
          ) do
