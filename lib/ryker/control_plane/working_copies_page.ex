@@ -292,7 +292,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
           <%= if worker.measurement != :unknown do %>
             <dl class="storage-figures">
               <div>
-                <dt>In use</dt><dd>{size(worker.bytes["protected_bytes"])}</dd>
+                <dt>In use</dt><dd><.in_use bytes={worker.bytes} /></dd>
               </div>
               <div class="storage-freeable">
                 <dt>Can be freed</dt><dd>{size(worker.bytes["disposable_bytes"])}</dd>
@@ -308,12 +308,14 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
               </div>
             </dl>
             <meter
-              :if={total = measured_total(worker.bytes)}
+              :if={disk = disk(worker.bytes)}
               min="0"
-              max={total}
-              value={worker.bytes["disposable_bytes"]}
-              aria-label={"#{worker.id} · share available for cleanup"}
-              aria-valuetext={"#{size(worker.bytes["disposable_bytes"])} of #{size(total)} can be freed"}
+              max={disk.capacity}
+              value={disk.used}
+              high={disk.high}
+              optimum="0"
+              aria-label={"#{worker.id} · disk in use"}
+              aria-valuetext={"#{size(disk.used)} of #{size(disk.capacity)} in use"}
             />
           <% end %>
           <p :if={worker.allocation == "refused"} class="storage-refusal">
@@ -332,12 +334,40 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
     """
   end
 
-  # Only measured values can describe a share. A worker's filesystem capacity is a separate figure.
-  defp measured_total(%{"protected_bytes" => used, "disposable_bytes" => disposable})
-       when is_integer(used) and is_integer(disposable) and used + disposable > 0,
-       do: used + disposable
+  # How full the worker's disk is: everything on it, since it fills with more than copies, and
+  # the point past which it takes no new copy (its free-space reserve), where the bar turns amber.
+  defp disk(%{"capacity_bytes" => capacity, "free_bytes" => free} = bytes)
+       when is_integer(capacity) and is_integer(free) and capacity > 0 and free >= 0 and
+              free <= capacity do
+    reserve = if is_integer(bytes["reserve_bytes"]), do: bytes["reserve_bytes"], else: 0
+    %{capacity: capacity, used: capacity - free, high: capacity - reserve}
+  end
 
-  defp measured_total(_incomplete), do: nil
+  defp disk(_unmeasured), do: nil
+
+  attr(:bytes, :map, required: true)
+
+  # "29.1 / 300 GiB": what the disk holds out of its size. A bare "29.1 GiB" gave no sense of how
+  # full it was (Andrew, 2026-11-21: "it's not clear whats the max"). Without a reported size,
+  # what the worker must keep.
+  defp in_use(assigns) do
+    assigns =
+      case disk(assigns.bytes) do
+        %{used: used, capacity: capacity} ->
+          assign(assigns, :figure, Units.bytes_of(used, capacity))
+
+        nil ->
+          assign(assigns, :figure, nil)
+      end
+
+    ~H"""
+    <%= if @figure do %>
+      {@figure.part}<span class="storage-of"> / {@figure.whole}</span>
+    <% else %>
+      {size(@bytes["protected_bytes"])}
+    <% end %>
+    """
+  end
 
   defp refusal(nil), do: "reason not reported"
   defp refusal(reason), do: Wording.words(reason)

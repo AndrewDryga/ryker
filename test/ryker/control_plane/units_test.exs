@@ -54,4 +54,17 @@ defmodule Ryker.ControlPlane.UnitsTest do
     assert Units.cost(%{costed: 0, estimated: 0, cost_usd: nil, estimated_cost_usd: nil}) ==
              "Not measured"
   end
+
+  # A disk's use against its size reads in the size's unit: "29.1 / 300 GiB", not
+  # "29.1 GiB / 300 GiB" or a part in MiB beside a whole in GiB.
+  test "a part of a whole reads in the whole's unit" do
+    gib = 1_073_741_824
+    assert Units.bytes_of(round(29.1 * gib), 300 * gib) == %{part: "29.1", whole: "300 GiB"}
+    assert Units.bytes_of(512 * 1_048_576, 300 * gib) == %{part: "0.5", whole: "300 GiB"}
+
+    assert Units.bytes_of(512 * 1_048_576, 900 * 1_048_576) == %{
+             part: "512 MiB",
+             whole: "900 MiB"
+           }
+  end
 end

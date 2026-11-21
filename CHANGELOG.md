@@ -37,6 +37,10 @@
 - **Calmer type and a wider menu.** Text is a step smaller than in 0.3.0 (body 16 px, nothing
   under 13 px), and the left menu is wider, with its items lined up under the logo.
 
+- **A worker's storage reads against its disk.** In use shows everything on the worker's disk out
+  of its size ("29.1 / 300 GiB"), and the bar shows how full the disk is, turning amber once the
+  worker reaches the free-space reserve and stops taking new copies.
+
 - **A caveat is a small amber clock, not a line of text.** A worker's storage reading that is out
   of date, an account whose limit is used up, and an account check that may be stale show a clock
   whose tooltip says why. Integrations › GitHub shows the day's event count with the connection,

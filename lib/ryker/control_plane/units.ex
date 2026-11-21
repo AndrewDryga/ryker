@@ -67,6 +67,18 @@ defmodule Ryker.ControlPlane.Units do
 
   def bytes(count) when is_integer(count), do: one_place(count / 1_073_741_824) <> " GiB"
 
+  @doc ~s(A part of a whole, the part's figure in the whole's unit: "29.1" of "300 GiB".)
+  @spec bytes_of(non_neg_integer(), pos_integer()) :: %{part: String.t(), whole: String.t()}
+  def bytes_of(part, whole)
+      when is_integer(part) and is_integer(whole) and whole >= 1_073_741_824,
+      do: %{
+        part: one_place(part / 1_073_741_824),
+        whole: one_place(whole / 1_073_741_824) <> " GiB"
+      }
+
+  def bytes_of(part, whole) when is_integer(part) and is_integer(whole),
+    do: %{part: bytes(part), whole: bytes(whole)}
+
   @doc """
   An amount of dollars: to the cent from ten cents up, and to two significant
   digits below, so one model call reads $0.026 rather than $0.03 or free; "$0"

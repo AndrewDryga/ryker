@@ -82,6 +82,9 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
       %{
         allocation: "refused",
         bytes: %{
+          "capacity_bytes" => 322_122_547_200,
+          "free_bytes" => 161_061_273_600,
+          "reserve_bytes" => 16_106_127_360,
           "disposable_bytes" => 9_663_676_416,
           "protected_bytes" => 21_474_836_480,
           "unattributed_bytes" => nil
@@ -324,8 +327,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     worker = LazyHTML.query(storage, "#storage-worker-a")
     assert LazyHTML.query(worker, "meter") |> Enum.count() == 1
 
-    for value <- ["20 GiB", "9 GiB", "reserve exhausted"] do
-      assert LazyHTML.text(worker) =~ value
+    for value <- ["150 / 300 GiB", "9 GiB", "reserve exhausted"] do
+      assert squeeze(LazyHTML.text(worker)) =~ value
     end
 
     assert LazyHTML.text(worker) =~ "1 GiB"
@@ -374,6 +377,25 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
     # Nothing ready for cleanup is no section at all, not an empty box.
     assert Enum.empty?(LazyHTML.query(none, "#ready-for-cleanup"))
+  end
+
+  # Andrew, 2026-11-21, of "In use 29.1 GiB": "can show 29/300 GiB or smth like that b/c it's not
+  # clear whats the max". In use is everything on the worker's disk out of the disk's size, and
+  # the bar fills with it, turning amber where the worker stops taking new copies.
+  test "a worker's disk in use reads against its size, and its bar turns amber past the reserve" do
+    worker = render([]) |> LazyHTML.query("#storage-worker-a")
+
+    assert worker
+           |> LazyHTML.query(".storage-figures dd")
+           |> Enum.map(&squeeze(LazyHTML.text(&1)))
+           |> hd() ==
+             "150 / 300 GiB"
+
+    meter = LazyHTML.query(worker, "meter")
+    assert LazyHTML.attribute(meter, "max") == ["322122547200"]
+    assert LazyHTML.attribute(meter, "value") == ["161061273600"]
+    assert LazyHTML.attribute(meter, "high") == ["306016419840"]
+    assert LazyHTML.attribute(meter, "aria-valuetext") == ["150 GiB of 300 GiB in use"]
   end
 
   test "the help names a worker's storage in the words its storage line uses" do
