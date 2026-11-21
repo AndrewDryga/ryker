@@ -48,11 +48,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   defp apply_event_batch(worker_id, batch, now) do
     placement = placement_for_batch(worker_id, batch)
 
-    after_sequence = batch["after_sequence"]
-    events = batch["events"]
-    last_sequence = last_event_sequence(events, after_sequence)
-    session_events? = session_event_batch?(events)
+    session_events? = session_event_batch?(batch["events"])
     cursor = event_cursor(placement, session_events?)
+
+    {after_sequence, events} =
+      past_cursor(placement, batch["after_sequence"], batch["events"], cursor)
+
+    last_sequence = last_event_sequence(events, after_sequence)
 
     case event_batch_disposition(placement, after_sequence, last_sequence, events, cursor, now) do
       :unauthorized ->
@@ -93,6 +95,24 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
     |> Placement.Query.lock_for_update()
     |> Repo.peek() || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
   end
+
+  # A worker moves past an event only once Ryker acknowledges it, so one that
+  # never read an acknowledgement (its VM replaced mid-poll, or the poll failed
+  # after this batch had committed) sends again what Ryker keeps, with whatever
+  # came since behind it. What Ryker keeps must match what it stored; the rest
+  # is a batch after the cursor. A batch Ryker keeps whole stays a replay.
+  defp past_cursor(placement, after_sequence, events, cursor) when after_sequence < cursor do
+    case Enum.split_while(events, &(&1["sequence"] <= cursor)) do
+      {kept, [_ | _] = fresh} ->
+        Enum.each(kept, &verify_replayed_event!(placement, &1))
+        {cursor, fresh}
+
+      {_kept, []} ->
+        {after_sequence, events}
+    end
+  end
+
+  defp past_cursor(_placement, after_sequence, events, _cursor), do: {after_sequence, events}
 
   defp last_event_sequence([], after_sequence), do: after_sequence
   defp last_event_sequence(events, _after_sequence), do: List.last(events)["sequence"]

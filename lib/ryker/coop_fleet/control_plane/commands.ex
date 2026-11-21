@@ -55,13 +55,18 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   # that is not starting. A healthy one answers in seconds.
   @prepare_redelivery_seconds 60
 
-  # Session -> key -> placement is the shared lock order for enqueue and fence.
-  # Source preparation and waiting on the remote worker never hold these locks.
+  # Holders -> session -> key -> placement is the shared lock order for enqueue
+  # and fence. A worker's poll locks its worker and then what it reports about
+  # a session, so the workers holding the session come first here too, as they
+  # do in placement. Source preparation and waiting on the remote worker never
+  # hold these locks.
   @doc false
   def with_session_command(session_id, key, callback) do
     with :ok <- Shared.uuid(session_id, :session_id),
          :ok <- Shared.reference(key, 512, :idempotency_key) do
       Repo.transaction(fn ->
+        Placements.lock_holding_workers(session_id)
+
         session =
           session_id
           |> Work.Session.Query.by_id()

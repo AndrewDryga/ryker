@@ -1949,6 +1949,124 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              "{:coop_worker_event_replay_conflict, 2}"
   end
 
+  # A worker moves past an event only once Ryker acknowledges it, and it lists
+  # what it sends from there. One that never read an acknowledgement sends the
+  # events Ryker keeps again with the progress made since behind them. Refused
+  # as a cursor conflict, the batch came back on every poll for good: one job's
+  # progress on worker B of the tenant install drew more than 20,000 refusals
+  # in six hours from 08:18 UTC on 2026-11-21, `{63, 60}` each time, and none
+  # of it after event 63 was recorded.
+  test "a worker that missed an acknowledgement resumes its progress past what Ryker kept" do
+    {placement, event_poll} = progress_kept_through_three("missed-acknowledgement")
+
+    resent =
+      event_poll.("poll:worker-a:resent", 0, [
+        {1, "tool.started"},
+        {2, "model.progress"},
+        {3, "model.progress"},
+        {4, "model.progress"},
+        {5, "tool.completed"}
+      ])
+
+    assert {:ok, response} = ControlPlane.handle_poll_certificate("worker-a", resent)
+
+    assert response["event_acknowledgements"] == [
+             %{
+               "placement_generation" => placement.generation,
+               "sequence" => 5,
+               "session_ref" => placement.session_id
+             }
+           ]
+
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 5
+    assert Repo.aggregate(Event, :count) == 5
+
+    assert Enum.map(Repo.all(from(a in ActivityEvent, order_by: a.sequence)), & &1.sequence) ==
+             [1, 2, 3, 4, 5]
+  end
+
+  # Only the part Ryker kept is taken as said; a resent event that differs
+  # from it is still another history, and the batch is refused.
+  test "a resent event that differs from the one Ryker kept is still refused" do
+    {placement, event_poll} = progress_kept_through_three("diverged-acknowledgement")
+
+    diverged =
+      event_poll.("poll:worker-a:diverged", 0, [
+        {1, "tool.started"},
+        {2, "model.thought"},
+        {3, "model.progress"},
+        {4, "model.progress"}
+      ])
+
+    assert refused(fn -> ControlPlane.handle_poll_certificate("worker-a", diverged) end) =~
+             "{:coop_worker_event_replay_conflict, 2}"
+
+    assert Repo.get!(Placement, placement.id).last_acked_session_event_sequence == 3
+    assert Repo.aggregate(ActivityEvent, :count) == 3
+  end
+
+  # A bound session whose worker reported events 1 to 3 and was told so, and a
+  # builder for that worker's next poll: a batch after `after_sequence` of
+  # `{sequence, type}` session events.
+  defp progress_kept_through_three(suffix) do
+    authorize_and_poll!("worker-a")
+    placement = place!(suffix)
+    coop_session_id = "coop-#{suffix}"
+    bind_coop_session!(placement.session_id, coop_session_id)
+    now = Repo.now!() |> DateTime.to_iso8601()
+
+    event_poll = fn poll_ref, after_sequence, events ->
+      events =
+        Enum.map(events, fn {sequence, type} ->
+          %{
+            "kind" => "session_event",
+            "payload" => %{
+              "id" => "evt-#{suffix}-#{sequence}",
+              "occurred_at" => now,
+              "payload" => progress_payload(type, sequence),
+              "sequence" => sequence,
+              "session_id" => coop_session_id,
+              "turn_id" => "turn-#{suffix}",
+              "type" => type,
+              "version" => 1
+            },
+            "sequence" => sequence
+          }
+        end)
+
+      poll("worker-a", "workspace-main", poll_ref,
+        event_batches: [
+          %{
+            "after_sequence" => after_sequence,
+            "events" => events,
+            "placement_generation" => placement.generation,
+            "session_ref" => placement.session_id
+          }
+        ]
+      )
+    end
+
+    kept =
+      event_poll.("poll:worker-a:kept", 0, [
+        {1, "tool.started"},
+        {2, "model.progress"},
+        {3, "model.progress"}
+      ])
+
+    assert {:ok, %{"event_acknowledgements" => [%{"sequence" => 3}]}} =
+             ControlPlane.handle_poll_certificate("worker-a", kept)
+
+    {placement, event_poll}
+  end
+
+  defp progress_payload("tool.started", sequence),
+    do: %{"title" => "Read the deploy logs", "tool_call_id" => "tool-#{sequence}"}
+
+  defp progress_payload("tool.completed", sequence),
+    do: %{"status" => "completed", "tool_call_id" => "tool-#{sequence}"}
+
+  defp progress_payload(_narration, sequence), do: %{"text" => "Step #{sequence} of the rollout"}
+
   test "public Coop session events advance activity custody without retaining lifecycle payloads" do
     authorize_and_poll!("worker-a")
     placement = place!("session-activity")

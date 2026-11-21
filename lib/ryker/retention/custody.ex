@@ -193,7 +193,7 @@ defmodule Ryker.Retention.Custody do
   def settle_absent(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
-      update_leased(session_id, lease_ref, :close_pending, &settle_absent_locked/2)
+      settle_leased(session_id, lease_ref, :close_pending, &settle_absent_locked/2)
     end
   end
 
@@ -214,7 +214,7 @@ defmodule Ryker.Retention.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- reference(operation_key, :operation_key),
          :ok <- reference(remote_session_id, :remote_session_id) do
-      update_leased(
+      settle_leased(
         session_id,
         lease_ref,
         :discard_pending,
@@ -229,7 +229,7 @@ defmodule Ryker.Retention.Custody do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- reference(remote_session_id, :remote_session_id) do
-      update_leased(
+      settle_leased(
         session_id,
         lease_ref,
         @pending_statuses,
@@ -251,7 +251,7 @@ defmodule Ryker.Retention.Custody do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- reference(remote_session_id, :remote_session_id) do
-      update_leased(
+      settle_leased(
         session_id,
         lease_ref,
         @pending_statuses,
@@ -274,7 +274,7 @@ defmodule Ryker.Retention.Custody do
   def settle_worker_removed(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
-      update_leased(session_id, lease_ref, @pending_statuses, &settle_worker_removed_locked/2)
+      settle_leased(session_id, lease_ref, @pending_statuses, &settle_worker_removed_locked/2)
     end
   end
 
@@ -1062,6 +1062,17 @@ defmodule Ryker.Retention.Custody do
 
     Repo.transaction(fn ->
       {session, now} = leased!(session_id, lease_ref, statuses)
+      callback.(session, now)
+    end)
+  end
+
+  # A settle retires the session's placements, which locks the workers holding
+  # them. A worker's poll and a command lock those workers before anything of
+  # the session, so a settle takes them before its owner and session.
+  defp settle_leased(session_id, lease_ref, statuses, callback) do
+    Repo.transaction(fn ->
+      CoopFleet.ControlPlane.lock_holding_workers(session_id)
+      {session, now} = leased!(session_id, lease_ref, List.wrap(statuses))
       callback.(session, now)
     end)
   end

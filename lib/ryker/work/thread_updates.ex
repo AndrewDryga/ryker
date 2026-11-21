@@ -82,6 +82,16 @@ defmodule Ryker.Work.ThreadUpdates do
       {:ok, updates} -> updates
       {:error, _unavailable} -> nil
     end
+  rescue
+    # The tool has run by the time its answer is checked, and a check that
+    # timed out on a busy episode or session raised the answer away. Nothing is
+    # lost by skipping it: the next answer, a write's fence and final
+    # validation each show what arrived.
+    error in Postgrex.Error ->
+      if Repo.budget_exhausted?(error), do: nil, else: reraise(error, __STACKTRACE__)
+
+    DBConnection.ConnectionError ->
+      nil
   end
 
   def for_tool(_binding, _call_id), do: nil

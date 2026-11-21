@@ -9,10 +9,50 @@ defmodule Ryker.StateTools.BindingConcurrencyTest do
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Repo
   alias Ryker.StateTools.Binding
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, ThreadUpdates}
 
   test "a state tool holding its session lets activity be recorded beside it" do
     holds_session_while(&lock_through_binding/1)
+  end
+
+  # A tool's answer is checked for new thread messages after the tool has run,
+  # within the turn's one-second lock budget. A busy episode timed the check
+  # out, and the raise threw the answer away: fourteen times on the tenant
+  # install between 08:20 and 14:25 UTC on 2026-11-21, each a failed call to
+  # the model for a tool that had run.
+  test "a busy episode never costs a tool its answer" do
+    Sandbox.unboxed_run(Repo, fn ->
+      {claim, _source} = Personalization.preference_context!()
+      receipt = %{"opening" => Ecto.UUID.generate(), "inputs" => [], "sha256" => "unchanged"}
+      turn = %{claim.turn | thread_receipt: receipt}
+      binding = %{episode: claim.episode, session: claim.session, turn: turn}
+      custody = holding_episode(claim.episode.id)
+
+      try do
+        assert_receive {:held, _custody_backend}, 5_000
+        assert ThreadUpdates.for_tool(binding, 1) == nil
+      after
+        send(custody.pid, :release)
+        stop_tasks([custody])
+        Personalization.cleanup!(claim)
+      end
+    end)
+  end
+
+  # What a turn's custody holds while it works: its episode.
+  defp holding_episode(episode_id) do
+    parent = self()
+
+    unboxed_task(fn ->
+      Repo.transaction(fn ->
+        Repo.query!("SELECT 1 FROM episode_kernel_episodes WHERE id = $1 FOR UPDATE", [
+          Ecto.UUID.dump!(episode_id)
+        ])
+
+        send(parent, {:held, backend_pid()})
+        receive do: (:release -> :ok)
+      end)
+    end)
   end
 
   # A tool that discloses memory takes the same row again, and a stronger lock there would make

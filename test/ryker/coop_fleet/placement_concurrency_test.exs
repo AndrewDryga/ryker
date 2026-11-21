@@ -2,8 +2,10 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.CoopFleet.{Certificate, Client, Command, ControlPlane, JobSpec, Placement, Worker}
+  alias Ryker.CoopFleet.{Bridge, Certificate, Client, Command, ControlPlane, JobSpec}
   alias Ryker.CoopFleet.ControlPlane.Commands
+  alias Ryker.CoopFleet.Event, as: WorkerEvent
+  alias Ryker.CoopFleet.{Placement, Worker}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.CoopWorkers
@@ -11,7 +13,8 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Retention
+  alias Ryker.Work.{ActivityEvent, Session}
 
   @policy_digest String.duplicate("b", 64)
   @sandbox_digest String.duplicate("a", 64)
@@ -497,6 +500,214 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
     end)
   end
 
+  # A command for a session locked the session and then, placing it, the
+  # workers holding it. A worker's poll locks its worker and then records what
+  # the worker narrated, whose foreign key takes the episode, and a turn's
+  # custody locks its episode and then its session. Each held what the next
+  # waited for: a three-way deadlock on the tenant install at 08:08 UTC on
+  # 2026-11-21 cost the work poll, and a five-way one at 14:24 cost a worker's
+  # event batch. While a command waited for its worker it held the session, so
+  # the turn's own tools, which wait a second for it, timed out too. A command
+  # now takes the workers before the session, as placement and a poll do.
+  test "a command for a worker's session never deadlocks with the worker's poll and the turn's custody" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace = "workspace-deadlock-#{suffix}"
+      worker = "worker-deadlock-#{suffix}"
+      remote = "coop-deadlock-#{suffix}"
+      session = session!("deadlock-#{suffix}") |> pin_job!()
+      authorize_and_poll!(worker, workspace)
+      {:ok, placement} = ControlPlane.place_session(session.id, requirements(workspace), 60)
+      session = bind!(session, remote)
+      parent = self()
+
+      custody =
+        unboxed_task(fn ->
+          outcome(fn ->
+            Repo.transaction(fn ->
+              lock_row!("episode_kernel_episodes", session.episode_id)
+              send(parent, {:custody, backend_pid()})
+              receive do: (:lock_session -> :ok)
+              lock_row!("episode_work_sessions", session.id)
+              :ok
+            end)
+          end)
+        end)
+
+      poller =
+        unboxed_task(fn ->
+          send(parent, {:polling, backend_pid()})
+          receive do: (:poll -> :ok)
+          outcome(fn -> narrate!(worker, workspace, placement, remote) end)
+        end)
+
+      enqueuer =
+        unboxed_task(fn ->
+          send(parent, {:enqueuing, backend_pid()})
+          receive do: (:enqueue -> :ok)
+          outcome(fn -> inspect_session(session, workspace, remote, suffix) end)
+        end)
+
+      try do
+        assert_receive {:custody, custody_backend}, 5_000
+        assert_receive {:polling, poll_backend}, 5_000
+        assert_receive {:enqueuing, enqueue_backend}, 5_000
+
+        # The poll holds its worker and waits for the episode to record narration.
+        send(poller.pid, :poll)
+        await_blocked_by(poll_backend, custody_backend)
+
+        # The command waits for that worker.
+        send(enqueuer.pid, :enqueue)
+        await_blocked_by(enqueue_backend, poll_backend)
+
+        # The turn's custody goes on to its session.
+        send(custody.pid, :lock_session)
+
+        assert Task.await(custody, 5_000) == {:ok, :ok}
+
+        assert {:ok, %{"event_acknowledgements" => [%{"sequence" => 1}]}} =
+                 Task.await(poller, 5_000)
+
+        assert Task.await(enqueuer, 5_000) == {:error, :stopped_waiting}
+      after
+        stop_tasks([custody, poller, enqueuer])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  # Settling a copy retires its placements, which locks the workers holding
+  # them; it took its owner and session first, the reverse of a command, so
+  # the two could each wait for the other on one session.
+  test "settling a discarded copy waits for its worker before locking its owner" do
+    Sandbox.unboxed_run(Repo, fn ->
+      suffix = Ecto.UUID.generate()
+      workspace = "workspace-settle-#{suffix}"
+      worker = "worker-settle-#{suffix}"
+      remote = "coop-settle-#{suffix}"
+      session = session!("settle-#{suffix}") |> pin_job!()
+      authorize_and_poll!(worker, workspace)
+      {:ok, placement} = ControlPlane.place_session(session.id, requirements(workspace), 60)
+      session = bind!(session, remote)
+      cancel_episode!(session)
+      assert {:ok, claim} = Retention.Custody.claim_next("cleanup:settle-#{suffix}", 60)
+      assert claim.session.id == session.id
+      poller = hold_worker(worker)
+      assert_receive {:holding, poll_backend}, 5_000
+      parent = self()
+
+      settler =
+        unboxed_task(fn ->
+          send(parent, {:settling, backend_pid()})
+          Retention.Custody.settle_remote_discarded(session.id, claim.lease_ref, remote)
+        end)
+
+      try do
+        assert_receive {:settling, settle_backend}, 5_000
+        await_blocked_by(settle_backend, poll_backend)
+
+        assert {:ok, _} =
+                 Repo.transaction(fn ->
+                   Repo.query!(
+                     "SELECT 1 FROM episode_kernel_episodes WHERE id = $1 FOR UPDATE NOWAIT",
+                     [Ecto.UUID.dump!(session.episode_id)]
+                   )
+
+                   Repo.query!(
+                     "SELECT 1 FROM episode_work_sessions WHERE id = $1 FOR UPDATE NOWAIT",
+                     [Ecto.UUID.dump!(session.id)]
+                   )
+                 end)
+
+        send(poller.pid, :release)
+        assert {:ok, %Session{cleanup_status: :discarded}} = Task.await(settler, 5_000)
+        assert Repo.get!(Placement, placement.id).state == :retired
+      after
+        finish!([poller, settler])
+        cleanup!([session], [worker])
+      end
+    end)
+  end
+
+  defp requirements(workspace) do
+    %{workspace_ref: workspace, repository_ref: "ryker", capability_names: ["controller-tools"]}
+  end
+
+  defp bind!(session, remote) do
+    session |> Ecto.Changeset.change(coop_session_id: remote) |> Repo.update!()
+  end
+
+  defp cancel_episode!(session) do
+    episode = Repo.get!(Episode, session.episode_id)
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.cancel_episode(%{
+                 cancel_ref: "cancel:#{session.id}",
+                 episode_key: episode.key,
+                 expected_owner: %{kind: episode.owner_kind, ref: episode.owner_ref},
+                 occurred_at: Repo.now!()
+               })
+             )
+  end
+
+  defp lock_row!(table, id) do
+    Repo.query!("SELECT 1 FROM #{table} WHERE id = $1 FOR UPDATE", [Ecto.UUID.dump!(id)])
+  end
+
+  # The worker's poll reporting one tool the model started in its session.
+  defp narrate!(worker, workspace, placement, remote) do
+    event = %{
+      "kind" => "session_event",
+      "payload" => %{
+        "id" => "evt-#{placement.id}",
+        "occurred_at" => DateTime.to_iso8601(Repo.now!()),
+        "payload" => %{"title" => "Read the deploy logs", "tool_call_id" => "tool-1"},
+        "sequence" => 1,
+        "session_id" => remote,
+        "turn_id" => "turn-#{placement.id}",
+        "type" => "tool.started",
+        "version" => 1
+      },
+      "sequence" => 1
+    }
+
+    batch = %{
+      "after_sequence" => 0,
+      "events" => [event],
+      "placement_generation" => placement.generation,
+      "session_ref" => placement.session_id
+    }
+
+    ControlPlane.handle_poll_certificate(
+      "certificate-#{worker}",
+      poll_document(worker, workspace, [batch])
+    )
+  end
+
+  # A read Ryker sends the worker about its session, through the bridge every
+  # command takes; it stops waiting once the command is queued.
+  defp inspect_session(session, workspace, remote, suffix) do
+    Bridge.execute(
+      session,
+      "api_request",
+      %{"method" => "GET", "path" => "/v1/sessions/#{remote}"},
+      "inspect:deadlock-#{suffix}",
+      workspace_ref: workspace,
+      capability_names: ["controller-tools"],
+      max_waits: 1,
+      wait: fn -> {:error, :stopped_waiting} end
+    )
+  end
+
+  # What a transaction answered, or the code PostgreSQL refused it with.
+  defp outcome(fun) do
+    fun.()
+  rescue
+    error in Postgrex.Error -> {:error, error.postgres.code}
+  end
+
   defp quarantine_fixture! do
     suffix = Ecto.UUID.generate()
     worker = "worker-quarantine-#{suffix}"
@@ -637,33 +848,40 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
 
   defp poll_worker!(worker_id, workspace_ref) do
     assert {:ok, _response} =
-             ControlPlane.handle_poll_certificate("certificate-#{worker_id}", %{
-               "acknowledged_command_ids" => [],
-               "command_results" => [],
-               "event_batches" => [],
-               "poll_ref" => "poll:#{worker_id}:#{Ecto.UUID.generate()}",
-               "version" => 2,
-               "worker" => %{
-                 "build_version" => "coop-test",
-                 "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
-                 "capacity" => %{
-                   "cooldown_until" => nil,
-                   "session_slots_free" => 1,
-                   "session_slots_total" => 1,
-                   "state" => "eligible",
-                   "turn_slots_free" => 1,
-                   "turn_slots_total" => 1,
-                   "workspace_slots_free" => 1,
-                   "workspace_slots_total" => 1
-                 },
-                 "clock_at" => DateTime.to_iso8601(Repo.now!()),
-                 "id" => worker_id,
-                 "protocol_version" => "2",
-                 "sandbox_digest" => @sandbox_digest,
-                 "state" => "eligible",
-                 "workspace_ref" => workspace_ref
-               }
-             })
+             ControlPlane.handle_poll_certificate(
+               "certificate-#{worker_id}",
+               poll_document(worker_id, workspace_ref, [])
+             )
+  end
+
+  defp poll_document(worker_id, workspace_ref, event_batches) do
+    %{
+      "acknowledged_command_ids" => [],
+      "command_results" => [],
+      "event_batches" => event_batches,
+      "poll_ref" => "poll:#{worker_id}:#{Ecto.UUID.generate()}",
+      "version" => 2,
+      "worker" => %{
+        "build_version" => "coop-test",
+        "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
+        "capacity" => %{
+          "cooldown_until" => nil,
+          "session_slots_free" => 1,
+          "session_slots_total" => 1,
+          "state" => "eligible",
+          "turn_slots_free" => 1,
+          "turn_slots_total" => 1,
+          "workspace_slots_free" => 1,
+          "workspace_slots_total" => 1
+        },
+        "clock_at" => DateTime.to_iso8601(Repo.now!()),
+        "id" => worker_id,
+        "protocol_version" => "2",
+        "sandbox_digest" => @sandbox_digest,
+        "state" => "eligible",
+        "workspace_ref" => workspace_ref
+      }
+    }
   end
 
   defp session!(suffix) do
@@ -700,6 +918,8 @@ defmodule Ryker.CoopFleet.PlacementConcurrencyTest do
       from(action in Ryker.Operator.Action, where: action.resource_ref in ^session_ids)
     )
 
+    Repo.delete_all(from(activity in ActivityEvent, where: activity.session_id in ^session_ids))
+    Repo.delete_all(from(event in WorkerEvent, where: event.session_id in ^session_ids))
     Repo.delete_all(from(command in Command, where: command.session_id in ^session_ids))
     Repo.delete_all(from(placement in Placement, where: placement.session_id in ^session_ids))
     Repo.delete_all(from(session in Session, where: session.id in ^session_ids))

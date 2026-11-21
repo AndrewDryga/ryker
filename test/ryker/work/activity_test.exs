@@ -255,6 +255,79 @@ defmodule Ryker.Work.ActivityTest do
     assert log =~ "transport unavailable"
   end
 
+  # Each evidence field of each event read the configured secrets again,
+  # walking the whole application environment, and a worker's page is prepared
+  # while its worker row is locked. Pages of narration ran past the 15 s a
+  # transaction may take: the tenant install killed 394 of them on 2026-11-21,
+  # each after holding its worker that long, and the worker sent the page
+  # again. Every command for that worker waited behind each one.
+  test "a page of narration reads the configured secrets once, however many events it holds" do
+    {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, session} =
+      WorkSessions.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("activity-secrets", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        started.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        session.create_generation,
+        "remote:activity-secrets"
+      )
+
+    events =
+      for sequence <- 1..20 do
+        event(session, sequence, "tool.completed", %{
+          "tool_call_id" => "tool-#{sequence}",
+          "status" => "completed",
+          "title" => "controller-tools · read_logs",
+          "input" => %{"server" => "controller-tools", "tool" => "read_logs"},
+          "output" => "line #{sequence} of the deploy log"
+        })
+      end
+
+    {result, walks} =
+      configuration_walks(fn ->
+        Activity.ingest_fleet(session.id, session.coop_session_id, 0, events)
+      end)
+
+    assert {:ok, %{cursor: 20, inserted: 20}} = result
+    assert walks == 1
+  end
+
+  # How many times the whole application environment was read while `fun`
+  # ran. A process cannot trace itself, so a collector counts the calls.
+  defp configuration_walks(fun) do
+    collector = spawn_link(fn -> count_configuration_walks(0) end)
+    :erlang.trace_pattern({Config, :get_all_env, 0}, true, [:local])
+    :erlang.trace(self(), true, [:call, {:tracer, collector}])
+
+    result =
+      try do
+        fun.()
+      after
+        :erlang.trace(self(), false, [:call])
+        :erlang.trace_pattern({Config, :get_all_env, 0}, false, [:local])
+      end
+
+    delivered = :erlang.trace_delivered(self())
+    assert_receive {:trace_delivered, _pid, ^delivered}
+    send(collector, {:count, self()})
+    assert_receive {:configuration_walks, count}
+    {result, count}
+  end
+
+  defp count_configuration_walks(count) do
+    receive do
+      {:trace, _pid, :call, {Config, :get_all_env, []}} -> count_configuration_walks(count + 1)
+      {:count, from} -> send(from, {:configuration_walks, count})
+    end
+  end
+
   test "a replayed Coop page advances one durable cursor without duplicating activity" do
     episode_id = Ecto.UUID.generate()
     episode_key = "activity:#{episode_id}"

@@ -278,7 +278,15 @@ defmodule Ryker.Work.Activity do
     :exit, _ -> {:error, :coop_activity_unavailable}
   end
 
+  # Every evidence field of every event is redacted, and each read the
+  # configured secrets again by walking the whole application environment. A
+  # worker's page is prepared while its worker row is locked, so the row was
+  # held for as long as that took.
   defp prepare_page(events, session) do
+    InspectionRedactor.with_configured_secrets(fn -> prepare_events(events, session) end)
+  end
+
+  defp prepare_events(events, session) do
     retention = ActivityRetention.context(session)
 
     events
