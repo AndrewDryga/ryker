@@ -1,10 +1,6 @@
 # Changelog
 
-## 0.3.2
-
-- **Worker VM disks can grow in place.** Increase the backing filesystem first, then raise
-  `DATA_GIB` and restart the worker. The VM grows its existing disk under the worker lock and
-  preserves enrollment, sign-ins and working copies.
+## Unreleased
 
 - **No more deadlocks between a worker's poll, a command and a task's turn.** Sending a command,
   and retention's cleanup, now lock the workers holding a session before the session, the order a
@@ -45,6 +41,12 @@
   of date, an account whose limit is used up, and an account check that may be stale show a clock
   whose tooltip says why. Integrations › GitHub shows the day's event count with the connection,
   and Disconnect sits beside Replace credentials.
+
+## 0.3.2
+
+- **Worker VM disks can grow in place.** Increase the backing filesystem first, then raise
+  `DATA_GIB` and restart the worker. The VM grows its existing disk under the worker lock and
+  preserves enrollment, sign-ins and working copies.
 
 ## 0.3.1
 
