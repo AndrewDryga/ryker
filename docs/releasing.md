@@ -151,7 +151,9 @@ Ed25519 public key mounted at `/secrets/operator.pub`. The SSH port is bound to 
 inside the container. Keep a separate state directory for each worker.
 
 Set `WORKER_ID` to a stable lowercase DNS label, `DATA_GIB` to the virtual disk size in GiB,
-and `RYKER_WORKER_CONTROLLER` to the controller's HTTPS origin. The guest firewall permits
+and `RYKER_WORKER_CONTROLLER` to the controller's HTTPS origin. To grow an existing guest, expand
+the backing filesystem first, increase `DATA_GIB`, then restart its worker. The launcher keeps
+larger disks at their existing size if an older setting is restored. The guest firewall permits
 private traffic to the addresses and TCP port of that origin. Copy the controller's public fleet
 CA to `/var/lib/coop/worker-ca.pem` inside the guest, sign in to the model provider there, and put
 the one-time worker enrollment token at `/var/lib/coop/enroll-token`. The worker keeps its

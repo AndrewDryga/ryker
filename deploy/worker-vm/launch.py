@@ -13,6 +13,7 @@ import time
 ROOT = Path("/opt/worker")
 STATE = Path("/state")
 DNS_LABEL = r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+GIB = 1024**3
 
 
 def controller_environment(url):
@@ -31,6 +32,19 @@ def controller_environment(url):
     raise SystemExit("Expected an HTTPS controller origin with a DNS hostname or IPv4 address")
 
 
+def grow_disk(disk, target_gib):
+    if target_gib <= 0:
+        raise SystemExit("DATA_GIB must be positive")
+    info = subprocess.check_output(["qemu-img", "info", "-f", "qcow2", "--output=json", disk])
+    if json.loads(info)["virtual-size"] >= target_gib * GIB:
+        return
+
+    filesystem = os.statvfs(disk.parent)
+    if filesystem.f_blocks * filesystem.f_frsize < target_gib * GIB:
+        raise SystemExit(f"The backing filesystem is smaller than the requested {target_gib} GiB guest disk")
+    subprocess.run(["qemu-img", "resize", "-f", "qcow2", disk, f"{target_gib}G"], check=True)
+
+
 def main():
     worker = os.environ["WORKER_ID"]
     if worker != worker.lower() or not re.fullmatch(DNS_LABEL, worker):
@@ -45,6 +59,7 @@ def main():
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     identity = STATE / "worker-id"
     disk = STATE / "guest.qcow2"
+    data_gib = int(os.environ["DATA_GIB"])
     if identity.exists():
         if identity.read_text().strip() != worker:
             raise SystemExit("Worker disk belongs to another identity")
@@ -52,12 +67,14 @@ def main():
         raise SystemExit("Existing worker disk has no identity")
     else:
         identity.write_text(worker + "\n")
-    if not disk.exists():
+    if disk.exists():
+        grow_disk(disk, data_gib)
+    else:
         if (STATE / "initialized").exists():
             raise SystemExit("Initialized worker lost its guest disk; restore it")
         temporary = STATE / "guest.new"
         subprocess.run(["qemu-img", "convert", "-O", "qcow2", ROOT / "debian.qcow2", temporary], check=True)
-        subprocess.run(["qemu-img", "resize", temporary, f"{int(os.environ['DATA_GIB'])}G"], check=True)
+        grow_disk(temporary, data_gib)
         temporary.replace(disk)
     (STATE / "initialized").touch()
 

@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
+
+- **Worker VM disks can grow in place.** Increase the backing filesystem first, then raise
+  `DATA_GIB` and restart the worker. The VM grows its existing disk under the worker lock and
+  preserves enrollment, sign-ins and working copies.
 
 ## 0.3.1
 
