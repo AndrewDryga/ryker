@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   import Phoenix.LiveViewTest
   alias Plug.Conn.Query
   alias Ryker.Accounting.Execution
-  alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, SettingsPage, SettingsView, SetupPage}
   alias Ryker.{Credentials, IntegrationSetup}
   alias Ryker.Fixtures.Answers
@@ -1548,7 +1547,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     {:ok, _view, html} = open("/settings/models")
     models = LazyHTML.from_document(html)
 
-    cards = ["Requests", "Other work", "Model accounts", "Local routing model"]
+    cards = ["Requests", "Other work", "Presets", "Model accounts", "Local routing model"]
 
     assert LazyHTML.query(models, "main section.kit-card > header.section-head h2") |> texts() ==
              cards
@@ -1575,44 +1574,65 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert {:ok, %{text: "Existing guidance"}} = Ryker.Instructions.get(:global)
   end
 
-  @tag :tmp_dir
-  test "review and contributor presets save independently and keep a missing selection visible",
-       %{tmp_dir: root} do
+  # Andrew, 2026-11-21: "how do I use presets in models selector?!" and "whats the point of
+  # dropdowns that have only one option?" A preset was a file only a shell on the controller
+  # could add. It is pasted on the Models page now, as Coop exports it, and until one can run,
+  # Code reviews and Code changes offer nothing to choose and are not shown.
+  test "a pasted preset is offered for reviews and code changes once its accounts are listed" do
     snapshot = initialize!()
-    on_exit(fn -> File.rm_rf!(root) end)
-    Config.put_override(:coop_job_presets_dir, root)
     form_id = "#settings-other_models-form"
-    {:ok, empty, _} = open("/settings/models")
+    presets_form = "#settings-model_presets-form"
+    {:ok, view, _} = open("/settings/models")
 
-    assert has_element?(
-             empty,
-             "#{form_id} select[name=code_review_preset] option",
-             "Use current routing"
-           )
-
-    assert has_element?(empty, "#{form_id} select[name='contributor_models[0][model]']")
-
-    {:ok, _} =
-      Settings.save_work(
-        %{model_accounts: ["codex@default", "claude@review"]},
-        snapshot.installation.revision,
-        @actor
-      )
+    refute has_element?(view, "#{form_id} select[name=code_review_preset]")
+    refute has_element?(view, "#{form_id} select[name=contributor_preset]")
+    assert has_element?(view, "#{form_id} select[name='contributor_models[0][model]']")
+    assert has_element?(view, "#{presets_form} .settings-presets-empty", "No presets yet.")
 
     %{"job" => job} =
       "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
 
-    recipe = Map.take(job, ["preset", "targets"])
-    File.write!(Path.join(root, "review.json"), Jason.encode!(recipe))
+    review = Map.take(job, ["preset", "targets"])
 
     writer =
-      recipe
+      review
       |> put_in(["preset", "name"], "writer")
       |> update_in(["preset", "roles"], fn [role] -> [Map.put(role, "mode", "delegate")] end)
 
-    File.write!(Path.join(root, "writer.json"), Jason.encode!(writer))
+    view |> element("#{presets_form} button", "Add preset") |> render_click()
+    view |> form(presets_form, %{"presets" => %{"0" => Jason.encode!(review)}}) |> render_change()
+    assert has_element?(view, "#{presets_form} .settings-preset-name", "review")
+    assert has_element?(view, "#{presets_form} .settings-preset-summary", "asks reader")
+    view |> element("#{presets_form} button", "Add preset") |> render_click()
+    view |> form(presets_form, %{"presets" => %{"1" => Jason.encode!(writer)}}) |> render_submit()
+    refute has_element?(view, "#{presets_form} .settings-error"), render(view)
+    assert Settings.fetch!().work.presets == %{"review" => review, "writer" => writer}
+
+    # Its consult role runs on claude@review, which is not listed yet.
+    {:ok, view, _} = open("/settings/models")
+
+    caveat =
+      "#{presets_form} .kit-caveat[title='Not offered until claude@review is listed under Model accounts']"
+
+    assert has_element?(view, caveat)
+    refute has_element?(view, "#{form_id} select[name=code_review_preset]")
+
+    {:ok, _} =
+      Settings.save_work(
+        %{model_accounts: ["codex@default", "claude@review"]},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
 
     {:ok, view, _} = open("/settings/models")
+    refute has_element?(view, "#{presets_form} .kit-caveat")
+
+    assert has_element?(
+             view,
+             "#{form_id} select[name=code_review_preset] option",
+             "Standard work models"
+           )
+
     refute has_element?(view, "#{form_id} select[name=code_review_preset] option[value=writer]")
     selected = %{"contributor_preset" => "writer", "code_review_preset" => "review"}
     view |> form(form_id, selected) |> render_change()
@@ -1624,18 +1644,19 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert {saved.code_review_preset, saved.contributor_preset} == {"review", "writer"}
     assert saved.contributor_models == snapshot.work.contributor_models
 
-    File.rm!(Path.join(root, "writer.json"))
-    {:ok, missing, _} = open("/settings/models")
+    # A preset in use stays until another is chosen for its work.
+    {:ok, view, _} = open("/settings/models")
+    view |> element("#{presets_form} button[aria-label='Remove writer']") |> render_click()
+    view |> form(presets_form) |> render_submit()
+    assert has_element?(view, "#{presets_form} .settings-error", "can't be removed")
+    assert Map.has_key?(Settings.fetch!().work.presets, "writer")
 
-    assert has_element?(
-             missing,
-             "#{form_id} select[name=contributor_preset] option[selected]",
-             "writer (unavailable)"
-           )
-
-    missing |> form(form_id, %{"contributor_preset" => ""}) |> render_submit()
-    saved = Settings.fetch!().work
-    assert {saved.code_review_preset, saved.contributor_preset} == {"review", nil}
+    view |> form(form_id, %{"contributor_preset" => ""}) |> render_submit()
+    {:ok, view, _} = open("/settings/models")
+    view |> element("#{presets_form} button[aria-label='Remove writer']") |> render_click()
+    view |> form(presets_form) |> render_submit()
+    refute has_element?(view, "#{presets_form} .settings-error"), render(view)
+    assert Map.keys(Settings.fetch!().work.presets) == ["review"]
   end
 
   test "each kind of work has its own models, chosen by model, effort and account" do

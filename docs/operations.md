@@ -822,34 +822,28 @@ log in by itself. Restart such a host with `sudo fdesetup authrestart`, which un
 on the way back up. A crash, or a power cut longer than the battery lasts, still needs someone at
 the Mac.
 
-## Approving a Coop preset for Models
+## Using a Coop preset for Models
 
-An operator authors the recipe with Coop's global preset format. Run
-`coop presets NAME --export-job` on the trusted host and place the complete JSON
-in the controller state volume at `/var/lib/ryker/presets/NAME.json`. Write a
-temporary file there and rename it into place to publish an update atomically.
-The export includes lead targets, account names, roles and prompt text. Configure
-those accounts under **Settings → Models → Model accounts** and sign them in on
-the workers that run the job.
+A preset is a Coop recipe: a lead model and the roles it consults or hands work to, in
+Coop's global preset format. Make one with `coop presets init`, then run
+`coop presets NAME --export-job` and paste the whole output into **Settings → Models →
+Presets** (**Add preset**), and save. The export holds the lead targets, account names, roles
+and prompt text. List those accounts under **Settings → Models → Model accounts** and sign them
+in on the workers that run the job; until every one is listed the preset carries an amber
+clock and isn't offered.
 
-In **Settings → Models → Other work**, choose a preset for **Code reviews** or
-**Contributor configuration** and save. **Use current routing** retains the
-existing review model selection. **Use model settings** uses Contributor work’s
-saved model and fallback order. Review presets allow read-only roles. A delegate
-requires a writable contributor job. A reviewer assignment, the review label,
-or a PR comment addressed to the App asking it to review uses the review choice.
-Confirmed changes use the contributor choice and the existing publication approval.
+Once a preset can run, **Settings → Models → Other work** offers it for **Code reviews** and
+**Code changes**; with none, those two choices aren't shown. **Standard work models** keeps
+reviews on Standard work's models, and **Contributor work models** keeps code changes on
+Contributor work's models and fallback order. A review preset may have only read-only roles; a
+delegate needs a writable contributor job. A reviewer assignment, the review label, or a PR
+comment addressed to the App asking it to review uses the review choice. Confirmed changes use
+the code-change choice and the existing publication approval.
 
-For a pull request review, have the lead send each reviewer the base and head commit IDs,
-the relevant diff and source lines, and the test results on stdin to
-`coop-consult ROLE --fresh`. Each reviewer returns its findings to the lead, who checks
-them against that head and publishes the review.
-
-Republish the export after approving a recipe edit. New jobs read the published
-revision and pin it with their sources. Previously admitted jobs keep their role
-instructions. Removing the file makes the saved choice unavailable until the
-operator restores it or selects another. Jobs that use a recipe require a worker
-advertising `job-preset:1`.
+To change a preset, remove it, paste the new export and save. New jobs read the saved recipe and
+pin it with their sources; jobs already admitted keep their role instructions. A preset that
+code reviews or code changes use can't be removed until another is chosen there. Jobs that use a
+recipe require a worker advertising `job-preset:1`.
 
 ## Local routing model
 

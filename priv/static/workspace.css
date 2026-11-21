@@ -2328,6 +2328,17 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-accounts .settings-ladder-order { margin-top:8px; }
 .settings-accounts .settings-ladder-actions { grid-template-columns:32px; margin-top:2px; }
 .settings-accounts .settings-ladder-remove { grid-column:1; }
+/* Presets in the same box: a row per saved preset with its name and what it runs, and a box to
+   paste the next one into (2026-11-21). */
+.settings-presets { --ladder-columns:20px minmax(0, 1fr) 32px; }
+.settings-presets .settings-ladder-entry { align-items:start; }
+.settings-presets .settings-ladder-order { margin-top:1px; }
+.settings-presets .settings-ladder-actions { grid-template-columns:32px; }
+.settings-presets .settings-ladder-remove { grid-column:1; }
+.settings-preset-name { display:flex; align-items:center; gap:8px; margin:0; font-size:15px; line-height:22px; }
+.settings-preset-summary { margin:2px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
+.settings-presets-empty { margin:0; padding:12px; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; }
+.settings-field .settings-presets textarea { display:block; width:100%; max-width:none; box-sizing:border-box; min-height:120px; font:13px/20px var(--ryker-font-mono); }
 /* An account's allowance as its provider reported it: a line per window under the account, the
    check time last. A used-up window says so in the warning colour; a model whose account is used
    up, and a check that may be out of date, carry Kit's amber clock. */
@@ -2345,8 +2356,8 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-field .settings-ladder-part input[type=text] { max-width:none; min-height:36px; padding:6px 10px; font-size:14px; line-height:21px; }
 .settings-field .settings-ladder-part .form-feedback { max-width:none; margin:0; padding:6px 10px; }
 @media (max-width:800px) {
-  .settings-accounts .settings-ladder-entry { grid-template-columns:var(--ladder-columns); }
-  .settings-accounts .settings-ladder-part, .settings-accounts .settings-ladder-actions { grid-column:auto; }
+  .settings-accounts .settings-ladder-entry, .settings-presets .settings-ladder-entry { grid-template-columns:var(--ladder-columns); }
+  .settings-accounts .settings-ladder-part, .settings-accounts .settings-ladder-actions, .settings-presets .settings-ladder-part, .settings-presets .settings-ladder-actions { grid-column:auto; }
   .settings-accounts .settings-ladder-part > label { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 }
 .settings-evidence { font:13px/20px var(--ryker-font-mono); color:var(--ryker-text-secondary); overflow-wrap:anywhere; }

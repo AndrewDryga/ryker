@@ -10,6 +10,10 @@ defmodule Ryker.Settings.Work do
   sign-ins require repair rather than fallback. A model is `provider:model/effort@account`, one
   account each, and Coop takes at most four.
 
+  `presets` holds the Coop recipes an owner saved, each the output of
+  `coop presets NAME --export-job` under its name; code reviews
+  (`code_review_preset`) and code changes (`contributor_preset`) may run one.
+
   `model_accounts` lists the accounts the worker has signed in, as
   `provider@name`. A model may only name a listed account; Coop validates the
   actual worker credentials when admitting the immutable job's target ladder.
@@ -38,6 +42,7 @@ defmodule Ryker.Settings.Work do
   @account ~r/\A(codex|claude)@[a-z0-9][a-z0-9_-]{0,63}\z/
   @most_models 4
   @most_accounts 16
+  @most_presets 16
   @models [
     routing_models: ["codex:gpt-6.2-sol/medium@default"],
     conversation_models: ["codex:gpt-6.1-terra/medium@default"],
@@ -67,6 +72,7 @@ defmodule Ryker.Settings.Work do
 
     field(:contributor_preset, :string)
     field(:code_review_preset, :string)
+    field(:presets, :map, default: %{})
 
     field(:local_routing_mode, Ecto.Enum, values: [:off, :shadow], default: :off)
     field(:local_routing_endpoint, :string)
@@ -80,6 +86,7 @@ defmodule Ryker.Settings.Work do
   def efforts, do: @efforts
   def most_models, do: @most_models
   def most_accounts, do: @most_accounts
+  def most_presets, do: @most_presets
   def maximum_ready_routing_sessions, do: @maximum_ready_routing_sessions
   def maximum_ready_work_sessions, do: @maximum_ready_work_sessions
 

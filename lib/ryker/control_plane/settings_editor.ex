@@ -206,6 +206,37 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     end
   end
 
+  # A pasted preset is a row of the draft until Save; Add opens a box to paste
+  # into, and Remove drops a row.
+  def handle_event("presets", %{"field" => name, "action" => action} = params, socket) do
+    %{section: section, draft: draft} = socket.assigns
+    entries = Map.get(draft, name, [])
+
+    entries =
+      case {action, position(params["index"])} do
+        {"add", _index} ->
+          if Enum.any?(entries, &(String.trim(&1) == "")), do: entries, else: entries ++ [""]
+
+        {"remove", index} when is_integer(index) ->
+          List.delete_at(entries, index)
+
+        _unknown ->
+          entries
+      end
+
+    if Enum.any?(
+         section.fields,
+         &(&1.kind == :presets and SettingsSections.field_name(&1) == name)
+       ) do
+      draft = Map.put(draft, name, entries)
+
+      {:noreply,
+       assign(socket, draft: draft, dirty: draft != socket.assigns.baseline, message: "")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("dismiss-refusal", _params, socket),
     do: {:noreply, assign(socket, :refusal, nil)}
 
@@ -1084,6 +1115,115 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # unfinished. A removal that is refused says which models run on the
   # account over the page, so the row that asked never grows (Andrew,
   # 2026-09-27: a row that "extends and design breaks").
+  # The saved presets, a row each: its name, what it runs and Remove. A row
+  # being pasted is a box until its text reads as an export; a preset whose
+  # accounts are not all listed carries Kit's amber clock, since the choices
+  # above leave it out until they are.
+  defp field(%{field: %{kind: :presets}} = assigns) do
+    %{field: field, value: entries, view: view} = assigns
+    accounts = view.snapshot.work.model_accounts
+
+    rows =
+      entries
+      |> Enum.with_index()
+      |> Enum.map(fn {text, index} ->
+        case SettingsSections.preset_export(text) do
+          {:ok, name, recipe} ->
+            %{
+              index: index,
+              text: text,
+              name: name,
+              summary: preset_summary(recipe),
+              missing: preset_missing(recipe, accounts)
+            }
+
+          :error ->
+            %{index: index, text: text, name: nil, summary: nil, missing: []}
+        end
+      end)
+
+    assigns =
+      assign(assigns,
+        name: SettingsSections.field_name(field),
+        rows: rows,
+        adding?: Enum.any?(rows, &is_nil(&1.name)),
+        count: length(entries),
+        most: Settings.most_work_presets()
+      )
+
+    ~H"""
+    <fieldset
+      class="settings-field settings-ladder settings-presets"
+      id={@id}
+      aria-describedby={help_id(@id, @field)}
+    >
+      <legend>{@field.label}</legend>
+      <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
+      <input type="hidden" name={"#{@name}[sent]"} value="1" />
+      <div class="settings-ladder-box">
+        <p :if={@rows == []} class="settings-presets-empty">No presets yet.</p>
+        <ol :if={@rows != []} class="settings-ladder-list">
+          <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
+            <span class="settings-ladder-order" aria-hidden="true">{row.index + 1}</span>
+            <div :if={row.name} class="settings-ladder-part settings-preset">
+              <input type="hidden" name={"#{@name}[#{row.index}]"} value={row.text} />
+              <p class="settings-preset-name">
+                <strong>{row.name}</strong>
+                <Kit.caveat_mark
+                  :if={row.missing != []}
+                  id={"#{@id}-#{row.index}-accounts"}
+                  hint={"Not offered until #{Wording.list(row.missing)} #{if length(row.missing) == 1, do: "is", else: "are"} listed under Model accounts"}
+                />
+              </p>
+              <p class="settings-preset-summary">{row.summary}</p>
+            </div>
+            <div :if={is_nil(row.name)} class="settings-ladder-part">
+              <label for={"#{@id}-#{row.index}-export"}>Preset {row.index + 1}</label>
+              <textarea
+                id={"#{@id}-#{row.index}-export"}
+                name={"#{@name}[#{row.index}]"}
+                rows="6"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="Paste what coop presets NAME --export-job prints"
+                aria-invalid={to_string(String.trim(row.text) != "")}
+              >{row.text}</textarea>
+              <Components.form_feedback
+                :if={String.trim(row.text) != ""}
+                message="This isn't a whole export yet. Paste everything coop presets NAME --export-job printed."
+                tone={:error}
+              />
+            </div>
+            <div class="settings-ladder-actions">
+              <button
+                type="button"
+                class="ui-button quiet settings-ladder-remove"
+                phx-click="presets"
+                phx-value-field={@name}
+                phx-value-action="remove"
+                phx-value-index={row.index}
+                phx-target={@myself}
+                title="Remove"
+                aria-label={"Remove #{row.name || "preset #{row.index + 1}"}"}
+              ><Components.icon name={:close} /></button>
+            </div>
+          </li>
+        </ol>
+        <button
+          :if={@count < @most and not @adding?}
+          type="button"
+          class="settings-ladder-add"
+          phx-click="presets"
+          phx-value-field={@name}
+          phx-value-action="add"
+          phx-target={@myself}
+        ><Components.icon name={:plus} /><span>Add preset</span></button>
+      </div>
+      <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
+    </fieldset>
+    """
+  end
+
   defp field(%{field: %{kind: :accounts}} = assigns) do
     %{field: field, value: entries, error: error, refusal: refusal} = assigns
     name = SettingsSections.field_name(field)
@@ -1447,7 +1587,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         fields:
           for(
             field <- fields,
-            field_visible?(field, draft),
+            field_visible?(field, draft, view),
             do: adapt(section, field, view, draft)
           )
       }
@@ -1562,13 +1702,19 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     })
   end
 
-  defp field_visible?(%{name: :contributor_models}, draft),
+  defp field_visible?(%{name: :contributor_models}, draft, _view),
     do: Map.get(draft, "contributor_preset") in [nil, ""]
 
-  defp field_visible?(%{kind: :mapping}, draft),
+  # A choice with one option is no choice (Andrew, 2026-11-21: "whats the point
+  # of dropdowns that have only one option?"): with no preset to offer, Code
+  # reviews and Code changes stay on their models and their fields stay away.
+  defp field_visible?(%{options: :work_presets} = field, _draft, view),
+    do: SettingsSections.options(field, view) != []
+
+  defp field_visible?(%{kind: :mapping}, draft, _view),
     do: Map.get(draft, "adapter_kind") == "mapped_json"
 
-  defp field_visible?(_field, _draft), do: true
+  defp field_visible?(_field, _draft, _view), do: true
 
   defp noun(section), do: Map.get(section, :item_label, "entry")
 
@@ -1873,4 +2019,41 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     |> Enum.reject(&(&1 in [nil, false]))
     |> Enum.join(" · ")
   end
+
+  # "Lead gpt-6.2-sol · asks critic and thinker · hands work to fast"
+  defp preset_summary(%{"targets" => [lead | _], "preset" => %{"roles" => roles}})
+       when is_binary(lead) and is_list(roles) do
+    by_mode = Enum.group_by(roles, & &1["mode"], & &1["name"])
+
+    [
+      "Lead #{lead_model(lead)}",
+      role_words("asks", by_mode["consult"]),
+      role_words("hands work to", by_mode["delegate"]),
+      role_words("runs alongside", by_mode["native"])
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp preset_summary(_recipe), do: nil
+
+  defp lead_model(target) do
+    case Work.target_parts(target) do
+      %{model: model} -> model
+      nil -> target
+    end
+  end
+
+  defp role_words(_verb, nil), do: nil
+  defp role_words(verb, names), do: "#{verb} #{Wording.list(names)}"
+
+  defp preset_missing(%{"targets" => targets, "preset" => %{"roles" => roles}}, accounts)
+       when is_list(targets) and is_list(roles) do
+    (targets ++ Enum.flat_map(roles, &List.wrap(&1["targets"])))
+    |> Enum.map(&Settings.work_account/1)
+    |> Enum.uniq()
+    |> Enum.reject(&(&1 in accounts))
+  end
+
+  defp preset_missing(_recipe, _accounts), do: []
 end

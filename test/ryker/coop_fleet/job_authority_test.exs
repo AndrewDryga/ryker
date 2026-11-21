@@ -1,7 +1,6 @@
 defmodule Ryker.CoopFleet.JobAuthorityTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-  alias Ryker.Config
   alias Ryker.CoopFleet.{Command, JobAuthority, JobSpec, JobTemplates, Placement, Worker}
   alias Ryker.{Episodes, Repo, Settings}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -87,20 +86,16 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
 
     snapshot =
       if context[:contributor_preset] do
-        on_exit(fn -> File.rm_rf!(context.tmp_dir) end)
-        Config.put_override(:coop_job_presets_dir, context.tmp_dir)
-
         %{"job" => job} =
           "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
 
-        File.write!(
-          Path.join(context.tmp_dir, "review.json"),
-          Jason.encode!(Map.take(job, ["targets", "preset"]))
-        )
-
         {:ok, saved} =
           Settings.save_work(
-            %{contributor_preset: "review", model_accounts: ["codex@default", "claude@review"]},
+            %{
+              presets: %{"review" => Map.take(job, ["targets", "preset"])},
+              contributor_preset: "review",
+              model_accounts: ["codex@default", "claude@review"]
+            },
             snapshot.installation.revision,
             @actor
           )
@@ -188,11 +183,9 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              end)
   end
 
-  @tag :tmp_dir
   @tag :contributor_preset
-  test "confirmed contributor work keeps its authorized recipe when the catalog changes", %{
-    session: session,
-    tmp_dir: root
+  test "confirmed contributor work keeps its authorized recipe when the saved preset changes", %{
+    session: session
   } do
     assert {:ok, pinned} =
              JobAuthority.ensure_pinned(session, "/private/source", &prepare/3, NoRuntimeReader)
@@ -202,7 +195,15 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     refute pinned.worker_job_document["repository_read_only"]
     assert pinned.worker_job_document["source"]["repository_ref"] == "app"
     assert pinned.worker_job_document["check"]["argv"] == ["make", "dev-check"]
-    File.rm!(Path.join(root, "review.json"))
+    snapshot = Settings.fetch!()
+    changed = put_in(snapshot.work.presets["review"], ["preset", "lead_prompt"], "Read it again.")
+
+    {:ok, _snapshot} =
+      Settings.save_work(
+        %{presets: %{"review" => changed}},
+        snapshot.installation.revision,
+        @actor
+      )
 
     assert {:ok, resumed} =
              JobAuthority.ensure_pinned(

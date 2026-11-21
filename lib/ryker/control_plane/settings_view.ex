@@ -125,7 +125,7 @@ defmodule Ryker.ControlPlane.SettingsView do
 
   @doc "The approved presets and accounts shown on the Models form."
   def with_model_presets(view) do
-    Map.put(view, :model_presets, CoopFleet.model_presets(view.snapshot.work.model_accounts))
+    Map.put(view, :model_presets, CoopFleet.model_presets(view.snapshot.work))
   end
 
   @doc "Whether a settings read found the GitHub App ready to use."

@@ -32,7 +32,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
          {:ok, purpose} <- purpose(snapshot, session, refs),
          {:ok, source, companions} <- sources(snapshot, session, refs, root, prepare),
          job = document(session, snapshot.work, purpose, source, companions),
-         {:ok, job} <- with_preset(job, snapshot.work.model_accounts),
+         {:ok, job} <- with_preset(job, snapshot.work),
          {:ok, job} <- with_setup(job, snapshot, reader),
          {:ok, digest} <- JobSpec.digest(job) do
       pin(session, snapshot.installation.revision, job, digest)
@@ -43,12 +43,18 @@ defmodule Ryker.CoopFleet.JobAuthority do
     with {:ok, session} <- validate(session), do: refresh_sources(session, root, prepare, reader)
   end
 
-  defp with_preset(%{"preset_name" => name} = job, accounts) do
-    with {:ok, recipe} <- PresetCatalog.resolve(name, accounts, job["repository_read_only"]),
+  defp with_preset(%{"preset_name" => name} = job, work) do
+    with {:ok, recipe} <-
+           PresetCatalog.resolve(
+             name,
+             work.presets,
+             work.model_accounts,
+             job["repository_read_only"]
+           ),
          do: {:ok, job |> Map.delete("preset_name") |> Map.merge(recipe)}
   end
 
-  defp with_preset(job, _accounts), do: {:ok, job}
+  defp with_preset(job, _work), do: {:ok, job}
 
   defp setup_reader, do: Config.get_env(:job_setup_reader, GitHub.RepositoryFiles)
 

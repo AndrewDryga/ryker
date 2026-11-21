@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet do
   alias Ryker.Repo
 
   @doc "Approved model presets available to the installation's selected accounts."
-  defdelegate model_presets(accounts), to: PresetCatalog, as: :choices
+  defdelegate model_presets(work), to: PresetCatalog, as: :choices
 
   @doc """
   Where a worker someone runs themselves connects, and the certificate authority it must

@@ -2,6 +2,7 @@ defmodule Ryker.Settings.Work.Changeset do
   @moduledoc "Changes to where Work runs and on which models (`Ryker.Settings.Work`)."
   @behaviour Ryker.Settings.Section.Changeset
   use Ryker, :changeset
+  alias Ryker.CoopFleet
   alias Ryker.LocalRouting
   alias Ryker.Settings.Work
 
@@ -18,6 +19,7 @@ defmodule Ryker.Settings.Work.Changeset do
             :ready_work_sessions,
             :contributor_preset,
             :code_review_preset,
+            :presets,
             :model_accounts | @model_fields
           ] ++
             @local_routing_fields
@@ -48,18 +50,47 @@ defmodule Ryker.Settings.Work.Changeset do
     )
     |> check_constraint(:ready_work_sessions, name: :work_settings_ready_work_sessions_valid)
     |> validate_accounts()
+    |> validate_presets()
     |> validate_models(work, snapshot)
     |> validate_shared_accounts()
     |> validate_local_routing()
   end
 
+  # A selected preset must still resolve. One that a save of the presets
+  # themselves left behind is that save's error: the preset is still chosen.
   def check_presets(changeset, results) do
     Enum.reduce(results, changeset, fn
+      {_field, {:error, {:coop_job_preset, _name, :unavailable}}}, acc
+      when is_map_key(acc.changes, :presets) ->
+        add_error(acc, :presets, "is invalid", validation: :in_use)
+
       {field, {:error, {:coop_job_preset, _name, reason}}}, acc ->
         add_error(acc, field, "is unavailable", validation: reason)
 
       {_field, {:ok, _recipe}}, acc ->
         acc
+    end)
+  end
+
+  # Each preset is a whole `coop presets NAME --export-job` under its own name.
+  # Whether its accounts are signed in is checked where a choice or a job uses it.
+  defp validate_presets(changeset) do
+    validate_change(changeset, :presets, fn :presets, presets ->
+      reason =
+        cond do
+          map_size(presets) > Work.most_presets() ->
+            :length
+
+          Enum.all?(presets, fn {name, recipe} ->
+            CoopFleet.PresetCatalog.recipe?(name, recipe)
+          end) ->
+            nil
+
+          true ->
+            :format
+        end
+
+      if reason, do: [presets: {"is invalid", validation: reason}], else: []
     end)
   end
 

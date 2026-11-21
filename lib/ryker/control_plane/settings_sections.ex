@@ -509,7 +509,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :code_review_preset,
           kind: :select,
           label: "Code reviews",
-          unset: "Use current routing",
+          unset: "Standard work models",
+          help: "Pull request reviews run on the Standard work models, or on a preset.",
           options: :work_presets,
           errors: %{
             unavailable: "Choose an available review preset.",
@@ -520,8 +521,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{
           name: :contributor_preset,
           kind: :select,
-          label: "Contributor configuration",
-          unset: "Use model settings",
+          label: "Code changes",
+          unset: "Contributor work models",
+          help: "Confirmed code changes run on the Contributor work models, or on a preset.",
           options: :work_presets,
           errors: %{
             unavailable: "Choose an available contributor preset.",
@@ -566,6 +568,38 @@ defmodule Ryker.ControlPlane.SettingsSections do
               "answer, and notes what is worth remembering about each conversation. It doesn't " <>
               "reply, and runs only while learning is on.",
           errors: @ladder_errors
+        }
+      ]
+    },
+    # Andrew, 2026-11-21: "how do I use presets in models selector?!" A preset
+    # was a file only a shell on the controller could add, so an install on
+    # Nomad could never offer one. Presets are saved here now, pasted as Coop
+    # exports them, and Code reviews and Code changes above offer each one
+    # whose accounts are listed.
+    %{
+      key: :model_presets,
+      domain: :work,
+      kind: :singleton,
+      schema: Settings.Work,
+      title: "Presets",
+      description:
+        "A preset is a Coop recipe: a lead model and the models it asks for a second opinion " <>
+          "or hands work to. Code reviews and code changes can run one.",
+      fields: [
+        %{
+          name: :presets,
+          kind: :presets,
+          label: "Saved presets",
+          help:
+            "Make one with coop presets init, then paste what coop presets NAME --export-job " <>
+              "prints. Its accounts must be listed under Model accounts.",
+          errors: %{
+            format: "Paste the whole output of coop presets NAME --export-job, unchanged.",
+            length: "Keep at most 16 presets.",
+            in_use:
+              "A preset that code reviews or code changes use can't be removed. Choose " <>
+                "another for them first."
+          }
         }
       ]
     },
@@ -1265,6 +1299,24 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp ladder_entries(value), do: value |> numbered() |> Enum.map(&ladder_fields/1)
   defp account_entries(value), do: value |> numbered() |> Enum.map(&text/1)
 
+  @doc """
+  A pasted `coop presets NAME --export-job`: its name and recipe, or `:error`
+  for text that is not one. Whether the recipe can run is the settings' check.
+  """
+  @spec preset_export(String.t()) :: {:ok, String.t(), map()} | :error
+  def preset_export(text) when is_binary(text) do
+    case Jason.decode(text) do
+      {:ok, %{"preset" => %{"name" => name}} = recipe} when is_binary(name) -> {:ok, name, recipe}
+      _not_an_export -> :error
+    end
+  end
+
+  def preset_export(_mismatched), do: :error
+
+  @doc "A saved recipe as the form carries it."
+  @spec preset_text(map()) :: String.t()
+  def preset_text(recipe), do: Jason.encode!(recipe, pretty: true)
+
   defp ladder_fields(%{} = entry), do: Map.new(@ladder_parts, &{&1, text(Map.get(entry, &1))})
   defp ladder_fields(_mismatched), do: Map.new(@ladder_parts, &{&1, ""})
 
@@ -1374,6 +1426,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   defp submitted_value(%{kind: :ladder}, value), do: ladder_entries(value)
   defp submitted_value(%{kind: :accounts}, value), do: account_entries(value)
+  defp submitted_value(%{kind: :presets}, value), do: account_entries(value)
   defp submitted_value(_field, value) when is_binary(value), do: value
   defp submitted_value(field, _mismatched), do: empty_value(field)
 
@@ -1445,6 +1498,24 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp cast_field(%{kind: :accounts}, value),
     do: {:ok, value |> account_entries() |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))}
 
+  # The form always sends the list, even empty, so removing the last preset saves.
+  defp cast_field(%{kind: :presets}, ""), do: :skip
+
+  defp cast_field(%{kind: :presets}, value) do
+    value
+    |> account_entries()
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.reduce_while({:ok, %{}}, fn text, {:ok, presets} ->
+      case preset_export(text) do
+        {:ok, name, recipe} when not is_map_key(presets, name) ->
+          {:cont, {:ok, Map.put(presets, name, recipe)}}
+
+        _invalid_or_repeated ->
+          {:halt, :error}
+      end
+    end)
+  end
+
   defp cast_field(%{kind: :boolean}, value), do: {:ok, value in ["true", "on", true]}
 
   defp cast_field(%{kind: :select, blank: blank}, ""), do: {:ok, blank}
@@ -1508,6 +1579,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp kind_error(:decimal), do: :decimal
   defp kind_error(:date), do: :date
   defp kind_error(:time), do: :time
+  defp kind_error(:presets), do: :format
   defp kind_error(_kind), do: :invalid
 
   @doc "The form name of a field."
@@ -1554,6 +1626,11 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp form_value(%{kind: :ladder}, _absent), do: []
   defp form_value(%{kind: :accounts}, accounts) when is_list(accounts), do: accounts
   defp form_value(%{kind: :accounts}, _absent), do: []
+
+  defp form_value(%{kind: :presets}, %{} = presets),
+    do: presets |> Enum.sort() |> Enum.map(fn {_name, recipe} -> preset_text(recipe) end)
+
+  defp form_value(%{kind: :presets}, _absent), do: []
 
   defp form_value(%{kind: :lifecycle} = field, value),
     do: Map.new(subfields(field), &{&1, Enum.join(Map.get(value || %{}, &1, []), ", ")})

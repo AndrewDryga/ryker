@@ -1,45 +1,57 @@
 defmodule Ryker.CoopFleet.PresetCatalogTest do
   use ExUnit.Case, async: true
-  alias Ryker.Config
   alias Ryker.CoopFleet.PresetCatalog
+  alias Ryker.Settings.Work
 
-  @tag :tmp_dir
-  test "only the approved recipe and its eligible accounts enter a new job", %{tmp_dir: root} do
-    on_exit(fn -> File.rm_rf!(root) end)
-    Config.put_override(:coop_job_presets_dir, root)
-
+  setup do
     %{"job" => job} =
       "testdata/protocol/coop-job-preset-v1.json" |> File.read!() |> Jason.decode!()
 
-    document = Map.take(job, ["targets", "preset"])
-    path = Path.join(root, "review.json")
-    File.write!(path, Jason.encode!(document))
+    %{recipe: Map.take(job, ["targets", "preset"])}
+  end
+
+  test "only a saved recipe and its listed accounts enter a new job", %{recipe: recipe} do
+    presets = %{"review" => recipe}
     accounts = ["codex@default", "claude@review"]
-    assert PresetCatalog.names() == ["review"]
 
-    assert PresetCatalog.resolve("subdir/review", accounts, true) ==
-             {:error, {:coop_job_preset, "subdir/review", :unavailable}}
+    assert PresetCatalog.resolve("review", presets, accounts, true) == {:ok, recipe}
 
-    assert {:ok, ^document} = PresetCatalog.resolve("review", accounts, true)
-
-    assert PresetCatalog.resolve("review", ["codex@default"], true) ==
+    assert PresetCatalog.resolve("review", presets, ["codex@default"], true) ==
              {:error, {:coop_job_preset, "review", :account_unavailable}}
 
-    updated = put_in(document, ["preset", "lead_prompt"], "Read the approved revision.")
-    File.write!(path, Jason.encode!(updated))
-    assert {:ok, ^updated} = PresetCatalog.resolve("review", accounts, true)
-    File.rm!(path)
+    assert PresetCatalog.resolve("other", presets, accounts, true) ==
+             {:error, {:coop_job_preset, "other", :unavailable}}
 
-    assert PresetCatalog.resolve("review", accounts, true) ==
-             {:error, {:coop_job_preset, "review", :unavailable}}
+    # A recipe saved under another name than its own is not that preset.
+    assert PresetCatalog.resolve("other", %{"other" => recipe}, accounts, true) ==
+             {:error, {:coop_job_preset, "other", :unavailable}}
 
-    File.write!(Path.join(root, "other.json"), Jason.encode!(document))
-    File.ln_s!("other.json", path)
+    # A delegate may change files, so it never runs in a read-only review.
+    writer =
+      update_in(recipe, ["preset", "roles"], fn [role] -> [%{role | "mode" => "delegate"}] end)
 
-    assert PresetCatalog.resolve("review", accounts, true) ==
-             {:error, {:coop_job_preset, "review", :unavailable}}
+    assert PresetCatalog.resolve("review", %{"review" => writer}, accounts, true) ==
+             {:error, {:coop_job_preset, "review", :invalid}}
 
-    assert PresetCatalog.resolve("other", accounts, true) ==
-             {:error, {:coop_job_preset, "other", :invalid}}
+    assert {:ok, ^writer} =
+             PresetCatalog.resolve("review", %{"review" => writer}, accounts, false)
+  end
+
+  test "a recipe is the whole export under its own name", %{recipe: recipe} do
+    assert PresetCatalog.recipe?("review", recipe)
+    refute PresetCatalog.recipe?("other", recipe)
+    refute PresetCatalog.recipe?("review", Map.put(recipe, "extra", true))
+    refute PresetCatalog.recipe?("review", Map.delete(recipe, "targets"))
+    refute PresetCatalog.recipe?("review", nil)
+  end
+
+  test "the Models page offers each saved preset whose accounts are listed", %{recipe: recipe} do
+    work = %Work{presets: %{"review" => recipe}, model_accounts: ["codex@default"]}
+    assert PresetCatalog.choices(work) == []
+
+    [choice] = PresetCatalog.choices(%{work | model_accounts: ["codex@default", "claude@review"]})
+    assert choice.name == "review"
+    assert choice.read_only
+    assert choice.targets == recipe["targets"]
   end
 end

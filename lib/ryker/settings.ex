@@ -527,14 +527,15 @@ defmodule Ryker.Settings do
 
   defp validate_work_presets(changeset) do
     accounts = Ecto.Changeset.get_field(changeset, :model_accounts)
+    presets = Ecto.Changeset.get_field(changeset, :presets)
 
     results =
       for field <- [:contributor_preset, :code_review_preset],
-          Map.has_key?(changeset.changes, field) or
-            Map.has_key?(changeset.changes, :model_accounts),
+          Enum.any?([field, :model_accounts, :presets], &Map.has_key?(changeset.changes, &1)),
           name = Ecto.Changeset.get_field(changeset, field),
           is_binary(name) do
-        {field, CoopFleet.PresetCatalog.resolve(name, accounts, field == :code_review_preset)}
+        read_only = field == :code_review_preset
+        {field, CoopFleet.PresetCatalog.resolve(name, presets, accounts, read_only)}
       end
 
     __MODULE__.Work.Changeset.check_presets(changeset, results)
@@ -1190,6 +1191,14 @@ defmodule Ryker.Settings do
   @doc "How many model accounts Work may save."
   @spec most_work_accounts() :: pos_integer()
   defdelegate most_work_accounts(), to: Ryker.Settings.Work, as: :most_accounts
+
+  @doc "How many presets Settings › Models may save."
+  @spec most_work_presets() :: pos_integer()
+  defdelegate most_work_presets(), to: Ryker.Settings.Work, as: :most_presets
+
+  @doc ~s(The account a model target runs on, as `provider@name`: "codex@default".)
+  @spec work_account(String.t()) :: String.t()
+  defdelegate work_account(target), to: Ryker.Settings.Work, as: :account
 
   @doc "An environment's repositories, its writable one first."
   defdelegate environment_repositories(environment),
