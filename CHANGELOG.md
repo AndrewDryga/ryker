@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.6.0
 
 - **Build presets on the Models page.** **Add preset** opens a page that picks the lead's models
