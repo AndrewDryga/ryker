@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.3.0
 
 - **Upgrade the controller before the workers.** Workers built from this release report each
