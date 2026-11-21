@@ -9,6 +9,8 @@ defmodule Ryker.Operator.FailureDetail do
   alias Ryker.CanonicalJSON
 
   @coop_codes ~w(invalid_session_state session_cleanup_error revision_conflict session_not_found operation_not_found operation_uncertain idempotency_conflict budget_exhausted unauthorized forbidden)
+  @cleanup_operation_codes @coop_codes ++ ~w(internal_error storage_unavailable invalid_request)
+  @cleanup_operation ~r/\A\{:coop_cleanup_operation_failed,\s*"[0-9a-f-]{36}",\s*"([a-z_]{1,80})"\}\z/
 
   @doc "Allowlisted protocol facts only; never copies diagnostic payload text."
   def facts(detail) when is_binary(detail) and byte_size(detail) <= 4_096 do
@@ -17,11 +19,19 @@ defmodule Ryker.Operator.FailureDetail do
         %{http_status: String.to_integer(status), code: code}
 
       _unrecognized ->
-        Ryker.PublicationRetry.facts(detail) || closed_pull_request_facts(detail)
+        cleanup_operation_facts(detail) || Ryker.PublicationRetry.facts(detail) ||
+          closed_pull_request_facts(detail)
     end
   end
 
   def facts(_detail), do: nil
+
+  defp cleanup_operation_facts(detail) do
+    case Regex.run(@cleanup_operation, detail) do
+      [_, code] when code in @cleanup_operation_codes -> %{code: code}
+      _unrecognized -> nil
+    end
+  end
 
   defp closed_pull_request_facts(detail) do
     case closed_pull_request(detail) do

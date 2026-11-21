@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Cleanup failures are easier to scan.** The reason and actions come first, and the
+  checklist opens on demand. Known worker error codes appear when Ryker has saved them.
+
 - **Repository imports have their own GitHub setting.** The picker shows already-added
   repositories without a checkbox. Set automatic imports under Integrations → GitHub.
 

@@ -239,8 +239,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp saved_error(_code), do: ""
 
-  defp stopped_step(%{cleanup_phase: phase}) when not is_nil(phase), do: phase_name(phase)
-
   defp stopped_step(%{setup_step: step}) when not is_nil(step),
     do: Wording.capitalize(setup_step(step))
 
@@ -456,7 +454,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     %{
       title: retention_title(row),
       impact: :housekeeping,
-      lede: "#{retention_owner(row)} #{outlook_short(cause.outlook)}",
+      lede: retention_owner(row),
       summary: "#{retention_owner(row)} #{cause.short}",
       happened: [retention_happened(row, thing)],
       affects: [
@@ -473,7 +471,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       outlook_note: cause.note,
       fix: cause.fix,
       retry: %{
-        label: "Try cleanup again",
+        label: "Retry cleanup",
         question: "Try cleaning up this #{thing} again?",
         effect:
           "Ryker runs the cleanup step that stopped (#{phase_step(row[:cleanup_phase])}) once more, for this #{thing} only."
@@ -491,7 +489,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp retention_title(%{source: repository})
        when is_binary(repository) and repository != "no repository",
-       do: "Removing a working copy of #{repository} stopped"
+       do: "Working copy cleanup stopped for #{repository}"
 
   defp retention_title(_row), do: "Removing a worker session's files stopped"
 
@@ -519,7 +517,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     do: "Nobody is waiting on it: the message was already read."
 
   defp retention_owner(%{request_state: :complete}),
-    do: "Nobody is waiting on it: the request finished."
+    do: "The request is complete."
 
   defp retention_owner(%{request_state: :cancelled}),
     do: "Nobody is waiting on it: the request was stopped."
@@ -566,8 +564,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp phase_step(:discard_pending), do: "remove the files"
   defp phase_step(_phase), do: "clean up"
 
-  defp phase_name(phase), do: phase |> phase_step() |> String.capitalize()
-
   defp cleanup_stop_reason do
     "Ryker keeps retrying cleanup while a worker is offline, busy or slow to answer. It stops at once when the worker refuses for a reason a retry can't change, and it only removes files it can prove belong to this session."
   end
@@ -597,6 +593,24 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       :tried,
       "Ryker tried #{attempt_words(row)}, the most it tries on its own for this, and then stopped."
     )
+  end
+
+  defp retention_cause(%{summary: "coop_cleanup_operation_failed"} = row) do
+    step =
+      case row[:cleanup_phase] do
+        :close_pending -> "The worker could not finish closing the session."
+        :plan_pending -> "The worker could not finish checking which files were safe to remove."
+        :discard_pending -> "The worker could not finish removing the session’s files."
+        _phase -> "The worker reported that cleanup failed."
+      end
+
+    detail =
+      case row[:diagnosis] do
+        %{code: code} -> "Coop reported #{words(code)}."
+        _unknown -> "The worker recorded the step as failed." <> saved_error(row.summary)
+      end
+
+    cause(step, detail, :unknown, "A retry may stop at the same step.")
   end
 
   defp retention_cause(%{diagnosis: %{code: "session_not_found"}}) do

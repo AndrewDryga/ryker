@@ -2,6 +2,19 @@ defmodule Ryker.Operator.FailureDetailTest do
   use ExUnit.Case, async: true
   alias Ryker.Operator.FailureDetail
 
+  test "a failed cleanup operation exposes its allowlisted code without its command identity" do
+    command = "00000000-0000-4000-8000-000000000001"
+
+    # The wrapped operation failure reaches Failures without an HTTP status.
+    detail = Ryker.ErrorDetail.detail({:coop_cleanup_operation_failed, command, "internal_error"})
+    assert FailureDetail.facts(detail) == %{code: "internal_error"}
+
+    unknown =
+      Ryker.ErrorDetail.detail({:coop_cleanup_operation_failed, command, "secret_payload"})
+
+    assert FailureDetail.facts(unknown) == nil
+  end
+
   test "pending publication exposes its safe retry stage without raw diagnostics" do
     assert FailureDetail.facts(~s({:publication_worker_retry, "publication_grant_failed", 503})) ==
              %{

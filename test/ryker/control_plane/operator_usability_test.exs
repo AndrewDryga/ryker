@@ -217,10 +217,8 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert LazyHTML.query(document, ".failure-status a[href='/timeline/#{@request_one}']")
            |> LazyHTML.text() == "Hi"
 
-    # What the worker answered is part of what happened; the stored diagnostic's digest is on no
-    # page.
-    assert document |> LazyHTML.query("#failure-summary") |> LazyHTML.text() =~
-             ~r/Worker response:\s+HTTP 409/
+    details = LazyHTML.query(document, "#failure-summary details:not([open])")
+    assert LazyHTML.text(details) =~ ~r/Worker response\s+HTTP 409/
 
     refute detail =~ "stored diagnostic sha256"
     refute [row] |> FailuresPage.list(@now) |> IO.iodata_to_binary() =~ "stored diagnostic"
@@ -741,10 +739,9 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
   end
 
   # Andrew, 2026-10-03, of a failure's Technical details: ""Technical details" can be dropped?"
-  # The fold under every failure held its references, a digest of its stored diagnostic and its
-  # conversation's raw reference, with copy buttons drawn as green squares. What its sources said
-  # is a row of what happened now, and no reference is on the page.
-  test "a failure's page says what happened and what to do, and shows no references" do
+  # The old technical disclosure held identifiers, a diagnostic digest and the conversation's
+  # raw reference. The cleanup checklist and safe error text can be opened without exposing those.
+  test "a cleanup's disclosure shows the saved error without exposing references" do
     html =
       FailuresPage.detail(
         %{
@@ -764,20 +761,12 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     document = LazyHTML.from_fragment(html)
 
-    # Andrew, 2026-09-28: four headed runs of prose were "not usable". Two
-    # cards: what happened in labelled rows, then what a person can do.
-    assert LazyHTML.query(document, ".section-head h2") |> Enum.map(&LazyHTML.text/1) == [
-             "What happened",
-             "What you can do"
-           ]
+    assert [_card] = document |> LazyHTML.query(".failure-page .kit-card") |> Enum.to_list()
+    cause = LazyHTML.text(LazyHTML.query(document, ".failure-cleanup-cause"))
+    assert cause =~ "Cleanup stopped before Ryker could confirm it finished."
 
-    assert LazyHTML.query(document, "#failure-summary .failure-rows dt")
-           |> Enum.map(&LazyHTML.text/1) == [
-             "What stopped",
-             "Why",
-             "Who is waiting",
-             "What Ryker tried"
-           ]
+    details = LazyHTML.query(document, "details.failure-cleanup-details:not([open])")
+    assert LazyHTML.text(LazyHTML.query(details, "summary")) == "Cleanup details"
 
     assert html =~ "Open the request"
     assert html =~ "Direct conversation"
@@ -792,7 +781,7 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
 
     # An error Ryker has no words for is shown as it was saved, once, in the
     # sentence that says so (Andrew, 2026-10-03: "show an error").
-    assert words =~ ~s(The saved error is "coop_error".)
+    assert LazyHTML.text(details) =~ ~s(The saved error is "coop_error".)
     assert length(String.split(words, "coop_error")) == 2
   end
 

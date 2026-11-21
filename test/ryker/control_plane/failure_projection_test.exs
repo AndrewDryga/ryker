@@ -33,6 +33,58 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   @now ~U[2026-08-28 12:00:00.000000Z]
   @sandbox String.duplicate("d", 64)
 
+  test "a stopped cleanup puts the explanation and actions before the optional checklist" do
+    # The working copy for a completed task stopped at PlanDiscard. The old
+    # page repeated the cleanup phase and impact before showing any action.
+    row = %{
+      action: :rearm,
+      attempt_count: 1,
+      cleanup_phase: :plan_pending,
+      closed_at: @now,
+      kind: "retention",
+      ref: "ryker-work:example:session:2",
+      request_state: :complete,
+      source: "example/repo",
+      summary: "coop_cleanup_operation_failed",
+      updated_at: @now
+    }
+
+    assert FailureExplanation.explain(row, @now).lede == "The request is complete."
+
+    page = row |> FailuresPage.detail(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
+    summary = LazyHTML.query(page, "#failure-summary")
+
+    assert LazyHTML.text(LazyHTML.query(summary, ".failure-cleanup-cause")) =~
+             "The worker could not finish checking which files were safe to remove."
+
+    actions = LazyHTML.query(summary, ".failure-cleanup-actions button")
+    assert Enum.map(actions, &LazyHTML.text/1) == ["Retry cleanup", "Leave it"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(summary, ".failure-cleanup-actions form"),
+             "action"
+           )
+           |> Enum.all?(&String.starts_with?(&1, "/actions/retention/"))
+
+    assert LazyHTML.text(LazyHTML.query(summary, "details:not([open]) summary")) ==
+             "Cleanup details"
+
+    assert LazyHTML.text(LazyHTML.query(summary, "details .failure-steps li[data-state=stopped]")) =~
+             "Check which files are safe to remove"
+
+    assert Enum.empty?(LazyHTML.query(page, "#failure-options"))
+
+    with_worker_code =
+      row
+      |> Map.put(:diagnosis, %{code: "internal_error"})
+      |> FailuresPage.detail(@now)
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+
+    assert LazyHTML.text(LazyHTML.query(with_worker_code, ".failure-cleanup-details")) =~
+             "Coop reported internal error."
+  end
+
   test "revoked publication approval never promises an automatic retry" do
     row = %{
       kind: "publication",

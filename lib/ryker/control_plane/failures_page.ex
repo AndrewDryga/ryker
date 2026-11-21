@@ -203,6 +203,34 @@ defmodule Ryker.ControlPlane.FailuresPage do
     |> Safe.to_iodata()
   end
 
+  defp detail_view(%{row: %{kind: "retention"}} = assigns) do
+    ~H"""
+    <div class="failure-page">
+      <p :if={@facts != []} class="failure-status">
+        <span :for={fact <- @facts} class="failure-status-fact">{fact}</span>
+      </p>
+      <Kit.section_card id="failure-summary" label="Cleanup status">
+        <p class="failure-cleanup-cause">{List.first(@e.cause)}</p>
+        <p class="failure-cleanup-impact">The worker may still have this session's files.</p>
+        <div :if={@e.options != []} class="failure-cleanup-actions">
+          <.option_action :for={option <- @e.options} option={option} />
+        </div>
+        <details class="failure-cleanup-details">
+          <summary>Cleanup details</summary>
+          <ol :if={@steps != []} class="failure-steps" aria-label="Cleanup steps">
+            <li :for={step <- @steps} data-state={step.state}>
+              <strong>{step.label}</strong> <span>{step.status}</span>
+            </li>
+          </ol>
+          <p :for={paragraph <- Enum.drop(@e.cause, 1)}>{paragraph}</p>
+          <p :for={option <- @e.options} :if={option[:note]}>{option.note}</p>
+          <p :for={fact <- @details}><strong>{fact.label}</strong> {fact.value}</p>
+        </details>
+      </Kit.section_card>
+    </div>
+    """
+  end
+
   # Andrew, 2026-09-28, of this page: "this is shitton of text without proper
   # design, page is not usable". Four headed runs of prose are now two cards:
   # what happened, in labelled rows a person can scan, then what they can do,
@@ -254,16 +282,6 @@ defmodule Ryker.ControlPlane.FailuresPage do
               </p>
             </dd>
           </div>
-          <div :if={@steps != []}>
-            <dt>Cleanup steps</dt>
-            <dd>
-              <ol class="failure-steps" aria-label="Cleanup steps">
-                <li :for={step <- @steps} data-state={step.state}>
-                  <strong>{step.label}</strong> <span>{step.status}</span>
-                </li>
-              </ol>
-            </dd>
-          </div>
         </dl>
         <details :if={@report} class="recovery-worker-report failure-report">
           <summary>The worker's last answer</summary>
@@ -292,23 +310,31 @@ defmodule Ryker.ControlPlane.FailuresPage do
             class={["failure-option", (!option[:path] and !option[:href]) && "failure-option-passive"]}
           >
             <:actions :if={option[:path] || option[:href]}>
-              <Components.action_button
-                :if={option[:path]}
-                path={option.path}
-                label={option.label}
-                tone={if option[:recommended], do: :primary, else: :secondary}
-              />
-              <a
-                :if={option[:href]}
-                class={["ui-button", if(option[:recommended], do: "primary", else: "secondary")]}
-                href={option.href}
-                {external(option.href)}
-              >{option[:link] || option.label}</a>
+              <.option_action option={option} />
             </:actions>
           </Kit.entity_row>
         </Kit.entity_list>
       </Kit.section_card>
     </div>
+    """
+  end
+
+  attr(:option, :map, required: true)
+
+  defp option_action(assigns) do
+    ~H"""
+    <Components.action_button
+      :if={@option[:path]}
+      path={@option.path}
+      label={@option.label}
+      tone={if @option[:recommended], do: :primary, else: :secondary}
+    />
+    <a
+      :if={@option[:href]}
+      class={["ui-button", if(@option[:recommended], do: "primary", else: "secondary")]}
+      href={@option.href}
+      {external(@option.href)}
+    >{@option[:link] || @option.label}</a>
     """
   end
 

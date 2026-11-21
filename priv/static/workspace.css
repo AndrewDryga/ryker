@@ -2179,6 +2179,12 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .ryker-app .failure-page dl.failure-rows dd p + p { color:var(--ryker-text-secondary); }
 .failure-summary .failure-report { margin-top:16px; }
 .failure-option-passive .entity-name { color:var(--ryker-text-secondary); }
+.ryker-app .failure-cleanup-cause { max-width:640px; margin:0; font-size:16px; line-height:24px; }
+.ryker-app .failure-cleanup-impact { margin:4px 0 0; font-size:14px; line-height:21px; color:var(--ryker-text-secondary); }
+.failure-cleanup-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.failure-cleanup-details { margin-top:16px; border-top:1px solid var(--ryker-stroke); }
+.ryker-app .failure-cleanup-details > summary { min-height:44px; padding:12px 0; box-sizing:border-box; font-size:14px; line-height:20px; font-weight:600; cursor:pointer; }
+.ryker-app .failure-cleanup-details p { overflow-wrap:anywhere; margin:8px 0 0; font-size:14px; line-height:20px; color:var(--ryker-text-secondary); }
 @media (max-width:700px) { .ryker-app .failure-page dl.failure-rows > div { grid-template-columns:minmax(0, 1fr); gap:2px; } }
 .ryker-app .memory-summary-label { margin:0; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text-secondary); }
 .ryker-app .memory-summary-groups ul { margin:2px 0 0; padding-left:18px; }
