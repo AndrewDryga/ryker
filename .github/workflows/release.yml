@@ -153,6 +153,9 @@ jobs:
 
   publish:
     needs: build
+    # GitHub propagates the skipped fallback CI job through the dependency
+    # chain. A successful build already proves one of the two CI paths passed.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: release
