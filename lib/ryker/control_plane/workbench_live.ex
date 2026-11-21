@@ -138,6 +138,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        setup_notice: nil,
        setup_failure: nil,
        github_feedback: nil,
+       github_webhook_secret: nil,
        setup_reveal: nil,
        settings_confirm: nil,
        setup_progress: nil,
@@ -922,8 +923,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
            github_feedback: %{
              step: :app,
              tone: :success,
-             message: "GitHub App #{result.app_slug} is verified.",
-             secret: result.webhook_secret
+             message: "GitHub App #{result.app_slug} is verified."
            },
            setup_notice: nil,
            setup_failure: nil
@@ -1966,7 +1966,30 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         if(section == :system and is_nil(form), do: running_system(options, settings)),
       access: if(section == :access, do: access_people())
     )
+    |> assign_github_webhook_secret()
   end
+
+  # The webhook secret GitHub's form asks for before the App exists, which the
+  # GitHub page shows until the App is connected and the App's form sends back
+  # (`IntegrationSetup.github_webhook_secret/1`). Read again with the settings,
+  # so a disconnect shows the next one.
+  defp assign_github_webhook_secret(
+         %{
+           assigns: %{
+             settings_section: :github,
+             settings_form: nil,
+             settings: {:ok, %{github_connection: connection}}
+           }
+         } = socket
+       )
+       when connection != :ready do
+    case IntegrationSetup.github_webhook_secret(actor(socket)) do
+      {:ok, secret} -> assign(socket, :github_webhook_secret, secret)
+      {:error, _reason} -> assign(socket, :github_webhook_secret, nil)
+    end
+  end
+
+  defp assign_github_webhook_secret(socket), do: assign(socket, :github_webhook_secret, nil)
 
   defp model_usage(options, :model, {:ok, _view}), do: options.projection.model_usage.()
   defp model_usage(_options, _section, _settings), do: nil
@@ -2284,7 +2307,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp environment_refused(socket, _environment, reason), do: failed(socket, reason)
 
-  defp refresh_settings(socket), do: assign(socket, :settings, SettingsView.fetch())
+  defp refresh_settings(socket) do
+    socket
+    |> assign(:settings, SettingsView.fetch())
+    |> assign_github_webhook_secret()
+  end
 
   # A change redraws the channel's welcome in Slack the way a save made there
   # does (until 2026-09-26 the card kept naming the old environment). The
@@ -2964,6 +2991,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             error={@settings_error}
             section={@settings_section}
             github_feedback={@github_feedback}
+            github_webhook_secret={@github_webhook_secret}
             emisar_form_feedback={@emisar_form_feedback}
             notice={@setup_notice}
             failure={@setup_failure}

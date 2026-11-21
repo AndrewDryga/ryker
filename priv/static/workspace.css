@@ -3235,6 +3235,13 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .github-step-body > h3 { margin:18px 0 6px; font-size:17px; }
 .setup-instructions { padding-inline-start:22px; }
 .setup-instructions li + li { margin-top:8px; }
+.github-guide > li + li { margin-top:14px; }
+.github-guide > li > .copy-block { margin-top:8px; }
+.github-guide-field { display:grid; gap:6px; margin-top:10px; }
+.github-guide-field > span { font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
+.github-guide .github-guide-note { margin:10px 0 0; }
+.github-guide-list { margin:8px 0 0; padding-inline-start:18px; }
+.github-guide-list li + li { margin-top:4px; }
 .github-examples { margin-block:16px; }
 
 .episode-outcome { margin: 0 0 1rem; padding: 0.875rem 1rem; border-inline-start: 3px solid var(--ryker-accent); overflow-wrap: anywhere; }

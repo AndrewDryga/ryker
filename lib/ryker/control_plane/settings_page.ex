@@ -58,6 +58,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:failure, :string, default: nil)
   attr(:reveal, :map, default: nil)
   attr(:github_feedback, :map, default: nil)
+
+  attr(:github_webhook_secret, :string,
+    default: nil,
+    doc: "The webhook secret the GitHub page shows until the App is connected"
+  )
+
   attr(:emisar_form_feedback, :map, default: %{})
   attr(:confirm, :any, default: nil, doc: "{action, ref} of the question now open, if any")
 
@@ -246,6 +252,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           commands={@commands}
           confirm={@confirm}
           feedback={@github_feedback}
+          webhook_secret={@github_webhook_secret}
         />
         <.emisar :if={@section == :emisar} view={@view} />
         <.webhooks
@@ -1184,9 +1191,19 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:view, :map, required: true)
   attr(:commands, :map, required: true)
   attr(:confirm, :any, default: nil)
-
   attr(:feedback, :map, default: nil)
 
+  attr(:webhook_secret, :string,
+    default: nil,
+    doc: "The secret to put into GitHub before the App is connected; nil once it is"
+  )
+
+  # The steps follow GitHub's own form from top to bottom: what to fill in there,
+  # in the order GitHub asks for it, then what to bring back. Andrew, 2026-11-20,
+  # of the guide before it: "not logically ordered and all over the place". The
+  # webhook secret was shown only after the App was saved here, so it had to be
+  # pasted into GitHub on a second visit, and the Redirect URI waited in a
+  # later step though GitHub asks for it before the webhook.
   defp github(assigns) do
     view = assigns.view
     line = Integrations.github(view)
@@ -1223,41 +1240,95 @@ defmodule Ryker.ControlPlane.SettingsPage do
       >
         <p :if={@line.reason && (!@ready || @line.status == :broken)}>{@line.reason}</p>
         <p :if={@ready}>
-          Connected as <strong>@{@view.snapshot.github.app_slug}</strong>. Replace the credentials here when you rotate a key.
+          Connected as <strong>@{@view.snapshot.github.app_slug}</strong>. To rotate its key, make a new one under
+          <strong>Credentials → Key pairs</strong>
+          and upload it below.
         </p>
-        <ol class="setup-instructions">
+        <ol class="setup-instructions github-guide">
           <li>
-            Open the GitHub account or organization that owns the App. Under <strong>Settings → Developer settings → GitHub Apps</strong>, choose
+            In the GitHub account or organization that will own the App, open <strong>Settings → Developer settings → GitHub Apps</strong>. Choose <strong>New GitHub App</strong>, or
             <strong>Edit</strong>
-            beside the App. To register one, choose <strong>New GitHub App</strong>
-            first.
+            beside an App you already have. A new App needs a name and a homepage address.
           </li>
-          <li>Copy the numeric <strong>App ID</strong> assigned by GitHub into the field below.</li>
+          <li>
+            Under <strong>Identifying and authorizing users</strong>, add this <strong>Redirect URI</strong>. People sign in through it to use Ryker's buttons on GitHub.
+            <Components.copy_block label="Copy redirect URI">
+              <pre>{@view.github_action_callback_url}</pre>
+            </Components.copy_block>
+          </li>
+          <li>
+            Under <strong>Webhook</strong>, keep <strong>Active</strong>
+            ticked and fill in these two fields.
+            <div class="github-guide-field">
+              <span>Webhook URL</span>
+              <Components.copy_block label="Copy webhook URL">
+                <pre>{@view.github_callback_url}</pre>
+              </Components.copy_block>
+            </div>
+            <div :if={@webhook_secret} id="github-webhook-secret" class="github-guide-field">
+              <span>Secret</span>
+              <Components.copy_block label="Copy webhook secret">
+                <pre>{@webhook_secret}</pre>
+              </Components.copy_block>
+            </div>
+            <p :if={@webhook_secret} class="github-guide-note">
+              On an App you already have, choose <strong>Change secret</strong>
+              to paste it, then <strong>Save changes</strong>: the permissions are on a page of their own.
+            </p>
+            <p :if={!@webhook_secret} class="github-guide-note">
+              Keep the secret GitHub has. Replacing the key below leaves it as it is.
+            </p>
+          </li>
+          <li>
+            Set the <strong>Repository permissions</strong>. A new App lists them below Webhook;
+            on an App you already have, open <strong>Permissions &amp; events</strong>.
+            <ul class="github-guide-list">
+              <li>
+                <strong>Contents</strong>, <strong>Issues</strong>
+                and <strong>Pull requests</strong>: Read and write
+              </li>
+              <li><strong>Actions</strong>: Read and write, so Ryker can re-run and cancel CI</li>
+              <li>
+                <strong>Checks</strong>, <strong>Commit statuses</strong>
+                and <strong>Deployments</strong>: Read-only
+              </li>
+              <li>
+                <strong>Workflows</strong>: Read and write, only if Ryker may change CI workflow files
+              </li>
+            </ul>
+            <p class="github-guide-note">Metadata stays Read-only, as GitHub requires.</p>
+          </li>
+          <li>
+            Under <strong>Subscribe to events</strong>, tick Check run, Check suite, Deployment,
+            Deployment status, Issue comment, Issues, Pull request, Pull request review,
+            Pull request review comment, Pull request review thread, Push, Release, Repository,
+            Status, Workflow job and Workflow run.
+            <p class="github-guide-note">GitHub lists each event once its permission is set.</p>
+          </li>
+          <li>
+            Choose <strong>Create GitHub App</strong>, or <strong>Save changes</strong>
+            on an App you already have.
+          </li>
+          <li>
+            Copy the <strong>App ID</strong>
+            from <strong>About</strong>
+            at the top of the App's page into the form below.
+          </li>
           <li>
             Open <strong>Credentials → Key pairs</strong>
-            and choose <strong>New key</strong>. Upload the downloaded <code>.pem</code>
-            file below.
+            and choose <strong>New key</strong>. Upload the <code>.pem</code>
+            file GitHub downloads.
           </li>
         </ol>
-        <.github_form label={if @ready, do: "Replace credentials", else: "Verify GitHub App"} />
+        <.github_form
+          label={if @ready, do: "Replace credentials", else: "Verify GitHub App"}
+          webhook_secret={@webhook_secret}
+        />
         <Components.form_feedback
           :if={@app_feedback}
           tone={@app_feedback.tone}
           message={@app_feedback.message}
         />
-        <section :if={@app_feedback && @app_feedback[:secret]} class="secret-reveal" role="status">
-          <p><strong>GitHub webhook secret</strong> Copy this into the App’s Webhook settings now.</p>
-          <Components.copy_block label="Copy webhook secret">
-            <pre>{@app_feedback.secret}</pre>
-          </Components.copy_block>
-        </section>
-        <h3>Webhook delivery</h3>
-        <p>
-          In the App’s Webhook settings, enter this URL and the webhook secret used above. GitHub sends repository events here.
-        </p>
-        <Components.copy_block label="Copy webhook URL">
-          <pre>{@view.github_callback_url}</pre>
-        </Components.copy_block>
         <p id="github-events" class="settings-lede">
           <span :if={local_address?(@view.github_callback_url)}>
             GitHub can't reach this computer, so it lists every delivery to this address as failed.
@@ -1265,18 +1336,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
           </span>
           {github_events(@view.github_events)}
         </p>
-        <details class="settings-disclosure">
-          <summary>Events and permissions the App needs</summary>
-          <p>
-            Subscribe to issues, pull requests, reviews, pushes, checks, workflow runs, releases,
-            deployments, installation changes and repository changes.
-          </p>
-          <p>
-            Keep Metadata on read. Grant only the issue, pull request, checks, actions, deployment
-            and contents access needed for the work you enable.
-            Allow Workflows write access if Ryker will edit CI workflows.
-          </p>
-        </details>
         <button
           :if={@ready}
           type="button"
@@ -1299,7 +1358,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         }
       >
         <p>
-          Install the App on GitHub and grant it access to the repositories you want to use. Then add them in Ryker.
+          Install the App on GitHub and choose the repositories Ryker may use. Then add them here.
         </p>
         <p :if={@usable && @view.snapshot.github.app_slug}>
           <a
@@ -1329,26 +1388,22 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <p>
           Repository writers sign in to choose review fixes or turn an issue plan into a pull request.
         </p>
-        <ol :if={@usable} class="setup-instructions">
+        <ol :if={@usable} class="setup-instructions github-guide">
           <li>
-            In the owning account or organization, open
-            <strong>Settings → Developer settings → GitHub Apps</strong>
-            and choose <strong>Edit</strong>
-            beside the connected App.
-          </li>
-          <li>
-            Add the following address to the App’s <strong>Callback URL</strong>
-            list and save your changes.
-            <Components.copy_block label="Copy sign-in callback URL">
+            Check that the App lists this <strong>Redirect URI</strong>
+            under <strong>Identifying and authorizing users</strong>.
+            <Components.copy_block label="Copy redirect URI">
               <pre>{@view.github_action_callback_url}</pre>
             </Components.copy_block>
           </li>
           <li>
             Copy the <strong>Client ID</strong>
-            GitHub assigned to the App into the Client ID field below.
+            from <strong>About</strong>
+            at the top of the App's page into the field below.
           </li>
           <li>
-            Open <strong>Credentials → Client secrets</strong>. Generate a new client secret, copy its value while GitHub shows it, and paste it below.
+            Open <strong>Credentials → Client secrets</strong>
+            and choose <strong>New secret</strong>. Copy it while GitHub shows it and paste it below.
           </li>
         </ol>
         <div :if={@usable}>
@@ -1471,17 +1526,26 @@ defmodule Ryker.ControlPlane.SettingsPage do
   end
 
   attr(:label, :string, required: true)
+  attr(:webhook_secret, :string, default: nil)
 
+  # The webhook secret travels with the form exactly as the guide above showed
+  # it. Without one the connected App keeps its own.
   defp github_form(assigns) do
     assigns = assign(assigns, :key, key(assigns.label))
 
     ~H"""
     <form phx-submit="connect-github" autocomplete="off" class="settings-form github-connection-form">
+      <input
+        :if={@webhook_secret}
+        type="hidden"
+        name="connection[webhook_secret]"
+        value={@webhook_secret}
+      />
       <fieldset>
         <legend class="sr-only">GitHub App</legend>
         <div class="settings-field">
           <label for={"github-app-id-#{@key}"}>App ID</label>
-          <p class="settings-help">A number on the App's settings page in GitHub.</p>
+          <p class="settings-help">A number under About, at the top of the App's page on GitHub.</p>
           <input
             id={"github-app-id-#{@key}"}
             type="number"
@@ -1506,17 +1570,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
             required
           />
           <textarea id={"github-private-key-#{@key}"} name="connection[private_key]" hidden></textarea>
-        </div>
-        <div class="settings-field">
-          <label for={"github-webhook-secret-#{@key}"}>Webhook secret</label>
-          <p class="settings-help">At least 32 characters. Leave empty and Ryker creates one.</p>
-          <input
-            id={"github-webhook-secret-#{@key}"}
-            type="password"
-            name="connection[webhook_secret]"
-            minlength="32"
-            placeholder="32 characters or more"
-          />
         </div>
       </fieldset>
       <details class="settings-disclosure">

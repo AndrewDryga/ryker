@@ -258,15 +258,17 @@ defmodule Ryker.ControlPlane.SettingsView do
     }
   end
 
+  # The App's own key and secret only: the webhook secret the page shows before
+  # the App exists (`IntegrationSetup.github_webhook_secret/1`) is no connection.
   defp github_connection(snapshot, credentials) do
     kinds = [:github_private_key, :github_webhook]
-    present? = Enum.any?(credentials, &(&1.kind in kinds))
+    saved = Enum.filter(credentials, &(&1.kind in kinds and &1.name == "primary"))
 
     cond do
-      not present? ->
+      saved == [] ->
         :missing
 
-      not verified?(credentials, kinds) or not complete_github_identity?(snapshot.github) ->
+      not verified?(saved, kinds) or not complete_github_identity?(snapshot.github) ->
         :invalid
 
       true ->

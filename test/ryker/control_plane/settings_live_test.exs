@@ -859,11 +859,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              {"input[name='connection[app_token]']", "xapp-…"},
              {"input[name='connection[bot_token]']", "xoxb-…"}
            ]},
-          {"/integrations/github",
-           [
-             {"input[name='connection[app_id]']", "123456"},
-             {"input[name='connection[webhook_secret]']", "32 characters or more"}
-           ]},
+          {"/integrations/github", [{"input[name='connection[app_id]']", "123456"}]},
           {"/integrations/webhooks/credentials/new",
            [
              {"#webhook-credential-name", "grafana"},
@@ -1131,12 +1127,92 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(view, ".section-head h2", "Connection")
   end
 
+  # Andrew, 2026-11-20, of the GitHub page: "secret for webhook we should show
+  # right away and give a way to copy it before you save form". GitHub's form asks
+  # for the secret while the App is created, before Ryker has anything to save,
+  # and Ryker used to make it only after. The secret the page shows has to stay
+  # the same through a reload, since it went into GitHub on the first visit, and
+  # it has to be what the App's form sends back.
+  test "the GitHub page shows the webhook secret before the App is connected and keeps it" do
+    initialize!()
+    {:ok, view, _html} = open("/integrations/github")
+
+    secret =
+      view
+      |> element("#github-webhook-secret pre")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.text()
+      |> String.trim()
+
+    assert byte_size(secret) >= 32
+    assert has_element?(view, "#github-webhook-secret button[aria-label='Copy webhook secret']")
+
+    {:ok, again, _html} = open("/integrations/github")
+    assert has_element?(again, "#github-webhook-secret pre", secret)
+
+    assert has_element?(
+             again,
+             "form[phx-submit=connect-github] input[type=hidden][name='connection[webhook_secret]'][value='#{secret}']"
+           )
+
+    connect_github!()
+    {:ok, connected, _html} = open("/integrations/github")
+    refute has_element?(connected, "#github-webhook-secret")
+    refute has_element?(connected, "input[name='connection[webhook_secret]']")
+    assert has_element?(connected, "#github-app", "Keep the secret GitHub has")
+  end
+
+  # Showing the secret saves it before any App exists. GitHub's state was read
+  # from any credential of its kinds, so that alone would have turned a GitHub
+  # nobody had connected into "Needs repair" on every page that shows it.
+  test "a webhook secret waiting for its App leaves GitHub not connected" do
+    initialize!()
+    {:ok, _secret} = IntegrationSetup.github_webhook_secret(@actor)
+    {:ok, view, _html} = open("/integrations/github")
+    assert has_element?(view, "#github-app summary .state-word[data-tone=off]", "Not connected")
+    refute has_element?(view, ".state-word[data-tone=bad]")
+  end
+
+  # Andrew, 2026-11-20: "this guide is not logically ordered and all over the
+  # place". It now asks for each thing where GitHub's form does, top to bottom,
+  # then for what to bring back once GitHub has made the App.
+  test "the GitHub guide follows GitHub's form from top to bottom" do
+    initialize!()
+    {:ok, view, _html} = open("/integrations/github")
+
+    guide =
+      view
+      |> element("#github-app ol.github-guide")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.text()
+      |> String.replace(~r/\s+/, " ")
+
+    places =
+      for label <- [
+            "New GitHub App",
+            "Redirect URI",
+            "Webhook URL",
+            "Repository permissions",
+            "Subscribe to events",
+            "Create GitHub App",
+            "App ID",
+            "Key pairs"
+          ] do
+        {position, _length} = :binary.match(guide, label)
+        position
+      end
+
+    assert places == Enum.sort(places)
+  end
+
   # The guide used to leave operators looking for a way to generate the already assigned ID.
   test "GitHub sign-in names the controls on GitHub and puts refusals next to Save" do
     initialize!()
     connect_github!()
     {:ok, view, _} = open("/integrations/github")
-    assert has_element?(view, "#github-action-sign-in ol", "Generate a new client secret")
+    assert has_element?(view, "#github-action-sign-in ol", "New secret")
     assert has_element?(view, "#github-action-sign-in ol", "Client ID")
 
     render_submit(view, "connect-github-actions", %{

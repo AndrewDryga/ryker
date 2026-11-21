@@ -591,7 +591,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How the GitHub connection works", [
       {"Connect the App",
        [
-         "Enter the App ID and private key (.pem) from the App's settings on GitHub, then paste the webhook URL into the App's Webhook settings. For issue and review buttons, add the separate sign-in address to the App’s Callback URL list and create a secret under Credentials → Client secrets. Leave the webhook secret empty and Ryker creates one."
+         "The steps follow GitHub's form from top to bottom. Put the Redirect URI, the webhook URL and the secret this page shows into GitHub before you save the App there. Then bring back the App ID and a private key (.pem) from Credentials → Key pairs. Issue and review buttons also need the App's Client ID and a secret from Credentials → Client secrets."
        ]},
       {"Access",
        [

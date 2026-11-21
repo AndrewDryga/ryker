@@ -163,6 +163,9 @@ defmodule Ryker.ControlPlane.IntegrationErrors do
   def message(:webhook_secret_too_short),
     do: "A signing secret needs at least 32 characters. Leave it empty and Ryker creates one."
 
+  def message(:webhook_secret_missing),
+    do: "Reload the page, put the webhook secret it shows into GitHub, then connect again."
+
   def message(:connection_not_found), do: "That account no longer exists. Reload the page."
 
   def message(:environment_not_found),

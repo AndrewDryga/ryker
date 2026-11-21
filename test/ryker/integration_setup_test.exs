@@ -12,6 +12,7 @@ defmodule Ryker.IntegrationSetupTest do
   alias Ryker.TestSupport.EmisarMCP
 
   @actor "control-plane:local"
+  @webhook_secret "test-github-webhook-secret-of-32-bytes"
   @scopes ~w(
     app_mentions:read assistant:write bookmarks:read channels:history
     channels:join channels:manage channels:read chat:write commands emoji:read files:read files:write
@@ -472,16 +473,29 @@ defmodule Ryker.IntegrationSetupTest do
     assert Enum.map(members, & &1.name) == ["Ada", "Zoe"]
   end
 
-  test "GitHub setup verifies the App and reveals only the new webhook secret" do
+  # GitHub's form asks for the webhook secret while the App is being created,
+  # before there is an App ID or key to give Ryker. Until 2026-11-20 Ryker made
+  # the secret only once the App was saved here and showed it once, so every
+  # setup went back to GitHub a second time to paste it (Andrew: "secret for
+  # webhook we should show right away and give a way to copy it before you save
+  # form"). The page shows it first now, and it has to be the same one after a
+  # reload or a trip to GitHub, or GitHub signs every delivery with a secret
+  # Ryker refuses.
+  test "the webhook secret shown before the App exists is the one connecting saves" do
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+
+    assert {:ok, shown} = IntegrationSetup.github_webhook_secret(@actor)
+    assert byte_size(shown) >= 32
+    assert IntegrationSetup.github_webhook_secret(@actor) == {:ok, shown}
 
     assert {:ok, result} =
              IntegrationSetup.connect_github(
                %{
                  "api_url" => "https://api.github.com",
                  "app_id" => "1234",
-                 "private_key" => pem
+                 "private_key" => pem,
+                 "webhook_secret" => shown
                },
                @actor,
                requester: Requester
@@ -489,12 +503,53 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert result.app_slug == "ryker-test"
     assert result.actor_login == "ryker-test[bot]"
-    assert is_binary(result.webhook_secret)
+    refute Map.has_key?(result, :webhook_secret)
+    assert Credentials.fetch(:github_webhook, "primary") == {:ok, shown}
+    assert Credentials.status(:github_webhook, "pending").status == :missing
     refute inspect(Settings.fetch!()) =~ pem
     assert Settings.fetch!().github.bot_actor_id == 4_321
     assert Settings.fetch!().github.bot_login == "ryker-test[bot]"
     assert Credentials.status(:github_private_key, "primary").verification_status == :verified
     assert Credentials.status(:github_webhook, "primary").verification_status == :verified
+
+    # Disconnecting starts the next setup with a secret of its own.
+    assert {:ok, _disconnected} = IntegrationSetup.disconnect(:github, @actor)
+    assert {:ok, next} = IntegrationSetup.github_webhook_secret(@actor)
+    refute next == shown
+  end
+
+  # A key is rotated by connecting the App again with the new one. Making a new
+  # webhook secret then, as an empty field used to, broke every delivery until
+  # someone also changed the secret on GitHub.
+  test "replacing a connected App's key keeps the webhook secret GitHub has" do
+    key = :public_key.generate_key({:rsa, 2_048, 65_537})
+    pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+    params = %{"app_id" => "1234", "private_key" => pem}
+
+    assert IntegrationSetup.connect_github(params, @actor, requester: Requester) ==
+             {:error, :webhook_secret_missing}
+
+    assert Credentials.status(:github_private_key, "primary").status == :missing
+
+    assert {:ok, _connected} =
+             IntegrationSetup.connect_github(
+               Map.put(params, "webhook_secret", @webhook_secret),
+               @actor,
+               requester: Requester
+             )
+
+    rotated = :public_key.generate_key({:rsa, 2_048, 65_537})
+    rotated_pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, rotated)])
+
+    assert {:ok, _replaced} =
+             IntegrationSetup.connect_github(
+               %{"app_id" => "1234", "private_key" => rotated_pem},
+               @actor,
+               requester: Requester
+             )
+
+    assert Credentials.fetch(:github_private_key, "primary") == {:ok, String.trim(rotated_pem)}
+    assert Credentials.fetch(:github_webhook, "primary") == {:ok, @webhook_secret}
   end
 
   # A five-character webhook signing secret was accepted and stored on
@@ -542,7 +597,8 @@ defmodule Ryker.IntegrationSetupTest do
                %{
                  "api_url" => "https://api.github.com",
                  "app_id" => "1234",
-                 "private_key" => pem
+                 "private_key" => pem,
+                 "webhook_secret" => @webhook_secret
                },
                @actor,
                requester: Requester
@@ -1106,7 +1162,8 @@ defmodule Ryker.IntegrationSetupTest do
                %{
                  "api_url" => "https://api.github.com",
                  "app_id" => "1234",
-                 "private_key" => pem
+                 "private_key" => pem,
+                 "webhook_secret" => @webhook_secret
                },
                @actor,
                requester: Requester
@@ -1531,7 +1588,8 @@ defmodule Ryker.IntegrationSetupTest do
                %{
                  "api_url" => "https://api.github.com",
                  "app_id" => "1234",
-                 "private_key" => pem
+                 "private_key" => pem,
+                 "webhook_secret" => @webhook_secret
                },
                @actor,
                requester: Requester

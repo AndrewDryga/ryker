@@ -130,12 +130,40 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @github_webhook_draft "pending"
+
+  @doc """
+  The webhook secret the GitHub page shows before the App is connected: the one
+  saved for it earlier, or a new one saved now. GitHub's form asks for the secret
+  while the App is being created, before there is an App ID or key to give Ryker,
+  so the page shows it first and keeps showing the same one, through reloads and
+  a trip to GitHub, until connecting the App saves it as the App's. Until
+  2026-11-20 Ryker made the secret only when the App was saved and showed it
+  once, so it had to be pasted into GitHub on a second visit.
+  """
+  @spec github_webhook_secret(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def github_webhook_secret(actor_ref) do
+    case Credentials.fetch(:github_webhook, @github_webhook_draft) do
+      {:ok, secret} ->
+        {:ok, secret}
+
+      {:error, _missing_or_unreadable} ->
+        secret = generate_secret()
+
+        with {:ok, _metadata} <-
+               Credentials.put(:github_webhook, @github_webhook_draft, secret, actor_ref),
+             do: {:ok, secret}
+    end
+  end
+
   @doc """
   Connects a GitHub App by id and private key at `api_url` (github.com, or a
   GitHub Enterprise API address): reads the App and its bot account, and
-  saves the key, the webhook signing secret (the one given, or a new one) and
-  the App's identity as one change. Returns `{:ok, %{status: :connected,
-  app_id, app_slug, webhook_secret, ...}}`, or
+  saves the key, the webhook signing secret and the App's identity as one
+  change. The secret is the one given, which the page showed before the App
+  existed (`github_webhook_secret/1`); without one, the connected App's
+  secret stays, so replacing a key leaves GitHub's webhook settings as they
+  are. Returns `{:ok, %{status: :connected, app_id, app_slug, ...}}`, or
   `{:error, {:github_verification_failed, reason}}`.
   """
   @spec connect_github(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -144,7 +172,7 @@ defmodule Ryker.IntegrationSetup do
     private_key = text(params, "private_key")
     api_url = text(params, "api_url", "https://api.github.com")
 
-    with {:ok, webhook_secret} <- signing_secret(params["webhook_secret"]),
+    with {:ok, webhook_secret} <- github_signing_secret(params["webhook_secret"]),
          {:ok, signer} <- GitHub.AppJWT.new(app_id, private_key),
          {:ok, app_http} <- github_app_http(signer, api_url, options),
          {:ok, %{body: app, status: 200}} <- request(app_http, :get, "/app", nil, [], options),
@@ -159,12 +187,28 @@ defmodule Ryker.IntegrationSetup do
          actor_id: actor["id"],
          actor_login: actor["login"],
          settings_revision: snapshot.installation.revision,
-         status: :connected,
-         webhook_secret: webhook_secret
+         status: :connected
        }}
     else
       {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:github_verification_failed, :response}}
+    end
+  end
+
+  defp github_signing_secret(supplied) when is_binary(supplied) do
+    case String.trim(supplied) do
+      "" -> connected_github_signing_secret()
+      secret when byte_size(secret) >= @minimum_signing_secret_bytes -> {:ok, secret}
+      _short -> {:error, :webhook_secret_too_short}
+    end
+  end
+
+  defp github_signing_secret(_absent), do: connected_github_signing_secret()
+
+  defp connected_github_signing_secret do
+    case Credentials.fetch(:github_webhook, "primary") do
+      {:ok, secret} -> {:ok, secret}
+      {:error, _missing_or_unreadable} -> {:error, :webhook_secret_missing}
     end
   end
 
@@ -174,6 +218,7 @@ defmodule Ryker.IntegrationSetup do
              Credentials.put(:github_private_key, "primary", private_key, actor_ref),
            {:ok, _secret} <-
              Credentials.put(:github_webhook, "primary", webhook_secret, actor_ref),
+           :ok <- Credentials.delete(:github_webhook, @github_webhook_draft, actor_ref),
            {:ok, snapshot} <- save_github_identity(app, actor, api_url, actor_ref),
            {:ok, _key} <-
              Credentials.verify(:github_private_key, "primary", :verified, actor_ref),
@@ -1000,6 +1045,7 @@ defmodule Ryker.IntegrationSetup do
   defp delete_connection_credentials(:github, actor_ref) do
     with :ok <- Credentials.delete(:github_private_key, "primary", actor_ref),
          :ok <- Credentials.delete(:github_webhook, "primary", actor_ref),
+         :ok <- Credentials.delete(:github_webhook, @github_webhook_draft, actor_ref),
          do: Credentials.delete(:github_oauth_secret, "primary", actor_ref)
   end
 

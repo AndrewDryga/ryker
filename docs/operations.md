@@ -107,10 +107,17 @@ The selected view starts with your own thumbs-ups. The final button names the PR
 and selection count; opening or previewing the link starts no work. Your GitHub
 sign-in grants repository actions only, with no operator-console access.
 
-To enable these controls, open **Settings › Integrations › GitHub**, enter the
-connected App's OAuth client ID and client secret, and register the displayed
-callback URL in that GitHub App's settings. The callback must use this install's
-public URL. Ryker verifies that the client ID belongs to the connected App.
+To enable these controls, open **Integrations › GitHub**, enter the connected
+App's Client ID and a client secret, and add the displayed Redirect URI under
+**Identifying and authorizing users** in that GitHub App's settings. The address
+must use this install's public URL. Ryker verifies that the Client ID belongs to
+the connected App.
+
+The page's setup steps follow GitHub's App form from top to bottom: the Redirect
+URI, then the webhook URL and the webhook secret, then the permissions and events.
+The page shows the webhook secret before the App exists, so it goes into GitHub's
+form when the App is created, and keeps showing the same one until the App is
+connected. Replacing a connected App's key keeps its webhook secret.
 Each repository also needs a ready work profile and a Coop worker advertising
 `existing-pr-publication:1`.
 
