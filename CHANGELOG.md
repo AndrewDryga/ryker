@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - **Fast mode.** Each model on the Models page has a Fast box beside its effort. Ticked, the
   worker runs that model in its provider's fast mode, about twice as fast: Codex's Fast tier, which
