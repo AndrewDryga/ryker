@@ -6,7 +6,7 @@ defmodule Ryker.Settings.Work.Changeset do
   alias Ryker.LocalRouting
   alias Ryker.Settings.Work
 
-  @target ~r/\A(codex|claude):[a-z0-9][a-z0-9._-]{0,63}\/(low|medium|high|xhigh)@[a-z0-9][a-z0-9_-]{0,63}\z/
+  @target ~r/\A(codex|claude):[a-z0-9][a-z0-9._-]{0,63}\/(low|medium|high|xhigh)(\+fast)?@[a-z0-9][a-z0-9_-]{0,63}\z/
   @model_fields Work.model_fields()
   # A request can move between these three kinds of work, so Ryker pins one
   # set of permissions for all of them (`Ryker.Ingress.WorkProfile`), and Coop

@@ -153,11 +153,27 @@ defmodule Ryker.CoopFleet.Bridge do
 
     %{
       capability_names: settings.capability_names,
-      capability_versions: publication_capabilities(versions, session.publication_target),
+      capability_versions:
+        versions
+        |> publication_capabilities(session.publication_target)
+        |> fast_capability(session.worker_job_document),
       repository_ref: session.repository_ref,
       workspace_ref: settings.workspace_ref
     }
   end
+
+  # A model asking for its provider's fast mode (+fast) is a target an older worker refuses
+  # whole, so such a job goes only to a worker that proves it accepts one.
+  defp fast_capability(versions, %{} = job) do
+    roles = get_in(job, ["preset", "roles"]) || []
+    targets = List.wrap(job["targets"]) ++ Enum.flat_map(roles, &List.wrap(&1["targets"]))
+
+    if Enum.any?(targets, &(is_binary(&1) and String.contains?(&1, "+fast@"))),
+      do: Map.put(versions, "fast-target", "1"),
+      else: versions
+  end
+
+  defp fast_capability(versions, _job), do: versions
 
   defp publication_capabilities(versions, nil), do: versions
 

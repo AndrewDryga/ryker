@@ -47,6 +47,18 @@ defmodule Ryker.CoopFleet do
   defdelegate worker_heartbeat_seconds(), to: Worker, as: :heartbeat_seconds
 
   @doc """
+  Whether an enrolled worker accepts a model in its provider's fast mode (a +fast target):
+  a job asking for it is placed only on such a worker, so until one advertises it, Settings ›
+  Models offers no Fast box.
+  """
+  @spec fast_mode_available?() :: boolean()
+  def fast_mode_available? do
+    Worker.Query.enrolled()
+    |> Repo.all()
+    |> Enum.any?(&Worker.advertises?(&1, "fast-target", "1"))
+  end
+
+  @doc """
   What each enrolled worker's providers last reported about its accounts'
   allowance (`Ryker.CoopFleet.AccountUsage`), as `%{worker_id, last_seen_at,
   accounts}`, the most recently seen worker first.

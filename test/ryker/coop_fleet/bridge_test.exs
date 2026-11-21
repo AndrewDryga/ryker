@@ -81,6 +81,32 @@ defmodule Ryker.CoopFleet.BridgeTest do
     end
   end
 
+  # Andrew, 2026-11-21: "can we also allow using fast mode?" A model in fast mode is a
+  # +fast target, which a worker older than the fast-target capability refuses with the whole
+  # job, so such a job waits for a worker that proves it accepts one.
+  test "a job that asks for fast mode goes only to a worker that accepts fast targets" do
+    worker = "worker-fast-target"
+    ready_worker!(worker)
+    session = session!()
+    options = [workspace_ref: "workspace-main", capability_names: ["controller-tools"]]
+
+    job =
+      Map.put(session.worker_job_document, "targets", ["codex:gpt-6.2-sol/medium+fast@default"])
+
+    assert {:ok, digest} = JobSpec.digest(job)
+    session = session |> Work.Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+
+    for {label, versions, expected} <- [
+          {"older", [], false},
+          {"fast", ["fast-target"], true}
+        ] do
+      capabilities = Enum.map(["controller-tools" | versions], &%{"name" => &1, "version" => "1"})
+      advertised = put_in(poll(worker, label), ["worker", "capabilities"], capabilities)
+      assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker, advertised)
+      assert Bridge.accepts?(session, options) == expected
+    end
+  end
+
   # Twenty create identities reused one placement and kept roughly 96,000
   # receipt acknowledgements failing. A proven failed create spends both identities.
   test "a proven absent create retries on a new placement and preserves both receipts" do

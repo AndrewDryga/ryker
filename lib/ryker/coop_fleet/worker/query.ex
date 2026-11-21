@@ -60,6 +60,9 @@ defmodule Ryker.CoopFleet.Worker.Query do
   end
 
   @doc "Enrolled workers that have reported their accounts' allowance, most recently seen first."
+  def enrolled(queryable \\ all()),
+    do: where(queryable, [coop_workers: w], w.state != :revoked and is_nil(w.revoked_at))
+
   def reporting_account_usage(queryable \\ all()) do
     where(
       queryable,

@@ -6,7 +6,7 @@ defmodule Ryker.CoopFleet.JobPreset do
 
   @name ~r/\A[a-z0-9][a-z0-9._-]{0,63}\z/
   @role_name ~r/\A[a-z][a-z0-9-]{0,63}\z/
-  @target ~r/\A(?:codex|claude)(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?(?:\/(?:low|medium|high|xhigh))?@[a-z0-9][a-z0-9_-]{0,63}\z/
+  @target ~r/\A(?:codex|claude)(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?(?:\/(?:low|medium|high|xhigh))?(?:\+fast)?@[a-z0-9][a-z0-9_-]{0,63}\z/
 
   def name?(name), do: Reference.matches?(name, @name)
 

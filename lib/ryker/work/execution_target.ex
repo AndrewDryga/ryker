@@ -30,7 +30,12 @@ defmodule Ryker.Work.ExecutionTarget do
     case parts(target) do
       %{provider: provider, model: model} = parts ->
         meta =
-          [effort(parts.effort), provider_name(provider), account(parts.account)]
+          [
+            effort(parts.effort),
+            if(parts.fast, do: "Fast mode"),
+            provider_name(provider),
+            account(parts.account)
+          ]
           |> Enum.reject(&is_nil/1)
           |> Enum.join(" · ")
 
@@ -55,10 +60,13 @@ defmodule Ryker.Work.ExecutionTarget do
            String.split(head, ":", parts: 2),
          [model | effort] <- String.split(model, "/", parts: 2),
          false <- model == "" do
+      {effort, fast} = fast_mode(List.first(effort))
+
       %{
         provider: provider,
         model: model,
-        effort: List.first(effort),
+        effort: effort,
+        fast: fast,
         account: List.first(account)
       }
     else
@@ -67,6 +75,17 @@ defmodule Ryker.Work.ExecutionTarget do
   end
 
   def parts(_target), do: nil
+
+  # "medium+fast": the effort, and whether the target asks for the provider's fast mode, which
+  # Coop's targets carry after the effort (provider:model/effort+fast@account).
+  defp fast_mode(nil), do: {nil, false}
+
+  defp fast_mode(effort) do
+    case String.split(effort, "+", parts: 2) do
+      [level, "fast"] -> {level, true}
+      _plain -> {effort, false}
+    end
+  end
 
   defp valid_account?([]), do: true
 

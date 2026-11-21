@@ -60,6 +60,8 @@ defmodule Ryker.Settings.DomainsTest do
           {["codex:gpt-5.6-sol/max@default"], :format},
           {["codex:gpt-5.6-sol@default"], :format},
           {["codex:gpt-5.6-sol/medium@default\n"], :format},
+          {["codex:gpt-6.2-sol/medium+slow@default"], :format},
+          {["codex:gpt-6.2-sol+fast/medium@default"], :format},
           {[sol, sol], :duplicate}
         ] do
       assert {:error, {:invalid_settings, [{:routing_models, ^reason}]}} =
@@ -85,6 +87,16 @@ defmodule Ryker.Settings.DomainsTest do
 
     assert saved.work.deep_models == ["codex:gpt-5.6-terra/high@default"]
     assert saved.work.standard_models == [sol]
+
+    # Andrew, 2026-11-21: "can we also allow using fast mode?" A model in its provider's fast
+    # mode is saved as Coop writes it, +fast after the effort, past the database's own check.
+    fast = ["codex:gpt-6.2-sol/medium+fast@default"]
+
+    assert {:ok, saved} =
+             Settings.save_work(%{deep_models: fast}, saved.installation.revision, @actor)
+
+    assert Settings.fetch!().work.deep_models == fast
+    assert saved.work.deep_models == fast
   end
 
   # Andrew, 2026-09-26: "Can I have fallbacks between models/providers like

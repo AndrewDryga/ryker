@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
         "use the same accounts, in the same order. Their models and efforts can differ."
   }
   # One model and its fallbacks as the form holds them: each part of a model.
-  @ladder_parts ~w(model effort account)
+  @ladder_parts ~w(model effort fast account)
   # How many entries a submitted list may carry before the rest are ignored;
   # more than a list takes, four models or sixteen accounts, is refused with a
   # reason, not cut short.
@@ -1269,6 +1269,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
         %{
           "model" => "#{provider}:#{model}",
           "effort" => parts.effort || "",
+          "fast" => if(parts.fast, do: "true", else: ""),
           "account" => parts.account || ""
         }
 
@@ -1320,7 +1321,12 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp ladder_fields(_mismatched), do: Map.new(@ladder_parts, &{&1, ""})
 
   # An entry missing a part becomes a model the settings refuse by its shape.
-  defp ladder_target(entry), do: "#{entry["model"]}/#{entry["effort"]}@#{entry["account"]}"
+  defp ladder_target(entry),
+    do: "#{entry["model"]}/#{entry["effort"]}#{fast_suffix(entry["fast"])}@#{entry["account"]}"
+
+  # A checked Fast box asks Coop for the provider's fast mode on that model.
+  defp fast_suffix(checked) when checked in ["true", "on"], do: "+fast"
+  defp fast_suffix(_unchecked), do: ""
 
   @doc """
   What a second price for the same model and day says: which price is

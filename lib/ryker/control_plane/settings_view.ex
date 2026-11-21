@@ -123,9 +123,11 @@ defmodule Ryker.ControlPlane.SettingsView do
       {:error, :settings_unavailable}
   end
 
-  @doc "The approved presets and accounts shown on the Models form."
+  @doc "The approved presets, and whether a worker takes fast mode, for the Models form."
   def with_model_presets(view) do
-    Map.put(view, :model_presets, CoopFleet.model_presets(view.snapshot.work))
+    view
+    |> Map.put(:model_presets, CoopFleet.model_presets(view.snapshot.work))
+    |> Map.put(:fast_mode, CoopFleet.fast_mode_available?())
   end
 
   @doc "Whether a settings read found the GitHub App ready to use."

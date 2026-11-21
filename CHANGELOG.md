@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Fast mode.** Each model on the Models page has a Fast box beside its effort. Ticked, the
+  worker runs that model in its provider's fast mode, about twice as fast: Codex's Fast tier, which
+  uses more of the plan's allowance, or Claude's fast mode, billed at a higher rate. A model
+  without a fast mode runs at standard speed. Such a job goes only to a worker on a co:op that
+  accepts fast targets, so deploy the new worker image too. Cost estimates still use each model's
+  standard prices.
+
 - **No more deadlocks between a worker's poll, a command and a task's turn.** Sending a command,
   and retention's cleanup, now lock the workers holding a session before the session, the order a
   poll and placement already used. PostgreSQL broke a three-way cycle of these twice on 21 Nov.

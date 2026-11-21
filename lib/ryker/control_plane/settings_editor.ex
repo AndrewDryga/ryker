@@ -960,11 +960,18 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         rows: rows,
         count: length(entries),
         most: Settings.most_work_models(),
+        # The Fast box only where a worker takes fast mode, or a model already asks for it, so
+        # it can be unticked: a +fast job waits for a worker that accepts one.
+        fast: view[:fast_mode] == true or Enum.any?(entries, &(&1["fast"] == "true")),
         usage: if(view[:model_usage], do: view.model_usage.categories[field.name])
       )
 
     ~H"""
-    <fieldset class="settings-field settings-ladder" id={@id} aria-describedby={help_id(@id, @field)}>
+    <fieldset
+      class={["settings-field settings-ladder", @fast && "settings-ladder-with-fast"]}
+      id={@id}
+      aria-describedby={help_id(@id, @field)}
+    >
       <legend>{@field.label}</legend>
       <p :if={@field[:help]} class="settings-help" id={"#{@id}-help"}>{@field.help}</p>
       <div :if={@usage} class="model-usage">
@@ -980,7 +987,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         <%!-- The column names, once for every row; each choice also keeps
         its own label, shown where the row stacks on a narrow screen. --%>
         <div class="settings-ladder-columns" aria-hidden="true">
-          <span>Model</span><span>Reasoning effort</span><span>Account</span>
+          <span>Model</span><span>Reasoning effort</span><span :if={@fast}>Fast</span><span>Account</span>
         </div>
         <ol class="settings-ladder-list">
           <li :for={row <- @rows} id={"#{@id}-#{row.index}"} class="settings-ladder-entry">
@@ -1020,6 +1027,21 @@ defmodule Ryker.ControlPlane.SettingsEditor do
                   {label}
                 </option>
               </select>
+            </div>
+            <%!-- Andrew, 2026-11-21: "can we also allow using fast mode?" The
+            provider's fast mode, about twice as fast for more of the plan or a
+            higher price, asked of Coop as +fast after the effort. --%>
+            <div :if={@fast} class="settings-ladder-part settings-ladder-fast">
+              <label for={"#{@id}-#{row.index}-fast"}>Fast mode</label>
+              <input type="hidden" name={"#{@name}[#{row.index}][fast]"} value="" />
+              <input
+                type="checkbox"
+                id={"#{@id}-#{row.index}-fast"}
+                name={"#{@name}[#{row.index}][fast]"}
+                value="true"
+                checked={row.entry["fast"] == "true"}
+                title="Fast mode: about twice as fast, for more of the plan's allowance or a higher price. A model without one runs at standard speed."
+              />
             </div>
             <div class="settings-ladder-part">
               <label for={"#{@id}-#{row.index}-account"}>Account</label>

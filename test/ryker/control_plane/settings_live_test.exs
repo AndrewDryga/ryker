@@ -1929,6 +1929,48 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   # coop allows?" Each kind of work named one model, so a usage limit on its
   # account stopped that work until the limit reset, although Coop can move
   # down a list of models on its own.
+  # Andrew, 2026-11-21: "can we also allow using fast mode?" Each model has a Fast box beside
+  # its effort; ticked, Coop runs that model in its provider's fast mode (+fast).
+  test "a model's Fast box saves it in fast mode, and unticking saves it at standard speed" do
+    initialize!()
+    requests = "#settings-request_models-form"
+    fast = "#settings-request_models-routing_models-0-fast"
+
+    # A +fast job waits for a worker that accepts one, so with none the box isn't offered.
+    {:ok, view, _html} = open("/settings/models")
+    refute has_element?(view, fast)
+
+    worker = "settings-fast-worker"
+
+    assert {:ok, _worker} =
+             Ryker.Fixtures.CoopWorkers.authorize(
+               worker,
+               "workspace-main",
+               Ryker.TestHelpers.digest(worker)
+             )
+
+    poll =
+      put_in(usage_poll(worker, nil), ["worker", "capabilities"], [
+        %{"name" => "fast-target", "version" => "1"}
+      ])
+
+    assert {:ok, _response} = Ryker.CoopFleet.ControlPlane.handle_poll_certificate(worker, poll)
+
+    {:ok, view, _html} = open("/settings/models")
+    refute has_element?(view, fast <> "[checked]")
+
+    view
+    |> form(requests, %{"routing_models" => %{"0" => %{"fast" => "true"}}})
+    |> render_submit()
+
+    assert Settings.fetch!().work.routing_models == ["codex:gpt-6.2-sol/medium+fast@default"]
+
+    {:ok, view, _html} = open("/settings/models")
+    assert has_element?(view, fast <> "[checked]")
+    view |> form(requests, %{"routing_models" => %{"0" => %{"fast" => ""}}}) |> render_submit()
+    assert Settings.fetch!().work.routing_models == ["codex:gpt-6.2-sol/medium@default"]
+  end
+
   test "fallbacks are added, reordered and removed, and saved in the order shown" do
     initialize!()
     snapshot = Settings.fetch!()
