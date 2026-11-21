@@ -2345,11 +2345,13 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-role-head { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 3fr) 32px; align-items:end; gap:12px; }
 .settings-role-part, .settings-role-models { display:grid; gap:4px; min-width:0; }
 .settings-role-part > label, .settings-role-label { font-size:14px; line-height:20px; font-weight:500; color:var(--ryker-text); }
-.settings-field .settings-role-part :is(input[type=text], select) { max-width:none; }
+/* A role's choices fill its card, a form card's narrower text boxes included. */
+.settings-field.settings-roles .settings-role-part :is(input[type=text], select) { max-width:none; }
 .ryker-app .settings-page .settings-role-remove { width:32px; min-width:32px; min-height:32px; margin-bottom:4px; padding:0; }
 .settings-role > .settings-help { margin-top:-6px; }
 .settings-optional { margin-left:4px; font-weight:400; color:var(--ryker-text-secondary); }
-.settings-field textarea.settings-instructions { min-height:88px; font:15px/23px var(--ryker-font-sans); }
+/* Instructions end where the lists of models do. */
+.settings-field textarea.settings-instructions { max-width:800px; min-height:88px; font:15px/23px var(--ryker-font-sans); }
 .ryker-app .settings-role-add { display:flex; align-items:center; gap:10px; box-sizing:border-box; width:100%; max-width:800px; min-height:44px; margin:0; padding:10px 16px; border:1px dashed var(--ryker-stroke-strong); border-radius:8px; background:none; color:var(--ryker-text-secondary); font:inherit; font-size:14px; line-height:21px; font-weight:500; text-align:left; cursor:pointer; }
 .ryker-app .settings-role-add .ui-icon { width:14px; height:14px; }
 .ryker-app .settings-role-add:hover { background:var(--ryker-hover-bg); color:var(--ryker-text); }
