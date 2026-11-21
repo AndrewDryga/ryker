@@ -45,7 +45,14 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
     assigns =
       Map.merge(
-        %{show_header: true, frame: :card, form: nil, paths: nil, model_usage: nil},
+        %{
+          show_header: true,
+          frame: :card,
+          form: nil,
+          paths: nil,
+          model_usage: nil,
+          account_limits: nil
+        },
         assigns
       )
 
@@ -667,7 +674,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         :if={!@collection?}
         id={@id}
         section={@section}
-        view={Map.put(@view, :model_usage, @model_usage)}
+        view={Map.merge(@view, %{model_usage: @model_usage, account_limits: @account_limits})}
         draft={@draft}
         dirty={@dirty}
         errors={@errors}
@@ -909,7 +916,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           accounts: accounts,
           model_prompt: not offered?(models, entry["model"]),
           effort_prompt: not List.keymember?(efforts, entry["effort"], 0),
-          account_prompt: account_prompt(entry, accounts)
+          account_prompt: account_prompt(entry, accounts),
+          used_up: used_up(view, entry)
         }
       end)
 
@@ -998,6 +1006,13 @@ defmodule Ryker.ControlPlane.SettingsEditor do
                   {account}
                 </option>
               </select>
+              <p :if={row.used_up} class="settings-ladder-note" id={"#{@id}-#{row.index}-used-up"}>
+                {row.used_up.label} used up<ShortTime.time
+                  :if={row.used_up.resets_at}
+                  at={row.used_up.resets_at}
+                  prefix=" · resets "
+                />
+              </p>
             </div>
             <%!-- Each button keeps its own slot, so every row's choices line up
             whichever buttons it has. --%>
@@ -1081,7 +1096,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           account: account,
           name: if(String.trim(account) == "", do: "account #{index + 1}", else: account),
           problem: problem,
-          message: problem
+          message: problem,
+          limits: account_limits(assigns.view, account)
         }
       end)
 
@@ -1138,6 +1154,11 @@ defmodule Ryker.ControlPlane.SettingsEditor do
                 id={"#{@id}-#{row.index}-problem"}
                 message={row.message}
                 tone={:error}
+              />
+              <.account_limits
+                :if={row.limits != :none}
+                id={"#{@id}-#{row.index}-limits"}
+                limits={row.limits}
               />
             </div>
             <div class="settings-ladder-actions">
@@ -1750,4 +1771,82 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       %{label: label} -> label
     end
   end
+
+  # A saved account's allowance as its provider last reported it, under its row:
+  # a line per window, then the plan, the extra resets and when it was checked
+  # (Andrew's task, 2026-11-20: "5-hour limit · 18% left · resets in 42 min").
+  # These are the provider's figures for the whole account, use outside Ryker
+  # included, so they never sit with Ryker's own run counts.
+  attr(:id, :string, required: true)
+  attr(:limits, :map, required: true)
+
+  defp account_limits(assigns) do
+    ~H"""
+    <div class="settings-account-limits" id={@id} data-state={@limits.state}>
+      <p :for={window <- @limits.windows} class="settings-account-limit" data-used-up={window.used_up}>
+        <span>{window.label}</span><span :if={window.detail}> · {window.detail}</span><ShortTime.time
+          :if={window.resets_at}
+          at={window.resets_at}
+          prefix=" · resets "
+        />
+      </p>
+      <p :if={@limits.resets} class="settings-account-limit">
+        {reset_credits(@limits.resets)}
+      </p>
+      <p class="settings-account-checked">
+        <span :if={@limits.plan}>{@limits.plan} plan · </span>{freshness(@limits)}<ShortTime.time
+          :if={@limits.checked_at && @limits.state in [:current, :stale]}
+          at={@limits.checked_at}
+          prefix="checked "
+        /><span :if={@limits.state == :stale}>, may be out of date</span>
+      </p>
+    </div>
+    """
+  end
+
+  defp freshness(%{state: :not_signed_in}), do: "Not signed in on the worker"
+  defp freshness(%{state: :sign_in_again}), do: "Sign in again on the worker"
+
+  defp freshness(%{state: :unavailable, auth: auth}) when is_binary(auth),
+    do: "Limit unavailable (#{auth})"
+
+  defp freshness(%{state: :unavailable}), do: "Limit unavailable"
+  defp freshness(_limits), do: nil
+
+  defp reset_credits(%{available: available, expires_at: expiries}) do
+    count = if available, do: Wording.count(available, "reset") <> " left", else: "Extra resets"
+
+    case Enum.min(expiries, DateTime, fn -> nil end) do
+      nil -> count
+      first -> count <> ", the first expires " <> ShortTime.day(first, Date.utc_today())
+    end
+  end
+
+  # :none for a row that names no saved account yet; a saved account the worker
+  # has not reported says its limit is unavailable.
+  defp account_limits(view, account) do
+    account = String.trim(account)
+
+    cond do
+      account == "" or account not in view.snapshot.work.model_accounts -> :none
+      is_nil(view[:account_limits]) -> :none
+      true -> Map.get(view.account_limits, account, unreported_account())
+    end
+  end
+
+  defp unreported_account,
+    do: %{
+      state: :unavailable,
+      windows: [],
+      resets: nil,
+      plan: nil,
+      auth: nil,
+      checked_at: nil,
+      used_up: nil
+    }
+
+  defp used_up(%{account_limits: %{} = limits}, entry),
+    do: get_in(limits, [SettingsSections.ladder_account(entry), :used_up])
+
+  defp used_up(_view, _entry), do: nil
 end

@@ -1,0 +1,130 @@
+defmodule Ryker.ControlPlane.AccountLimitsProjection do
+  @moduledoc """
+  The allowance each model account has left, as its provider last reported it
+  to the worker that holds it (`Ryker.CoopFleet.AccountUsage`), for Settings ›
+  Models: one line per window, when it was checked, and whether the account is
+  used up. These are the provider's figures for the whole account, use outside
+  Ryker included; Ryker's own run counts and cost estimates are separate.
+
+  The worker reads its providers at most every five minutes, so a check more
+  than twenty minutes old, or one whose latest read failed, is shown as going
+  stale rather than as current.
+  """
+  alias Ryker.CoopFleet
+
+  @stale_after_seconds 20 * 60
+
+  @type window :: %{
+          label: String.t(),
+          detail: String.t() | nil,
+          resets_at: DateTime.t() | nil,
+          used_up: boolean()
+        }
+  @type entry :: %{
+          state: :current | :stale | :unavailable | :not_signed_in | :sign_in_again,
+          checked_at: DateTime.t() | nil,
+          windows: [window()],
+          plan: String.t() | nil,
+          auth: String.t() | nil,
+          resets: %{available: non_neg_integer() | nil, expires_at: [DateTime.t()]} | nil,
+          used_up: window() | nil
+        }
+
+  @doc "Every account any worker reported, by `provider@name`."
+  @spec page(DateTime.t()) :: %{String.t() => entry()}
+  def page(now \\ DateTime.utc_now(:second)), do: entries(CoopFleet.account_usage_reports(), now)
+
+  @doc """
+  Each account's entry from the workers' reports, most recently seen worker
+  first: where two workers hold the same account, the newer check wins.
+  """
+  @spec entries([map()], DateTime.t()) :: %{String.t() => entry()}
+  def entries(reports, now) do
+    reports
+    |> Enum.flat_map(& &1.accounts)
+    |> Enum.reduce(%{}, fn account, chosen ->
+      Map.update(chosen, account["account"], account, &newer(&1, account))
+    end)
+    |> Map.new(fn {name, account} -> {name, entry(account, now)} end)
+  end
+
+  defp newer(kept, other) do
+    if later?(time(other["checked_at"]), time(kept["checked_at"])), do: other, else: kept
+  end
+
+  defp later?(nil, _kept), do: false
+  defp later?(_other, nil), do: true
+  defp later?(other, kept), do: DateTime.compare(other, kept) == :gt
+
+  defp entry(account, now) do
+    checked_at = time(account["checked_at"])
+    windows = Enum.map(account["limits"], &window/1)
+    resets = resets(account["reset_credits"])
+
+    %{
+      state: state(account, checked_at, windows, resets, now),
+      checked_at: checked_at,
+      windows: windows,
+      plan: account["plan"],
+      auth: account["auth"],
+      resets: resets,
+      used_up: Enum.find(windows, & &1.used_up)
+    }
+  end
+
+  defp state(%{"sign_in" => "not_signed_in"}, _checked, _windows, _resets, _now),
+    do: :not_signed_in
+
+  defp state(%{"sign_in" => "sign_in_again"}, _checked, _windows, _resets, _now),
+    do: :sign_in_again
+
+  defp state(_account, nil, _windows, _resets, _now), do: :unavailable
+  defp state(_account, _checked, [], nil, _now), do: :unavailable
+
+  defp state(account, checked_at, _windows, _resets, now) do
+    if account["error"] || DateTime.diff(now, checked_at) > @stale_after_seconds,
+      do: :stale,
+      else: :current
+  end
+
+  # "5-hour limit · 18% left": a time window says it is a limit; credits and a
+  # model's own window keep the provider's name.
+  defp window(limit) do
+    used = limit["used_percent"]
+    used_up = limit["available"] == false or (is_number(used) and used >= 100)
+
+    %{
+      label: label(limit["name"]),
+      detail: detail(limit, used, used_up),
+      resets_at: time(limit["resets_at"]),
+      used_up: used_up
+    }
+  end
+
+  defp label(name) do
+    if Regex.match?(~r/(?:\A|· )(?:\d+-hour|weekly|daily|monthly)\z/i, name),
+      do: name <> " limit",
+      else: name
+  end
+
+  defp detail(_limit, _used, true), do: "used up"
+  defp detail(_limit, used, false) when is_number(used), do: "#{max(100 - round(used), 0)}% left"
+  defp detail(%{"remaining" => "unlimited"}, nil, false), do: "unlimited"
+
+  defp detail(%{"remaining" => remaining}, nil, false) when is_binary(remaining),
+    do: remaining <> " left"
+
+  defp detail(%{"note" => note}, nil, false), do: note
+
+  defp resets(nil), do: nil
+
+  defp resets(%{"available" => available, "expires_at" => expiries}),
+    do: %{available: available, expires_at: Enum.map(expiries, &time/1)}
+
+  defp time(nil), do: nil
+
+  defp time(value) do
+    {:ok, at, 0} = DateTime.from_iso8601(value)
+    DateTime.truncate(at, :second)
+  end
+end

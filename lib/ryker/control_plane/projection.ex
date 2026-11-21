@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.Projection do
   a request's model calls, and as the routing examples someone chose to keep
   for training, downloaded from Data retention.
   """
+  alias Ryker.ControlPlane.AccountLimitsProjection
   alias Ryker.ControlPlane.{Activity, BehaviorLibrary, CasesProjection, ChannelDetail}
   alias Ryker.ControlPlane.ChannelDirectory
   alias Ryker.ControlPlane.{ConversationMemory, ConversationProjection, EpisodeProjection}
@@ -78,6 +79,7 @@ defmodule Ryker.ControlPlane.Projection do
       schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,
       model_usage: &ModelUsageProjection.page/0,
+      account_limits: &AccountLimitsProjection.page/0,
       subscriptions: &SubscriptionProjection.list/1,
       usage: &UsageProjection.page/1,
       usage_filter_options: &UsageProjection.filter_options/0,

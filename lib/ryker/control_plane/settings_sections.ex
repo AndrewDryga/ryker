@@ -569,9 +569,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
         }
       ]
     },
-    # Ryker cannot see which accounts the worker has signed in, so they are
-    # listed here and every model above names one of them. Each job freezes
-    # this selection; later settings changes apply to new jobs only.
+    # The accounts the worker has signed in are listed here and every model
+    # above names one of them. Each job freezes this selection; later settings
+    # changes apply to new jobs only. Under each account the editor shows what
+    # its provider last reported to the worker (AccountLimitsProjection).
     #
     # An account is a row of its own, in the box the lists of models use
     # (Andrew, 2026-09-27: "I need a way to add more accounts than one!"). One
@@ -583,8 +584,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Settings.Work,
       title: "Model accounts",
       description:
-        "Ryker cannot see which accounts the worker has signed in, so list them here. " <>
-          "Each model above runs on one of them.",
+        "List the accounts the worker has signed in; each model above runs on one of them. " <>
+          "Under each account are the limits its provider reports, which count use outside " <>
+          "Ryker too.",
       fields: [
         %{
           name: :model_accounts,
@@ -1017,6 +1019,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
         [^provider, name] <- [String.split(account, "@", parts: 2)],
         do: name
   end
+
+  @doc "The account a list's entry runs on, as Model accounts lists it: `provider@name`."
+  @spec ladder_account(map()) :: String.t() | nil
+  def ladder_account(%{"model" => model, "account" => account})
+      when is_binary(model) and is_binary(account) and account != "",
+      do: provider(model) <> "@" <> account
+
+  def ladder_account(_entry), do: nil
 
   @doc """
   One step on a list of models in a draft: add a fallback, remove an entry,

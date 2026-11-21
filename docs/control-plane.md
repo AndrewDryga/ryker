@@ -716,7 +716,17 @@ recorded reports and are not presented as live-traffic quality scores.
   Add account as its last row. A row says what is wrong with it as it is
   typed, once it can no longer become `provider@name`, and removing an account
   a saved model still runs on is refused with a sentence naming those models
-  and their kinds of work
+  and their kinds of work. Under each saved account are the limits its provider
+  last reported, a line per window ("5-hour limit · 18% left · resets in 42
+  min", credits in the provider's own units, extra resets and when they expire),
+  then the plan and when the worker checked. The worker reads its providers with
+  its own sign-ins at most every five minutes and sends the report in its poll
+  (`account_usage`, `Ryker.CoopFleet.AccountUsage`); a check over twenty minutes
+  old, or one whose latest read failed, reads "may be out of date", and an
+  account with nothing reported reads "Limit unavailable". The figures count use
+  outside Ryker and stay apart from the run counts above. A model whose account
+  has used up a window says so under its account choice. A report Ryker cannot
+  read is dropped, never a refused poll
 - Settings explain themselves in plain words: each kind of work says under its
   title where Ryker uses its models, as the code decides it; Advanced opens with what
   a worker is, and lets the operator choose an enrolled worker install. There is no local

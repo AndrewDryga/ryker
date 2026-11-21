@@ -1995,6 +1995,106 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
            )
   end
 
+  # Andrew's task, 2026-11-20: operators choosing a primary model or a fallback
+  # need each account's remaining allowance and when it resets, as coop usage
+  # shows it: "5-hour limit · 18% left · resets in 42 min". The worker reports
+  # what its providers said in its poll; each account shows it once, under its
+  # row, and every model on a used-up account says so beside the account.
+  test "each model account shows its provider's limits, and a used-up one shows beside its models" do
+    initialize!()
+    now = DateTime.utc_now(:second)
+    resets = DateTime.add(now, 42 * 60 + 30) |> DateTime.to_iso8601()
+    checked = DateTime.to_iso8601(now)
+    worker = "settings-usage-worker"
+
+    assert {:ok, _worker} =
+             Ryker.Fixtures.CoopWorkers.authorize(
+               worker,
+               "workspace-main",
+               Ryker.TestHelpers.digest(worker)
+             )
+
+    usage = %{
+      "version" => 1,
+      "accounts" => [
+        %{
+          "account" => "codex@default",
+          "sign_in" => "signed_in",
+          "checked_at" => checked,
+          "attempted_at" => checked,
+          "error" => nil,
+          "plan" => "pro",
+          "auth" => nil,
+          "note" => nil,
+          "limits" => [
+            %{
+              "name" => "5-hour",
+              "used_percent" => 100,
+              "remaining" => nil,
+              "resets_at" => resets,
+              "available" => false,
+              "note" => nil
+            },
+            %{
+              "name" => "Weekly",
+              "used_percent" => 40,
+              "remaining" => nil,
+              "resets_at" => nil,
+              "available" => true,
+              "note" => nil
+            }
+          ],
+          "reset_credits" => nil
+        }
+      ]
+    }
+
+    assert {:ok, _response} =
+             Ryker.CoopFleet.ControlPlane.handle_poll_certificate(
+               worker,
+               usage_poll(worker, usage)
+             )
+
+    {:ok, view, _html} = open("/settings/models")
+    limits = "#settings-model_accounts-model_accounts-0-limits"
+
+    assert has_element?(
+             view,
+             limits <> " .settings-account-limit[data-used-up]",
+             "5-hour limit · used up"
+           )
+
+    assert has_element?(view, limits <> " .settings-account-limit", "resets in 42 min")
+    assert has_element?(view, limits <> " .settings-account-limit", "Weekly limit · 60% left")
+
+    assert has_element?(
+             view,
+             limits <> " .settings-account-checked",
+             "pro plan · checked just now"
+           )
+
+    assert view
+           |> element(limits)
+           |> render()
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("p")
+           |> Enum.count() == 3
+
+    for {field, kind} <- [request_models: :routing_models, other_models: :learning_models] do
+      assert has_element?(
+               view,
+               "#settings-#{field}-#{kind}-0-used-up",
+               "5-hour limit used up · resets in 42 min"
+             )
+    end
+
+    # A worker that no longer reports the account leaves it without figures.
+    Repo.update_all(Ryker.CoopFleet.Worker, set: [account_usage: nil])
+    {:ok, view, _html} = open("/settings/models")
+    assert has_element?(view, limits, "Limit unavailable")
+    refute has_element?(view, "#settings-request_models-routing_models-0-used-up")
+  end
+
   # Ryker cannot see which accounts the worker has signed in, and Coop refuses
   # the whole policy file while one of its models names an account that is
   # not signed in: the change would never run, and until the worker kept its
@@ -2743,6 +2843,37 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   defp restore_env({name, nil}), do: System.delete_env(name)
   defp restore_env({name, value}), do: System.put_env(name, value)
+
+  defp usage_poll(worker, usage) do
+    %{
+      "acknowledged_command_ids" => [],
+      "command_results" => [],
+      "event_batches" => [],
+      "poll_ref" => "poll:#{worker}:#{System.unique_integer([:positive])}",
+      "version" => 2,
+      "worker" => %{
+        "account_usage" => usage,
+        "build_version" => "coop-test",
+        "capabilities" => [],
+        "capacity" => %{
+          "cooldown_until" => nil,
+          "session_slots_free" => 1,
+          "session_slots_total" => 1,
+          "state" => "eligible",
+          "turn_slots_free" => 1,
+          "turn_slots_total" => 1,
+          "workspace_slots_free" => 1,
+          "workspace_slots_total" => 1
+        },
+        "clock_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "id" => worker,
+        "protocol_version" => "2",
+        "sandbox_digest" => String.duplicate("a", 64),
+        "state" => "eligible",
+        "workspace_ref" => "workspace-main"
+      }
+    }
+  end
 
   defp initialize! do
     {:ok, snapshot} = Settings.initialize(@actor)

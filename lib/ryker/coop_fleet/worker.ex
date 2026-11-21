@@ -15,6 +15,7 @@ defmodule Ryker.CoopFleet.Worker do
     field(:capacity, Ryker.CanonicalJSON.Type, default: %{})
     # Absent means the worker reported no measurement. Unknown is not zero.
     field(:storage, Ryker.CanonicalJSON.Type)
+    field(:account_usage, Ryker.CanonicalJSON.Type)
     field(:storage_reclaimed_bytes, :integer, default: 0)
 
     field(:state, Ecto.Enum,

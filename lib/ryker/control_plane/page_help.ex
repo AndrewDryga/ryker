@@ -648,6 +648,11 @@ defmodule Ryker.ControlPlane.PageHelp do
          "A Claude model appears once its price is saved under Model prices, written like claude:claude-opus-4-6.",
          "Ryker can't see which accounts the worker has signed in. Sign one in with scripts/compose.sh model-login claude@work, then add it under Model accounts."
        ]},
+      {"Account limits",
+       [
+         "Under each account are the limits its provider reports: how much of each window is left and when it resets. The worker asks the provider about every five minutes, and the figures count use outside Ryker too.",
+         "A model whose account has used up a window says so beside its account. Ryker then moves to the next model on the list until the window resets."
+       ]},
       {"Local routing model",
        [
          "A small model you run yourself can answer each routing prompt after the provider model has decided. Its card shows how often the two agree, and routing never uses its answer."

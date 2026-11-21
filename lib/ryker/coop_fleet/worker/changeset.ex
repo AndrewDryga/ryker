@@ -39,6 +39,7 @@ defmodule Ryker.CoopFleet.Worker.Changeset do
     |> check_constraint(:id, name: :coop_worker_identity_valid)
     |> check_constraint(:capacity, name: :coop_worker_documents_valid)
     |> check_constraint(:storage, name: :coop_worker_storage_valid)
+    |> check_constraint(:account_usage, name: :coop_worker_account_usage_valid)
   end
 
   @doc "An operator asks the worker to take no new work."

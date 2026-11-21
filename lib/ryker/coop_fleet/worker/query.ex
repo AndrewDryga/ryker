@@ -59,6 +59,16 @@ defmodule Ryker.CoopFleet.Worker.Query do
     )
   end
 
+  @doc "Enrolled workers that have reported their accounts' allowance, most recently seen first."
+  def reporting_account_usage(queryable \\ all()) do
+    where(
+      queryable,
+      [coop_workers: w],
+      w.state != :revoked and is_nil(w.revoked_at) and not is_nil(w.account_usage)
+    )
+    |> order_by([coop_workers: w], desc: w.last_seen_at, asc: w.id)
+  end
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
 end

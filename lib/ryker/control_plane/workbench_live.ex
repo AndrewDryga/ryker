@@ -111,6 +111,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        body: "",
        running_system: nil,
        model_usage: nil,
+       account_limits: nil,
        page_title: "Activity",
        page_description: nil,
        page_action: nil,
@@ -209,6 +210,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        body: "",
        running_system: nil,
        model_usage: nil,
+       account_limits: nil,
        page_title: "Workspace",
        page_description: nil,
        page_back: nil,
@@ -1948,6 +1950,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_title: SettingsPage.title(section, form, settings),
       settings: settings,
       model_usage: model_usage(options, section, settings),
+      account_limits: account_limits(options, section, settings),
       settings_commands: settings_commands(options, socket.assigns.viewer),
       settings_section: section,
       settings_form: form,
@@ -1967,6 +1970,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp model_usage(options, :model, {:ok, _view}), do: options.projection.model_usage.()
   defp model_usage(_options, _section, _settings), do: nil
+
+  defp account_limits(options, :model, {:ok, _view}), do: options.projection.account_limits.()
+  defp account_limits(_options, _section, _settings), do: nil
 
   # Who is signed in and who is invited, for Settings › Access.
   defp access_people,
@@ -2954,6 +2960,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             commands={@settings_commands}
             running_system={@running_system}
             model_usage={@model_usage}
+            account_limits={@account_limits}
             error={@settings_error}
             section={@settings_section}
             github_feedback={@github_feedback}

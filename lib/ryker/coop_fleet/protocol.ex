@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.Protocol do
   command-bound transfers. Unknown fields and unsupported versions fail before
   any durable command or event mutation can occur.
   """
+  alias Ryker.CoopFleet.AccountUsage
   alias Ryker.Crypto
   alias Ryker.Maps
   alias Ryker.UTCDateTime
@@ -160,10 +161,10 @@ defmodule Ryker.CoopFleet.Protocol do
   end
 
   defp worker(%{} = document) do
-    document = Map.put_new(document, "storage", nil)
+    document = document |> Map.put_new("storage", nil) |> Map.put_new("account_usage", nil)
 
     fields =
-      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest capabilities capacity storage state)
+      ~w(id workspace_ref protocol_version build_version clock_at sandbox_digest capabilities capacity storage account_usage state)
 
     with :ok <- exact_fields(document, fields, :worker),
          :ok <- reference(document["id"], 256, :worker_id),
@@ -182,7 +183,8 @@ defmodule Ryker.CoopFleet.Protocol do
        |> Map.put("clock_at", clock_at)
        |> Map.put("capabilities", capabilities)
        |> Map.put("capacity", capacity)
-       |> Map.put("storage", storage)}
+       |> Map.put("storage", storage)
+       |> Map.put("account_usage", AccountUsage.normalize(document["account_usage"]))}
     end
   end
 

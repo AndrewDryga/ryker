@@ -155,7 +155,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
         sandbox_digest: hello["sandbox_digest"],
         state: heartbeat_state(worker, hello["state"]),
         storage: hello["storage"],
-        storage_reclaimed_bytes: reclaimed_bytes(worker, hello["storage"])
+        storage_reclaimed_bytes: reclaimed_bytes(worker, hello["storage"]),
+        # A worker that has not read its providers since it started keeps the
+        # last report; each account's check time says how old it is.
+        account_usage: hello["account_usage"] || worker.account_usage
       })
       |> Repo.update()
       |> Shared.unwrap_write()

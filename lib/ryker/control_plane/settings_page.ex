@@ -51,6 +51,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   attr(:commands, :map, required: true)
   attr(:section, :atom, required: true)
   attr(:model_usage, :map, default: nil)
+  attr(:account_limits, :map, default: nil)
   attr(:running_system, :map, default: nil)
   attr(:error, :string, default: nil)
   attr(:notice, :string, default: nil)
@@ -277,6 +278,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           view={@view}
           commands={@commands}
           model_usage={@model_usage}
+          account_limits={@account_limits}
           show_header={titled?(@section)}
           paths={paths(key)}
         />
