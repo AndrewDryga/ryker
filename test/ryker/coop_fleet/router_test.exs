@@ -5,7 +5,8 @@ defmodule Ryker.CoopFleet.RouterTest do
   import Plug.Conn
   import Plug.Test
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.CoopFleet.{Bodies, Checkpoints, ControlPlane, Enrollment, JobSpec, Placement}
+  alias Ryker.CoopFleet.{Bodies, Checkpoints, Client, Command, ControlPlane, Enrollment}
+  alias Ryker.CoopFleet.{JobSpec, Placement}
   alias Ryker.CoopFleet.{Router, SourceGrants, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
@@ -789,6 +790,192 @@ defmodule Ryker.CoopFleet.RouterTest do
              )
 
     assert wire["payload"]["path"] == "/v1/sessions/replacement/workspace/restore"
+  end
+
+  # Coop after 15.0.0 answers a restore 503 repository_unavailable when it could not refresh the
+  # default branch the checkpoint needs, keeps that answer under the restore's key, and takes the
+  # restore again under a new key into the same unused session. Ryker's restore key did not change
+  # between attempts, so every automatic attempt replayed the saved 503 until the task stopped for
+  # a person, and only an operator's retry, which replaces the whole session, got past it.
+  test "a restore Coop refused for an unrefreshed default branch is sent again under a new key" do
+    certificate = authorize_and_poll!()
+
+    command =
+      command!(certificate, "checkpoint_workspace", %{
+        "coop_session_id" => "coop-session-1",
+        "expected_revision" => 4,
+        "repository_ref" => "ryker"
+      })
+
+    {checkpoint, bundle} =
+      WorkspaceCheckpointFixture.build(%{
+        session_ref: command.session_id,
+        placement_generation: command.placement_generation
+      })
+
+    {result, options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
+    assert {:ok, _receipt} = result
+    replacement = workspace_replacement!(command)
+    key = "ryker:work:create:#{replacement.id}:g#{replacement.create_generation}"
+    task = Session.coop_task_ref(replacement)
+
+    refused = %{
+      "status" => 503,
+      "body" => %{
+        "error" => %{
+          "code" => "repository_unavailable",
+          "detail" =>
+            "checkpoint needs upstream commit #{String.duplicate("7", 40)} from the job's source, which could not be refreshed; retry with a new idempotency key"
+        }
+      }
+    }
+
+    restored = %{"status" => 200, "body" => %{"session" => %{"id" => "replacement"}}}
+    Process.put(:restore_answers, [refused, restored])
+
+    assert {:ok, client} =
+             Client.new(
+               Keyword.merge(options,
+                 capability_names: [],
+                 wait: fn -> answer_worker_commands(certificate, options) end
+               )
+             )
+
+    create = fn ->
+      Client.create_session(client, key, replacement.policy, task, replacement.repository_source)
+    end
+
+    # Coop answers the create with its operation; polling that operation restores the workspace.
+    assert {:ok, %{"operation" => %{"state" => "succeeded"}}} = create.()
+
+    assert {:error, {:coop_error, 503, "repository_unavailable", _detail}} =
+             Client.operation_by_key(client, key)
+
+    assert_received {:restore_sent, first_key}
+
+    # A stop reads what the create did and settles on the refused restore; it sends no other.
+    assert {:ok, %{"resource_id" => "replacement"}} =
+             Client.fence_create_session(
+               client,
+               key,
+               replacement.policy,
+               task,
+               replacement.repository_source
+             )
+
+    refute_received {:restore_sent, _key}
+
+    # The next attempt sends the same restore under a new key, into the same session.
+    assert {:ok, %{"resource_id" => "replacement"}} = Client.operation_by_key(client, key)
+
+    assert_received {:restore_sent, second_key}
+    refute second_key == first_key
+
+    [first, second] =
+      Command
+      |> Repo.all()
+      |> Enum.filter(&(&1.session_id == replacement.id and &1.kind == "ensure_workspace"))
+      |> Enum.sort_by(&(&1.idempotency_key != first_key))
+
+    assert {first.idempotency_key, second.idempotency_key} == {first_key, second_key}
+    assert second.payload == first.payload
+    assert second.payload["checkpoint"]["transfer_id"] != nil
+    assert first.result == refused
+    assert second.result == restored
+
+    # A restore that went through keeps its key; attempts after it are answered by it.
+    assert {:ok, _operation} = Client.operation_by_key(client, key)
+    refute_received {:restore_sent, _key}
+  end
+
+  # A replacement of the source session's task, holding a workspace task, whose create and
+  # checkpoint restore have not been sent; the source session's placement has ended.
+  defp workspace_replacement!(command) do
+    source = Repo.get!(Session, command.session_id)
+
+    Repo.get!(Placement, command.placement_id)
+    |> Ecto.Changeset.change(state: :replaced)
+    |> Repo.update!()
+
+    replacement =
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: source.episode_id,
+        generation: source.generation + 1,
+        policy: source.policy,
+        policy_digest: source.policy_digest,
+        repository_ref: source.repository_ref,
+        external_ref: source.external_ref,
+        authority_digest: nil,
+        repository_source: source.repository_source,
+        workspace_task: %{"offer_ref" => "offer:restore-retry"}
+      })
+      |> Repo.insert!()
+
+    {:ok, job, digest} =
+      JobSpec.rebind(
+        source.worker_job_document,
+        source.worker_job_digest,
+        replacement.external_ref
+      )
+
+    replacement |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+  end
+
+  # The worker takes what it is given and answers each command: the create with its succeeded
+  # operation, a read of the session with the session, and each restore with the next answer
+  # in :restore_answers, telling the test the key it was sent under.
+  defp answer_worker_commands(certificate, options) do
+    assert {:ok, %{"commands" => [_ | _] = delivered}} =
+             ControlPlane.handle_poll_certificate(
+               certificate,
+               Map.put(poll(), "poll_ref", Ecto.UUID.generate()),
+               options
+             )
+
+    results =
+      Enum.map(delivered, fn wire ->
+        %{
+          "command_id" => wire["command_id"],
+          "operation_key" => wire["idempotency_key"],
+          "error" => nil,
+          "state" => "succeeded",
+          "resource" => worker_answer(Repo.get!(Command, wire["command_id"]))
+        }
+      end)
+
+    document =
+      poll()
+      |> Map.put("poll_ref", Ecto.UUID.generate())
+      |> Map.put("command_results", results)
+
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate(certificate, document, options)
+    :ok
+  end
+
+  defp worker_answer(%Command{kind: "create_session"}) do
+    %{
+      "status" => 200,
+      "body" => %{
+        "operation" => %{
+          "id" => "operation-replacement",
+          "method" => "CreateRemoteSession",
+          "resource_id" => "replacement",
+          "resource_type" => "session",
+          "state" => "succeeded"
+        }
+      }
+    }
+  end
+
+  defp worker_answer(%Command{kind: "get_session"}),
+    do: %{"status" => 200, "body" => %{"id" => "replacement", "revision" => 1, "state" => "open"}}
+
+  defp worker_answer(%Command{kind: "ensure_workspace", idempotency_key: key}) do
+    send(self(), {:restore_sent, key})
+    [answer | rest] = Process.get(:restore_answers)
+    Process.put(:restore_answers, rest)
+    answer
   end
 
   # The source session's placement ends and a replacement session of the same

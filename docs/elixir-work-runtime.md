@@ -123,7 +123,9 @@ tools own durable records. The generic Delivery module owns external message cus
   receives it (`coop_upgrade_required`, naming the worker to upgrade); a bundle without the field
   restores on any worker. A capture or restore Coop answers `503 repository_unavailable` ("could
   not be refreshed") runs again only under a new key: capture advances its checkpoint retry
-  generation, and a restore stops so the task's retry places a new session.
+  generation, and the next attempt at a restore counts the refused restores into its key and
+  sends it again into the same unused session. A restore Coop never refused keeps its key. A stop
+  reads the newest refusal and settles without sending another.
 - Version-1 jobs are refused. The move to version 2 carried the sessions that still held one
   until 2026-10-08, when the last were closed; sessions retained from then are cleaned up as any
   other, since a cleanup receipt is checked against the stored job whatever its version.

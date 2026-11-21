@@ -100,7 +100,7 @@ defmodule Ryker.CoopFleet.Client do
          :ok <- exact_authority(session, policy, source),
          {:ok, payload} <- create_payload_for_authority(session, task),
          {:ok, remote} <- execute(client, session, "create_session", payload, key) do
-      ensure_workspace(client, session, remote, key)
+      ensure_workspace(client, session, remote, key, :attempt)
     end
   end
 
@@ -129,27 +129,28 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp ensure_workspace(_client, %Work.Session{workspace_task: nil}, remote, _create_key),
+  # `mode` is `:attempt` when Work sends the create, or polls the operation it
+  # answered, and `:fence` when a stop asks what that create did.
+  defp ensure_workspace(_client, %Work.Session{workspace_task: nil}, remote, _create_key, _mode),
     do: {:ok, remote}
 
   defp ensure_workspace(
          client,
          %Work.Session{workspace_task: task} = session,
          %{"session" => remote},
-         create_key
+         create_key,
+         mode
        )
        when is_map(task) do
     with coop_session_id when is_binary(coop_session_id) <- remote["id"],
          revision when is_integer(revision) and revision > 0 <- remote["revision"],
          {:ok, checkpoint} <- restore_checkpoint(session) do
-      key =
-        "ryker:workspace:" <>
-          CanonicalJSON.digest(%{
-            "create_key" => create_key,
-            "checkpoint" => checkpoint,
-            "session_id" => session.id,
-            "task" => task
-          })
+      identity = %{
+        "create_key" => create_key,
+        "checkpoint" => checkpoint,
+        "session_id" => session.id,
+        "task" => task
+      }
 
       payload =
         %{
@@ -159,24 +160,46 @@ defmodule Ryker.CoopFleet.Client do
         }
         |> maybe_put_checkpoint(checkpoint)
 
-      execute(
-        client,
-        session,
-        "ensure_workspace",
-        payload,
-        key
-      )
+      {payload, key} = workspace_request(session, coop_session_id, identity, payload, mode)
+      execute(client, session, "ensure_workspace", payload, key)
     else
       {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:coop_protocol_error, :create_session_response}}
     end
   end
 
-  defp ensure_workspace(_client, _session, %{"operation" => operation} = response, _key)
+  defp ensure_workspace(_client, _session, %{"operation" => operation} = response, _key, _mode)
        when is_map(operation), do: {:ok, response}
 
-  defp ensure_workspace(_client, _session, _response, _key),
+  defp ensure_workspace(_client, _session, _response, _key, _mode),
     do: {:error, {:coop_protocol_error, :create_session_response}}
+
+  # Coop keeps a restore's 503 repository_unavailable (a default branch it could
+  # not refresh) under the restore's key, and takes the restore again only under
+  # a new key into the same unused session. Under one key every automatic attempt
+  # replayed the saved 503 until the task stopped for a person (2026-11-20). So an
+  # attempt counts this session's refused restores into the key. A restore never
+  # refused keeps the key it always had, which a restore already sent is found by.
+  # A stop's fence reads what the newest restore answered and never sends another.
+  defp workspace_request(session, coop_session_id, identity, payload, mode) do
+    refused = Repo.all(Command.Query.refused_checkpoint_restores(session.id, coop_session_id))
+    key = workspace_key(identity, length(refused))
+
+    case {mode, refused} do
+      {:fence, [_ | _]} ->
+        if Repo.exists?(Command.Query.by_idempotency_key(key)),
+          do: {payload, key},
+          else: refused |> List.last() |> then(&{&1.payload, &1.idempotency_key})
+
+      _attempt_or_never_refused ->
+        {payload, key}
+    end
+  end
+
+  defp workspace_key(identity, 0), do: "ryker:workspace:" <> CanonicalJSON.digest(identity)
+
+  defp workspace_key(identity, retry),
+    do: "ryker:workspace:" <> CanonicalJSON.digest(Map.put(identity, "retry", retry))
 
   @impl true
   def checkpoint_workspace(client, coop_session_id, key, expected_revision) do
@@ -1053,7 +1076,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def operation_by_key(client, key),
-    do: operation_by_key(client, key, &ensure_reconciled_workspace/4)
+    do: operation_by_key(client, key, &ensure_reconciled_workspace(&1, &2, &3, &4, :attempt))
 
   @doc "Reconcile an original create for cleanup without installing or restoring any workspace."
   @impl true
@@ -1401,7 +1424,7 @@ defmodule Ryker.CoopFleet.Client do
   # its checkpoint, leave the same unused session: under the same key each would
   # only answer the same way again.
   defp fenced_workspace(client, command, operation, key) do
-    case ensure_reconciled_workspace(client, command, operation, key) do
+    case ensure_reconciled_workspace(client, command, operation, key, :fence) do
       {:error, {:coop_error, 409, "invalid_session_state", _detail}} -> :ok
       {:error, {:coop_error, 503, "repository_unavailable", _detail}} -> :ok
       {:error, {:coop_upgrade_required, :checkpoint_upstream, _worker_id}} -> :ok
@@ -1627,7 +1650,8 @@ defmodule Ryker.CoopFleet.Client do
            "resource_type" => "session",
            "state" => "succeeded"
          },
-         create_key
+         create_key,
+         mode
        )
        when is_binary(coop_session_id) do
     case Repo.fetch(Work.Session.Query.by_id(session_id)) do
@@ -1646,27 +1670,30 @@ defmodule Ryker.CoopFleet.Client do
             command,
             session,
             coop_session_id,
-            create_key
+            create_key,
+            mode
           )
         end
     end
   end
 
-  defp ensure_reconciled_workspace(_client, _command, _operation, _create_key), do: :ok
+  defp ensure_reconciled_workspace(_client, _command, _operation, _create_key, _mode), do: :ok
 
   defp ensure_reconciled_workspace_live(
          client,
          command,
          session,
          coop_session_id,
-         create_key
+         create_key,
+         mode
        ) do
     with :ok <- Bridge.current_command_placement(command),
          {:ok, remote} <-
            execute_read(client, session, "get_session", %{
              "coop_session_id" => coop_session_id
            }),
-         {:ok, _ensured} <- ensure_workspace(client, session, %{"session" => remote}, create_key) do
+         {:ok, _ensured} <-
+           ensure_workspace(client, session, %{"session" => remote}, create_key, mode) do
       :ok
     end
   end

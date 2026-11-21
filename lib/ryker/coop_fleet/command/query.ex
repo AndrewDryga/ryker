@@ -247,6 +247,24 @@ defmodule Ryker.CoopFleet.Command.Query do
   end
 
   @doc """
+  The checkpoint restores into Coop session `coop_session_id` that Coop answered
+  503 `repository_unavailable`, an answer it keeps under the restore's key,
+  oldest first.
+  """
+  def refused_checkpoint_restores(session_id, coop_session_id) do
+    session_id
+    |> checkpoint_restores()
+    |> where(
+      [coop_worker_commands: c],
+      c.status == :succeeded and
+        fragment("(?::jsonb ->> 'coop_session_id') = ?", c.payload, ^coop_session_id) and
+        fragment("(?::jsonb -> 'status') = '503'::jsonb", c.result) and
+        fragment("(?::jsonb #>> '{body,error,code}') = 'repository_unavailable'", c.result)
+    )
+    |> order_by([coop_worker_commands: c], asc: c.completed_at, asc: c.id)
+  end
+
+  @doc """
   The latest succeeded reconciliation of operation `operation_key` that
   `command`'s placement generation answered with a terminal state.
   """
