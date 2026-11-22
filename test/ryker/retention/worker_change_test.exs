@@ -178,6 +178,82 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert commands(session) |> Enum.count(&(&1 == "discard_session")) == 1
   end
 
+  # In production on 2026-11-22, five operator retries of a failed discard
+  # plan replayed the same worker receipt and returned to Failures at once.
+  test "a reconciled internal error in a discard plan allows a fresh safety check" do
+    worker = enroll!("failed-discard-plan")
+    session = terminal_session!("failed-discard-plan", worker)
+    answer = remote_session(session)
+    fleet = fleet_client(worker, @started, answer)
+
+    for phase <- [:grace, :closed] do
+      assert {:ok, {:executed, %{phase: ^phase}}} = run(fleet, "cleanup:failed-plan:#{phase}")
+    end
+
+    pending = Repo.reload!(session)
+    first_key = Custody.plan_key(pending)
+    reconcile_path = "/v1/operations?" <> URI.encode_query(%{"key" => first_key})
+
+    failed = %{
+      "id" => "op_failed_discard_plan",
+      "method" => "PlanDiscard",
+      "state" => "failed",
+      "error_code" => "internal_error",
+      "error_detail" => "internal server error"
+    }
+
+    failing =
+      fleet_client(worker, @started, fn command ->
+        case command["payload"]["path"] do
+          ^reconcile_path ->
+            {:ok, failed}
+
+          path ->
+            if String.ends_with?(path, "/discard-plan") do
+              assert command["idempotency_key"] == first_key
+
+              {:uncertain,
+               %{"code" => "transport_uncertain", "detail" => "terminated signal received"}}
+            else
+              answer.(command)
+            end
+        end
+      end)
+
+    assert run(failing, "cleanup:failed-plan:reconcile") ==
+             {:ok, {:deferred, {:coop_error, 500, "internal_error", "internal server error"}}}
+
+    old_command = Repo.get_by!(Command, idempotency_key: first_key)
+    assert old_command.status == :uncertain
+
+    replanning = Repo.reload!(session)
+    assert replanning.cleanup_status == :plan_pending
+    assert replanning.discard_plan_generation == pending.discard_plan_generation + 1
+    assert replanning.discard_plan_expected_revision == nil
+    second_key = Custody.plan_key(replanning)
+    retry_due!(replanning)
+
+    recovered =
+      fleet_client(worker, @started, fn command ->
+        case answer.(command) do
+          {:ok, %{"plan" => _plan} = result} ->
+            assert command["idempotency_key"] == second_key
+            assert command["payload"]["body"]["accept_dirty"] == false
+            {:ok, put_in(result, ~w(plan plan workspace dirty), true)}
+
+          result ->
+            result
+        end
+      end)
+
+    assert {:ok, {:executed, %{phase: :retained, session: retained}}} =
+             run(recovered, "cleanup:failed-plan:fresh")
+
+    assert retained.retained_reason == "dirty"
+    assert Repo.reload!(old_command) == old_command
+    refute "discard_session" in commands(session)
+  end
+
   defp interrupt_discard!(worker, session, answer) do
     fleet =
       fleet_client(worker, @started, fn command ->

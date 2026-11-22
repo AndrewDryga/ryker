@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.6.2
+
+- **Cleanup can recover when a worker's planning response is lost.** When the worker
+  confirms the previous safety check failed internally, Ryker requests a fresh check.
 
 ## 0.6.1
 

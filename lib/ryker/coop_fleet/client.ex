@@ -1376,6 +1376,18 @@ defmodule Ryker.CoopFleet.Client do
        when code in ["revision_conflict", "invalid_session_state", "discard_plan_stale"],
        do: {:error, {:coop_error, 409, code, operation["error_detail"] || code}}
 
+  # Coop replays a terminal failure for the same key. A confirmed planning
+  # failure can use the same bounded replan as a direct server error.
+  defp cleanup_operation_state(
+         _client,
+         _session,
+         %Command{kind: "plan_discard"},
+         %{"state" => "failed", "error_code" => "internal_error"} = operation
+       ) do
+    detail = operation["error_detail"] || "internal_error"
+    {:error, {:coop_error, 500, "internal_error", detail}}
+  end
+
   defp cleanup_operation_state(_client, _session, command, %{"state" => "failed"} = operation),
     do: {:error, {:coop_cleanup_operation_failed, command.id, operation["error_code"]}}
 
