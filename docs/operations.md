@@ -129,6 +129,14 @@ reuse the saved request. Ryker resolves only selected findings it reports fixed 
 checked; unfinished findings stay open. It never merges or approves the PR.
 An uncertain push stops for reconciliation instead of blindly trying again.
 
+### Services for contributor work
+
+Commit `dev/ryker-compose.yml` to give unattended contributor jobs a service
+stack that starts from a clean checkout. Ryker resolves the file at the job's
+source commit and uses the project's box Compose configuration when the file
+is absent. Keep developer-only bind mounts such as locally generated TLS files
+in the interactive stack.
+
 ### From an issue to a pull request
 
 Ask Ryker for issue controls, or enable **Issue actions** on the repository page

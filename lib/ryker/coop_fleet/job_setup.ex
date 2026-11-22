@@ -13,6 +13,7 @@ defmodule Ryker.CoopFleet.JobSetup do
   alias Ryker.GitHub
 
   @project_file ".agent/project.yaml"
+  @worker_compose "dev/ryker-compose.yml"
 
   @spec no_check() :: map()
   def no_check, do: %{"argv" => [], "environment" => %{}}
@@ -85,8 +86,18 @@ defmodule Ryker.CoopFleet.JobSetup do
   defp compose_file(%{"auto_up" => false}, _binding, _repository, _commit, _reader), do: {:ok, ""}
   defp compose_file(%{"network" => false}, _binding, _repository, _commit, _reader), do: {:ok, ""}
 
-  defp compose_file(box, binding, repository, commit, reader),
-    do: runtime_file(box, "compose", ".agent/compose.yml", binding, repository, commit, reader)
+  defp compose_file(box, binding, repository, commit, reader) do
+    case reader.read(binding, repository, @worker_compose, commit) do
+      {:ok, text} when is_binary(text) ->
+        {:ok, @worker_compose}
+
+      {:ok, :not_found} ->
+        runtime_file(box, "compose", ".agent/compose.yml", binding, repository, commit, reader)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp environment(nil), do: {:ok, %{}}
 
