@@ -113,7 +113,7 @@ defmodule Ryker.CoopFleet.Command.Query do
           p.session_id == c.session_id and p.generation == c.placement_generation,
       where:
         c.session_id == ^command.session_id and c.worker_id == ^command.worker_id and
-          c.kind == "reconcile_operation" and c.status == :succeeded and
+          c.kind in ["reconcile_operation", "fence_create_operation"] and c.status == :succeeded and
           fragment("(?::jsonb ->> 'operation_key') = ?", c.payload, ^command.idempotency_key),
       where:
         c.placement_id == ^command.placement_id or
@@ -190,13 +190,17 @@ defmodule Ryker.CoopFleet.Command.Query do
   @doc "Hold new mutations while drained, but deliver reads, settlement and already leased commands."
   def allowed_while_draining(queryable) do
     settling =
-      ~w(get_review get_review_gate_output get_checkpoint_bundle get_session get_session_evidence get_turn get_output_artifact get_changes get_changes_page reconcile_operation validate_candidate cancel_turn)
+      ~w(get_review get_review_gate_output get_checkpoint_bundle get_session get_session_evidence get_turn get_output_artifact get_changes get_changes_page reconcile_operation validate_candidate cancel_turn fence_create_operation)
+
+    cancel_close = Work.OperationKeys.cancel_close_prefix()
 
     from(c in queryable,
       join: w in Worker,
       on: w.id == c.worker_id,
       where:
         is_nil(w.drain_requested_at) or not is_nil(c.delivered_at) or c.kind in ^settling or
+          (c.kind == "close_session" and
+             fragment("starts_with(?, ?)", c.idempotency_key, ^cancel_close)) or
           (c.kind == "api_request" and
              (fragment("?::jsonb ->> 'method' IN ('GET', 'HEAD')", c.payload) or
                 fragment(

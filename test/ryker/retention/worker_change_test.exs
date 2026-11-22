@@ -592,6 +592,120 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert commands(session) == ~w(create_session reconcile_operation)
   end
 
+  # In production a delivered create lost its result. For more than 4,700
+  # attempts, cancellation could neither reach the old placement nor prove
+  # absence. Coop's ledger returned operation_not_found for the original key.
+  test "stopping an unbound create fences the original key on its original worker" do
+    worker = enroll!("stop-create")
+    session = episode_session!("stop-create", worker, false)
+    assert {:ok, work} = Ryker.Work.Custody.claim_next("work:stop-create", 60, :work)
+    assert work.session.id == session.id
+    key = Ryker.Work.OperationKeys.create(session)
+    placement = current_placement!(session)
+
+    assert {:ok, _create} =
+             Ryker.Work.Custody.with_mutation_fence(
+               work.episode.id,
+               work.turn.turn_ref,
+               work.lease_ref,
+               %{
+                 kind: :create_session,
+                 lease_seconds: 60,
+                 operation_key: key,
+                 operation_revision: nil
+               },
+               fn ->
+                 ControlPlane.enqueue_command(
+                   placement.id,
+                   "create_session",
+                   %{
+                     "external_ref" => session.external_ref,
+                     "job" => session.worker_job_document,
+                     "job_digest" => session.worker_job_digest
+                   },
+                   key
+                 )
+               end
+             )
+
+    serve(worker, @started, fn _command ->
+      {:uncertain,
+       %{"code" => "worker_never_reported", "status" => 409, "detail" => "create result missing"}}
+    end)
+
+    assert {:ok, _} =
+             Ryker.Work.Custody.request_cancel(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "cancel:stop-create",
+               "Stop while the create is unresolved."
+             )
+
+    assert {:ok, claim} = Ryker.Work.Custody.claim_next("cancel:stop-create", 60, :work)
+    expire_placements!(session)
+    assert {:ok, _} = WorkerLifecycle.drain(worker, "operator:stop-create")
+
+    operation = %{
+      "id" => "op_fenced_stop_create",
+      "method" => "CreateRemoteSession",
+      "state" => "failed",
+      "error_code" => "operation_fenced"
+    }
+
+    fleet =
+      fleet_client(worker, @started, fn command ->
+        case command["payload"] do
+          %{"method" => "GET"} ->
+            {:error, %{"code" => "operation_not_found", "status" => 404}}
+
+          %{"method" => "POST", "path" => "/v1/operations/fence", "body" => body} ->
+            assert command["idempotency_key"] == key
+            assert command["placement_generation"] > placement.generation
+
+            assert body == %{
+                     "method" => "CreateRemoteSession",
+                     "request" => %{
+                       "task" => session.external_ref,
+                       "job" => session.worker_job_document,
+                       "expected_job_digest" => session.worker_job_digest
+                     }
+                   }
+
+            {:ok, operation}
+        end
+      end)
+
+    assert Client.fence_create_session(
+             fleet,
+             key,
+             session.policy,
+             session.external_ref,
+             session.repository_source
+           ) == {:ok, operation}
+
+    assert current_placement!(session).worker_id == worker
+    assert Creation.resolve(session) == {:ok, :absent}
+
+    stop_reporting!(worker)
+
+    offline =
+      fleet_client(worker, @started, fn _ -> flunk("fence receipt was already durable") end)
+
+    assert {:ok, stopped} =
+             Ryker.Work.Executor.run(claim,
+               api: Client,
+               client: offline,
+               lease_seconds: 60,
+               max_block_ms: 1_000,
+               max_polls: 3,
+               poll_interval_ms: 0
+             )
+
+    assert stopped.episode.state == :cancelled
+    assert Repo.reload!(claim.turn).cancellation_receipt["kind"] == "absent_turn"
+  end
+
   test "a historical unbound create can be reconciled without repinning its vanished job" do
     worker = enroll!("historical-pending")
     {session, remote} = unbound_created_session!("historical-pending", worker, false)
@@ -1240,7 +1354,9 @@ defmodule Ryker.Retention.WorkerChangeTest do
   end
 
   # A finished conversation's session, created on this worker under @started.
-  defp terminal_session!(suffix, worker) do
+  defp terminal_session!(suffix, worker), do: episode_session!(suffix, worker, true)
+
+  defp episode_session!(suffix, worker, terminal?) do
     id = Ecto.UUID.generate()
     key = "retention-worker-change:#{suffix}:#{id}"
     turn_ref = "turn:#{suffix}:#{id}"
@@ -1273,6 +1389,12 @@ defmodule Ryker.Retention.WorkerChangeTest do
              )
 
     assert placement.worker_id == worker
+
+    if terminal?, do: finish_episode!(session, key, turn_ref, suffix), else: session
+  end
+
+  defp finish_episode!(session, key, turn_ref, suffix) do
+    id = session.episode_id
 
     session =
       session

@@ -225,7 +225,7 @@ defmodule Ryker.Work.Executor.Turns do
       FailureCause.rate_limited?(code, detail) ->
         {:work_provider_limited, finished_at(turn) || created_at, code, detail}
 
-      FailureCause.transient?(detail) ->
+      FailureCause.transient?(detail) or pre_send_network_exit?(turn) ->
         {:work_provider_unavailable, finished_at(turn), code, detail}
 
       true ->
@@ -235,6 +235,20 @@ defmodule Ryker.Work.Executor.Turns do
 
   defp terminal(state, turn, _created_at),
     do: {:work_turn_terminal, state, turn["error_code"], turn["error_detail"]}
+
+  # Coop reports a bounded stderr shape when the adapter exits. Its network
+  # hint can use the outage retry budget when this attempt did not send a prompt.
+  defp pre_send_network_exit?(%{
+         "error_code" => "acp_process_error",
+         "send_state" => "none",
+         "error_detail" => detail
+       })
+       when is_binary(detail) do
+    String.starts_with?(detail, "ACP child closed before its response (") and
+      String.ends_with?(detail, "; mentions network)")
+  end
+
+  defp pre_send_network_exit?(_turn), do: false
 
   defp finished_at(%{"finished_at" => finished_at}) when is_binary(finished_at) do
     case DateTime.from_iso8601(finished_at) do

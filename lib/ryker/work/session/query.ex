@@ -322,45 +322,50 @@ defmodule Ryker.Work.Session.Query do
   end
 
   @doc """
-  Unbound sessions whose create command a succeeded reconciliation proved
-  became Coop session `coop_session_id`; at most two, so a caller can tell
-  one from several.
+  Unbound sessions whose create or reconciliation receipt identifies the
+  Coop session. At most two, so a caller can distinguish one from several.
   """
   def reconciled_into(coop_session_id) do
+    original = created_remote(:create_command, coop_session_id)
+    confirmation = created_remote(:create_reconciliation, coop_session_id)
+    created = dynamic(^original or ^confirmation)
+
     from(s in all(),
       join: create in CoopFleet.Command,
+      as: :create_command,
       on: create.session_id == s.id and create.kind == "create_session",
-      join: reconciliation in CoopFleet.Command,
+      left_join: reconciliation in CoopFleet.Command,
+      as: :create_reconciliation,
       on:
-        reconciliation.session_id == s.id and reconciliation.kind == "reconcile_operation" and
+        reconciliation.session_id == s.id and reconciliation.worker_id == create.worker_id and
+          reconciliation.kind in ["reconcile_operation", "fence_create_operation"] and
           fragment(
             "(?::jsonb ->> 'operation_key') = ?",
             reconciliation.payload,
             create.idempotency_key
           ),
-      where: is_nil(s.coop_session_id) and reconciliation.status == :succeeded,
-      where:
-        fragment(
-          "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
-          reconciliation.result
-        ),
-      where:
-        fragment(
-          "(?::jsonb -> 'body' ->> 'resource_id') = ?",
-          reconciliation.result,
-          ^coop_session_id
-        ),
-      where:
-        fragment("(?::jsonb -> 'body' ->> 'resource_type') = 'session'", reconciliation.result),
-      where:
-        fragment(
-          "(?::jsonb -> 'body' ->> 'method') = 'CreateRemoteSession'",
-          reconciliation.result
-        ),
-      where: fragment("(?::jsonb -> 'body' ->> 'state') = 'succeeded'", reconciliation.result),
+      where: is_nil(s.coop_session_id),
+      where: ^created,
       distinct: true,
       select: s,
       limit: 2
+    )
+  end
+
+  defp created_remote(binding, id) do
+    dynamic(
+      [{^binding, c}],
+      c.status == :succeeded and
+        fragment(
+          "(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb",
+          c.result
+        ) and
+        fragment(
+          "COALESCE(?::jsonb #> '{body,operation}', ?::jsonb -> 'body') @> jsonb_build_object('method', 'CreateRemoteSession', 'state', 'succeeded', 'resource_type', 'session', 'resource_id', ?::text)",
+          c.result,
+          c.result,
+          type(^id, :string)
+        )
     )
   end
 

@@ -162,6 +162,26 @@ defmodule Ryker.Work.Executor.Cancellation do
     end
   end
 
+  # A create already running in Coop keeps its custody. The next pass asks the
+  # same holder again; normal Work polling may try to prepare the workspace.
+  defp cancellation_session_from_operation(
+         _claim,
+         %{"method" => "CreateRemoteSession", "state" => state},
+         _key,
+         _settings
+       )
+       when state in ["reserved", "running"],
+       do: {:error, {:work_poll_window_elapsed, :operation}}
+
+  defp cancellation_session_from_operation(
+         _claim,
+         %{"method" => "CreateRemoteSession", "state" => "failed", "resource_id" => id},
+         _key,
+         _settings
+       )
+       when is_binary(id) and id != "",
+       do: {:error, {:work_cancellation_unresolved, :failed_create_with_resource}}
+
   defp cancellation_session_from_operation(claim, operation, key, settings) do
     case Remote.operation_resource(
            operation,

@@ -1262,6 +1262,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
                "drain:close"
              )
 
+    assert {:ok, stop_close} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "close_session",
+               %{"coop_session_id" => "native-session", "expected_revision" => 1},
+               Ryker.Work.OperationKeys.cancel_close_prefix() <> "turn:g1"
+             )
+
     settling =
       for {kind, method, path} <- [
             {"read", "HEAD", "/v1/sessions/native-session"},
@@ -1298,7 +1306,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     assert Enum.sort(Enum.map(response["commands"], & &1["command_id"])) ==
-             Enum.sort([old.id, read.id] ++ settling)
+             Enum.sort([old.id, read.id, stop_close.id] ++ settling)
 
     assert Repo.get!(Command, close.id).delivered_at == nil
     assert Repo.get!(Command, mutation.id).delivered_at == nil

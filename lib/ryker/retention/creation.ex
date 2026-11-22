@@ -50,23 +50,32 @@ defmodule Ryker.Retention.Creation do
 
   @doc "Whether the existing routing still addresses the create's exact original worker."
   def on_original_holder?(session, command) do
-    workers =
-      session.id
-      |> CoopFleet.Placement.Query.by_session_id()
-      |> CoopFleet.Placement.Query.select_worker_ids()
-      |> Repo.all()
-
-    case workers do
-      [worker_id] -> worker_id == command.worker_id
-      _ -> false
+    session.id
+    |> CoopFleet.Placement.Query.by_session_id()
+    |> CoopFleet.Placement.Query.ordered_by_generation_desc()
+    |> CoopFleet.Placement.Query.limit_to(1)
+    |> Repo.peek()
+    |> case do
+      %CoopFleet.Placement{worker_id: worker_id} -> worker_id == command.worker_id
+      _absent -> false
     end
   end
 
-  @doc "A leased unbound cleanup may only read its original create key on its proven holder."
+  @doc "A leased stop or cleanup may only reconcile the original create on its proven holder."
   def lookup_on_holder?(%Work.Session{} = session, worker_id, key \\ nil) do
     if cleanup_lookup_allowed?(session, worker_id),
       do: lookup_resolution(resolve(session), session, worker_id, key),
       else: false
+  end
+
+  @doc "A recovered create lets a stop read exactly the session it found on its holder."
+  def created_on_holder?(session, worker_id, remote_session_id) do
+    with true <- cleanup_lookup_allowed?(session, worker_id),
+         {:ok, {:created, command, ^remote_session_id}} <- resolve(session) do
+      lookup_command?(session, command, worker_id, nil)
+    else
+      _unproven -> false
+    end
   end
 
   defp cleanup_lookup_allowed?(
@@ -79,6 +88,14 @@ defmodule Ryker.Retention.Creation do
        )
        when is_binary(lease) and is_binary(worker_id),
        do: DateTime.compare(expires, Repo.now!()) == :gt
+
+  defp cleanup_lookup_allowed?(%Work.Session{coop_session_id: nil} = session, worker_id)
+       when is_binary(worker_id) do
+    session.id
+    |> Work.Turn.Query.by_session_id()
+    |> Work.Turn.Query.cancelling_create(Work.OperationKeys.create(session), Repo.now!())
+    |> Repo.exists?()
+  end
 
   defp cleanup_lookup_allowed?(_session, _worker_id), do: false
 

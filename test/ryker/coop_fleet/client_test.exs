@@ -2748,6 +2748,35 @@ defmodule Ryker.CoopFleet.ClientTest do
                     %{"coop_session_id" => ^remote_session_id}, _read_key, _options}
   end
 
+  # The original create can finish before the host binds the session. A stop
+  # must be able to fetch that resource before it can close it.
+  test "an original terminal create identifies the session before a separate lookup", %{
+    client: client,
+    session: session
+  } do
+    id = "remote:original-terminal-create"
+
+    command =
+      command!(session, "original-terminal-create",
+        kind: "create_session",
+        payload: create_payload(session, session.external_ref),
+        key: "ryker:work:create:#{session.id}:g1"
+      )
+
+    complete_command!(command, :succeeded, %{
+      "operation" => %{
+        "id" => "operation-original-terminal-create",
+        "method" => "CreateRemoteSession",
+        "resource_id" => id,
+        "resource_type" => "session",
+        "state" => "succeeded"
+      }
+    })
+
+    assert {:ok, %{"id" => "remote-resource"}} = Client.get_session(client, id)
+    assert_receive {:fleet_command, ^session, "get_session", %{"coop_session_id" => ^id}, _, _}
+  end
+
   test "binary transfer and authority mismatches fail closed at the fleet adapter", %{
     client: client,
     session: session

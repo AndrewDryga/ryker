@@ -3149,14 +3149,13 @@ defmodule Ryker.Work.ExecutorTest do
 
     assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-unresolved-create", 60)
 
-    assert {:error, {:coop_session_replacement_required, _, 1}} =
-             Executor.run(
-               cancel_claim,
-               protocol_options(fake, %{
-                 fence_create_session: {:ok, running_operation("CreateRemoteSession")},
-                 operation_by_key: placement_lost(work)
-               })
-             )
+    assert Executor.run(
+             cancel_claim,
+             protocol_options(fake, %{
+               fence_create_session: {:ok, running_operation("CreateRemoteSession")},
+               operation_by_key: placement_lost(work)
+             })
+           ) == {:error, {:work_poll_window_elapsed, :operation}}
 
     assert {:error,
             {:work_cancellation_unresolved,
@@ -4858,6 +4857,51 @@ defmodule Ryker.Work.ExecutorTest do
     assert Executor.run(work, options(fake)) ==
              {:error,
               {:work_provider_unavailable, ~U[2026-10-13 06:08:35Z], "acp_protocol_error", detail}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
+  # On 2026-11-22 a worker lost its ACP child before sending the prompt and
+  # the task stopped for an operator instead of waiting out the network failure.
+  test "a network-related ACP exit before sending the prompt can retry" do
+    work = bound_turn!("provider-network-exit")
+    {:ok, fake} = fake_for(work, [])
+
+    detail =
+      "ACP child closed before its response (exit status 1; stderr 3 lines, 476 bytes, shape 53eec274bc29; mentions network)"
+
+    failure = %{
+      "error_code" => "acp_process_error",
+      "error_detail" => detail,
+      "finished_at" => "2026-11-22T06:05:15.962389924Z",
+      "send_state" => "none"
+    }
+
+    FakeAPI.seed_turn(
+      fake,
+      work.session.coop_session_id,
+      work.turn.coop_turn_id,
+      "failed",
+      failure
+    )
+
+    assert Executor.run(work, options(fake)) ==
+             {:error,
+              {:work_provider_unavailable, ~U[2026-11-22 06:05:15.962389Z], "acp_process_error",
+               detail}}
+
+    for sent_state <- ["intent", "sent"] do
+      FakeAPI.seed_turn(
+        fake,
+        work.session.coop_session_id,
+        work.turn.coop_turn_id,
+        "failed",
+        %{failure | "send_state" => sent_state}
+      )
+
+      assert Executor.run(work, options(fake)) ==
+               {:error, {:work_turn_terminal, "failed", "acp_process_error", detail}}
+    end
 
     assert FakeAPI.state(fake).submit_count == 0
   end

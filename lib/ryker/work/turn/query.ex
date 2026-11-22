@@ -209,6 +209,16 @@ defmodule Ryker.Work.Turn.Query do
   def cancelling(queryable),
     do: where(queryable, [episode_work_turns: t], t.status == :cancel_pending)
 
+  def cancelling_create(queryable, key, now) do
+    queryable
+    |> cancelling()
+    |> where(
+      [episode_work_turns: t],
+      t.remote_operation_kind == :create_session and t.remote_operation_key == ^key and
+        t.lease_expires_at > ^now and is_nil(t.submission) and is_nil(t.coop_turn_id)
+    )
+  end
+
   @doc "Turns still to start, run, stop or deliver."
   def unfinished(queryable) do
     where(

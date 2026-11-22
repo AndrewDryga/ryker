@@ -14,6 +14,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
   alias Ryker.CoopFleet.{Placement, Protocol, Requests}
   alias Ryker.Repo
+  alias Ryker.Retention
   alias Ryker.StateTools
   alias Ryker.WeeklyReport
   alias Ryker.Work
@@ -38,6 +39,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     discard_session
     validate_candidate
     cancel_turn
+    fence_create_operation
     fence_operation
     checkpoint_workspace
     close_session
@@ -276,6 +278,36 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   defp validate_create_placement(_placement, _kind), do: :ok
 
+  defp placement_request(placement, "fence_create_operation", %{"operation_key" => key} = payload) do
+    with %{"purpose" => "stop_or_cleanup"} <- placement.requirements,
+         {:ok, %Work.Session{coop_session_id: nil} = session} <-
+           Repo.fetch(Work.Session.Query.by_id(placement.session_id)),
+         true <- Retention.Creation.lookup_on_holder?(session, placement.worker_id, key),
+         {:ok,
+          %Command{
+            session_id: session_id,
+            worker_id: worker_id,
+            kind: "create_session",
+            delivered_at: %DateTime{}
+          } = create} <-
+           Repo.fetch(Command.Query.by_idempotency_key(key)),
+         true <- session_id == session.id and worker_id == placement.worker_id,
+         {:ok, %{"body" => body}} <- Requests.encode(create.kind, create.payload, placement),
+         true <-
+           payload == %{
+             "method" => "CreateRemoteSession",
+             "operation_key" => key,
+             "request" => body
+           } do
+      :ok
+    else
+      _unproven -> {:error, :coop_cleanup_only_placement}
+    end
+  end
+
+  defp placement_request(_placement, "fence_create_operation", _payload),
+    do: {:error, :coop_cleanup_only_placement}
+
   defp placement_request(
          %{requirements: %{"purpose" => "stop_or_cleanup"}} = placement,
          kind,
@@ -310,7 +342,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          %{"operation_key" => key},
          %{"method" => "GET"}
        ),
-       do: Ryker.Retention.Creation.lookup_on_holder?(session, placement.worker_id, key)
+       do: Retention.Creation.lookup_on_holder?(session, placement.worker_id, key)
+
+  defp cleanup_request_for_session?(
+         session,
+         placement,
+         "get_session",
+         %{"coop_session_id" => id},
+         %{"method" => "GET"}
+       ),
+       do: Retention.Creation.created_on_holder?(session, placement.worker_id, id)
 
   defp cleanup_request_for_session?(_session, _placement, _kind, _payload, _request), do: false
 
@@ -547,7 +588,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       command.status == :queued ->
         Shared.rollback({:coop_worker_command_not_delivered, command.id})
 
-      command.idempotency_key != result["operation_key"] ->
+      worker_operation_key(command) != result["operation_key"] ->
         Shared.rollback({:coop_worker_operation_key_mismatch, command.id})
 
       not Placements.current?(placement, now) ->
@@ -659,7 +700,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     envelope = %{
       "command_id" => command.id,
       "command_version" => command.command_version,
-      "idempotency_key" => command.idempotency_key,
+      "idempotency_key" => worker_operation_key(command),
       "kind" => "api_request",
       "lease_expires_at" => DateTime.to_iso8601(placement.lease_expires_at),
       "lease_ref" => placement.lease_ref,
@@ -681,6 +722,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       acc
     end
   end
+
+  # The durable fleet command has its own key. Coop must atomically fence the
+  # original API key, and the worker returns that key under the new command ID.
+  defp worker_operation_key(%Command{
+         kind: "fence_create_operation",
+         payload: %{"operation_key" => key}
+       }),
+       do: key
+
+  defp worker_operation_key(%Command{} = command), do: command.idempotency_key
 
   defp materialize_command_payload(
          command,

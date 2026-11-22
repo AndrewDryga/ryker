@@ -9,11 +9,12 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.{Artifacts, CanonicalJSON}
   alias Ryker.CoopFleet.{Bodies, Bridge, Checkpoints, Command, ControlPlane}
   alias Ryker.CoopFleet.ControlPlane.Commands
-  alias Ryker.CoopFleet.{JobAuthority, Placement, Worker}
+  alias Ryker.CoopFleet.{JobAuthority, Placement, Requests, Worker}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Crypto
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.Retention
   alias Ryker.StateTools
   alias Ryker.Work
   require Logger
@@ -246,9 +247,70 @@ defmodule Ryker.CoopFleet.Client do
              Commands.create_intent(session, task),
              key
            ) do
+      fence_create_on_holder(client, session, command, key, payload)
+    end
+  end
+
+  defp fence_create_on_holder(client, session, command, key, payload) do
+    if is_struct(command.delivered_at, DateTime) and
+         Retention.Creation.lookup_on_holder?(session, command.worker_id, key) do
+      original_create_outcome(client, session, command, key)
+    else
       fenced_command(client, command, key, payload)
     end
   end
+
+  defp original_create_outcome(client, session, command, key) do
+    case Retention.Creation.resolve(session) do
+      {:ok, :absent} ->
+        {:ok,
+         failed_operation(
+           command.kind,
+           "fleet-command:#{command.id}",
+           "create_proved_absent",
+           "The fleet recorded terminal evidence that no Coop session was created."
+         )}
+
+      {:ok, {:created, ^command, id}} ->
+        {:ok,
+         %{
+           "id" => "fleet-command:#{command.id}",
+           "method" => "CreateRemoteSession",
+           "state" => "succeeded",
+           "resource_type" => "session",
+           "resource_id" => id
+         }}
+
+      {:pending, ^command} ->
+        with {:ok, result} <- reconcile_original_create(client, session, command, key),
+             {:ok, operation} <- operation_result(result),
+             :ok <- confirm_create_resolution(session, command, operation) do
+          {:ok, operation}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _changed ->
+        {:error, {:coop_worker_command_conflict, key}}
+    end
+  end
+
+  defp confirm_create_resolution(session, _command, %{"state" => "failed"}) do
+    case Retention.Creation.resolve(session) do
+      {:ok, :absent} -> :ok
+      _unresolved -> {:error, :work_cancellation_create_unresolved}
+    end
+  end
+
+  defp confirm_create_resolution(session, command, %{"state" => "succeeded", "resource_id" => id}) do
+    case Retention.Creation.resolve(session) do
+      {:ok, {:created, %{id: command_id}, ^id}} when command_id == command.id -> :ok
+      _unresolved -> {:error, :work_cancellation_create_unresolved}
+    end
+  end
+
+  defp confirm_create_resolution(_session, _command, _operation), do: :ok
 
   defp fence_create_payload(
          %Work.Session{worker_job_document: nil, worker_job_digest: nil},
@@ -1084,9 +1146,8 @@ defmodule Ryker.CoopFleet.Client do
     with {:ok, %Command{kind: "create_session"} = command} <-
            Repo.fetch(Command.Query.by_idempotency_key(key)),
          {:ok, session} <- fetch_command_session(command),
-         true <- Ryker.Retention.Creation.lookup_on_holder?(session, command.worker_id, key),
-         {:ok, result} <-
-           execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
+         true <- Retention.Creation.lookup_on_holder?(session, command.worker_id, key),
+         {:ok, result} <- reconcile_original_create(client, session, command, key) do
       operation_result(result)
     else
       {:error, :not_found} -> :not_found
@@ -1099,7 +1160,7 @@ defmodule Ryker.CoopFleet.Client do
   defp cleanup_creation_changed(key) do
     with {:ok, command} <- Repo.fetch(Command.Query.by_idempotency_key(key)),
          {:ok, session} <- fetch_command_session(command) do
-      case Ryker.Retention.Creation.resolve(session) do
+      case Retention.Creation.resolve(session) do
         {:ok, _resolved} -> {:error, :retention_creation_resolved}
         _ -> {:error, :retention_creation_provenance_mismatch}
       end
@@ -1201,6 +1262,35 @@ defmodule Ryker.CoopFleet.Client do
 
       result ->
         result
+    end
+  end
+
+  # The GET can find a created resource even for a historical job. Absence
+  # alone is not proof: the original POST could still reach Coop. Fence its
+  # exact request in the worker's operation store before settling absence.
+  defp reconcile_original_create(client, session, create, key) do
+    case execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
+      {:error, {:coop_error, 404, "operation_not_found", _detail}}
+      when is_struct(create.delivered_at, DateTime) ->
+        fence_original_create(client, session, create, key)
+
+      {:ok, %{"method" => "CreateRemoteSession", "state" => "reserved"}} ->
+        fence_original_create(client, session, create, key)
+
+      result ->
+        result
+    end
+  end
+
+  defp fence_original_create(client, session, create, key) do
+    with {:ok, %{"body" => body}} <- Requests.encode(create.kind, create.payload, nil) do
+      execute(
+        client,
+        session,
+        "fence_create_operation",
+        %{"method" => "CreateRemoteSession", "operation_key" => key, "request" => body},
+        Command.read_key("fence_create_operation")
+      )
     end
   end
 

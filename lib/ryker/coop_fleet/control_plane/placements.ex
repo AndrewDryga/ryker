@@ -256,7 +256,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       creation_lookup?(session, placement) and not holder_placement?(placement) ->
         # Historical create lookup needs neither today's JobSpec nor a
         # model grant. Fence the work placement before installing a holder
-        # route whose only unbound request is the exact original-key GET.
+        # route that can reconcile only this create and the resource it made.
         retired = placement |> Placement.Changeset.replace() |> Repo.update!()
         Commands.fail_undelivered_commands(retired, now)
         recover_cleanup_placement(session, retired, requirements, lease_seconds, now)
@@ -450,8 +450,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp cleaning_bound_session?(%Work.Session{cleanup_status: status} = session),
     do: status in @cleanup_phases and bound_session?(session)
 
-  defp stopping_or_cleaning?(%Work.Session{cleanup_status: status} = session),
-    do: status in @cleanup_phases or cancelling_bound_session?(session)
+  defp stopping_or_cleaning?(%Work.Session{cleanup_status: status} = session) do
+    status in @cleanup_phases or cancelling_bound_session?(session) or creation_lookup?(session)
+  end
 
   defp recover_cancellation_placement(session, previous, requirements, lease_seconds, now) do
     case place_on_holder(session, previous, requirements, lease_seconds, now) do

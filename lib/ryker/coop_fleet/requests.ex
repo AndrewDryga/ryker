@@ -141,7 +141,7 @@ defmodule Ryker.CoopFleet.Requests do
      request("GET", "/v1/operations?" <> URI.encode_query(%{"key" => payload["operation_key"]}))}
   end
 
-  defp request_for("fence_operation", payload, _) do
+  defp request_for(kind, payload, _) when kind in ["fence_operation", "fence_create_operation"] do
     body = Map.take(payload, ~w(method request))
     {:ok, request("POST", "/v1/operations/fence", body)}
   end
