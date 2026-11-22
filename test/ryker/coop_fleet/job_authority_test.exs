@@ -19,7 +19,11 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   defmodule RuntimeReader do
     def read(_binding, _repository, path, ref) do
       send(self(), {:runtime_read, path, ref})
-      File.read(path)
+
+      case File.read(path) do
+        {:error, :enoent} -> {:ok, :not_found}
+        result -> result
+      end
     end
   end
 
@@ -228,6 +232,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
        {:ok, %{status: 200, body: %{"content" => content, "encoding" => "base64"}, headers: []}}},
       {:get, "/repos/example/app/contents/.agent/Dockerfile?ref=#{String.duplicate("a", 40)}",
        {:ok, %{status: 404, body: %{}, headers: []}}},
+      {:get, "/repos/example/app/contents/dev/ryker-compose.yml?ref=#{String.duplicate("a", 40)}",
+       {:ok, %{status: 404, body: %{}, headers: []}}},
       {:get, "/repos/example/app/contents/.agent/compose.yml?ref=#{String.duplicate("a", 40)}",
        {:ok, %{status: 404, body: %{}, headers: []}}}
     ])
@@ -292,7 +298,12 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              "environment" => %{}
            }
 
-    for path <- [".agent/project.yaml", ".agent/Dockerfile", "compose.test.yml"] do
+    for path <- [
+          ".agent/project.yaml",
+          ".agent/Dockerfile",
+          "dev/ryker-compose.yml",
+          "compose.test.yml"
+        ] do
       assert_received {:runtime_read, ^path, commit}
       assert commit == source()["binding"]["base_commit"]
     end

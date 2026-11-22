@@ -20,6 +20,8 @@ defmodule Ryker.CoopFleet.JobSetupTest do
       "empty-settings" => "box:\n  dockerfile:\n  compose:\n  env:\n  auto_up:\n  network:\n",
       "normalized" =>
         "box:\n  dockerfile: ./dev//tools/../Box.Dockerfile\n  compose: ./test/../compose.test.yml\n",
+      "unattended" =>
+        "box:\n  compose: dev/compose.yml\n  env:\n    PGHOST: db\n  dockerfile: dev/Box.Dockerfile\n",
       "scalars" => "box:\n  env:\n    CI: true\n    PGPORT: 5432\n    RATE: 0.5\n"
     }
 
@@ -44,8 +46,11 @@ defmodule Ryker.CoopFleet.JobSetupTest do
 
     def read(_binding, %{github_repository: "acme/" <> name}, path, "abc") do
       case {name, path} do
-        {name, "dev/Box.Dockerfile"} when name in ~w(configured normalized) ->
+        {name, "dev/Box.Dockerfile"} when name in ~w(configured normalized unattended) ->
           {:ok, "ARG COOP_BASE_IMAGE\nFROM ${COOP_BASE_IMAGE}\n"}
+
+        {"unattended", path} when path in ~w(dev/compose.yml dev/ryker-compose.yml) ->
+          {:ok, "services:\n  db:\n    image: postgres:18\n"}
 
         {name, "compose.test.yml"} when name in ~w(configured normalized) ->
           {:ok, "services:\n  db:\n    image: postgres:18\n"}
@@ -109,6 +114,19 @@ defmodule Ryker.CoopFleet.JobSetupTest do
              "dockerfile" => ".agent/Dockerfile",
              "compose" => ".agent/compose.yml",
              "environment" => %{}
+           }
+  end
+
+  # Eight retries of a contributor job couldn't start because its development
+  # stack depended on local TLS files absent from the frozen checkout.
+  test "unattended work freezes the tracked worker stack when the development stack needs local files" do
+    assert {:ok, %{"runtime" => runtime}} = resolve("unattended")
+
+    assert runtime == %{
+             "version" => 1,
+             "dockerfile" => "dev/Box.Dockerfile",
+             "compose" => "dev/ryker-compose.yml",
+             "environment" => %{"PGHOST" => "db"}
            }
   end
 
