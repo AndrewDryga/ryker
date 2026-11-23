@@ -37,7 +37,7 @@ defmodule Ryker.IntegrationSetup do
   @slack_scopes ~w(
     app_mentions:read assistant:write bookmarks:read channels:history
     channels:join channels:manage channels:read chat:write commands emoji:read files:read files:write
-    groups:history groups:read groups:write im:history im:read mpim:read pins:write
+    groups:history groups:read groups:write im:history im:read mpim:history mpim:read pins:write
     reactions:read reactions:write usergroups:read users:read
   )
 

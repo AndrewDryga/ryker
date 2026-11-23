@@ -15,7 +15,7 @@ defmodule Ryker.IntegrationSetupTest do
   @scopes ~w(
     app_mentions:read assistant:write bookmarks:read channels:history
     channels:join channels:manage channels:read chat:write commands emoji:read files:read files:write
-    groups:history groups:read groups:write im:history im:read mpim:read pins:write
+    groups:history groups:read groups:write im:history im:read mpim:history mpim:read pins:write
     reactions:read reactions:write usergroups:read users:read
   )
 
@@ -38,6 +38,12 @@ defmodule Ryker.IntegrationSetupTest do
     # double used to accept.
     defp response_for("/users/" <> _login, token) when token != "installation-token",
       do: {:ok, %{body: %{"message" => "Bad credentials"}, headers: [], status: 401}}
+
+    defp response_for("/auth.test", "xoxb-missing-group-dm-history") do
+      {:ok, response} = response_for("/auth.test")
+      scopes = Ryker.IntegrationSetupTest.scopes() -- ["mpim:history"]
+      {:ok, %{response | headers: [{"x-oauth-scopes", Enum.join(scopes, ",")}]}}
+    end
 
     defp response_for(path, _token), do: response_for(path)
 
@@ -309,6 +315,18 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, [%{id: "U1", name: "Ada"}, %{id: "U2", name: "Zoe"}]} =
              IntegrationSetup.slack_members(requester: Requester)
+  end
+
+  # Four replies and card updates stopped in production because the bot could
+  # see a group DM but could not check its thread for a previous delivery.
+  test "Slack setup refuses a bot that cannot reconcile replies in group DMs" do
+    params = %{
+      "app_token" => "xapp-this-is-a-long-app-token",
+      "bot_token" => "xoxb-missing-group-dm-history"
+    }
+
+    assert IntegrationSetup.connect_slack(params, @actor, requester: Requester) ==
+             {:error, {:slack_missing_scopes, ["mpim:history"]}}
   end
 
   # Andrew, 2026-10-01, setting up the tenant workspace: "not all people shown here … some orgs
