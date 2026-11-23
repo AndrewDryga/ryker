@@ -53,17 +53,7 @@ defmodule Ryker.GitHub.CIRepairWorker do
          {:ok, pull} <- snapshot(claimed, configured, local, options.api),
          {:ok, projected} <- CIRepairs.evaluate(claimed, pull),
          :ok <- CIRepairStop.request(projected),
-         {:ok, request} <- CIRepairMessages.request(projected),
-         adapters <- adapters(options.bindings),
-         {:ok, receipt} <-
-           Delivery.ReconciledMessage.publish(
-             request,
-             projected.repair.external_receipt,
-             projected.repair.rendered_fingerprint,
-             adapters
-           ),
-         {:ok, _saved} <-
-           CIRepairs.delivered(projected, receipt) do
+         {:ok, _saved} <- finish_poll(projected, options.bindings) do
       {:ok, :updated}
     else
       {:error, reason} ->
@@ -79,6 +69,22 @@ defmodule Ryker.GitHub.CIRepairWorker do
           end
 
         with {:ok, _deferred} <- CIRepairs.defer(claimed, reason, seconds), do: {:ok, :deferred}
+    end
+  end
+
+  defp finish_poll(%{round: nil} = projected, _bindings),
+    do: CIRepairs.complete_without_delivery(projected)
+
+  defp finish_poll(projected, bindings) do
+    with {:ok, request} <- CIRepairMessages.request(projected),
+         {:ok, receipt} <-
+           Delivery.ReconciledMessage.publish(
+             request,
+             projected.repair.external_receipt,
+             projected.repair.rendered_fingerprint,
+             adapters(bindings)
+           ) do
+      CIRepairs.delivered(projected, receipt)
     end
   end
 

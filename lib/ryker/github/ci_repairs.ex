@@ -283,11 +283,17 @@ defmodule Ryker.GitHub.CIRepairs do
   def delivered(projected, receipt) do
     with {:ok, request} <- CIRepairMessages.request(projected),
          :ok <- Delivery.ReconciledMessage.validate(request, receipt) do
-      mark_delivered(projected, receipt, CanonicalJSON.digest(request.document))
+      complete_poll(projected, %{
+        external_receipt: receipt,
+        rendered_fingerprint: CanonicalJSON.digest(request.document)
+      })
     end
   end
 
-  defp mark_delivered(projected, receipt, fingerprint) do
+  @doc "Releases the claim for a PR that has never started a repair round."
+  def complete_without_delivery(%{round: nil} = projected), do: complete_poll(projected, %{})
+
+  defp complete_poll(projected, delivery) do
     Repo.transaction(fn ->
       repair = fetch_and_lock_claim!(projected.repair)
 
@@ -298,15 +304,16 @@ defmodule Ryker.GitHub.CIRepairs do
           true -> nil
         end
 
-      update!(repair, %{
-        external_receipt: receipt,
-        rendered_fingerprint: fingerprint,
-        next_attempt_at: next,
-        lease_ref: nil,
-        lease_expires_at: nil,
-        attempt_count: 0,
-        last_error: nil
-      })
+      update!(
+        repair,
+        Map.merge(delivery, %{
+          next_attempt_at: next,
+          lease_ref: nil,
+          lease_expires_at: nil,
+          attempt_count: 0,
+          last_error: nil
+        })
+      )
     end)
   end
 

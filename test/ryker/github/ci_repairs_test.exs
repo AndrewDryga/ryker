@@ -200,6 +200,50 @@ defmodule Ryker.GitHub.CIRepairsTest do
     assert Repo.one!(CIRepair).revision == repair.revision
   end
 
+  test "a PR stays silent until an automatic repair starts" do
+    # A human PR received a repair announcement before CI finished under Ryker-only policy.
+    {:ok, _settings} =
+      Settings.put_repository(
+        %{ref: "widget", github_ci_repair: :own},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    pending = put_in(snapshot(@head), ["checks", "state"], "pending")
+
+    {:ok, agent} =
+      Agent.start_link(fn ->
+        %{pull: pending, marker: nil, body: nil, creates: 0, updates: 0, lose_response: false}
+      end)
+
+    options = worker_options(agent)
+
+    {:ok, _repair} = CIRepairs.nudge(runtime_binding(), 12, @head)
+    assert GitHub.CIRepairWorker.run_once(options) == {:ok, :updated}
+    assert Agent.get(agent, & &1.creates) == 0
+    assert Repo.aggregate(CIRepairRound, :count) == 0
+    assert GitHub.CIRepairWorker.run_once(options) == {:ok, :idle}
+
+    {:ok, _settings} =
+      Settings.put_repository(
+        %{ref: "widget", github_ci_repair: :all},
+        Settings.fetch!().installation.revision,
+        @actor
+      )
+
+    {:ok, _repair} = CIRepairs.nudge(runtime_binding(), 12, @head)
+    assert GitHub.CIRepairWorker.run_once(options) == {:ok, :updated}
+    assert Agent.get(agent, & &1.creates) == 0
+    assert Repo.aggregate(CIRepairRound, :count) == 0
+    assert Repo.one!(CIRepair).next_attempt_at
+
+    Agent.update(agent, &%{&1 | pull: snapshot(@head)})
+    {:ok, _repair} = CIRepairs.nudge(runtime_binding(), 12, @head)
+    assert GitHub.CIRepairWorker.run_once(options) == {:ok, :updated}
+    assert Agent.get(agent, & &1.creates) == 1
+    assert Repo.aggregate(CIRepairRound, :count) == 1
+  end
+
   test "a lost PR comment response does not duplicate the repair or its status comment" do
     {:ok, agent} =
       Agent.start_link(fn ->
@@ -213,19 +257,7 @@ defmodule Ryker.GitHub.CIRepairsTest do
         }
       end)
 
-    options =
-      GitHub.CIRepairWorker.options!(%{
-        api: SnapshotAPI,
-        bindings: %{
-          "widget-app" => %{
-            api: Ryker.Fixtures.GitHubComments,
-            client: agent,
-            read_client: agent,
-            repository_full_name: "acme/widget",
-            repository_id: 99
-          }
-        }
-      })
+    options = worker_options(agent)
 
     {:ok, _repair} = CIRepairs.nudge(runtime_binding(), 12, @head)
     assert GitHub.CIRepairWorker.run_once(options) == {:ok, :deferred}
@@ -498,6 +530,21 @@ defmodule Ryker.GitHub.CIRepairsTest do
     passing = evaluate!(put_in(snapshot(@head), ["checks", "state"], "passing"))
     assert passing.repair.status == "passing"
     assert Repo.aggregate(CIRepairRound, :count) == 0
+  end
+
+  defp worker_options(agent) do
+    GitHub.CIRepairWorker.options!(%{
+      api: SnapshotAPI,
+      bindings: %{
+        "widget-app" => %{
+          api: Ryker.Fixtures.GitHubComments,
+          client: agent,
+          read_client: agent,
+          repository_full_name: "acme/widget",
+          repository_id: 99
+        }
+      }
+    })
   end
 
   defp delivered!(projected) do

@@ -251,7 +251,8 @@ work. Turning the repository setting Off also revokes outstanding automatic push
 The label and current PR commit are checked again immediately before every push; stopped work
 is retained. A human push makes the earlier repair stop before another can start.
 
-One status comment tracks a repair. Duplicate webhooks and restarts reuse its saved request.
+One status comment tracks a repair once its first round starts. Duplicate webhooks and restarts
+reuse its saved request.
 Two repair rounds are allowed per consecutive failure episode, including checks failing after
 Ryker's own fix. Passing CI resets that budget. Publishing a fix does not mean CI has passed,
 and no repair merges the PR. Missing GitHub access or an incomplete label read starts no repair.
