@@ -1263,9 +1263,10 @@
 }
 .form-feedback[hidden] { display:none; }
 .form-feedback-icon { display:grid; flex:0 0 18px; place-items:center; width:18px; height:18px; margin-top:1px; border:1px solid currentColor; border-radius:50%; font-size:13px; font-weight:700; }
+.form-feedback > .form-feedback-check { flex:none; width:18px; height:18px; margin-top:1px; stroke-width:2; }
 .form-feedback-error { color:var(--ryker-error); border-color:var(--ryker-error); background:var(--ryker-error-soft); }
 .form-feedback-warning { color:var(--ryker-warning); border-color:var(--ryker-warning); background:var(--ryker-warning-soft); }
-.form-feedback-success { color:var(--ryker-success); border-color:var(--ryker-success); background:var(--ryker-success-soft); }
+.form-feedback-success { gap:6px; color:var(--ryker-success); border-color:var(--ryker-success); background:var(--ryker-success-soft); }
 .form-feedback-info { color:var(--ryker-info); border-color:var(--ryker-info); background:var(--ryker-info-soft); }
 .page-feedback { margin:0 0 20px; }
 .lab-native-composer .form-feedback { max-width:none; margin:0; padding:10px 16px; border-width:1px 0 0; border-radius:0; }

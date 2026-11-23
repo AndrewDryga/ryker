@@ -64,6 +64,18 @@ defmodule Ryker.ControlPlane.ComponentsTest do
              "The value could not be saved."
   end
 
+  test "a saved form shows a quiet check beside its status message" do
+    # The oversized circled glyph drew attention away from the Saved confirmation.
+    document =
+      render_component(&Components.form_feedback/1, message: "Saved", tone: :success)
+      |> LazyHTML.from_fragment()
+
+    feedback = LazyHTML.query(document, ".form-feedback-success[role=status]")
+
+    assert Enum.count(LazyHTML.query(feedback, "svg[aria-hidden=true]")) == 1
+    assert String.trim(LazyHTML.text(feedback)) == "Saved"
+  end
+
   test "diagnostic identifiers stay compact while preserving an exact copy target" do
     value = "ingress-input:2b6e9fb1-996b-4eab-bcfd-f448d69bab4e"
 

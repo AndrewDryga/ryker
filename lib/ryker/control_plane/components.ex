@@ -886,7 +886,10 @@ defmodule Ryker.ControlPlane.Components do
       role={if @tone == :error, do: "alert", else: "status"}
       hidden={@hidden}
     >
-      <span class="form-feedback-icon" aria-hidden="true">{feedback_icon(@tone)}</span>
+      <.icon :if={@tone == :success} name={:check} class="form-feedback-check" />
+      <span :if={@tone != :success} class="form-feedback-icon" aria-hidden="true">{feedback_icon(
+        @tone
+      )}</span>
       <span class="form-feedback-message">{@message}</span>
     </div>
     """
@@ -1028,7 +1031,6 @@ defmodule Ryker.ControlPlane.Components do
 
   defp feedback_icon(:error), do: "!"
   defp feedback_icon(:warning), do: "!"
-  defp feedback_icon(:success), do: "✓"
   defp feedback_icon(:info), do: "i"
 
   attr(:id, :string, required: true)
