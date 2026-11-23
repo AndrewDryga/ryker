@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3
+
+Ryker checks for group DM history permission during Slack setup. This permission lets
+it look for an existing reply or task card before posting, so a retry can avoid
+posting a duplicate. Existing Slack installations can add `mpim:history` to the bot
+scopes and reinstall the app to grant it.
+
 ## 0.6.2
 
 - **Cleanup can recover when a worker's planning response is lost.** When the worker
