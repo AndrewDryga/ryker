@@ -254,6 +254,10 @@ defmodule Ryker.Work.Dispatcher do
        when is_map(receipt),
        do: retry_completion(claim, receipt, reason, settings)
 
+  defp execution_failure(claim, reason, settings)
+       when reason in [:triage_request_expired, :github_request_withdrawn],
+       do: stop_or_defer(claim, reason, settings)
+
   defp execution_failure(claim, {:work_execution_blocked, reason}, settings),
     do: stop_or_defer(claim, reason, settings)
 

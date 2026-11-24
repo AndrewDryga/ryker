@@ -240,6 +240,72 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert Repo.aggregate(StandingRuleInventory, :count) == 0
   end
 
+  # A matching rule previously admitted an outsider's issue even without a mention.
+  test "a standing rule on new GitHub issues still checks the sender's Write access" do
+    conversation = "github:github-main:repository:99"
+
+    rule!(offer_source!("github-issues"), "new-issues",
+      workspace_ref: "github:github-main",
+      scope_ref: conversation,
+      source_kind: "github",
+      filter: %{"event_name" => "issues", "payload" => %{"action" => "opened"}}
+    )
+
+    {:ok, binding} =
+      Ryker.GitHub.Binding.new(%{
+        name: "github-main",
+        installation_id: 41,
+        repository_id: 99,
+        repository_full_name: "octo/example",
+        ryker_actor_id: 4321
+      })
+
+    secret = "test-github-webhook-secret-for-standing-rules"
+
+    router =
+      Ryker.GitHub.Router.init(
+        bindings: %{binding.name => binding},
+        bot_login: "ryker-test",
+        secret: Ryker.Secret.new(secret),
+        repository_access: fn _, %{"sender" => %{"id" => id}} ->
+          if id == 7, do: :ok, else: {:error, :actor_not_authorized}
+        end
+      )
+
+    for {actor, number, status} <- [{10, 42, 200}, {7, 43, 202}] do
+      body =
+        Jason.encode!(%{
+          "action" => "opened",
+          "installation" => %{"id" => 41},
+          "repository" => %{"full_name" => "octo/example", "id" => 99},
+          "issue" => %{
+            "id" => number,
+            "number" => number,
+            "title" => "Lifecycle issue",
+            "body" => "Track the adapter lifecycle.",
+            "updated_at" => "2026-08-28T12:00:00Z"
+          },
+          "sender" => %{"id" => actor, "login" => "octocat", "type" => "User"}
+        })
+
+      conn =
+        Plug.Test.conn(:post, "/v1/github", body)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.Conn.put_req_header("x-github-event", "issues")
+        |> Plug.Conn.put_req_header("x-github-delivery", "issue-rule-#{number}")
+        |> Plug.Conn.put_req_header(
+          "x-hub-signature-256",
+          Ryker.GitHub.Auth.signature(secret, body)
+        )
+        |> Ryker.GitHub.Router.call(router)
+
+      assert conn.status == status
+    end
+
+    assert [%{engagement_receipt: %{"reason" => "standing_rule"}, actor_ref: "github-user:7"}] =
+             Repo.all(Inbox.Entry)
+  end
+
   defp terraform_input(actor_kind) do
     {:ok, input} =
       SlackInput.new(%{
@@ -337,7 +403,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
         source_thread_ref: nil,
         source_transport: "slack",
         status: Keyword.get(options, :status, :active),
-        workspace_ref: @workspace
+        workspace_ref: Keyword.get(options, :workspace_ref, @workspace)
       }
       |> Behavior.Changeset.insert()
       |> Repo.insert()

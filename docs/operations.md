@@ -97,9 +97,11 @@ On a connected repository, type the installed App's slug in a pull request
 comment, followed by the request. **Integrations › GitHub** provides copyable
 review and change requests using that installation's actual handle. The sender
 needs Write access or higher. Confirming a Ryker offer with `/ryker confirm ...`
-requires Maintain or Admin access. Mentions, review-label requests, and confirmation
-commands that lack the required access receive a reply in the same discussion,
-as do confirmation outcomes.
+requires Maintain or Admin access. Ryker checks the person writing each comment,
+inline reply or review, including on PRs opened by an admin or Ryker itself.
+An explicit unauthorized request can receive a fixed reply. Ryker sends at most
+one denial per issue or PR and ten per repository in a rolling hour. Confirmation
+outcomes appear in the same discussion.
 
 A review with inline findings includes **Fix all findings** and **Fix selected (👍)**.
 Both open a small Ryker page. Sign in with GitHub, then check the findings to fix.
@@ -166,12 +168,13 @@ after ordinary Work logs expire. CI repair attempts also remain, so cleanup cann
 spent repair budget. The issue search index keeps its current document and triage fingerprint
 per issue; fresh reads replace that document or remove an unavailable issue.
 
+### Automatic repository imports
+
+Automatic repository imports are off by default. To use them, enter the trusted GitHub installation IDs in **GitHub → Repository imports**. The repository picker shows each ID. Installing the App on another account grants no automatic onboarding. An operator can still add a specific repository from the picker. If automatic imports were enabled before upgrading, review the repositories already connected and remove any the installation should not serve.
+
 ### Issue triage
 
-Enable **Triage new issues** on a repository to read new, reopened and edited reports,
-inspect relevant code and post a concise result. It starts off. An outside contributor's
-report can be triaged, but its text cannot authorize code changes. Repository writers can
-also choose **Triage this issue** from the issue action page for an older report.
+Enable **Triage issues from repository writers** to automatically review reports from writers. The issue author and the person opening, reopening or editing it both need current Write access. This setting starts off. A writer can choose **Triage this issue** to review the current version of any report, including one from an outside contributor.
 
 For example, “CSV export crashes when no rows match” can get an explanation, inspected
 related reports and a plan to handle empty results. “Export is broken” should get one
@@ -187,7 +190,7 @@ posted without it.
 
 The local issue index quietly backfills at most five pages of twenty GitHub issue/PR
 entries, excludes PRs, and reads up to twenty comments per issue (2,000 bytes per comment).
-New comments and edits refresh the cache. Search uses the existing embedding service when
+Authorized comments and edits refresh the cache. Historical backfill provides keyword coverage. Search uses the existing embedding service when
 available and keyword matching otherwise; GitHub keyword search complements it. Coverage
 is bounded, so an empty search never proves there are no duplicates. Before citing a related
 report, the triage request must inspect it; the saved result points to frozen read evidence.

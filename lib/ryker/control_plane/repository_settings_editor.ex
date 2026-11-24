@@ -326,8 +326,8 @@ defmodule Ryker.ControlPlane.RepositorySettingsEditor do
                 checked={@enabled}
               />
               <span>
-                <strong>Triage new issues</strong>
-                <small>Ask for missing details or prepare a plan for review. No code changes.</small>
+                <strong>Triage issues from repository writers</strong>
+                <small>Automatically triage reports opened and updated by people with Write access. A writer can choose “Triage this issue” on any report.</small>
               </span>
             </label>
             <input type="hidden" name="labels" value="false" />

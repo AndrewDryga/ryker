@@ -886,15 +886,17 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
     access: access,
     issue: issue
   } do
-    assert IssueWorkflows.auto_triage(access, issue) == {:error, :issue_triage_disabled}
+    assert IssueWorkflows.auto_triage(access, issue, grant(access, issue)) ==
+             {:error, :issue_triage_disabled}
+
     enable_triage!(false)
     {:ok, configured} = GitHub.IssueIndex.configuration("widget-app")
-    assert {:ok, first} = IssueWorkflows.auto_triage(configured, issue)
+    assert {:ok, first} = IssueWorkflows.auto_triage(configured, issue, grant(access, issue))
     entry = Repo.get!(Ingress.Inbox.Entry, first.request.entry_id)
     assert entry.actor_ref =~ "system:"
     refute entry.actor_ref =~ "user:"
     assert first.request.actor_id == 0
-    assert {:ok, repeated} = IssueWorkflows.auto_triage(configured, issue)
+    assert {:ok, repeated} = IssueWorkflows.auto_triage(configured, issue, grant(access, issue))
     assert repeated.request.id == first.request.id
     access = %{access | settings: Settings.fetch!()}
 
@@ -909,6 +911,66 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
     assert manual.request.id == first.request.id
     assert Repo.aggregate(IssueRequest, :count) == 1
     assert Repo.aggregate(Records.Record, :count) == 0
+  end
+
+  # Losing Write after enqueue used to leave a payable system instruction behind.
+  for change <- [:permission_revoked, :report_edited] do
+    @change change
+    test "deferred automatic triage expires on #{@change} and a writer can authorize a new request",
+         %{access: access, issue: issue} do
+      enable_triage!(false)
+      {:ok, configured} = GitHub.IssueIndex.configuration("widget-app")
+
+      {:ok, %{request: request}} =
+        IssueWorkflows.auto_triage(configured, issue, grant(access, issue))
+
+      {source, _request} = admit!(request)
+      entry = source.entry
+      runtime = Config.get_env(:github)
+      binding = runtime.server.bindings["widget-app"]
+      check = fn _, _ -> Process.get(:writer_check, :ok) end
+      placement = %{binding: binding, check: check, read_client: triage_client().client}
+
+      Config.put_override(
+        :github,
+        Map.put(runtime, :issue_triage, %{bindings: %{"widget-app" => placement}})
+      )
+
+      assert GitHub.RequestAuthority.check_entry(entry) == :ok
+      assert GitHub.RequestAuthority.check_turn(source.binding) == :ok
+      Process.put(:writer_check, {:error, {:github_repository_access_unavailable, :timeout}})
+
+      assert GitHub.RequestAuthority.check_turn(source.binding) ==
+               {:error, {:github_repository_access_unavailable, :timeout}}
+
+      assert Repo.get!(IssueRequest, request.id).outcome == nil
+
+      Process.put(
+        :writer_check,
+        if(@change == :permission_revoked, do: {:error, :actor_not_authorized}, else: :ok)
+      )
+
+      Process.put(:triage_issue_changed, @change == :report_edited)
+
+      assert GitHub.RequestAuthority.check_turn(source.binding) ==
+               {:error, :triage_request_expired}
+
+      assert Repo.get!(IssueRequest, request.id).outcome["status"] == "authorization_expired"
+
+      Process.delete(:writer_check)
+      Process.delete(:triage_issue_changed)
+      assert GitHub.RequestAuthority.check_entry(entry) == {:error, :triage_request_expired}
+
+      assert {:ok, %{status: :recorded, request: manual}} =
+               IssueWorkflows.start(
+                 access,
+                 issue,
+                 :triage_issue,
+                 IssueWorkflows.view(access, issue).expected
+               )
+
+      assert manual.actor_id == access.actor["id"]
+    end
   end
 
   test "triage can save an editable plan but cannot authorize a task or apply labels without opt-in",
@@ -1050,7 +1112,10 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
   } do
     enable_triage!(false)
     {:ok, configured} = GitHub.IssueIndex.configuration("widget-app")
-    {:ok, %{request: request}} = IssueWorkflows.auto_triage(configured, issue)
+
+    {:ok, %{request: request}} =
+      IssueWorkflows.auto_triage(configured, issue, grant(access, issue))
+
     {source, _request} = admit!(request)
     settings = Settings.fetch!()
 
@@ -1157,6 +1222,16 @@ defmodule Ryker.GitHubActions.IssueWorkflowsTest do
     assert page.resp_body =~ "Triage this issue"
     assert page.resp_body =~ "&lt;script&gt;"
     refute page.resp_body =~ "<script>alert"
+  end
+
+  defp grant(access, issue) do
+    {:ok, grant} =
+      GitHub.IssueTriageGrant.new(%{
+        "sender" => access.actor,
+        "issue" => Map.put(issue, "user", access.actor)
+      })
+
+    grant
   end
 
   defp enable_triage!(labels) do

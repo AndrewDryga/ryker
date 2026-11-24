@@ -781,6 +781,18 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
+  @doc "Withdraws earlier accepted words on the exact GitHub item without admitting the denied edit."
+  def withdraw_github_request(%Input{content: %{"payload" => %{"action" => action}}} = input)
+      when action in ["edited", "deleted", "dismissed"] do
+    Repo.update_all(Entry.Query.github_requests_revised_by(input),
+      set: [github_withdrawn_at: Repo.now!()]
+    )
+
+    :ok
+  end
+
+  def withdraw_github_request(_input), do: :ok
+
   defp record_locked(input, settings) do
     dedupe_key = Input.dedupe_key(input)
 

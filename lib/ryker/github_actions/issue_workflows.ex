@@ -157,6 +157,8 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
       authorize_start!(access, kind)
       workflow = fetch_and_lock_workflow!(access, issue)
 
+      key = manual_key(workflow, kind, key)
+
       case Repo.fetch(
              IssueRequest.Query.by_workflow_id(workflow.id)
              |> IssueRequest.Query.approved_work(kind, expected, issue, key)
@@ -168,13 +170,17 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
   end
 
   @doc "Repository opt-in authorizes read-only system triage, never impersonation of the reporter."
-  def auto_triage(configured, issue) do
+  def auto_triage(configured, issue, grant) do
     access = Map.put(configured, :actor, %{"id" => 0, "login" => "ryker-triage", "type" => "Bot"})
     key = triage_key(issue)
 
     Repo.transaction(fn ->
       fence!(access)
       authorize_start!(access, :triage_issue)
+
+      unless GitHub.IssueTriageGrant.matches?(grant, issue),
+        do: Repo.rollback(:triage_request_changed)
+
       workflow = fetch_and_lock_workflow!(access, issue)
 
       case Repo.fetch(
@@ -185,10 +191,63 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
           %{request: request, status: :duplicate}
 
         {:error, :not_found} ->
-          start_new!(access, issue, workflow, :triage_issue, view(access, issue).expected, key)
+          start_new!(
+            Map.put(access, :triage_grant, grant),
+            issue,
+            workflow,
+            :triage_issue,
+            view(access, issue).expected,
+            key
+          )
       end
     end)
   end
+
+  # Manual approval of the same report can replace an expired automatic
+  # request. Its old outcome and idempotency key remain part of issue history.
+  defp manual_key(workflow, :triage_issue, key) do
+    case Repo.fetch(
+           IssueRequest.Query.by_workflow_id(workflow.id)
+           |> IssueRequest.Query.by_request_key(key)
+         ) do
+      {:ok, %{actor_id: 0, outcome: %{"status" => "authorization_expired"}, id: id}} ->
+        CanonicalJSON.digest([key, id])
+
+      _other ->
+        key
+    end
+  end
+
+  defp manual_key(_workflow, _kind, key), do: key
+
+  def expire_automatic(%IssueRequest{kind: :triage_issue, actor_id: 0} = request) do
+    Repo.transaction(fn ->
+      workflow =
+        request.workflow_id
+        |> IssueWorkflow.Query.by_id()
+        |> IssueWorkflow.Query.lock_for_update()
+        |> Repo.fetch!()
+
+      request.id |> IssueRequest.Query.by_id() |> Repo.fetch!() |> expire_locked(workflow)
+    end)
+  end
+
+  defp expire_locked(%IssueRequest{outcome: nil} = request, workflow) do
+    now = Repo.now!()
+
+    request
+    |> IssueRequest.Changeset.finish(
+      %{"status" => "authorization_expired", "terminal" => true},
+      now
+    )
+    |> Repo.update!()
+
+    if workflow.current_request_id == request.id do
+      workflow |> IssueWorkflow.Changeset.update(%{next_attempt_at: now}) |> Repo.update!()
+    end
+  end
+
+  defp expire_locked(_finished, _workflow), do: :ok
 
   defp triage_key(issue) do
     CanonicalJSON.digest(%{
@@ -369,7 +428,10 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
     expect_plan!(workflow, issue, expected)
     if expected["request_id"] != workflow.current_request_id, do: Repo.rollback(:plan_changed)
     available!(workflow)
-    snapshot = snapshot(workflow, issue, kind)
+
+    snapshot =
+      snapshot(workflow, issue, kind)
+      |> Ryker.Maps.put_present("triage_grant", Map.get(access, :triage_grant))
 
     case CanonicalJSON.validate(snapshot, max_bytes: 65_536) do
       :ok -> :ok
@@ -384,6 +446,7 @@ defmodule Ryker.GitHubActions.IssueWorkflows do
     evidence =
       snapshot
       |> IssueInstructions.evidence()
+      |> Map.delete("triage_grant")
       |> Map.merge(%{"workflow_id" => workflow.id, "request_key" => key})
 
     with {:ok, receipt} <-

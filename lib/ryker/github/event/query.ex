@@ -59,6 +59,15 @@ defmodule Ryker.GitHub.Event.Query do
   def select_delivery_refs(queryable),
     do: select(queryable, [github_repository_events: e], e.delivery_ref)
 
+  def recent_denials(binding, since) do
+    from(e in all(),
+      where:
+        e.binding_ref == ^binding.name and e.repository_id == ^binding.repository_id and
+          e.denial_reserved_at > ^since,
+      select: e.denial_thread
+    )
+  end
+
   def select_rows(queryable), do: select(queryable, [github_repository_events: e], e)
 
   def inserted_since(queryable \\ all(), since),

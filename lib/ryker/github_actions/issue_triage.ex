@@ -44,7 +44,8 @@ defmodule Ryker.GitHubActions.IssueTriage do
          true <-
            client.repository_id == workflow.repository_id and
              client.repository_full_name == configured.repository.github_repository,
-         true <- request.actor_id > 0 or configured.repository.github_issue_triage do
+         true <- request.actor_id > 0 or configured.repository.github_issue_triage,
+         :ok <- GitHub.IssueTriageGrant.check_entry(entry) do
       {:ok, %{request: request, workflow: workflow, configured: configured, entry: entry}}
     else
       _denied -> {:error, :triage_request_required}

@@ -11,6 +11,7 @@ defmodule Ryker.Settings.GitHub do
     field(:oauth_client_id, :string)
     field(:api_url, :string, default: "https://api.github.com")
     field(:auto_add_repositories, :boolean, default: false)
+    field(:trusted_installation_ids, {:array, :integer}, default: [])
     field(:bot_actor_id, :integer)
     field(:bot_login, :string)
   end

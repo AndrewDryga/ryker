@@ -12,7 +12,13 @@ defmodule Ryker.GitHub.RequestFeedbackTest do
         response(201, %{"id" => 701})
       ])
 
-    {:ok, client} = Client.new(http: requester, requester: GitHubRequester)
+    {:ok, client} =
+      Client.new(
+        http: requester,
+        requester: GitHubRequester,
+        ryker_actor_id: binding.ryker_actor_id
+      )
+
     assert RequestFeedback.deliver(binding, input, {:denied, :write}, client) == :ok
 
     [_, {:post, "/repos/octo/example/issues/42/comments", %{"body" => body}, _}] =
@@ -22,9 +28,19 @@ defmodule Ryker.GitHub.RequestFeedbackTest do
     assert body =~ "<!-- ryker-delivery:"
 
     {:ok, retry_requester} =
-      GitHubRequester.start([response(200, [%{"id" => 701, "body" => body}])])
+      GitHubRequester.start([
+        response(200, [
+          %{"id" => 701, "body" => body, "user" => %{"id" => binding.ryker_actor_id}}
+        ])
+      ])
 
-    {:ok, retry_client} = Client.new(http: retry_requester, requester: GitHubRequester)
+    {:ok, retry_client} =
+      Client.new(
+        http: retry_requester,
+        requester: GitHubRequester,
+        ryker_actor_id: binding.ryker_actor_id
+      )
+
     assert RequestFeedback.deliver(binding, input, {:denied, :write}, retry_client) == :ok
     assert [{:get, _, nil, _}] = GitHubRequester.requests(retry_requester)
   end
@@ -38,7 +54,14 @@ defmodule Ryker.GitHub.RequestFeedbackTest do
           {"invalid", "exact command"}
         ] do
       {:ok, requester} = GitHubRequester.start([response(200, []), response(201, %{"id" => 701})])
-      {:ok, client} = Client.new(http: requester, requester: GitHubRequester)
+
+      {:ok, client} =
+        Client.new(
+          http: requester,
+          requester: GitHubRequester,
+          ryker_actor_id: binding.ryker_actor_id
+        )
+
       assert RequestFeedback.deliver(binding, input, {:confirmation, status}, client) == :ok
       [_, {:post, _, %{"body" => body}, _}] = GitHubRequester.requests(requester)
       assert body =~ words
@@ -48,17 +71,32 @@ defmodule Ryker.GitHub.RequestFeedbackTest do
   test "a lost review acknowledgment is recovered before consuming the request label" do
     {binding, input} = request()
     {:ok, requester} = GitHubRequester.start([response(200, []), {:error, :timeout}])
-    {:ok, client} = Client.new(http: requester, requester: GitHubRequester)
+
+    {:ok, client} =
+      Client.new(
+        http: requester,
+        requester: GitHubRequester,
+        ryker_actor_id: binding.ryker_actor_id
+      )
+
     assert {:error, _} = RequestFeedback.deliver(binding, input, :review_requested, client)
     assert [_, {:post, _, %{"body" => body}, _}] = GitHubRequester.requests(requester)
 
     {:ok, retry_requester} =
       GitHubRequester.start([
-        response(200, [%{"id" => 701, "body" => body}]),
+        response(200, [
+          %{"id" => 701, "body" => body, "user" => %{"id" => binding.ryker_actor_id}}
+        ]),
         response(200, [%{"name" => "bug"}])
       ])
 
-    {:ok, retry_client} = Client.new(http: retry_requester, requester: GitHubRequester)
+    {:ok, retry_client} =
+      Client.new(
+        http: retry_requester,
+        requester: GitHubRequester,
+        ryker_actor_id: binding.ryker_actor_id
+      )
+
     assert RequestFeedback.deliver(binding, input, :review_requested, retry_client) == :ok
 
     assert [

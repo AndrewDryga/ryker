@@ -185,7 +185,7 @@ defmodule Ryker.GitHub.Router do
 
   # What an access event's receipts and bindings call for. A repository the
   # App was just given has no binding yet, so an event that adds one goes on
-  # to Access, which adds it when auto-add is on.
+  # to Access, which checks the installation trust list before importing.
   defp access_step(receipts, bindings, event_name, payload) do
     cond do
       Enum.any?(receipts, &(&1 == {:error, :github_event_conflict})) -> :conflict
@@ -360,7 +360,7 @@ defmodule Ryker.GitHub.Router do
     }
 
     with :ok <- Binding.authorize_payload(binding, payload),
-         :ok <- GitHub.IssueIndex.signal(binding, event_name, payload),
+         :ok <- GitHub.IssueIndex.signal(binding, event_name, payload, options.repository_access),
          :ok <- GitHubActions.offer_issue_actions(binding, event_name, payload),
          :ok <- authorize_repository_actor(event_name, binding, payload, options),
          {:ok, input} <- Ingress.Adapters.normalize("github", event, binding) do
@@ -400,16 +400,17 @@ defmodule Ryker.GitHub.Router do
 
   # Someone asking needs write access to the repository, whatever carried the
   # ask. Comments and reviews were checked on arrival; an issue or a pull
-  # request is checked here, once Ryker would take it. An edit of the exact item
-  # Ryker already took, and an event an operator's standing rule chose, are not
-  # someone asking.
+  # request is checked here, including edits and standing rules triggered by
+  # human activity. CI and publication signals have their own admission paths.
   defp authorize_engagement(
          reason,
-         %{content: %{"event_name" => event_name, "payload" => payload}},
+         %{actor: %{kind: kind}, content: %{"event_name" => event_name, "payload" => payload}},
          binding,
          options
        )
-       when reason in [:mention, :continuation, :review_request] and
+       when (reason in [:mention, :continuation, :review_request] or
+               (reason in [:revision, :standing_rule] and
+                  (kind == :user or event_name in ["issues", "pull_request"]))) and
               event_name not in @conversation_events,
        do: options.repository_access.(binding, payload)
 
@@ -485,12 +486,18 @@ defmodule Ryker.GitHub.Router do
   end
 
   defp denied_request(conn, binding, input, options) do
+    :ok = Ingress.Inbox.withdraw_github_request(input)
     role = Confirmations.required_repository_role(input.content["payload"])
 
     result =
-      if Engagement.explicit_request?(input, binding, options.bot_login),
-        do: options.request_feedback.(binding, input, {:denied, role}),
-        else: :ok
+      with true <- Engagement.explicit_request?(input, binding, options.bot_login),
+           {:ok, :send} <- Events.reserve_denial(binding, input) do
+        options.request_feedback.(binding, input, {:denied, role})
+      else
+        false -> :ok
+        {:ok, :skip} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
 
     case result do
       :ok ->

@@ -216,7 +216,15 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :auto_add_repositories,
           kind: :boolean,
           label: "Automatically add new repositories",
-          help: "Choose a repository in an environment before work can use it."
+          help:
+            "New repositories on trusted installations can start onboarding and use model tokens."
+        },
+        %{
+          name: :trusted_installation_ids,
+          kind: :list,
+          label: "Trusted GitHub installation IDs",
+          help:
+            "Copy IDs from the repository picker, separated by commas. You can always add an individual repository by hand."
         }
       ]
     },

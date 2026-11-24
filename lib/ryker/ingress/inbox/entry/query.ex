@@ -406,6 +406,25 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
   end
 
   @doc "A GitHub item Ryker already engaged with, by its repository and the item it is."
+  def github_requests_revised_by(input) do
+    input.source.ref
+    |> engaged_github_item(input.source_item_ref)
+    |> where(
+      [ingress_inbox_entries: e],
+      e.execution_mode == :live and is_nil(e.github_withdrawn_at) and
+        e.occurred_at <= ^input.occurred_at and
+        e.destination_conversation_ref == ^input.destination.conversation_ref
+    )
+  end
+
+  def withdrawn_github_requests(query, refs) do
+    where(
+      query,
+      [ingress_inbox_entries: e],
+      e.event_ref in ^refs and not is_nil(e.github_withdrawn_at)
+    )
+  end
+
   def engaged_github_item(source_ref, source_item_ref) do
     where(
       all(),

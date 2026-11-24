@@ -19,6 +19,7 @@ defmodule Ryker.Ingress.Inbox.Entry do
     field(:event_fingerprint, :string)
     field(:source_kind, :string)
     field(:source_ref, :string)
+    field(:github_withdrawn_at, :utc_datetime_usec)
     field(:event_ref, :string)
     field(:event_kind, Ecto.Enum, values: [:message, :edit, :delete, :event])
     field(:native_input_id, :string)

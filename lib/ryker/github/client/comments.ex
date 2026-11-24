@@ -17,13 +17,14 @@ defmodule Ryker.GitHub.Client.Comments do
 
   def find_issue_comment(client, repository, number, marker) do
     with :ok <- Fields.target(repository, number),
-         :ok <- Fields.text(marker) do
+         :ok <- Fields.text(marker),
+         :ok <- Fields.positive_id(client.ryker_actor_id) do
       find_comments(
         client,
         fn page ->
           "/repos/#{repository}/issues/#{number}/comments?per_page=#{@page_size}&page=#{page}"
         end,
-        &marker_match(&1, marker)
+        &marker_match(&1, marker, client.ryker_actor_id)
       )
     end
   end
@@ -56,13 +57,14 @@ defmodule Ryker.GitHub.Client.Comments do
 
   def find_pull_review(client, repository, number, marker) do
     with :ok <- Fields.target(repository, number),
-         :ok <- Fields.text(marker) do
+         :ok <- Fields.text(marker),
+         :ok <- Fields.positive_id(client.ryker_actor_id) do
       find_comments(
         client,
         fn page ->
           "/repos/#{repository}/pulls/#{number}/reviews?per_page=#{@page_size}&page=#{page}"
         end,
-        &marker_match(&1, marker)
+        &marker_match(&1, marker, client.ryker_actor_id)
       )
     end
   end
@@ -103,13 +105,14 @@ defmodule Ryker.GitHub.Client.Comments do
   def find_review_reply(client, repository, number, root_id, marker) do
     with :ok <- Fields.target(repository, number),
          :ok <- Fields.positive_id(root_id),
-         :ok <- Fields.text(marker) do
+         :ok <- Fields.text(marker),
+         :ok <- Fields.positive_id(client.ryker_actor_id) do
       find_comments(
         client,
         fn page ->
           "/repos/#{repository}/pulls/#{number}/comments?per_page=#{@page_size}&page=#{page}"
         end,
-        &review_marker_match(&1, root_id, marker)
+        &review_marker_match(&1, root_id, marker, client.ryker_actor_id)
       )
     end
   end
@@ -239,19 +242,26 @@ defmodule Ryker.GitHub.Client.Comments do
     end)
   end
 
-  defp marker_match(%{"body" => body, "id" => id}, marker) when is_binary(body) do
+  defp marker_match(
+         %{"body" => body, "id" => id, "user" => %{"id" => actor_id}},
+         marker,
+         actor_id
+       )
+       when is_binary(body) do
     if String.contains?(body, marker), do: valid_comment_id(id), else: :not_found
   end
 
-  defp marker_match(%{}, _marker), do: :not_found
-  defp marker_match(_comment, _marker), do: {:error, {:github_protocol_error, :comment}}
+  defp marker_match(%{}, _marker, _actor_id), do: :not_found
 
-  defp review_marker_match(%{"in_reply_to_id" => root_id} = comment, root_id, marker),
-    do: marker_match(comment, marker)
+  defp marker_match(_comment, _marker, _actor_id),
+    do: {:error, {:github_protocol_error, :comment}}
 
-  defp review_marker_match(%{}, _root_id, _marker), do: :not_found
+  defp review_marker_match(%{"in_reply_to_id" => root_id} = comment, root_id, marker, actor_id),
+    do: marker_match(comment, marker, actor_id)
 
-  defp review_marker_match(_comment, _root_id, _marker),
+  defp review_marker_match(%{}, _root_id, _marker, _actor_id), do: :not_found
+
+  defp review_marker_match(_comment, _root_id, _marker, _actor_id),
     do: {:error, {:github_protocol_error, :comment}}
 
   defp comments(%{body: body, status: 200}) when is_list(body), do: {:ok, body}

@@ -178,9 +178,13 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     refute has_element?(integration, "#{checkbox}[checked]")
 
     integration
-    |> form(form_selector, %{"auto_add_repositories" => "true"})
-    |> render_change()
+    |> form(form_selector, %{
+      "auto_add_repositories" => "true",
+      "trusted_installation_ids" => "41, 52"
+    })
+    |> render_submit()
 
+    assert Settings.fetch!().github.trusted_installation_ids == [41, 52]
     assert Settings.fetch!().github.auto_add_repositories
     assert Settings.fetch!().repositories == []
 
@@ -198,9 +202,11 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     {:ok, integration, _html} = open("/integrations/github")
     assert has_element?(integration, "#{checkbox}[checked]")
 
+    assert Settings.fetch!().github.trusted_installation_ids == [41, 52]
+
     integration
     |> form(form_selector, %{"auto_add_repositories" => "false"})
-    |> render_change()
+    |> render_submit()
 
     refute Settings.fetch!().github.auto_add_repositories
     assert has_element?(picker, "#repository-acme-api")

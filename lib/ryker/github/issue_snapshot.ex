@@ -15,6 +15,25 @@ defmodule Ryker.GitHub.IssueSnapshot do
     end
   end
 
+  @doc "Revalidate delayed automatic work. A temporarily unavailable GitHub read grants no work."
+  def fetch_current(configured, number, client) do
+    path = "/repos/#{configured.repository.github_repository}/issues/#{number}"
+
+    case GitHub.Client.Transport.request(client, :get, path, nil) do
+      {:ok, %{status: 200, body: body}} ->
+        case prepare(configured, number, body) do
+          {:ok, issue} -> {:ok, issue}
+          _unavailable -> {:error, :triage_request_changed}
+        end
+
+      {:ok, %{status: status}} when status in [404, 410] ->
+        {:error, :triage_request_changed}
+
+      _unavailable ->
+        {:error, :github_issue_read_unavailable}
+    end
+  end
+
   @doc "The same bounds apply to an authenticated webhook's issue snapshot."
   def prepare(access, number, body) do
     with %{

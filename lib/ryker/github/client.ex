@@ -28,9 +28,9 @@ defmodule Ryker.GitHub.Client do
   @fields [:http, :requester]
 
   @enforce_keys @fields
-  defstruct @fields
+  defstruct @fields ++ [ryker_actor_id: nil]
 
-  @type t :: %__MODULE__{http: term(), requester: module()}
+  @type t :: %__MODULE__{http: term(), requester: module(), ryker_actor_id: pos_integer() | nil}
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
@@ -146,9 +146,10 @@ defmodule Ryker.GitHub.Client do
   end
 
   defp normalize_attributes(%{} = attributes) do
-    if Maps.exact_keys?(attributes, @fields),
-      do: {:ok, attributes},
-      else: {:error, {:invalid_github_client, :fields}}
+    if Maps.exact_keys?(Map.delete(attributes, :ryker_actor_id), @fields) and
+         (is_nil(attributes[:ryker_actor_id]) or Ryker.GitHub.id?(attributes.ryker_actor_id)),
+       do: {:ok, attributes},
+       else: {:error, {:invalid_github_client, :fields}}
   end
 
   defp normalize_attributes(_attributes), do: {:error, {:invalid_github_client, :fields}}

@@ -590,7 +590,8 @@ defmodule Ryker.GitHub.EndToEndTest do
   end
 
   defp slack_and_github_adapters(slack, requester) do
-    assert {:ok, client} = Client.new(http: requester, requester: GitHubRequester)
+    assert {:ok, client} =
+             Client.new(http: requester, requester: GitHubRequester, ryker_actor_id: 99)
 
     assert {:ok, adapters} =
              Adapters.new(%{
@@ -657,7 +658,8 @@ defmodule Ryker.GitHub.EndToEndTest do
   end
 
   defp delivery_options(kind, requester, suffix) do
-    assert {:ok, client} = Client.new(http: requester, requester: GitHubRequester)
+    assert {:ok, client} =
+             Client.new(http: requester, requester: GitHubRequester, ryker_actor_id: 99)
 
     publisher_binding = %{
       bindings: %{

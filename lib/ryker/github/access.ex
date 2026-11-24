@@ -127,7 +127,12 @@ defmodule Ryker.GitHub.Access do
   end
 
   defp import_new_repositories(event, payload, %{github: %{auto_add_repositories: true} = github}) do
-    case repositories_added(event, payload) do
+    repositories =
+      if get_in(payload, ["installation", "id"]) in github.trusted_installation_ids,
+        do: repositories_added(event, payload),
+        else: []
+
+    case repositories do
       [] ->
         :ok
 

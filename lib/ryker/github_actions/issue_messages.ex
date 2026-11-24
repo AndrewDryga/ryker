@@ -190,6 +190,9 @@ defmodule Ryker.GitHubActions.IssueMessages do
   defp triage(_progress), do: ""
 
   @doc "The same short progress label in GitHub and on its approval page."
+  def status(%{"status" => "authorization_expired"}),
+    do: "Automatic triage expired. A repository writer can request triage again."
+
   def status(%{"status" => "triage_ready"}),
     do: "Triage ready. Review the findings before starting code work."
 

@@ -12,6 +12,8 @@ defmodule Ryker.GitHub.Event do
     field(:payload_digest, :string)
     field(:disposition, :string)
     field(:reason, :string)
+    field(:denial_thread, :string)
+    field(:denial_reserved_at, :utc_datetime_usec)
     field(:occurred_at, :utc_datetime_usec)
     field(:processed_at, :utc_datetime_usec)
     field(:duplicate_count, :integer, default: 0)

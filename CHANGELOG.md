@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.4
+
+- Automatic GitHub issue triage requires repository write access. Ryker rechecks
+  permission and the issue text before starting work.
+- A comment or review on a maintainer's pull request can request work only when
+  its sender has write access. Repository auto-add requires a trusted installation.
+
 ## 0.6.3
 
 Ryker checks for group DM history permission during Slack setup. This permission lets

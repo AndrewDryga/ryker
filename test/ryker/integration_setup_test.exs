@@ -1071,7 +1071,7 @@ defmodule Ryker.IntegrationSetupTest do
 
     {:ok, _snapshot} =
       Settings.save_github(
-        %{enabled: true, auto_add_repositories: true},
+        %{enabled: true, auto_add_repositories: true, trusted_installation_ids: [41]},
         Settings.fetch!().installation.revision,
         @actor
       )
@@ -1122,7 +1122,7 @@ defmodule Ryker.IntegrationSetupTest do
   # ignored for want of a binding and Access never read (2026-10-04 review).
   # A changed permission names the installation's repositories too, but none
   # is new to the App, and one removed from Ryker stays removed.
-  test "a new installation's repositories are added through GitHub's own event when auto-add is on" do
+  test "an unapproved installation cannot start onboarding even with auto-add enabled" do
     connect_github!()
 
     {:ok, _snapshot} =
@@ -1158,7 +1158,7 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert conn.status == 202, conn.resp_body
     bindings = Settings.fetch!().github_bindings
-    assert Enum.any?(bindings, &(&1.repository_id == 778 and &1.installation_id == 42))
+    refute Enum.any?(bindings, &(&1.repository_id == 778 and &1.installation_id == 42))
 
     installation.("new_permissions_accepted", %{
       "full_name" => "tenant/removed",
@@ -1197,7 +1197,7 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert {:ok, _snapshot} =
              Settings.save_github(
-               %{enabled: true, auto_add_repositories: true},
+               %{enabled: true, auto_add_repositories: true, trusted_installation_ids: [41]},
                snapshot.installation.revision,
                @actor
              )

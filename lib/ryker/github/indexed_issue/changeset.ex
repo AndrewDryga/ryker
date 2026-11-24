@@ -3,7 +3,7 @@ defmodule Ryker.GitHub.IndexedIssue.Changeset do
   use Ryker, :changeset
   alias Ryker.GitHub.IndexedIssue
 
-  @fields ~w(generation pending triage_pending document embedding embedding_model last_triaged_digest next_attempt_at)a
+  @fields ~w(generation pending event_grant triage_pending document embedding embedding_model last_triaged_digest next_attempt_at)a
   def insert(attributes) do
     %IndexedIssue{}
     |> cast(attributes, [:index_id, :number] ++ @fields)

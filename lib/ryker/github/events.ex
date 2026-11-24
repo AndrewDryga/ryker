@@ -12,7 +12,7 @@ defmodule Ryker.GitHub.Events do
   duplicate.
   """
   alias Ecto.Changeset
-  alias Ryker.{CanonicalJSON, Repo, UTCDateTime}
+  alias Ryker.{AdvisoryLock, CanonicalJSON, Repo, UTCDateTime}
   alias Ryker.GitHub.{Binding, DeliveryCursor, Event}
 
   @dispositions ~w(metadata routed continued duplicate failed)
@@ -48,6 +48,34 @@ defmodule Ryker.GitHub.Events do
 
       _unexpected ->
         {:error, :github_event_persistence_failed}
+    end
+  end
+
+  @doc "Reserves one fixed denial per discussion and ten per repository per rolling hour."
+  def reserve_denial(binding, input) do
+    thread = input.destination.thread_ref |> String.split(":review-thread:", parts: 2) |> hd()
+
+    Repo.transaction(fn ->
+      AdvisoryLock.hold!("github-denial:#{binding.name}:#{binding.repository_id}")
+      now = Repo.now!()
+
+      event =
+        Event.Query.by_delivery(binding.name, input.content["delivery_ref"]) |> Repo.fetch!()
+
+      reserve_in_window(event, binding, thread, now)
+    end)
+  end
+
+  defp reserve_in_window(%{denial_reserved_at: %DateTime{}}, _binding, _thread, _now), do: :send
+
+  defp reserve_in_window(event, binding, thread, now) do
+    recent = Event.Query.recent_denials(binding, DateTime.add(now, -3600)) |> Repo.all()
+
+    if thread in recent or length(recent) >= 10 do
+      :skip
+    else
+      event |> Changeset.change(denial_thread: thread, denial_reserved_at: now) |> Repo.update!()
+      :send
     end
   end
 

@@ -51,7 +51,11 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
       assert RepositoryAccess.authorize(
                binding!(),
                payload(login),
-               {:ok, %{body: body, status: 200}},
+               {:ok,
+                %{
+                  body: Map.update(body, "user", %{"id" => 7}, &Map.put(&1, "id", 7)),
+                  status: 200
+                }},
                requester: ResponseRequester,
                minimum_role: :maintain
              ) == :ok
@@ -62,7 +66,15 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
     assert RepositoryAccess.authorize(
              binding!(),
              payload("former-maintainer"),
-             {:ok, %{body: %{"permission" => "write", "role_name" => "maintain"}, status: 200}},
+             {:ok,
+              %{
+                body: %{
+                  "permission" => "write",
+                  "role_name" => "maintain",
+                  "user" => %{"id" => 7}
+                },
+                status: 200
+              }},
              requester: ResponseRequester,
              minimum_role: :maintain
            ) == :ok
@@ -82,7 +94,11 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
       assert RepositoryAccess.authorize(
                binding!(),
                payload("former-maintainer"),
-               {:ok, %{body: body, status: 200}},
+               {:ok,
+                %{
+                  body: Map.update(body, "user", %{"id" => 7}, &Map.put(&1, "id", 7)),
+                  status: 200
+                }},
                requester: ResponseRequester,
                minimum_role: :maintain
              ) ==
@@ -117,7 +133,12 @@ defmodule Ryker.GitHub.RepositoryAccessTest do
                       _headers},
                      1_000
 
-      send(task.pid, {:respond, {:ok, %{body: %{"permission" => permission}, status: 200}}})
+      send(
+        task.pid,
+        {:respond,
+         {:ok, %{body: %{"permission" => permission, "user" => %{"id" => 7}}, status: 200}}}
+      )
+
       assert Task.await(task) == :ok
     end
   end

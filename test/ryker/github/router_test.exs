@@ -592,6 +592,31 @@ defmodule Ryker.GitHub.RouterTest do
     {:ok, issue_edit_entry} =
       Inbox.fetch(Jason.decode!(issue_edit_response.resp_body)["input_ref"])
 
+    # An accepted item used to let its next editor spend another routing turn.
+    for {name, field, event} <- [
+          {"issues", "issue", issue},
+          {"pull_request", "pull_request", pull}
+        ] do
+      edit =
+        event
+        |> Map.put("action", "edited")
+        |> put_in([field, "updated_at"], "2026-08-28T12:02:00Z")
+
+      denied =
+        request(Jason.encode!(edit),
+          delivery_ref: "denied-edit-#{name}",
+          event_name: name,
+          repository_access: fn _, _ -> {:error, :actor_not_authorized} end
+        )
+
+      assert Jason.decode!(denied.resp_body)["reason"] == "repository_write_access_required"
+    end
+
+    for entry <- [issue_edit_entry, pull_entry] do
+      assert Ryker.GitHub.RequestAuthority.check_entry(entry) ==
+               {:error, :github_request_withdrawn}
+    end
+
     assert issue_entry.native_input_id == issue_edit_entry.native_input_id
     assert issue_entry.revision < issue_edit_entry.revision
     assert issue_entry.destination_thread_ref == "github:github-main:issue:42"
@@ -1053,6 +1078,41 @@ defmodule Ryker.GitHub.RouterTest do
            ) == 2
   end
 
+  # A public commenter cannot inherit the PR owner's authority, even when an
+  # existing task is listening for feedback and GitHub redelivers the comment.
+  test "a third party's discussion never starts or wakes work on a tracked pull request" do
+    PublicationFixture.published!("admin-pr-public-feedback",
+      github_repository: "octo/example",
+      pull_request_number: 42
+    )
+
+    for {name, payload} <- [
+          {"issue_comment", payload()},
+          {"pull_request_review", review_payload()},
+          {"pull_request_review_comment", review_comment_payload()}
+        ] do
+      event = Map.put(payload, "sender", %{"id" => 10, "login" => "outsider", "type" => "User"})
+
+      for _delivery <- 1..2 do
+        resp =
+          request(Jason.encode!(event),
+            delivery_ref: "denied-#{name}",
+            event_name: name,
+            repository_access: fn _, %{"sender" => %{"id" => 10}} ->
+              {:error, :actor_not_authorized}
+            end
+          )
+
+        assert resp.status in [200, 202]
+      end
+    end
+
+    assert Repo.aggregate(Inbox.Entry, :count) == 0
+
+    assert Repo.aggregate(from(e in LifecycleEvent, where: e.kind == :review_feedback), :count) ==
+             0
+  end
+
   test "acknowledges self-authored and unauthorized comments without queuing model work" do
     self_authored =
       payload()
@@ -1311,6 +1371,22 @@ defmodule Ryker.GitHub.RouterTest do
     assert response.status == 200
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
     assert_received {:feedback, "github:github-main:pull:42", {:denied, :write}}
+
+    for number <- [42 | Enum.to_list(43..52)] do
+      comment = payload() |> put_in(["issue", "number"], number)
+
+      assert request(Jason.encode!(comment),
+               delivery_ref: "another-denial-#{number}",
+               request_feedback: feedback,
+               repository_access: fn _, _ -> {:error, :actor_not_authorized} end
+             ).status == 200
+
+      if number in 43..51 do
+        assert_received {:feedback, _, {:denied, :write}}
+      else
+        refute_received {:feedback, _, _}
+      end
+    end
 
     ordinary = put_in(payload(), ["comment", "body"], "Looks good to me.")
 

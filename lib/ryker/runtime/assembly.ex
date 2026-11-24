@@ -984,7 +984,12 @@ defmodule Ryker.Runtime.Assembly do
         issue_triage: %{
           bindings:
             Map.new(prepared, fn {name, item} ->
-              {name, %{read_client: item.client}}
+              {name,
+               %{
+                 read_client: item.client,
+                 binding: item.trusted_binding,
+                 check: repository_access(%{name => item})
+               }}
             end)
         },
         issue_messages: %{
@@ -1159,7 +1164,7 @@ defmodule Ryker.Runtime.Assembly do
       ci_client: github_client!(context_http),
       ci_rerun_client: github_client!(ci_rerun_http),
       ci_cancel_client: github_client!(ci_cancel_http),
-      delivery_client: github_client!(delivery_http),
+      delivery_client: github_client!(delivery_http, binding.ryker_actor_id),
       review_client: github_client!(review_http),
       resolution_client: github_client!(resolution_http),
       close_client: github_client!(close_http),
@@ -1920,8 +1925,10 @@ defmodule Ryker.Runtime.Assembly do
     client
   end
 
-  defp github_client!(http) do
-    {:ok, client} = GitHub.Client.new(http: http, requester: Delivery.JSONClient)
+  defp github_client!(http, actor_id \\ nil) do
+    {:ok, client} =
+      GitHub.Client.new(http: http, requester: Delivery.JSONClient, ryker_actor_id: actor_id)
+
     client
   end
 

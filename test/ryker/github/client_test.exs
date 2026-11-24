@@ -10,8 +10,10 @@ defmodule Ryker.GitHub.ClientTest do
 
     {:ok, requester} =
       FakeRequester.start([
-        response(200, first_page),
-        response(200, [%{"body" => "done\n\n#{marker}", "id" => 8_001}])
+        response(200, [
+          Map.merge(hd(first_page), %{"body" => marker, "user" => %{"id" => 7}}) | tl(first_page)
+        ]),
+        response(200, [%{"body" => "done\n\n#{marker}", "id" => 8_001, "user" => %{"id" => 30}}])
       ])
 
     client = client(requester)
@@ -68,7 +70,9 @@ defmodule Ryker.GitHub.ClientTest do
     {:ok, requester} =
       FakeRequester.start([
         response(200, first_page),
-        response(200, [%{"body" => "summary\n\n#{marker}", "id" => 9_100}])
+        response(200, [
+          %{"body" => "summary\n\n#{marker}", "id" => 9_100, "user" => %{"id" => 30}}
+        ])
       ])
 
     assert Client.find_pull_review(client(requester), "octo/example", 42, marker) ==
@@ -116,7 +120,12 @@ defmodule Ryker.GitHub.ClientTest do
       FakeRequester.start([
         response(200, [
           %{"body" => marker, "id" => 9_001, "in_reply_to_id" => 7_999},
-          %{"body" => "reply #{marker}", "id" => 9_002, "in_reply_to_id" => 8_000}
+          %{
+            "body" => "reply #{marker}",
+            "id" => 9_002,
+            "user" => %{"id" => 30},
+            "in_reply_to_id" => 8_000
+          }
         ])
       ])
 
@@ -1222,7 +1231,9 @@ defmodule Ryker.GitHub.ClientTest do
   end
 
   defp client(requester) do
-    assert {:ok, client} = Client.new(http: requester, requester: FakeRequester)
+    assert {:ok, client} =
+             Client.new(http: requester, requester: FakeRequester, ryker_actor_id: 30)
+
     client
   end
 

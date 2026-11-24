@@ -42,7 +42,8 @@ defmodule Ryker.Work.Executor.Turns do
   end
 
   defp submit_turn(claim, key, settings) do
-    with {:ok, artifacts} <- Remote.input_artifacts(claim),
+    with :ok <- Ryker.GitHub.RequestAuthority.check_turn(claim),
+         {:ok, artifacts} <- Remote.input_artifacts(claim),
          {:ok, remote_session} <-
            Remote.api_call(settings, fn ->
              settings.api.get_session(settings.client, claim.session.coop_session_id)

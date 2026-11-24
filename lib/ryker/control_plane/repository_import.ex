@@ -135,6 +135,7 @@ defmodule Ryker.ControlPlane.RepositoryImport do
                 />
                 <span class="repository-choice-name">
                   <strong>{repository.full_name}</strong>
+                  <small :if={repository[:installation_id]}>Installation {repository.installation_id}</small>
                   <ShortTime.time
                     :if={repository.pushed_at}
                     at={repository.pushed_at}

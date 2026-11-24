@@ -4,7 +4,7 @@ defmodule Ryker.Settings.GitHub.Changeset do
   use Ryker, :changeset
   alias Ryker.Settings.GitHub
 
-  @fields ~w(enabled app_id app_slug oauth_client_id api_url auto_add_repositories bot_actor_id bot_login)a
+  @fields ~w(enabled app_id app_slug oauth_client_id api_url auto_add_repositories trusted_installation_ids bot_actor_id bot_login)a
 
   @impl true
   def fields, do: @fields
@@ -21,6 +21,7 @@ defmodule Ryker.Settings.GitHub.Changeset do
       |> validate_number(:bot_actor_id, greater_than: 0)
       |> validate_length(:bot_login, min: 1, max: 256, count: :codepoints)
       |> validate_url(:api_url)
+      |> installation_trust()
       |> validate_identity_pair(:bot_actor_id, :bot_login)
 
     if get_field(changeset, :enabled) and is_nil(get_field(changeset, :app_id)) do
@@ -30,6 +31,21 @@ defmodule Ryker.Settings.GitHub.Changeset do
     else
       changeset
     end
+  end
+
+  defp installation_trust(changeset) do
+    if changed?(changeset, :app_id) or changed?(changeset, :api_url) do
+      put_change(changeset, :trusted_installation_ids, [])
+    else
+      validate_change(changeset, :trusted_installation_ids, &validate_installations/2)
+    end
+  end
+
+  defp validate_installations(field, ids) do
+    if Enum.all?(ids, &(is_integer(&1) and &1 > 0 and &1 <= 9_223_372_036_854_775_807)) and
+         Enum.uniq(ids) == ids,
+       do: [],
+       else: [{field, "must contain distinct positive installation IDs"}]
   end
 
   defp validate_identity_pair(changeset, id_field, login_field) do

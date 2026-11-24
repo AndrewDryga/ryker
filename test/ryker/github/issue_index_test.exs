@@ -60,9 +60,9 @@ defmodule Ryker.GitHub.IssueIndexTest do
   end
 
   test "a newer event remains pending when an older fetch finishes", %{configured: configured} do
-    {:ok, first} = IssueIndex.enqueue(configured, 12, true)
+    {:ok, first} = IssueIndex.enqueue(configured, 12, true, grant())
     {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
-    {:ok, second} = IssueIndex.enqueue(configured, 12, false)
+    {:ok, second} = IssueIndex.enqueue(configured, 12, false, grant())
     assert second.generation > first.generation
     assert second.triage_pending
 
@@ -84,7 +84,7 @@ defmodule Ryker.GitHub.IssueIndexTest do
   test "keyword search works without embeddings and never claims complete coverage", %{
     configured: configured
   } do
-    {:ok, issue} = IssueIndex.enqueue(configured, 12, false)
+    {:ok, issue} = IssueIndex.enqueue(configured, 12, false, grant())
     {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
 
     assert {:ok, _saved} =
@@ -109,7 +109,7 @@ defmodule Ryker.GitHub.IssueIndexTest do
   test "meaning search can retrieve different words but never another repository identity", %{
     configured: configured
   } do
-    {:ok, issue} = IssueIndex.enqueue(configured, 12, false)
+    {:ok, issue} = IssueIndex.enqueue(configured, 12, false, grant())
     {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
 
     assert {:ok, _saved} =
@@ -150,17 +150,36 @@ defmodule Ryker.GitHub.IssueIndexTest do
     assert {:ok, %{"items" => []}} = IssueIndex.search(current, "zero rows download fails", opts)
   end
 
-  test "outside contributor webhook queues read-only triage only when the repository opted in", %{
+  test "unverified reports never queue embeddings or automatic triage", %{
     configured: configured
   } do
-    payload = %{
-      "action" => "opened",
-      "issue" => %{"number" => 12, "state" => "open"},
-      "sender" => %{"id" => 7}
+    author = %{"id" => 7, "login" => "reporter", "type" => "User"}
+    sender = %{"id" => 8, "login" => "editor", "type" => "User"}
+
+    issue = %{
+      "number" => 12,
+      "id" => 101,
+      "title" => "Report",
+      "state" => "open",
+      "user" => author
     }
 
-    assert IssueIndex.signal(configured.binding, "issues", payload) == :ok
-    assert Repo.one(IndexedIssue).triage_pending
+    payload = %{"action" => "edited", "issue" => issue, "sender" => sender}
+
+    for denied <- [author, sender], event <- ["issues", "issue_comment"] do
+      check = fn _, %{"sender" => actor} ->
+        if actor == denied, do: {:error, :actor_not_authorized}, else: :ok
+      end
+
+      assert IssueIndex.signal(configured.binding, event, payload, check) == :ok
+      assert Repo.aggregate(IndexedIssue, :count) == 0
+    end
+
+    assert IssueIndex.signal(configured.binding, "issues", payload, fn _, _ -> :ok end) == :ok
+
+    assert %{triage_pending: true, event_grant: %{"sender" => ^sender, "author" => ^author}} =
+             Repo.one(IndexedIssue)
+
     settings = Settings.fetch!()
 
     {:ok, _saved} =
@@ -173,10 +192,36 @@ defmodule Ryker.GitHub.IssueIndexTest do
     assert IssueIndex.signal(
              configured.binding,
              "issues",
-             put_in(payload, ["issue", "number"], 13)
+             put_in(payload, ["issue", "number"], 13),
+             fn _, _ -> :ok end
            ) == :ok
 
     assert Repo.aggregate(IndexedIssue, :count) == 1
+  end
+
+  test "loss of write access in the refresh queue skips the issue read and all downstream work",
+       %{configured: configured} do
+    {:ok, queued} = IssueIndex.enqueue(configured, 12, true, grant())
+
+    options =
+      IssueTriageWorker.options!(%{
+        api: __MODULE__.API,
+        bindings: %{
+          "widget-app" => %{
+            read_client: :fixture,
+            binding: configured.binding,
+            check: fn _, _ -> {:error, :actor_not_authorized} end
+          }
+        }
+      })
+
+    assert IssueTriageWorker.run_once(options) == {:ok, :updated}
+    refute_received {:issue_read, _}
+    saved = Repo.get!(IndexedIssue, queued.id)
+    refute saved.pending
+    refute saved.triage_pending
+    assert saved.document == nil
+    assert Repo.aggregate(Ryker.GitHubActions.IssueRequest, :count) == 0
   end
 
   test "the worker starts a quiet backfill and persists its cursor across runs", %{
@@ -184,7 +229,13 @@ defmodule Ryker.GitHub.IssueIndexTest do
   } do
     options =
       IssueTriageWorker.options!(%{
-        bindings: %{"widget-app" => %{read_client: :fixture}},
+        bindings: %{
+          "widget-app" => %{
+            read_client: :fixture,
+            binding: configured.binding,
+            check: fn _, _ -> :ok end
+          }
+        },
         api: __MODULE__.API
       })
 
@@ -205,18 +256,24 @@ defmodule Ryker.GitHub.IssueIndexTest do
     configured: configured
   } do
     DatabaseClock.ahead_of_host!()
-    {:ok, issue} = IssueIndex.enqueue(configured, 12, false)
+    {:ok, issue} = IssueIndex.enqueue(configured, 12, false, grant())
     {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
 
     {:ok, _saved} =
       IssueIndex.refreshed(claimed, issue, configured, document(12, "CSV export"), {nil, nil})
 
     {:ok, _saved} = IssueIndex.settled(claimed, issue, configured, nil)
-    {:ok, _issue} = IssueIndex.enqueue(configured, 12, true)
+    {:ok, _issue} = IssueIndex.enqueue(configured, 12, false, grant())
 
     options =
       IssueTriageWorker.options!(%{
-        bindings: %{"widget-app" => %{read_client: :fixture}},
+        bindings: %{
+          "widget-app" => %{
+            read_client: :fixture,
+            binding: configured.binding,
+            check: fn _, _ -> :ok end
+          }
+        },
         api: __MODULE__.API
       })
 
@@ -230,7 +287,7 @@ defmodule Ryker.GitHub.IssueIndexTest do
     configured: configured
   } do
     now = DatabaseClock.behind_host!()
-    {:ok, issue} = IssueIndex.enqueue(configured, 12, false)
+    {:ok, issue} = IssueIndex.enqueue(configured, 12, false, grant())
     {:ok, claimed} = IssueIndex.claim_next(["widget-app"])
 
     issue
@@ -249,7 +306,22 @@ defmodule Ryker.GitHub.IssueIndexTest do
       {:ok, %{numbers: [], complete: true}}
     end
 
-    def read(_client, _repository, _number), do: {:error, :issue_unavailable}
+    def read(_client, _repository, number) do
+      send(self(), {:issue_read, number})
+      {:error, :issue_unavailable}
+    end
+  end
+
+  defp grant do
+    actor = %{"id" => 7, "login" => "writer", "type" => "User"}
+
+    {:ok, grant} =
+      Ryker.GitHub.IssueTriageGrant.new(%{
+        "sender" => actor,
+        "issue" => %{"id" => 1, "number" => 12, "title" => "Report", "user" => actor}
+      })
+
+    grant
   end
 
   defp document(number, title),

@@ -32,6 +32,7 @@ defmodule Ryker.Admission.Executor do
          {:ok, settings} <- start_deadline(settings),
          :ok <- renew_lease(settings),
          {:ok, entry} <- Ingress.Inbox.fetch(input_ref),
+         :ok <- Ryker.GitHub.RequestAuthority.check_entry(entry),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings) do
       case host_decision(context) do
         {kind, %Decision{} = decision} when kind in [:unfurled, :same_request] ->
@@ -525,6 +526,7 @@ defmodule Ryker.Admission.Executor do
            validate_session(current_session, settings, session["id"]),
          {:ok, revision} <- Coop.Documents.revision(current_session, :session_revision),
          :ok <- reauthorize_context(entry, context),
+         :ok <- Ryker.GitHub.RequestAuthority.check_entry(entry),
          {:ok, response} <-
            settings.api.submit_turn(
              settings.client,

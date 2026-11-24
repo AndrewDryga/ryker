@@ -12,12 +12,31 @@ defmodule Ryker.GitHub.AccessTest do
 
     {:ok, _snapshot} =
       Settings.save_github(
-        %{auto_add_repositories: true, bot_actor_id: 30, bot_login: "ryker[bot]"},
+        %{
+          auto_add_repositories: true,
+          trusted_installation_ids: [41],
+          bot_actor_id: 30,
+          bot_login: "ryker[bot]"
+        },
         snapshot.installation.revision,
         @actor
       )
 
     %{trusted: %{"widget" => trusted!("widget", 501)}}
+  end
+
+  test "changing the GitHub API host clears trust in the previous host's installation IDs" do
+    settings = Settings.fetch!()
+    assert settings.github.trusted_installation_ids == [41]
+
+    assert {:ok, updated} =
+             Settings.save_github(
+               %{api_url: "https://git.example.test/api/v3"},
+               settings.installation.revision,
+               @actor
+             )
+
+    assert updated.github.trusted_installation_ids == []
   end
 
   # The membership change was saved binding by binding, then the auto-import

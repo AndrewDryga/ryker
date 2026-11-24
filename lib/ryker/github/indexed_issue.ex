@@ -7,6 +7,7 @@ defmodule Ryker.GitHub.IndexedIssue do
     field(:number, :integer)
     field(:generation, :integer, default: 1)
     field(:pending, :boolean, default: true)
+    field(:event_grant, :map)
     field(:triage_pending, :boolean, default: false)
     field(:document, Ryker.CanonicalJSON.Type)
     field(:embedding, {:array, :float})

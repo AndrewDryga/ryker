@@ -839,7 +839,12 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   end
 
   defp adapters_with_github!(slack_api, github) do
-    assert {:ok, client} = GitHubClient.new(http: github, requester: GitHubRequester)
+    assert {:ok, client} =
+             GitHubClient.new(
+               http: github,
+               requester: GitHubRequester,
+               ryker_actor_id: github_binding!().ryker_actor_id
+             )
 
     assert {:ok, adapters} =
              Adapters.new(%{

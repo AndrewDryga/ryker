@@ -145,6 +145,10 @@ defmodule Ryker.Admission.Dispatcher do
     )
   end
 
+  defp dispatch_failure(claim, input_ref, reason, _settings)
+       when reason in [:triage_request_expired, :github_request_withdrawn],
+       do: block(claim, input_ref, reason)
+
   defp dispatch_failure(claim, input_ref, reason, settings) do
     {reported_reason, generation} = retry_reason(reason)
 

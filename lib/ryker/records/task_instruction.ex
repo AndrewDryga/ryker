@@ -53,7 +53,9 @@ defmodule Ryker.Records.TaskInstruction do
          } = event
        ) do
     with {:ok, entry} <- Ingress.Inbox.fetch_admitted_source(binding.episode, event),
-         true <- entry.execution_mode == :live and is_nil(entry.operational_pruned_at),
+         true <-
+           entry.execution_mode == :live and is_nil(entry.operational_pruned_at) and
+             is_nil(entry.github_withdrawn_at),
          true <- entry.destination_transport == binding.episode.destination_transport,
          true <-
            entry.destination_conversation_ref == binding.episode.destination_conversation_ref,

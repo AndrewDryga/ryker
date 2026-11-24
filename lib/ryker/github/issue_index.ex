@@ -3,7 +3,7 @@ defmodule Ryker.GitHub.IssueIndex do
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Embeddings
-  alias Ryker.GitHub.{IndexedIssue, IssueIndexState}
+  alias Ryker.GitHub.{IndexedIssue, IssueIndexState, IssueTriageGrant}
   alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.Settings
@@ -29,7 +29,7 @@ defmodule Ryker.GitHub.IssueIndex do
   end
 
   @doc "Only verified webhook ingress calls this. Backfill never requests triage."
-  def signal(binding, event, %{"issue" => issue} = payload)
+  def signal(binding, event, %{"issue" => issue} = payload, check)
       when event in ["issues", "issue_comment"] do
     with true <-
            is_nil(issue["pull_request"]) and is_integer(issue["number"]) and issue["number"] > 0,
@@ -37,27 +37,33 @@ defmodule Ryker.GitHub.IssueIndex do
          true <-
            configured.binding.repository_id == binding.repository_id and
              configured.binding.installation_id == binding.installation_id,
-         true <- configured.repository.github_issue_triage do
+         true <- configured.repository.github_issue_triage,
+         {:ok, grant} <- IssueTriageGrant.new(payload),
+         :ok <- IssueTriageGrant.authorize(grant, binding, check) do
       triage =
         event == "issues" and payload["action"] in ["opened", "reopened", "edited"] and
           issue["state"] == "open"
 
-      case enqueue(configured, issue["number"], triage) do
+      case enqueue(configured, issue["number"], triage, grant) do
         {:ok, _issue} -> :ok
         {:error, reason} -> {:error, reason}
       end
     else
-      _disabled -> :ok
+      {:error, {:github_repository_access_unavailable, reason}} ->
+        {:error, {:github_repository_access_unavailable, reason}}
+
+      _disabled ->
+        :ok
     end
   end
 
-  def signal(_binding, _event, _payload), do: :ok
+  def signal(_binding, _event, _payload, _check), do: :ok
 
-  def enqueue(configured, number, triage) do
+  def enqueue(configured, number, triage, grant) do
     Repo.transaction(fn ->
       fence!(configured)
       index = ensure_locked!(configured)
-      issue = enqueue_locked!(index, number, triage)
+      issue = enqueue_locked!(index, number, triage, grant)
       update_index!(index, %{next_attempt_at: Repo.now!()})
       issue
     end)
@@ -89,7 +95,7 @@ defmodule Ryker.GitHub.IssueIndex do
     Repo.transaction(fn ->
       fence!(configured)
       index = locked_claim!(claimed)
-      Enum.each(page.numbers, &enqueue_locked!(index, &1, false))
+      Enum.each(page.numbers, &enqueue_locked!(index, &1, false, nil))
 
       update_index!(index, %{
         page: index.page + 1,
@@ -245,16 +251,24 @@ defmodule Ryker.GitHub.IssueIndex do
     end
   end
 
-  defp enqueue_locked!(index, number, triage) do
+  defp enqueue_locked!(index, number, triage, grant) do
     query = index.id |> IndexedIssue.Query.by_index_id() |> IndexedIssue.Query.by_number(number)
 
     case Repo.fetch(query |> IndexedIssue.Query.lock_for_update()) do
+      {:ok, issue} when is_nil(grant) ->
+        issue
+
       {:ok, issue} ->
+        keep =
+          not triage and issue.pending and issue.triage_pending and
+            get_in(issue.event_grant, ["digest"]) == grant["digest"]
+
         issue
         |> IndexedIssue.Changeset.update(%{
           generation: issue.generation + 1,
           pending: true,
-          triage_pending: triage or issue.triage_pending,
+          triage_pending: triage or keep,
+          event_grant: if(keep, do: issue.event_grant, else: grant),
           next_attempt_at: Repo.now!()
         })
         |> Repo.update!()
@@ -263,6 +277,7 @@ defmodule Ryker.GitHub.IssueIndex do
         IndexedIssue.Changeset.insert(%{
           index_id: index.id,
           number: number,
+          event_grant: grant,
           triage_pending: triage,
           next_attempt_at: Repo.now!()
         })
@@ -278,7 +293,8 @@ defmodule Ryker.GitHub.IssueIndex do
            current.binding.repository_id == configured.binding.repository_id and
              current.binding.installation_id == configured.binding.installation_id and
              current.repository.ref == configured.repository.ref and
-             current.repository.github_repository == configured.repository.github_repository,
+             current.repository.github_repository == configured.repository.github_repository and
+             current.repository.github_issue_triage == configured.repository.github_issue_triage,
          do: :ok,
          else: (_changed -> Repo.rollback(:repository_access_changed))
   end

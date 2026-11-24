@@ -2,7 +2,7 @@ defmodule Ryker.GitHub.IssueTriageWorker do
   @moduledoc "Quiet bounded backfill, current issue refresh, and opted-in read-only triage."
   use Ryker.PollingWorker, lane: :github_issue_triage, interval: :interval_ms
   alias Ryker.Adapter
-  alias Ryker.GitHub.{Client, IssueIndex, IssueSnapshot}
+  alias Ryker.GitHub.{Client, IssueIndex, IssueSnapshot, IssueTriageGrant}
   alias Ryker.GitHubActions
   alias Ryker.Options
 
@@ -56,7 +56,8 @@ defmodule Ryker.GitHub.IssueTriageWorker do
   end
 
   defp process(claimed, options) do
-    client = Map.fetch!(options.bindings, claimed.binding_ref).read_client
+    placement = Map.fetch!(options.bindings, claimed.binding_ref)
+    client = placement.read_client
 
     with {:ok, configured} <- IssueIndex.configuration(claimed.binding_ref),
          true <-
@@ -68,7 +69,7 @@ defmodule Ryker.GitHub.IssueTriageWorker do
              configured.repository.github_repository,
              claimed.repository_id
            ),
-         {:ok, _saved} <- advance(claimed, configured, client, options.api) do
+         {:ok, _saved} <- advance(claimed, configured, placement, options.api) do
       {:ok, :updated}
     else
       _unavailable ->
@@ -79,12 +80,20 @@ defmodule Ryker.GitHub.IssueTriageWorker do
     end
   end
 
-  defp advance(claimed, configured, client, api) do
+  defp advance(claimed, configured, placement, api) do
+    client = placement.read_client
+
     case IssueIndex.fetch_next_issue(claimed) do
       {:ok, issue} ->
-        refresh(claimed, issue, configured, client, api)
+        case authorize_refresh(issue, configured, placement) do
+          :ok -> refresh(claimed, issue, configured, client, api)
+          {:error, :actor_not_authorized} -> IssueIndex.settled(claimed, issue, configured, nil)
+          error -> error
+        end
 
-      {:error, :not_found} when claimed.page <= 5 and not claimed.backfill_complete ->
+      {:error, :not_found}
+      when configured.repository.github_issue_triage and claimed.page <= 5 and
+             not claimed.backfill_complete ->
         with {:ok, page} <-
                api.page(client, configured.repository.github_repository, claimed.page),
              do: IssueIndex.backfilled(claimed, configured, page)
@@ -94,10 +103,33 @@ defmodule Ryker.GitHub.IssueTriageWorker do
     end
   end
 
+  defp authorize_refresh(_issue, %{repository: %{github_issue_triage: false}}, _placement),
+    do: {:error, :actor_not_authorized}
+
+  defp authorize_refresh(%{event_grant: nil, triage_pending: false}, _configured, _placement),
+    do: :ok
+
+  defp authorize_refresh(issue, _configured, %{binding: binding, check: check}),
+    do: IssueTriageGrant.authorize(issue.event_grant, binding, check)
+
+  defp authorize_refresh(_issue, _configured, _placement), do: {:error, :actor_not_authorized}
+
   defp refresh(claimed, issue, configured, client, api) do
     case api.read(client, configured.repository.github_repository, issue.number) do
       {:ok, document} ->
-        refresh_document(claimed, issue, configured, document)
+        with {:ok, current} <- IssueIndex.configuration(claimed.binding_ref),
+             true <-
+               current.repository.github_issue_triage and
+                 current.binding.installation_id == claimed.installation_id and
+                 current.binding.repository_id == claimed.repository_id,
+             true <-
+               is_nil(issue.event_grant) or
+                 IssueTriageGrant.matches?(issue.event_grant, document["issue"]) do
+          refresh_document(claimed, issue, current, document)
+        else
+          false -> IssueIndex.settled(claimed, issue, configured, nil)
+          error -> error
+        end
 
       {:error, :issue_unavailable} ->
         with {:ok, _saved} <- IssueIndex.refreshed(claimed, issue, configured, nil, {nil, nil}),
@@ -115,7 +147,7 @@ defmodule Ryker.GitHub.IssueTriageWorker do
              issue,
              configured,
              document,
-             IssueIndex.embedding(document)
+             if(issue.event_grant, do: IssueIndex.embedding(document), else: {nil, nil})
            ) do
       case triage(issue, configured, document) do
         {:ok, digest} -> IssueIndex.settled(claimed, issue, configured, digest)
@@ -132,7 +164,8 @@ defmodule Ryker.GitHub.IssueTriageWorker do
     with false <- document["issue"]["body_truncated"],
          {:ok, snapshot} <- IssueSnapshot.prepare(configured, issue.number, document["issue"]),
          digest <- IssueSnapshot.content_digest(snapshot),
-         {:ok, _request} <- GitHubActions.IssueWorkflows.auto_triage(configured, snapshot) do
+         {:ok, _request} <-
+           GitHubActions.IssueWorkflows.auto_triage(configured, snapshot, issue.event_grant) do
       {:ok, digest}
     else
       true -> {:ok, nil}
