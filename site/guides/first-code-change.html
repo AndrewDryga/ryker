@@ -83,6 +83,7 @@
 <h2 id="ask">Ask for a specific change</h2>
 <p>Replace the repository and behavior with a bug in your project:</p>
 <pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker in your-team/your-repository, reject an empty email address when creating a user. Return the same validation error as other invalid inputs. Add a regression test and run the relevant tests.</code></pre>
+<p>In a <a href="https://github.com/AndrewDryga/test/pull/13">public test run started from Slack</a>, we asked for a one-question FAQ. The draft includes the original request, the checks Ryker reported, and the one file it added. We closed that test PR after inspecting it.</p>
 <p>Ryker creates a separate working copy and starts the task. It asks a question only when a missing decision changes the work. If Ryker suggests a change you have not requested, it offers <strong>Start task</strong> first.</p>
 <h2 id="work">Follow the work in the thread</h2>
 <p>The task card updates as Ryker plans the change, edits the code, and runs checks. Answer any questions in that thread. Further replies there continue the task without another mention.</p>
@@ -95,7 +96,8 @@
 <p>Leave feedback on the pull request or in the original Slack thread. For example:</p>
 <pre data-copy-kind="message" data-copy-button="Copy example"><code>Also handle an email address containing only spaces. Add a test for that case and keep the error response consistent.</code></pre>
 <p>Review comments return to the same task. Failed CI on Ryker’s published commit can also resume the task so it fixes the failure within its scope and updates the same pull request. You do not need to ask it to repair each failed check.</p>
-<p>When you are satisfied with the change and checks, your team marks the draft ready, merges it, and releases it. Ryker reports the pull request’s outcome in the original thread.</p>
+<p>You can see a reviewer <a href="https://github.com/AndrewDryga/test/pull/5#discussion_r4152798819">ask Ryker to replace a greeting with a joke</a> in another public test. Ryker replied in the same review thread. That draft was closed without merging.</p>
+<p>For a merged example, see <a href="https://github.com/AndrewDryga/AndrewDryga/pull/1">the change that added RYKER.md to our website repository</a>. Ryker opened the PR, the build passed, and Andrew merged it. Your team decides when to merge and release. Ryker reports the PR outcome in the original thread.</p>
 <nav class="doc-next" aria-label="Page navigation"><a href="../docs/slack.html" rel="prev"><span class="k">Previous</span><span class="t">Working in Slack</span></a><a class="next" href="../docs/github.html" rel="next"><span class="k">Next</span><span class="t">GitHub and pull requests</span></a></nav>
 </main>
 
