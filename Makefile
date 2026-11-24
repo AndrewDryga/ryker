@@ -255,7 +255,7 @@ deps-audit:
 # A Coop box has no Docker; Coop started the same service as its sidecar.
 test-db-ready:
 	if command -v docker >/dev/null 2>&1; then \
-		docker compose --project-name ryker-kernel --file compose.test.yml up --detach --wait episode-db >/dev/null; \
+		docker compose --project-name ryker-kernel-pg19 --file compose.test.yml up --detach --wait episode-db >/dev/null; \
 	fi
 
 # The checks that need no test database, side by side; dev-check runs them

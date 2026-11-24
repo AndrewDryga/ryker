@@ -93,6 +93,27 @@ defmodule Ryker.HistoryIndexesTest do
     assert rows_read(reads, "slack_thread_status_receipts") <= 4
   end
 
+  test "input and episode receipts share a single ordered result" do
+    episode_id = Ecto.UUID.generate()
+    input_id = Ecto.UUID.generate()
+    receipts!("episode", fn -> episode_id end, 2)
+    receipts!("input", fn -> input_id end, 2)
+    receipts!("episode", fn -> input_id end, 1)
+    receipts!("input", fn -> episode_id end, 1)
+
+    rows =
+      episode_id
+      |> Slack.ThreadStatusReceipt.Query.by_episode_id([input_id])
+      |> Slack.ThreadStatusReceipt.Query.ordered_by_recent()
+      |> Repo.all()
+
+    assert Enum.frequencies_by(rows, &{&1.origin_kind, &1.origin_id}) ==
+             %{{"episode", episode_id} => 2, {"input", input_id} => 2}
+
+    assert rows ==
+             Enum.sort_by(rows, &{DateTime.to_unix(&1.inserted_at, :microsecond), &1.id}, :desc)
+  end
+
   # Every Slack reply and repaint asked which activity had expired by building
   # that set over every episode's activity, input and turn.
   test "a reply's sources read its own episode's activity, not every episode's" do

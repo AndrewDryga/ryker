@@ -102,7 +102,7 @@ defmodule Ryker.Evals.WorldEvalScriptTest do
         System.cmd("docker", [
           "compose",
           "--project-name",
-          "ryker-kernel",
+          "ryker-kernel-pg19",
           "--file",
           Path.expand("../../../compose.test.yml", __DIR__),
           "port",

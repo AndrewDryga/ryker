@@ -37,8 +37,15 @@ defmodule Ryker.Learning.ConversationObservation.Query do
     do: where(queryable, [conversation_observations: o], not is_nil(o.note))
 
   @doc "Observations no topic is learned from, by `source_ids`, a query of observation ids."
-  def not_among(queryable, source_ids),
-    do: where(queryable, [conversation_observations: o], o.id not in subquery(source_ids))
+  # Keep the uncorrelated membership set hashable. PostgreSQL 19 turned NOT IN
+  # into a nested anti-join that read the same topic's sources for each candidate.
+  def not_among(queryable, source_ids) do
+    where(
+      queryable,
+      [conversation_observations: o],
+      fragment("(?) IS FALSE", o.id in subquery(source_ids))
+    )
+  end
 
   @doc "This conversation's first, then this repository's, then the latest said."
   def ordered_by_recall_precedence(queryable, scope) do

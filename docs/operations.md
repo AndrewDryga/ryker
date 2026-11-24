@@ -398,6 +398,72 @@ removes the stopped containers and network while leaving the named volumes and `
 in place. `start` builds a model's image the first time it is turned on, and a model that does not
 start is reported without stopping Ryker.
 
+## Upgrade the bundled PostgreSQL 18 database to 19
+
+Fresh installations initialize PostgreSQL 19. Existing Compose installations must upgrade
+their cluster before running `start` or `upgrade` from this checkout. Replacing the database
+image alone cannot convert the data. Reserve space for both clusters and a backup. Schedule
+downtime and suspend other lifecycle operations for the cutover.
+
+For the stock installation (one application database and owner, both called `ryker`), rehearse
+by restoring a controller backup's `database.dump` into an isolated PostgreSQL 19 database
+using `pg_restore --exit-on-error`. Compare the migrations, table counts and application data.
+For extra databases, roles, custom grants, extensions or tablespaces, use the PostgreSQL
+cluster upgrade procedure that covers them. The controller backup covers the application
+database and omits custom ownership and privileges. [PostgreSQL upgrade procedures](https://www.postgresql.org/docs/19/upgrading.html)
+
+For the stock cutover, stop the controller before taking a **fresh** controller backup. It
+stays stopped if it was already stopped when the backup began. Run these commands from the
+PG19 checkout using the installation's environment file. Run the shell block with Bash.
+
+```bash
+set -euo pipefail
+umask 077
+dc() { docker compose --env-file .ryker/compose.env --file compose.yml "$@"; }
+scratch=$(mktemp -d)
+stage=$(date -u +ryker-pg19-%Y%m%d%H%M%S)
+stage_dir="/var/lib/postgresql/.$stage"
+
+test "$(dc exec -T database psql -XAt -U ryker -d ryker -c 'SHOW server_version_num' | cut -c1-2)" = 18
+dc stop ryker
+scripts/compose.sh backup --controller-only
+tar -xOzf .ryker/backups/ryker-latest.tar.gz database.dump > "$scratch/database.dump"
+dc exec -T database test ! -e /var/lib/postgresql/19/docker
+dc exec -T database test ! -e "$stage_dir"
+dc run -d --no-deps --name "$stage" -e PGDATA="$stage_dir" database
+for ((i=0; i<60; i++)); do
+  docker exec "$stage" pg_isready -h 127.0.0.1 -U ryker -d ryker >/dev/null 2>&1 && break
+  sleep 1
+done
+docker exec "$stage" pg_isready -h 127.0.0.1 -U ryker -d ryker
+docker exec -i "$stage" pg_restore -U ryker -d ryker --exit-on-error < "$scratch/database.dump"
+```
+
+Before switching, compare row counts and the latest schema migration in the stopped
+controller's database and the restored copy. If a check fails, stop the staging container
+and restart the original controller with `dc start ryker`. On success, in the same shell:
+
+```bash
+docker stop "$stage"
+docker rm "$stage"
+dc stop database
+dc run --rm --no-deps -T --entrypoint sh database -ec '
+  test "$(cat "$1/PG_VERSION")" = 19
+  test ! -e /var/lib/postgresql/19/docker
+  mkdir -p /var/lib/postgresql/19
+  mv -T "$1" /var/lib/postgresql/19/docker
+' sh "$stage_dir"
+dc up --detach --no-deps --wait database
+dc exec -T database psql -X -U ryker -d ryker -c 'SHOW server_version'
+dc start ryker
+```
+
+Check `/healthz`, `/readyz`, and the controller version. Keep the private backup and the
+original `18/docker` directory. Before accepting new writes, the old checkout and its
+original database can be restarted as a rollback. After new writes, rolling back requires
+transferring those writes or explicitly accepting their loss. Remove the temporary dump once
+the cutover is verified.
+
 ## Upgrade
 
 Upgrades build from the checkout: no Ryker container image is published, and a GitHub Release

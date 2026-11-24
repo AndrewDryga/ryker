@@ -50,8 +50,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && apt-get update \
  && apt-get install -y --no-install-recommends postgresql-common \
  && sed -ri 's/^#?(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf \
- && apt-get install -y --no-install-recommends postgresql-18 \
- && ln -s /usr/lib/postgresql/18/bin/initdb /usr/lib/postgresql/18/bin/pg_ctl /usr/local/bin/
+ && apt-get install -y --no-install-recommends postgresql-19 \
+ && ln -s /usr/lib/postgresql/19/bin/initdb /usr/lib/postgresql/19/bin/pg_ctl /usr/local/bin/
 
 COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang
 COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir

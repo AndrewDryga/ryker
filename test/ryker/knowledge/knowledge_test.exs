@@ -1047,8 +1047,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   end
 
   defp stale_recall_statistics! do
-    # Captured from the failed full gate (seed 872694). PostgreSQL 18's restore
-    # API is pinned by compose.test.yml; Sandbox rollback restores the catalog.
+    # Captured from the failed PostgreSQL 18 gate (seed 872694).
+    # Sandbox rollback restores the catalog.
     # No source/model data or planner switches are changed by this fault seed.
     for {table, pages} <- [
           {"conversation_knowledge", 0},

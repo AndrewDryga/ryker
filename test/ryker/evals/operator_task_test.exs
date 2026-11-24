@@ -175,7 +175,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
     makefile = File.read!(Path.expand("../../../Makefile", __DIR__))
 
     assert makefile =~
-             ~r/^test-db-ready:\n\tif command -v docker [^\n]*\n\t\tdocker compose --project-name ryker-kernel --file compose\.test\.yml up --detach --wait episode-db/m
+             ~r/^test-db-ready:\n\tif command -v docker [^\n]*\n\t\tdocker compose --project-name ryker-kernel-pg19 --file compose\.test\.yml up --detach --wait episode-db/m
 
     assert makefile =~ ~r/^check: test-db-ready$/m
   end

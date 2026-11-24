@@ -487,7 +487,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
     # roots, and learning exhausted its 15-second transaction deadline. Restore
     # all four observed relation statistics, not source/model prose or planner settings.
     # Fresh relations have unknown (-1) statistics, which choose different plans.
-    # PostgreSQL 18 is pinned in compose.test.yml; Sandbox rollback undoes this.
+    # These statistics were observed on PostgreSQL 18. Sandbox rollback restores the catalog.
     for {table, pages} <- [
           {"conversation_knowledge", 0},
           {"conversation_knowledge_revisions", 0},

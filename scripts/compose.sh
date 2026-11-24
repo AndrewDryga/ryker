@@ -48,6 +48,22 @@ compose() {
   docker compose --env-file "$env_file" "$@"
 }
 
+# A new major cannot open the old cluster. Detect it while the current
+# service is still available, before Compose replaces it or upgrade repins Ryker.
+require_database_major() {
+  # shellcheck disable=SC2016 # PGDATA belongs to the running database.
+  running_major=$(compose exec -T database sh -c 'cat "$PGDATA/PG_VERSION"' 2>/dev/null) || return 0
+  case $running_major in ''|*[!0-9]*) return 0 ;; esac
+  target_image=$(compose config --images database) || return 1
+  case $target_image in
+    postgres:"$running_major".*) return 0 ;;
+    postgres:[0-9]*.*)
+      echo "Running PostgreSQL $running_major needs a major upgrade before switching to $target_image. See docs/operations.md (Upgrade the bundled PostgreSQL database)." >&2
+      return 1
+      ;;
+  esac
+}
+
 # The commands that build the Ryker image build this checkout and label it with
 # the pinned RYKER_VERSION. A dirty checkout would ship unreviewed files under
 # that label, and the version header could not tell (2026-10-04 review).
@@ -431,7 +447,10 @@ case "$command" in
     [ "$#" -eq 1 ] || usage
     lock_lifecycle install
     # Run again over an installation, install rebuilds it from this checkout.
-    if [ -r "$env_file" ]; then require_clean_checkout install; fi
+    if [ -r "$env_file" ]; then
+      require_clean_checkout install
+      require_database_major
+    fi
     install_ryker
     ;;
   restore)
@@ -512,6 +531,7 @@ case "$command" in
     # Everything that can refuse the backup does so before anything changes:
     # the restore once stopped Ryker and dropped the live database first, and an
     # archive that would not restore left an empty one (2026-10-04 review).
+    require_database_major
     compose up --detach --no-build --wait database
     compose exec -T database pg_restore --list <"$scratch/database.dump" >/dev/null || {
       echo "The backup's database dump cannot be read. Nothing was changed." >&2
@@ -587,6 +607,7 @@ case "$command" in
   start)
     require_install
     lock_lifecycle start
+    require_database_major
     compose up --detach --no-build --wait ryker ryker-coop
     start_models
     wait_ready
@@ -604,6 +625,7 @@ case "$command" in
     require_clean_checkout upgrade
     require_published_head
     lock_lifecycle upgrade
+    require_database_major
     python3 "$repository/scripts/storage_maintenance.py" --prepare-build --env-file "$env_file"
     replaced=$(running_image)
     release=$(head_release)
