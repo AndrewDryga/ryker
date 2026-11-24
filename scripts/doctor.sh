@@ -45,7 +45,7 @@ within() { /usr/bin/perl -e 'alarm shift @ARGV; exec @ARGV or exit 127' "$@"; }
 alive() { [[ -n $1 ]] && kill -0 "$1" 2>/dev/null; }
 
 test_db() {
-  within 15 "$docker_command" exec ryker-kernel-episode-db-1 psql -X -U postgres -d postgres -At "$@" 2>/dev/null
+  within 15 "$docker_command" exec ryker-kernel-pg19-episode-db-1 psql -X -U postgres -d postgres -At "$@" 2>/dev/null
 }
 
 echo "doctor: $repository"
@@ -81,7 +81,7 @@ fi
 connections=$(test_db -c 'SHOW max_connections')
 if [[ $connections == 500 ]]; then
   ok "the test PostgreSQL allows 500 connections"
-elif ((fix == 1)) && "$docker_command" compose --project-name ryker-kernel --file compose.test.yml \
+elif ((fix == 1)) && "$docker_command" compose --project-name ryker-kernel-pg19 --file compose.test.yml \
   up --detach --wait episode-db >/dev/null 2>&1; then
   fixed "the test PostgreSQL runs as compose.test.yml says"
 else

@@ -10,7 +10,7 @@
 # has no Docker; .agent/project.yaml), and returns 1 when there is neither.
 use_test_database_server() {
   if command -v docker >/dev/null 2>&1; then
-    local compose=(docker compose --project-name ryker-kernel --file "$root/compose.test.yml")
+    local compose=(docker compose --project-name ryker-kernel-pg19 --file "$root/compose.test.yml")
     local address
 
     # `up` is a no-op when the healthy container already matches compose.test.yml

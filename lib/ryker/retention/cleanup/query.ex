@@ -110,7 +110,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   on it, and its cleanup phase is due.
   """
   def eligible(now) do
-    from(session in Work.Session.Query.all(),
+    from(session in Work.Session.Query.not_discarded(),
       left_join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on: episode.id == session.episode_id,

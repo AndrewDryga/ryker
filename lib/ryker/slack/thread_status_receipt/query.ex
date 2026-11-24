@@ -20,12 +20,23 @@ defmodule Ryker.Slack.ThreadStatusReceipt.Query do
   thread's receipts to find one episode's (2026-11-03).
   """
   def by_episode_id(episode_id, input_ids) do
-    where(
-      all(),
-      [slack_thread_status_receipts: r],
-      (r.origin_kind == "episode" and r.origin_id == ^episode_id) or
-        (r.origin_kind == "input" and r.origin_id in ^input_ids)
-    )
+    episode =
+      where(
+        all(),
+        [slack_thread_status_receipts: r],
+        r.origin_kind == "episode" and r.origin_id == ^episode_id
+      )
+
+    inputs =
+      where(
+        all(),
+        [slack_thread_status_receipts: r],
+        r.origin_kind == "input" and r.origin_id in ^input_ids
+      )
+
+    # The two origin kinds are disjoint. Filter by each indexed key before
+    # applying the common sort and limit, which otherwise scan unrelated receipts.
+    from(r in subquery(union_all(episode, ^inputs)), as: :slack_thread_status_receipts)
   end
 
   def ordered_by_oldest(queryable),

@@ -31,7 +31,7 @@ defmodule Ryker.ComposeDistributionTest do
     assert public =~ ~s(127.0.0.1)
     assert public =~ "restart: unless-stopped"
     assert public =~ "healthcheck:"
-    assert public =~ "postgres:18.7-bookworm"
+    assert public =~ "postgres:19.0-bookworm"
     assert public =~ "ryker-database:/var/lib/postgresql"
     assert public =~ "ryker-database:"
     assert public =~ "ryker-state:"
@@ -617,6 +617,43 @@ defmodule Ryker.ComposeDistributionTest do
 
     assert Enum.at(calls, built) =~
              ~s(run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop -c umask 077; mkdir -p "$TMPDIR"; coop build)
+  end
+
+  # Compose would replace a healthy 18 server before the 19 entrypoint could
+  # report its incompatible data directory, taking the controller offline.
+  test "start keeps the running database available until its major upgrade" do
+    dir = Path.join(System.tmp_dir!(), "ryker-pg-upgrade-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    bin = Path.join(dir, "bin")
+    File.mkdir_p!(bin)
+    File.write!(Path.join(dir, "compose.env"), "RYKER_VERSION=0.6.5\n")
+
+    fake!(bin, "docker", """
+    case "$*" in
+      *"exec -T database "*) echo 18 ;;
+      *"config --images database") echo 'postgres:19.0-bookworm@sha256:fixture' ;;
+      *" up "*) touch "$FAKE_UP"; exit 1 ;;
+      *) exit 1 ;;
+    esac
+    """)
+
+    up = Path.join(dir, "up")
+
+    {output, status} =
+      System.cmd("sh", ["scripts/compose.sh", "start"],
+        cd: @root,
+        env: [
+          {"PATH", bin <> ":" <> System.fetch_env!("PATH")},
+          {"RYKER_INSTALL_STATE", dir},
+          {"FAKE_UP", up}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0
+    refute File.exists?(up)
+    assert output =~ "PostgreSQL 18"
+    assert output =~ "docs/operations.md"
   end
 
   defp fake!(bin, name, body) do
