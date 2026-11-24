@@ -20,6 +20,7 @@ defmodule Ryker.Admission.Runtime do
     :policy,
     :policy_digest,
     :poll_interval_ms,
+    :source_reader,
     :worker_ref
   ]
   @lease_seconds 300
@@ -49,6 +50,7 @@ defmodule Ryker.Admission.Runtime do
            [
              dispatcher_options: [
                executor_options: [
+                 source_reader: options.source_reader,
                  api: options.api,
                  bind_execution_session: options.bind_execution_session,
                  claim_ready_session: options.claim_ready_session,
@@ -98,6 +100,7 @@ defmodule Ryker.Admission.Runtime do
     Map.merge(callbacks, %{
       api: api,
       client: client,
+      source_reader: Map.get(configuration, :source_reader),
       concurrency: concurrency,
       decision_timeout_ms: decision_timeout_ms,
       policy: policy,

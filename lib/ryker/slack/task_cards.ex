@@ -77,26 +77,33 @@ defmodule Ryker.Slack.TaskCards do
 
   def confirm_offer(_record), do: {:error, :invalid_task_card_record}
 
-  @doc "Give an automatically started task its card even if the proposing turn never delivers."
+  @doc "Give the started task its card and report its delivery state in the requesting thread."
   def ensure_started(
         %Records.Record{} = record,
-        %Episodes.Episode{destination_transport: "slack"} = episode
+        %Episodes.Episode{destination_transport: "slack"} = episode,
+        source
       ) do
-    case Repo.fetch(TaskCard.Query.by_record_id(record.id)) do
-      {:ok, _card} ->
-        :ok
-
-      {:error, :not_found} ->
+    card =
+      Repo.peek(TaskCard.Query.by_record_id(record.id)) ||
         insert!(record, %{
           "conversation_ref" => episode.destination_conversation_ref,
           "thread_ref" => episode.destination_thread_ref
         })
 
-        :ok
+    same_thread? =
+      card.thread_ref == source.destination_thread_ref or
+        (is_nil(card.thread_ref) and card.message_ref == source.destination_thread_ref)
+
+    if card.status == :active and same_thread? and source.destination_transport == "slack" and
+         ConversationRef.slack(card.workspace_ref, card.channel_ref) ==
+           source.destination_conversation_ref do
+      if card.message_ref, do: "delivered", else: "pending"
+    else
+      "unavailable"
     end
   end
 
-  def ensure_started(%Records.Record{}, %Episodes.Episode{}), do: :ok
+  def ensure_started(%Records.Record{}, %Episodes.Episode{}, _source), do: "unavailable"
 
   @doc "The real reply thread of a channel-root task card, or :pending until its post is recorded."
   def root_reply_target(

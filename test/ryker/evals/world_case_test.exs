@@ -231,7 +231,15 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 57
+    assert length(scenarios) == 61
+
+    assert for(scenario <- scenarios, "verification-handoff" in scenario.tags, do: scenario.id)
+           |> Enum.sort() == [
+             "confirm-the-planned-job-identity",
+             "later-iam-audit-reaches-the-requester",
+             "routine-apply-progress-keeps-the-thread-quiet",
+             "verification-as-the-requested-identity"
+           ]
 
     assert scenarios
            |> Enum.filter(&("dashboard-setup" in &1.tags))

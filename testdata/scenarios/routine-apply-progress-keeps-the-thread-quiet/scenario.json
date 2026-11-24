@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "id": "routine-apply-progress-keeps-the-thread-quiet",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "slack-thread:cost-dashboard-access"
+    ],
+    "captured_at": "2026-11-24T14:26:14Z"
+  },
+  "clock": {
+    "start": "2026-11-24T14:04:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:app:terraform",
+      "authority": "source_event",
+      "input_profile": {
+        "actor": {
+          "kind": "app",
+          "ref": "terraform"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:app:terraform",
+      "destination": {
+        "transport": "slack",
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1795000000.000001"
+      },
+      "kind": "input",
+      "occurred_at": "2026-11-24T14:04:00Z",
+      "payload": {
+        "source_kind": "terraform",
+        "state": "applying",
+        "workspace": "analytics",
+        "run_id": "run-costSnapshotApply",
+        "text": "Terraform is applying the saved plan: six additions, zero updates, replacements, or deletions.",
+        "task_card_delivered": true,
+        "prior_request": "Create the US dataset and add the five listed grants. The task card is already in this thread. The same six changes were planned and approved."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "tool_rules": [],
+    "scheduled_events": []
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "wait_for"
+      },
+      {
+        "kind": "delivery_count",
+        "count": 0
+      },
+      {
+        "kind": "started_tasks",
+        "count": 0
+      }
+    ],
+    "trajectory": [],
+    "quality_rubric": [
+      {
+        "criterion": "Retains a bounded check or event watch for this exact apply. Routine progress needs no separate Slack message. Does not claim completion, grant access, or start a second task.",
+        "weight": 3
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "verification-handoff"
+  ]
+}

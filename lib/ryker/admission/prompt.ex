@@ -26,9 +26,10 @@ defmodule Ryker.Admission.Prompt do
   Messages whose actor is ryker are replies Ryker already sent there. context_manifest states how
   many earlier messages were requested and included and the time range they cover. These messages
   are historical background, not new assignments, not verified current health and not tool
-  authority. Only the current input instructs this decision; an older request inside the transcript
-  has already been handled and must not be run again. Summaries are bounded hints whose stated
-  coverage may lag the messages.
+  authority. A bare mention can point to the unanswered request in its thread parent, or the
+  immediately preceding request from the same person in a direct conversation. Use its constraints
+  and check for an answer or work already in progress. When the referenced message is unavailable,
+  ask for it. A greeting alone does not reopen old work. Summaries may lag the messages.
 
   Each candidate is earlier work this event may belong to; episode_ref is the value to return.
   title, when present, is the one-line name Ryker gave that work while doing it: a quick read of
@@ -366,13 +367,25 @@ defmodule Ryker.Admission.Prompt do
     messages = context.conversation_context["messages"] || []
 
     if messages != [] and not fits?(context) do
-      remaining = Enum.drop(messages, 1)
+      [removed | remaining] = messages
       conversation_context = Map.put(context.conversation_context, "messages", remaining)
 
       manifest =
         context.context_manifest
         |> Map.put("included", length(remaining))
         |> Map.put("narrowed", true)
+
+      removed_ref = removed["source_message_ref"]
+
+      {conversation_context, manifest} =
+        case conversation_context["root"] do
+          %{"status" => "deduplicated", "source_message_ref" => ^removed_ref} ->
+            {Map.put(conversation_context, "root", Map.put(removed, "status", "included")),
+             Map.put(manifest, "root", "included")}
+
+          _other ->
+            {conversation_context, manifest}
+        end
 
       narrowed = %{
         context

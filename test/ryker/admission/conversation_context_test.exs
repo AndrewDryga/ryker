@@ -62,6 +62,47 @@ defmodule Ryker.Admission.ConversationContextTest do
     assert List.last(bundle["messages"])["content"]["text"] == "Thread message 25"
   end
 
+  # A bare mention under an unretained group DM request got a greeting. The
+  # requester had to paste the whole checklist again, including its final restriction.
+  test "a mention carries the missing parent from its own workspace as of the mention" do
+    root_ref = "1789000000.000100"
+    current = record!("<@UBOT>", ts: "1789000001.000100", thread_ref: root_ref)
+
+    body =
+      "testdata/scenarios/confirm-the-planned-job-identity/scenario.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> get_in(["events", Access.at(0), "payload", "text"])
+
+    assert byte_size(body) > 1_024
+    original = %{"ts" => root_ref, "user" => "U1", "text" => body}
+
+    read = fn workspace, messages ->
+      reader = {:thread_root, workspace, __MODULE__.FakeRootReader, {self(), messages}}
+      ConversationContext.capture(current, reader: reader)
+    end
+
+    assert %{bundle: %{"root" => root}} = read.(@workspace, [original])
+    assert root["content"]["text"] == body
+    assert root["actor_ref"] == "slack:user:U1"
+    assert root["retained"] == false
+    assert_received {:read_root, @channel, ^root_ref, %{"limit" => 1}}
+
+    assert %{manifest: %{"root" => "unavailable"}} = read.("TOTHER", [original])
+    refute_received {:read_root, _, _, _}
+
+    edited = Map.put(original, "edited", %{"ts" => "1789000002.000100"})
+    assert %{manifest: %{"root" => "unavailable"}} = read.(@workspace, [edited])
+    assert %{manifest: %{"root" => "unavailable"}} = read.(@workspace, [])
+  end
+
+  defmodule FakeRootReader do
+    def read_messages({owner, messages}, channel, thread, document) do
+      send(owner, {:read_root, channel, thread, document})
+      {:ok, %{"messages" => messages}}
+    end
+  end
+
   test "a channel root receives previous top-level messages, never replies from other threads" do
     for index <- 1..3 do
       record!("Top level #{index}", ts: "178900010#{index}.000100")

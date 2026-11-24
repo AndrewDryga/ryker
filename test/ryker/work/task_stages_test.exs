@@ -40,6 +40,36 @@ defmodule Ryker.Work.TaskStagesTest do
     end
   end
 
+  test "a merge preserves the last observed checks on the published revision" do
+    # A merged access change showed a green CI checkmark beside three of five
+    # checks. The merge was the last observation; it reported CI still pending.
+    for {observed, passed, total, expected, detail} <- [
+          {:pending, 3, 5, "unknown", "3/5 at merge"},
+          {:failing, 3, 5, "failed", "3/5"},
+          {:passing, 5, 5, "completed", "5/5"},
+          {:none, 0, 0, "skipped", "no checks set up"},
+          {:unknown, 0, 0, "unknown", "unreported at merge"}
+        ] do
+      stages =
+        TaskStages.build(
+          facts(
+            publication: published(),
+            followup: %Followup{
+              pr_state: :merged,
+              checks_state: observed,
+              checks_total: total,
+              checks_passed: passed
+            }
+          )
+        )
+
+      assert %{"state" => ^expected, "detail" => ^detail} =
+               Enum.find(stages, &(&1["stage"] == "ci"))
+
+      assert Enum.find(stages, &(&1["stage"] == "review_and_merge"))["state"] == "completed"
+    end
+  end
+
   test "all seven stages persist through waiting, failure, stop, skip and unknown" do
     # The old card was a tail of four progress notes plus one flat goal list:
     # a wait or a stop erased where the task stood. Every lifecycle state must

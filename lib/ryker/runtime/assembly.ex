@@ -136,11 +136,7 @@ defmodule Ryker.Runtime.Assembly do
     outside = outside_profile(policies)
     environments = environments(settings, repositories, policies, outside)
     work = work(settings, bootstrap.storage_root)
-    admission = admission(settings, policies, work)
-    admission_ready = admission_ready(settings, admission)
-    work_ready = work_ready(settings, work, admission)
     local_routing = local_routing(settings)
-    embeddings = embeddings(admission)
     learning = learning(settings, policies, work)
     improvement = improvement(settings, policies, work)
     weekly_review = weekly_review(settings, policies, work)
@@ -152,6 +148,10 @@ defmodule Ryker.Runtime.Assembly do
     {slack, slack_left_out} =
       slack(settings, environments, schedules, policies, outside)
 
+    admission = admission(settings, policies, work, slack)
+    admission_ready = admission_ready(settings, admission)
+    work_ready = work_ready(settings, work, admission)
+    embeddings = embeddings(admission)
     slack_names = slack_names(settings)
 
     control_plane = control_plane(bootstrap, environments, work, schedules, outside)
@@ -586,7 +586,7 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp admission(settings, policies, work) do
+  defp admission(settings, policies, work, slack) do
     with %{} = policy <- installation_policy(policies, :admission),
          %{api: _api} <- work do
       defaults = Defaults.fetch!(:admission)
@@ -599,6 +599,10 @@ defmodule Ryker.Runtime.Assembly do
         policy: policy.name,
         policy_digest: policy.digest,
         poll_interval_ms: defaults.poll_interval_ms,
+        source_reader:
+          slack &&
+            {:thread_root, slack.runtime.identity.workspace_ref, Slack.Client,
+             slack.runtime.bot_client},
         worker_ref: "#{settings.installation.host_ref}:admission"
       }
     else

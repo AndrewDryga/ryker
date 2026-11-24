@@ -17,6 +17,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Repo
+  alias Ryker.Slack
   alias Ryker.Waits
   alias Ryker.Work
 
@@ -254,6 +255,12 @@ defmodule Ryker.Publication.Followups.Delivery do
   end
 
   defp wakeup_input(publication, episode, event) do
+    destination = %{
+      conversation_ref: episode.destination_conversation_ref,
+      thread_ref: episode.destination_thread_ref,
+      transport: episode.destination_transport
+    }
+
     {:ok, input} =
       Ingress.Input.new(%{
         actor: %{kind: :system, ref: "publication-lifecycle"},
@@ -261,6 +268,7 @@ defmodule Ryker.Publication.Followups.Delivery do
           Map.merge(
             %{
               "kind" => "publication_lifecycle",
+              "task_card_delivered" => Slack.TaskCards.delivered_in?(episode.id, destination),
               "lifecycle" => %{
                 "kind" => Atom.to_string(event.kind),
                 "observation" => event.observation,
@@ -279,11 +287,7 @@ defmodule Ryker.Publication.Followups.Delivery do
             },
             wakeup_request(event)
           ),
-        destination: %{
-          conversation_ref: episode.destination_conversation_ref,
-          thread_ref: episode.destination_thread_ref,
-          transport: episode.destination_transport
-        },
+        destination: destination,
         event_kind: :event,
         event_ref: event.ref,
         native_input_id: "publication-lifecycle:#{event.id}",

@@ -15,6 +15,7 @@ defmodule Ryker.Evals.WorldSuiteTest do
         "airflow-verification-arms-wait",
         "artifact-delivery-survives-work-handoff",
         "concurrent-human-feedback-serializes",
+        "confirm-the-planned-job-identity",
         "current-uptime-check-uses-fresh-source",
         "explicit-code-request-starts-task",
         "explicit-operator-incident-offer",
@@ -26,7 +27,8 @@ defmodule Ryker.Evals.WorldSuiteTest do
         "recurring-dead-letter-investigation-identifies-next-evidence",
         "rivals-engineering-task-offer",
         "status-question-does-not-start-task",
-        "va1-health-review-repairs-and-finishes"
+        "va1-health-review-repairs-and-finishes",
+        "verification-as-the-requested-identity"
       ])
 
     assert {:ok, selected} = WorldSuite.select(cases, tag: "smoke")
@@ -39,7 +41,7 @@ defmodule Ryker.Evals.WorldSuiteTest do
                paired_baseline: true
              )
 
-    assert length(plan) == 90
+    assert length(plan) == MapSet.size(smoke_ids) * 3 * 2
 
     assert Enum.map(plan, &{&1.scenario.id, &1.repeat_index, &1.lane}) ==
              for(

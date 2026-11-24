@@ -371,11 +371,15 @@ defmodule Ryker.Work.TaskStages do
 
   defp ci_state(nil, _checks, _url), do: row("ci", "waiting", detail: "waiting for GitHub")
 
+  # Polling ends at merge. An unfinished observation is the last known count.
+  defp ci_state(%Publication.Followup{pr_state: :merged, checks_state: :pending}, checks, url),
+    do: row("ci", "unknown", detail: compact_join([checks, "at merge"]), url: url)
+
+  defp ci_state(%Publication.Followup{pr_state: :merged, checks_state: :unknown}, _checks, url),
+    do: row("ci", "unknown", detail: "unreported at merge", url: url)
+
   defp ci_state(%Publication.Followup{checks_state: :unknown}, _checks, _url),
     do: row("ci", "waiting", detail: "waiting for GitHub")
-
-  defp ci_state(%Publication.Followup{pr_state: :merged}, checks, url),
-    do: row("ci", "completed", detail: checks, url: url)
 
   defp ci_state(%Publication.Followup{checks_state: :none}, _checks, _url),
     do: row("ci", "skipped", detail: @no_checks)

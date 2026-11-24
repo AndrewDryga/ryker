@@ -120,18 +120,12 @@ defmodule Ryker.Records.TaskOffers do
 
       result = start_record(record, current, attributes)
 
-      :ok = Slack.TaskCards.ensure_started(result.record, result.episode)
-
       %{
         "kind" => "task_offer",
         "record_ref" => result.record.ref,
         "status" => "started",
-        "task_card_delivered" =>
-          Slack.TaskCards.delivered_in?(result.episode.id, %{
-            transport: entry.destination_transport,
-            conversation_ref: entry.destination_conversation_ref,
-            thread_ref: entry.destination_thread_ref
-          }),
+        "task_card_delivery" =>
+          Slack.TaskCards.ensure_started(result.record, result.episode, entry),
         "continuation" => nil
       }
     else

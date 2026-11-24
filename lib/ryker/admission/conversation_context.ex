@@ -26,6 +26,7 @@ defmodule Ryker.Admission.ConversationContext do
   @default_limit 20
   @minimum_limit 10
   @message_bytes 1_024
+  @root_bytes 8_192
   @provider_pages 3
   @reaction_limit 60
 
@@ -50,7 +51,7 @@ defmodule Ryker.Admission.ConversationContext do
       |> Enum.take(-limit)
 
     {messages, read_status} = fill(retained, entry, kind, limit, reader)
-    root = root_message(entry, kind, messages)
+    root = root_message(entry, kind, messages, reader)
     reactions = recent_reactions(entry, messages, root)
     messages = Enum.map(messages, &with_reactions(&1, reactions))
     root = with_reactions(root, reactions)
@@ -188,7 +189,14 @@ defmodule Ryker.Admission.ConversationContext do
     |> ConversationContext.Query.retained_predecessors(kind, limit)
     |> Repo.all()
     |> Enum.reverse()
-    |> Enum.map(&message_document(&1, :retained))
+    |> Enum.map(fn previous ->
+      bytes =
+        if kind == :thread_reply and previous.source_item_ref == entry.destination_thread_ref,
+          do: @root_bytes,
+          else: @message_bytes
+
+      message_document(previous, :retained, bytes)
+    end)
   end
 
   # What Ryker itself said in the same place before the cutoff: delivered Work
@@ -233,7 +241,7 @@ defmodule Ryker.Admission.ConversationContext do
     [
       %{
         "actor_ref" => "ryker",
-        "content" => %{"text" => bounded_text(text)},
+        "content" => %{"text" => bounded_text(text, @message_bytes)},
         "occurred_at" => DateTime.to_iso8601(at),
         "revision" => nil,
         "retained" => true,
@@ -250,6 +258,9 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   defp ryker_message(_sent, _entry), do: []
+
+  defp fill(retained, entry, kind, limit, {:thread_root, _workspace, _module, _client}),
+    do: fill(retained, entry, kind, limit, nil)
 
   defp fill(retained, _entry, _kind, limit, nil) when length(retained) >= limit,
     do: {retained, "retained"}
@@ -302,7 +313,7 @@ defmodule Ryker.Admission.ConversationContext do
           (collected ++
              Enum.flat_map(
                messages,
-               &provider_document(&1, read.entry, kind_of(read.thread_ref))
+               &provider_document(&1, read.entry, kind_of(read.thread_ref), @message_bytes)
              ))
           |> Enum.uniq_by(& &1["source_message_ref"])
 
@@ -333,7 +344,7 @@ defmodule Ryker.Admission.ConversationContext do
   defp maybe_cursor(document, nil), do: document
   defp maybe_cursor(document, cursor), do: Map.put(document, "cursor", cursor)
 
-  defp provider_document(%{"ts" => ts} = message, entry, kind) when is_binary(ts) do
+  defp provider_document(%{"ts" => ts} = message, entry, kind, bytes) when is_binary(ts) do
     top_level? = is_nil(message["thread_ts"]) or message["thread_ts"] == ts
 
     if kind == :channel_root and not top_level? do
@@ -342,7 +353,7 @@ defmodule Ryker.Admission.ConversationContext do
       [
         %{
           "actor_ref" => provider_actor(message),
-          "content" => %{"text" => message |> Ingress.RecallText.prose() |> bounded_text()},
+          "content" => %{"text" => message |> Ingress.RecallText.prose() |> bounded_text(bytes)},
           "occurred_at" => provider_time(ts),
           "revision" => nil,
           "retained" => false,
@@ -359,7 +370,7 @@ defmodule Ryker.Admission.ConversationContext do
     end
   end
 
-  defp provider_document(_message, _entry, _kind), do: []
+  defp provider_document(_message, _entry, _kind, _bytes), do: []
 
   defp provider_actor(%{"user" => ref}) when is_binary(ref), do: "slack:user:#{ref}"
   defp provider_actor(%{"bot_id" => ref}) when is_binary(ref), do: "slack:bot:#{ref}"
@@ -367,16 +378,9 @@ defmodule Ryker.Admission.ConversationContext do
   defp provider_actor(_message), do: "slack:unknown"
 
   defp provider_time(ts) do
-    case Float.parse(ts) do
-      {seconds, _rest} ->
-        seconds
-        |> Kernel.*(1_000_000)
-        |> round()
-        |> DateTime.from_unix!(:microsecond)
-        |> DateTime.to_iso8601()
-
-      :error ->
-        nil
+    case Slack.Timestamp.to_datetime(ts) do
+      {:ok, at} -> DateTime.to_iso8601(at)
+      :error -> nil
     end
   end
 
@@ -389,9 +393,9 @@ defmodule Ryker.Admission.ConversationContext do
 
   defp channel_ref(_entry), do: {:error, :conversation_ref}
 
-  defp root_message(_entry, kind, _messages) when kind != :thread_reply, do: nil
+  defp root_message(_entry, kind, _messages, _reader) when kind != :thread_reply, do: nil
 
-  defp root_message(entry, :thread_reply, messages) do
+  defp root_message(entry, :thread_reply, messages, reader) do
     root_ref = entry.destination_thread_ref
 
     cond do
@@ -399,21 +403,54 @@ defmodule Ryker.Admission.ConversationContext do
         %{"source_message_ref" => root_ref, "status" => "deduplicated"}
 
       root = retained_root(entry, root_ref) ->
-        root |> message_document(:retained) |> Map.put("status", "included")
+        root |> message_document(:retained, @root_bytes) |> Map.put("status", "included")
 
       true ->
-        %{"source_message_ref" => root_ref, "status" => "unavailable"}
+        read_root(entry, root_ref, reader) ||
+          %{"source_message_ref" => root_ref, "status" => "unavailable"}
     end
   end
+
+  # Slack sends only the parent timestamp with a mention. Read that one message;
+  # freeze the version that existed when the person mentioned us, even on a delayed claim.
+  defp read_root(
+         %{source_ref: workspace, execution_mode: :live} = entry,
+         root_ref,
+         {:thread_root, workspace, module, client}
+       ) do
+    with {:ok, ^workspace, channel} <-
+           ConversationRef.parse_slack(entry.destination_conversation_ref),
+         {:ok, at} <- Slack.Timestamp.to_datetime(root_ref),
+         :lt <- DateTime.compare(at, entry.occurred_at),
+         {:ok, %{"messages" => [%{"ts" => ^root_ref} = parent | _]}} <-
+           module.read_messages(client, channel, root_ref, %{"limit" => 1}),
+         true <- original_at_cutoff?(parent, entry.occurred_at),
+         [document] <- provider_document(parent, entry, :thread_reply, @root_bytes) do
+      Map.put(document, "status", "included")
+    else
+      _unavailable -> nil
+    end
+  end
+
+  defp read_root(_entry, _root_ref, _reader), do: nil
+
+  defp original_at_cutoff?(%{"edited" => %{"ts" => edited}}, cutoff) do
+    case Slack.Timestamp.to_datetime(edited) do
+      {:ok, at} -> DateTime.compare(at, cutoff) != :gt
+      :error -> false
+    end
+  end
+
+  defp original_at_cutoff?(parent, _cutoff), do: not Map.has_key?(parent, "edited")
 
   defp retained_root(entry, root_ref),
     do: Repo.peek(ConversationContext.Query.retained_root(entry, root_ref))
 
-  defp message_document(%Ingress.Inbox.Entry{} = entry, origin) do
+  defp message_document(%Ingress.Inbox.Entry{} = entry, origin, bytes \\ @message_bytes) do
     %{
       "actor_ref" => entry.actor_ref,
       "content" => %{
-        "text" => entry |> Map.get(:content) |> Ingress.RecallText.prose() |> bounded_text()
+        "text" => entry |> Map.get(:content) |> Ingress.RecallText.prose() |> bounded_text(bytes)
       },
       "occurred_at" => DateTime.to_iso8601(entry.occurred_at),
       "revision" => entry.revision,
@@ -448,10 +485,10 @@ defmodule Ryker.Admission.ConversationContext do
     %{"from" => List.first(messages)["occurred_at"], "to" => List.last(messages)["occurred_at"]}
   end
 
-  defp bounded_text(text) do
-    if byte_size(text) <= @message_bytes,
+  defp bounded_text(text, limit) do
+    if byte_size(text) <= limit,
       do: text,
-      else: String.byte_slice(text, 0, @message_bytes - 3) <> "..."
+      else: String.byte_slice(text, 0, limit - 3) <> "..."
   end
 
   defp error_code({code, _detail}) when is_atom(code), do: Atom.to_string(code)

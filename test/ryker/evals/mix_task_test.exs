@@ -120,7 +120,11 @@ defmodule Ryker.Evals.MixTaskTest do
       ])
 
     assert Enum.map(shards, & &1["shard"]) == [1, 2, 3, 4]
-    assert Enum.sum(Enum.map(shards, & &1["observations"])) == 30
+    assert {:ok, cases} = WorldCase.all()
+
+    assert Enum.sum(Enum.map(shards, & &1["observations"])) ==
+             2 * Enum.count(cases, &("smoke" in &1.tags))
+
     assert Enum.all?(shards, &(rem(&1["observations"], 2) == 0))
 
     assert [%{"observations" => 1, "shard" => 1}] =

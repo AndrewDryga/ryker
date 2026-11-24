@@ -14,7 +14,8 @@ defmodule Ryker.StateTools.TaskStartTest do
     request = request!()
     assert {:ok, result} = call(request)
     assert result["status"] == "started"
-    assert result["task_card_delivered"] == false
+    # The card already had delivery custody when the requester also got a start announcement.
+    assert result["task_card_delivery"] == "pending"
     record = Repo.get_by!(Record, ref: result["record_ref"])
     assert record.status == :confirmed
     assert record.confirmation_ref == request.arguments["instruction_ref"]
@@ -29,11 +30,17 @@ defmodule Ryker.StateTools.TaskStartTest do
     assert {:ok, rendered} = Renderer.render(projection.document)
     refute Jason.encode!(rendered) =~ "ryker_start_engineering_task"
 
-    # A start announcement can rely on this card only after Slack has accepted its post.
+    # A retry sees the receipt once Slack accepts the post.
     card |> Ecto.Changeset.change(message_ref: "1787832001.000200") |> Repo.update!()
     assert {:ok, repeated} = call(request)
-    assert repeated["task_card_delivered"]
+    assert repeated["task_card_delivery"] == "delivered"
     assert repeated["record_ref"] == result["record_ref"]
+
+    card
+    |> Ecto.Changeset.change(status: :blocked, last_error_code: "slack_api_error")
+    |> Repo.update!()
+
+    assert {:ok, %{"task_card_delivery" => "unavailable"}} = call(request)
     assert Repo.aggregate(TaskCard, :count) == 1
     assert Repo.aggregate(Session, :count) == 2
   end

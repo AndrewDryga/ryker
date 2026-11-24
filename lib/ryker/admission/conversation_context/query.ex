@@ -72,7 +72,7 @@ defmodule Ryker.Admission.ConversationContext.Query do
         other.destination_transport == ^entry.destination_transport and
           other.destination_conversation_ref == ^entry.destination_conversation_ref and
           other.execution_mode == ^entry.execution_mode and
-          other.source_item_ref == ^root_ref and
+          other.source_item_ref == ^root_ref and other.occurred_at <= ^entry.occurred_at and
           is_nil(other.operational_pruned_at),
       order_by: [desc: other.revision],
       limit: 1

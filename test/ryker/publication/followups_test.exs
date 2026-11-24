@@ -369,6 +369,7 @@ defmodule Ryker.Publication.FollowupsTest do
              )
 
     content = wake.payload["payload"]["content"]
+    assert content["task_card_delivered"] == false
     assert content["publication"]["merge_sha"] == status["merge_sha"]
     assert content["verification_request"] =~ "not deployment"
     assert content["verification_request"] =~ "read-only"

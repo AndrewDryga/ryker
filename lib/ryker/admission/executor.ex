@@ -376,6 +376,7 @@ defmodule Ryker.Admission.Executor do
 
   defp admission_context(input_ref, settings) do
     Admission.context(input_ref,
+      source_reader: settings.source_reader,
       candidate_limit: settings.candidate_limit,
       continuation_window: settings.continuation_window,
       history_window: settings.history_window,
@@ -1074,11 +1075,13 @@ defmodule Ryker.Admission.Executor do
       :prepare_execution_session,
       :renew_lease,
       :settle_execution_session,
+      :source_reader,
       :sleep
     ]
 
     if Keyword.keyword?(options) and Enum.all?(Keyword.keys(options), &(&1 in allowed)) do
       validate_settings(%{
+        source_reader: Keyword.get(options, :source_reader),
         api: Keyword.fetch!(options, :api),
         bind_execution_session:
           Keyword.get(options, :bind_execution_session, &FleetSession.bind/2),

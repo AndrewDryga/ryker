@@ -601,6 +601,34 @@ defmodule Ryker.Admission.PromptTest do
       assert snapshot["context_manifest"]["bytes"] == 512
     end
 
+    test "fitting a crowded thread preserves the request a bare mention points to" do
+      context = lean_context!()
+      [parent, other] = context.conversation_context["messages"]
+      # The person mentioned Ryker under a checklist. Its final identity condition
+      # has to survive even when the parent falls outside the fitted history.
+      others =
+        for n <- 1..20 do
+          other
+          |> Map.put("source_message_ref", "reply-#{n}")
+          |> put_in(["content", "text"], String.duplicate("thread message ", 260))
+        end
+
+      bundle =
+        Map.merge(context.conversation_context, %{
+          "messages" => [parent | others],
+          "root" => %{
+            "source_message_ref" => parent["source_message_ref"],
+            "status" => "deduplicated"
+          }
+        })
+
+      fitted = Prompt.fit(%{context | conversation_context: bundle})
+      assert fitted.context_manifest["narrowed"]
+      assert fitted.context_manifest["root"] == "included"
+      assert fitted.conversation_context["root"]["content"] == parent["content"]
+      refute parent in fitted.conversation_context["messages"]
+    end
+
     test "a message outside a thread is not told about a thread root" do
       # Every channel message carried root: "not_applicable", which named a
       # thread root that could not exist and told the router nothing.
