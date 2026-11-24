@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.5
+
+- A Slack mention can pick up the original request and its constraints from a
+  thread parent or the preceding message in a direct conversation.
+  Ryker distinguishes a queued task card from a delivered one, and a merged pull
+  request shows the last CI result GitHub reported.
+- For planned jobs, Ryker can ask which identity the job will use before code exists.
+  When verification needs an operator, Ryker asks for the exact result and checks
+  later audit evidence in the original request's scope.
+- Interrupted Coop work can resume from its saved state. GitHub CI repair updates
+  appear when a repair round starts.
+- The repository picker groups search results and keeps import actions below them.
+- Updated `db_connection` to 2.10.3 to address CVE-2026-133555.
+
 ## 0.6.4
 
 - Automatic GitHub issue triage requires repository write access. Ryker rechecks
