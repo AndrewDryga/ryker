@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.6
+
+- Fresh Compose installations and development boxes use PostgreSQL 19. Existing
+  Compose installations can follow the [database upgrade procedure](docs/operations.md#upgrade-the-bundled-postgresql-18-database-to-19)
+  to retain their data. The installer detects a running older database before replacing it.
+- Slack receipt history, knowledge lookups and workspace cleanup continue to use
+  their indexes on PostgreSQL 19.
+- Updated Postgrex to 0.23.0 and Phoenix LiveView to 1.2.15.
+
 ## 0.6.5
 
 - A Slack mention can pick up the original request and its constraints from a
