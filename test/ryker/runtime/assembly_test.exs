@@ -283,7 +283,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert configuration[:work].worker_ref == "#{host}:work"
     assert configuration[:admission].worker_ref == "#{host}:admission"
 
-    assert {:thread_root, @workspace, Ryker.Slack.Client, bot_client} =
+    assert {:slack_request, @workspace, Ryker.Slack.Client, bot_client} =
              configuration[:admission].source_reader
 
     assert bot_client == configuration[:slack].bot_client

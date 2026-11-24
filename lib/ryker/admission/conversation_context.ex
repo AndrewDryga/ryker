@@ -185,18 +185,49 @@ defmodule Ryker.Admission.ConversationContext do
   defp validated_limit(_limit), do: @default_limit
 
   defp retained_predecessors(entry, kind, limit) do
+    dm_ping? = kind == :channel_root and bare_dm_ping?(entry)
+
     entry
     |> ConversationContext.Query.retained_predecessors(kind, limit)
     |> Repo.all()
-    |> Enum.reverse()
-    |> Enum.map(fn previous ->
-      bytes =
-        if kind == :thread_reply and previous.source_item_ref == entry.destination_thread_ref,
-          do: @root_bytes,
-          else: @message_bytes
+    |> Enum.with_index(fn previous, index ->
+      parent? = kind == :thread_reply and previous.source_item_ref == entry.destination_thread_ref
+      preceding? = dm_ping? and index == 0 and previous.actor_ref == entry.actor_ref
 
-      message_document(previous, :retained, bytes)
+      message_document(
+        previous,
+        :retained,
+        if(parent? or preceding?, do: @root_bytes, else: @message_bytes)
+      )
     end)
+    |> Enum.reverse()
+  end
+
+  defp bare_dm_ping?(
+         %{
+           event_kind: :message,
+           actor_kind: :user,
+           slack_bot_user_ref: bot,
+           content: %{"text" => text}
+         } = entry
+       )
+       when is_binary(bot) and is_binary(text) do
+    direct_conversation?(entry) and
+      Regex.run(~r/\A\s*<@([^>|]+)(?:\|[^<>|]+)?>\s*\z/u, text, capture: :all_but_first) == [bot]
+  end
+
+  defp bare_dm_ping?(_entry), do: false
+
+  defp direct_conversation?(%{source_envelope: %{"channel_type" => type}}),
+    do: type in ["im", "mpim"]
+
+  # Slack app_mention can omit channel_type. The read always stays in this
+  # exact conversation, including for an older G-prefixed private channel.
+  defp direct_conversation?(entry) do
+    case channel_ref(entry) do
+      {:ok, channel} -> String.starts_with?(channel, ["D", "G"])
+      _unavailable -> false
+    end
   end
 
   # What Ryker itself said in the same place before the cutoff: delivered Work
@@ -259,7 +290,16 @@ defmodule Ryker.Admission.ConversationContext do
 
   defp ryker_message(_sent, _entry), do: []
 
-  defp fill(retained, entry, kind, limit, {:thread_root, _workspace, _module, _client}),
+  defp fill(retained, entry, :channel_root, limit, {:slack_request, _, _, _} = reader) do
+    with true <- bare_dm_ping?(entry),
+         %{} = previous <- read_request_message(entry, nil, reader) do
+      {merge_messages(retained, [previous], limit), "provider_predecessor"}
+    else
+      _unavailable -> fill(retained, entry, :channel_root, limit, nil)
+    end
+  end
+
+  defp fill(retained, entry, kind, limit, {:slack_request, _workspace, _module, _client}),
     do: fill(retained, entry, kind, limit, nil)
 
   defp fill(retained, _entry, _kind, limit, nil) when length(retained) >= limit,
@@ -270,11 +310,7 @@ defmodule Ryker.Admission.ConversationContext do
   defp fill(retained, entry, kind, limit, {module, client}) when length(retained) < limit do
     case provider_messages(module, client, entry, kind, limit - length(retained)) do
       {:ok, provider, complete?} ->
-        merged =
-          (retained ++ provider)
-          |> Enum.uniq_by(& &1["source_message_ref"])
-          |> Enum.sort_by(&{&1["occurred_at"], &1["source_message_ref"]})
-          |> Enum.take(-limit)
+        merged = merge_messages(retained, provider, limit)
 
         {merged, if(complete?, do: "provider_paged", else: "provider_incomplete")}
 
@@ -284,6 +320,13 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   defp fill(retained, _entry, _kind, _limit, _reader), do: {retained, "retained"}
+
+  defp merge_messages(retained, provider, limit) do
+    (retained ++ provider)
+    |> Enum.uniq_by(& &1["source_message_ref"])
+    |> Enum.sort_by(&{&1["occurred_at"], &1["source_message_ref"]})
+    |> Enum.take(-limit)
+  end
 
   defp provider_messages(module, client, entry, kind, needed) do
     with {:ok, channel_ref} <- channel_ref(entry) do
@@ -406,33 +449,52 @@ defmodule Ryker.Admission.ConversationContext do
         root |> message_document(:retained, @root_bytes) |> Map.put("status", "included")
 
       true ->
-        read_root(entry, root_ref, reader) ||
-          %{"source_message_ref" => root_ref, "status" => "unavailable"}
+        case read_request_message(entry, root_ref, reader) do
+          nil -> %{"source_message_ref" => root_ref, "status" => "unavailable"}
+          document -> Map.put(document, "status", "included")
+        end
     end
   end
 
-  # Slack sends only the parent timestamp with a mention. Read that one message;
-  # freeze the version that existed when the person mentioned us, even on a delayed claim.
-  defp read_root(
+  # A thread identifies its parent. A top-level DM ping identifies a position
+  # in the channel instead. Both reads ask for one message as of the ping.
+  defp read_request_message(
          %{source_ref: workspace, execution_mode: :live} = entry,
          root_ref,
-         {:thread_root, workspace, module, client}
+         {:slack_request, workspace, module, client}
        ) do
+    query =
+      if root_ref,
+        do: %{"limit" => 1},
+        else: %{"limit" => 1, "latest" => entry.source_item_ref, "inclusive" => false}
+
     with {:ok, ^workspace, channel} <-
            ConversationRef.parse_slack(entry.destination_conversation_ref),
-         {:ok, at} <- Slack.Timestamp.to_datetime(root_ref),
-         :lt <- DateTime.compare(at, entry.occurred_at),
-         {:ok, %{"messages" => [%{"ts" => ^root_ref} = parent | _]}} <-
-           module.read_messages(client, channel, root_ref, %{"limit" => 1}),
-         true <- original_at_cutoff?(parent, entry.occurred_at),
-         [document] <- provider_document(parent, entry, :thread_reply, @root_bytes) do
-      Map.put(document, "status", "included")
+         true <- is_nil(root_ref) or before_message?(root_ref, entry),
+         {:ok, %{"messages" => [%{"ts" => ts} = message | _]}} <-
+           module.read_messages(client, channel, root_ref, query),
+         true <- is_nil(root_ref) or root_ref == ts,
+         true <- before_message?(ts, entry),
+         true <- original_at_cutoff?(message, entry.occurred_at) do
+      bytes =
+        if root_ref || message["user"] == entry.actor_ref, do: @root_bytes, else: @message_bytes
+
+      message |> provider_document(entry, kind_of(root_ref), bytes) |> List.first()
     else
       _unavailable -> nil
     end
   end
 
-  defp read_root(_entry, _root_ref, _reader), do: nil
+  defp read_request_message(_entry, _root_ref, _reader), do: nil
+
+  defp before_message?(ts, entry) do
+    with {:ok, at} <- Slack.Timestamp.to_datetime(ts),
+         {:ok, current} <- Slack.Timestamp.to_datetime(entry.source_item_ref) do
+      DateTime.before?(at, current) and DateTime.before?(at, entry.occurred_at)
+    else
+      :error -> false
+    end
+  end
 
   defp original_at_cutoff?(%{"edited" => %{"ts" => edited}}, cutoff) do
     case Slack.Timestamp.to_datetime(edited) do

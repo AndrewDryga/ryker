@@ -616,7 +616,7 @@ defmodule Ryker.Admission do
     context_value(is_integer(value) and value >= 10 and value <= 20, :local_history_limit)
   end
 
-  defp valid_source_reader?({:thread_root, workspace, module, _client}),
+  defp valid_source_reader?({:slack_request, workspace, module, _client}),
     do: is_binary(workspace) and is_atom(module)
 
   defp valid_source_reader?(nil), do: true

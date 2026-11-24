@@ -68,17 +68,13 @@ defmodule Ryker.Admission.ConversationContextTest do
     root_ref = "1789000000.000100"
     current = record!("<@UBOT>", ts: "1789000001.000100", thread_ref: root_ref)
 
-    body =
-      "testdata/scenarios/confirm-the-planned-job-identity/scenario.json"
-      |> File.read!()
-      |> Jason.decode!()
-      |> get_in(["events", Access.at(0), "payload", "text"])
+    body = request_body()
 
     assert byte_size(body) > 1_024
     original = %{"ts" => root_ref, "user" => "U1", "text" => body}
 
     read = fn workspace, messages ->
-      reader = {:thread_root, workspace, __MODULE__.FakeRootReader, {self(), messages}}
+      reader = {:slack_request, workspace, __MODULE__.FakeRootReader, {self(), messages}}
       ConversationContext.capture(current, reader: reader)
     end
 
@@ -101,6 +97,69 @@ defmodule Ryker.Admission.ConversationContextTest do
       send(owner, {:read_root, channel, thread, document})
       {:ok, %{"messages" => messages}}
     end
+  end
+
+  # The request and the ping were separate top-level DMs. The last line named
+  # the identity to confirm, and losing it made the requester paste everything twice.
+  test "a top-level ping keeps the same author's preceding DM through its final restriction" do
+    body = request_body()
+    record!(body, ts: "1789000000.000100")
+    current = bare_ping!()
+
+    assert %{bundle: %{"messages" => [previous]}} = ConversationContext.capture(current)
+    assert previous["retained"]
+    assert previous["content"]["text"] == body
+  end
+
+  test "a top-level ping reads one missing predecessor within its source and time boundary" do
+    body = request_body()
+    current = bare_ping!()
+    prior = %{"ts" => "1789000000.000100", "user" => "U1", "text" => body}
+
+    read = fn workspace, message ->
+      reader = {:slack_request, workspace, __MODULE__.FakeRootReader, {self(), [message]}}
+      ConversationContext.capture(current, reader: reader)
+    end
+
+    assert %{bundle: %{"messages" => [previous]}} = read.(@workspace, prior)
+    assert previous["content"]["text"] == body
+    refute previous["retained"]
+
+    assert_received {:read_root, @channel, nil,
+                     %{"limit" => 1, "latest" => "1789000001.000100", "inclusive" => false}}
+
+    assert %{bundle: %{"messages" => []}} = read.("TOTHER", prior)
+    refute_received {:read_root, _, _, _}
+
+    for changed <- [
+          %{"edited" => %{"ts" => "1789000002.000100"}},
+          %{"ts" => "1789000002.000100"},
+          %{"thread_ts" => "1788999999.000100"}
+        ] do
+      assert %{bundle: %{"messages" => []}} = read.(@workspace, Map.merge(prior, changed))
+    end
+
+    assert %{bundle: %{"messages" => [other]}} = read.(@workspace, %{prior | "user" => "UOTHER"})
+    assert other["actor_ref"] == "slack:user:UOTHER"
+    assert byte_size(other["content"]["text"]) <= 1_024
+  end
+
+  defp request_body do
+    "testdata/scenarios/confirm-the-planned-job-identity/scenario.json"
+    |> File.read!()
+    |> Jason.decode!()
+    |> get_in(["events", Access.at(0), "payload", "text"])
+  end
+
+  defp bare_ping! do
+    record!("<@UBOT>",
+      ts: "1789000001.000100",
+      addressing: [
+        slack_audience: :mention,
+        slack_bot_user_ref: "UBOT",
+        source_envelope: %{"channel_type" => "mpim"}
+      ]
+    )
   end
 
   test "a channel root receives previous top-level messages, never replies from other threads" do
@@ -500,7 +559,7 @@ defmodule Ryker.Admission.ConversationContextTest do
         workspace_ref: @workspace
       })
 
-    {:ok, %{entry: entry}} = Inbox.record(input)
+    {:ok, %{entry: entry}} = Inbox.record(input, Keyword.get(options, :addressing, []))
     entry
   end
 

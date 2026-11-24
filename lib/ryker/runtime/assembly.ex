@@ -601,7 +601,7 @@ defmodule Ryker.Runtime.Assembly do
         poll_interval_ms: defaults.poll_interval_ms,
         source_reader:
           slack &&
-            {:thread_root, slack.runtime.identity.workspace_ref, Slack.Client,
+            {:slack_request, slack.runtime.identity.workspace_ref, Slack.Client,
              slack.runtime.bot_client},
         worker_ref: "#{settings.installation.host_ref}:admission"
       }
