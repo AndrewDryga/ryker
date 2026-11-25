@@ -82,9 +82,9 @@
 <p>Give the alert channel an <a href="../docs/environments.html">environment</a> containing the relevant repositories and an Emisar account. In Emisar, allow the read actions needed for investigation and set an approval policy for changes.</p>
 <p>In the Slack channel’s <strong>Customize</strong> flow, choose <strong>Be proactive</strong> and investigate app alerts in their thread. This lets an actionable app alert start work without a mention. For manual investigations, mentions-only mode is enough.</p>
 <h2 id="alert">Start with an alert</h2>
-<p>An alert should identify the service, environment, time, and symptom, with a link to the logs or metrics. For example, a checkout error-rate alert gives Ryker a starting point for checking recent deployments, reading application logs, and tracing failing requests in the code.</p>
-<p>To ask directly, reply in the alert’s thread:</p>
-<pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker investigate these checkout errors in staging. Find the cause, prepare a fix, and check recovery afterward. Bring any required approval back to us here.</code></pre>
+<p>Include the service, environment, time and a link to the logs or metrics. For example, you might reply to a checkout alert in Slack:</p>
+<pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker checkout errors went up after the staging release. Did a pod restart? Show me the log line or event that explains it before we change anything.</code></pre>
+<p>When Kubernetes restarts a container, the current log may look fine. Ryker can use <a href="https://emisar.dev/packs/kubernetes">Emisar’s Kubernetes pack</a> to read the previous container’s log and see the pod’s events.</p>
 <p>Ryker compares the code and intended configuration with current evidence. It reports whether the alert is confirmed, likely, disproved, or still unverified, and explains the impact. A confirmed or likely problem includes a proposed immediate mitigation and lasting fix.</p>
 <p>Add missing context in the thread while it works. Ryker asks if it needs a decision or access it does not have. A Terraform review needs the actual plan, supplied in the conversation or retrieved through a read-only tool.</p>
 <h2 id="approvals">Approve a change through Emisar</h2>
@@ -93,7 +93,7 @@
 <p>The card updates as the action progresses. The wait survives a restart and holds no model or worker. Ryker continues in the same conversation when the result arrives.</p>
 <p>If the lasting fix belongs in code, ask Ryker to prepare it. It starts a task, tests the change in co:op, and opens a draft pull request when repository settings allow it. If Ryker suggests a change you have not requested, its offer still waits for <strong>Start task</strong>. Your team merges and releases it through its usual process.</p>
 <h2 id="recovery">Check that the fix worked</h2>
-<p>After an infrastructure action, Ryker checks its intended effect against fresh read-only evidence where the tools support it. For the checkout example, that could mean comparing the new error rate with the original alert. The command’s result and the service’s recovery are recorded separately.</p>
+<p>For checkout, a successful restart is only the first check. Does the pod stay up? Has the error rate returned to its level before the release? Where its tools can check, Ryker records the service’s recovery separately from the command result.</p>
 <p>If recovery takes time, Ryker can <a href="../docs/actions.html#followups">wait and check again</a>. For a code fix, verification follows your deployment; a matching deployment event can continue the request. If recovery is still unverified, Ryker says what evidence is missing.</p>
 <h2 id="incidents">Move coordinated work into an incident room</h2>
 <p>An incident room is a dedicated Slack channel for an investigation. A configured operator can press <strong>Create incident room</strong> on Ryker’s offer. The offer also has <strong>Investigate</strong> for keeping the same work in the original thread.</p>
