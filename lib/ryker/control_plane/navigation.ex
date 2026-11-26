@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.Navigation do
     {:grid, "Work",
      [
        {"Environments", "/environments"},
+       {"Skills", "/skills"},
        {"Channels", "/channels"},
        {"Repositories", "/repositories"},
        {"Working copies", "/working-copies"}

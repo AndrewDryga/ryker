@@ -13,6 +13,7 @@ defmodule Ryker.Settings.Work.Changeset do
   @shared_accounts [:conversation_models, :standard_models, :deep_models]
   @local_routing_fields [:local_routing_mode, :local_routing_endpoint, :local_routing_model]
   @fields [
+            :enabled_skills,
             :workspace_ref,
             :ready_routing_sessions,
             :ready_work_sessions,
@@ -23,6 +24,8 @@ defmodule Ryker.Settings.Work.Changeset do
           ] ++
             @local_routing_fields
 
+  def install_skills(work, installed), do: change(work, installed_skills: installed)
+
   @impl true
   def fields, do: @fields
 
@@ -30,6 +33,8 @@ defmodule Ryker.Settings.Work.Changeset do
   def update(%Work{} = work, attributes, snapshot) do
     work
     |> cast(attributes, @fields)
+    |> validate_required([:enabled_skills])
+    |> validate_subset(:enabled_skills, Ryker.Skills.names(work.installed_skills))
     |> validate_length(:workspace_ref, min: 1, max: 256, count: :codepoints)
     |> validate_required([
       :ready_routing_sessions,

@@ -4,6 +4,7 @@ defmodule Ryker.Work.Contract do
 
   @shadow_fixed_tools MapSet.new(~w(
     get_work_state
+    read_skill
     cite_source
     record_finding
     list_automations

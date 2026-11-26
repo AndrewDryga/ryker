@@ -12,6 +12,10 @@ defmodule Ryker.StateTools.ErrorCode do
 
   @spec code(term()) :: String.t()
   def code(:unauthorized), do: "unauthorized"
+
+  def code(:skill_unavailable),
+    do: "skill_unavailable: choose a skill listed in this turn’s briefing."
+
   def code(:invalid_arguments), do: "invalid_arguments"
 
   def code(:task_offer_purpose_mismatch) do

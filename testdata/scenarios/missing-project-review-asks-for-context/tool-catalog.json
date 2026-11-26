@@ -22,6 +22,25 @@
           "name": "get_work_state"
         },
         {
+          "description": "Read a procedure by name from this turn's work.skills. Each read returns the revision listed in the briefing. Use it when its description matches the request, within the task's existing permissions.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "name": "read_skill"
+        },
+        {
           "description": "Preserve one source-backed observation for this episode.",
           "inputSchema": {
             "additionalProperties": false,

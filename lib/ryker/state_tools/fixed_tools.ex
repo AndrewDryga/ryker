@@ -12,6 +12,7 @@ defmodule Ryker.StateTools.FixedTools do
   @confirmation_tools ~w(propose_automation propose_memory propose_preference request_task)
   @names ~w(
     get_work_state
+    read_skill
     cite_source
     record_finding
     render_chart
@@ -101,6 +102,17 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp dispatch("get_work_state", arguments, binding),
     do: WorkStateTools.get_work_state(arguments, binding)
+
+  defp dispatch("read_skill", %{"name" => name}, %{turn: turn}) do
+    case get_in(turn.submission, ["skill_documents", name]) do
+      nil ->
+        {:error, :skill_unavailable}
+
+      document ->
+        {:ok,
+         %{"name" => name, "document" => document, "sha256" => Ryker.Crypto.sha256_hex(document)}}
+    end
+  end
 
   defp dispatch("cite_source", arguments, binding),
     do: EvidenceTools.cite_source(arguments, binding)

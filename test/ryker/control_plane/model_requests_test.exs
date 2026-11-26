@@ -16,6 +16,15 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.Settings
   alias Ryker.Work.{CandidateResponse, Custody, Session, Submission, Turn}
 
+  test "procedure inspection opens the exact historical revision available on demand" do
+    historical = "Instructions retained from a previous version."
+    {episode, turn, prompt} = frozen_turn!(%{"verify-rollout" => historical})
+    refute prompt =~ historical
+    request = timeline_request(episode, turn)
+    assert render_component(&EpisodeRequest.render/1, request: request) =~ historical
+    assert Enum.find(request.sections, &(&1.id == "skills")).artifact.text == historical
+  end
+
   test "a pending response follows its own receipt, never the briefing or an older rejection" do
     # A live follow-up showed its silent answer before all the tools it had
     # just run, while completion review was still checking that answer.
@@ -1057,7 +1066,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   defp text_part(text),
     do: %{"kind" => "text", "text" => text, "sha256" => digest(text), "bytes" => byte_size(text)}
 
-  defp frozen_turn! do
+  defp frozen_turn!(documents \\ %{}) do
     id = Ecto.UUID.generate()
 
     {:ok, %{episode: episode}} =
@@ -1081,6 +1090,16 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       "api_token" => "xoxb-recorded-credential"
     }
 
+    context =
+      if documents == %{},
+        do: context,
+        else:
+          Map.put(
+            context,
+            "skills",
+            Enum.map(documents, fn {name, text} -> %{"name" => name, "sha256" => digest(text)} end)
+          )
+
     original =
       Jason.encode!(%{
         "instructions" => "Host-authored retained instructions for this submission.",
@@ -1088,7 +1107,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       })
 
     {:ok, submission} =
-      Submission.new(context, original, %{"type" => "object"}, "inspection-test")
+      Submission.new(context, original, %{"type" => "object"}, "inspection-test", [], documents)
 
     {:ok, turn} =
       Custody.freeze_submission(episode.id, claim.turn.turn_ref, claim.lease_ref, submission)

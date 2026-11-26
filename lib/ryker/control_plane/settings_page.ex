@@ -245,6 +245,21 @@ defmodule Ryker.ControlPlane.SettingsPage do
       <%= if is_nil(@form) do %>
         <SetupPage.render :if={@section == :setup} view={@view} params={@params} />
         <EnvironmentsPage.render :if={@section == :environments} view={@view} params={@params} />
+        <.live_component
+          :if={@section == :skills}
+          module={Ryker.ControlPlane.SkillSettings}
+          id="installation-skills"
+          environment={nil}
+          view={@view}
+          commands={@commands}
+        />
+        <.live_component
+          :if={@section == :skills}
+          module={Ryker.ControlPlane.SkillImport}
+          id="install-skill"
+          view={@view}
+          commands={@commands}
+        />
         <.integrations :if={@section == :integrations} view={@view} />
         <.settings_overview :if={@section == :settings} view={@view} />
         <.slack
@@ -2286,6 +2301,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp page(:setup),
     do: %{title: "Set up Ryker", description: "Connect Ryker to Slack and your code."}
+
+  defp page(:skills),
+    do: %{
+      title: "Skills",
+      description: "Procedures Ryker can consult while working on a request."
+    }
 
   defp page(:environments),
     do: %{

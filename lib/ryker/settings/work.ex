@@ -62,6 +62,8 @@ defmodule Ryker.Settings.Work do
   @local_model ~r/\A[A-Za-z0-9][A-Za-z0-9._:\/@+-]{0,199}\z/
 
   schema "work_settings" do
+    field(:installed_skills, :map, default: %{})
+    field(:enabled_skills, {:array, :string}, default: [])
     field(:workspace_ref, :string)
     field(:ready_routing_sessions, :integer, default: 1)
     field(:ready_work_sessions, :integer, default: 2)

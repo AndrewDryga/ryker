@@ -46,6 +46,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/failures/:kind/:id", :failure},
     {"/usage", :usage},
     {"/environments", :environments},
+    {"/skills", :skills},
     {"/channels", :channels},
     {"/channels/:workspace/:channel", :channel},
     {"/repositories", :repositories},
@@ -270,6 +271,19 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Lowering the cost",
        [
          "The tables show which model or kind of work costs most. Choose a cheaper model for a kind of work in Settings › Models."
+       ]}
+    ])
+  end
+
+  defp help(:skills) do
+    page("How skills work", [
+      {"Install a skill",
+       [
+         "Preview the SKILL.md file from a public GitHub repository, then install the version you reviewed. Preview the same file again to update it."
+       ]},
+      {"Choose where it applies",
+       [
+         "Enable a skill here for the whole installation or open one environment to enable it there. Each new Work turn keeps its own copy of the enabled procedures."
        ]}
     ])
   end

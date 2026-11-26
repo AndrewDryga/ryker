@@ -401,6 +401,29 @@ is readable. Emisar still checks target permissions on each action. Unsaved chan
 be saved before checking; a result for an older settings revision is discarded. After an
 access change, start new work in the chosen environment; existing frozen jobs keep their authority.
 
+## Work skills
+
+Open **Work → Skills** to enable a procedure for all Work, including work
+without a repository. Open a saved environment to enable additional skills there. Both selections
+start empty. Turning off an installation selection leaves any environment selections in effect.
+
+Each newly prepared Work turn, including a continuation, sees the names, descriptions and SHA-256
+revisions of its enabled skills. When a procedure fits the request, Ryker reads its saved text
+through `read_skill`. The briefing shows which revisions were offered and the tool history shows
+which procedure was read. A retry keeps the same text after a setting change or a Ryker upgrade.
+Skills grant no access to repositories, tools or Emisar actions.
+
+The Skills page lists bundled procedures and imports with their pinned GitHub source and full text.
+Paste a public GitHub repository (for a root skill), skill folder, or SKILL.md link into **Install
+from GitHub**. Preview resolves the revision and displays the document. Install saves those exact
+bytes and a new skill starts disabled. Preview and install the same source again to update it.
+Other files, scripts and assets from the repository are outside this Markdown import. Imports
+work without a GitHub connection. Disable an import in every scope before removing it.
+
+The first bundled skill, `verify-rollout`, compares the intended release with the revision each
+installation serves and checks readiness. Add reviewed procedures under `priv/skills/<name>/SKILL.md`
+and list them in `Ryker.Skills` to include them in a release.
+
 ## Global and channel instructions
 
 `/instructions` has one installation-wide field, "For every conversation". Below it

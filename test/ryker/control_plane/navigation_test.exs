@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
 
       for {path, title} <- [
             {"/environments", "Environments"},
+            {"/skills", "Skills"},
             {"/channels", "Channels"},
             {"/repositories", "Repositories"},
             {"/working-copies", "Working copies"},
@@ -58,7 +59,7 @@ defmodule Ryker.ControlPlane.NavigationTest do
       assert LazyHTML.attribute(work, "open") == [""]
 
       assert LazyHTML.query(work, "a") |> LazyHTML.attribute("href") ==
-               ~w(/environments /channels /repositories /working-copies)
+               ~w(/environments /skills /channels /repositories /working-copies)
 
       assert LazyHTML.query(work, "a[aria-current=page]") |> LazyHTML.text() == "Environments"
 

@@ -94,6 +94,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "Emoji reactions people left on Ryker's earlier replies in this work."},
     "retained_cases" =>
       {"Similar past cases", "memory", nil, "Earlier cases recalled as worked examples."},
+    "skills" =>
+      {"Available skills", "tools", nil,
+       "The procedures and exact revisions offered to this turn."},
     "repository_knowledge" =>
       {"Repository knowledge", "memory", nil,
        "What Ryker wrote down about the repository this work is in."},
@@ -104,7 +107,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Repositories to choose from", "tools", nil,
        "Work can edit the repository routing chooses; the others are read-only."}
   }
-  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback completion_review_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback completion_review_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge skills candidates controller_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   # The evidence a self-analysis was given, under its prompt's `context`: what
   # the request was, what was said, what routing and Work did, what people
   # said about it, and what was left out (`Ryker.Improvement.Evidence`).
@@ -159,6 +162,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # reads without the tool's contract. The name stays beside it: the
   # timeline's tool steps show that name.
   @tool_descriptions %{
+    "read_skill" => "Read the saved version of a procedure enabled for this turn.",
     "get_work_state" =>
       "Reads what this request has recorded so far, such as findings, goals and waits.",
     "cite_source" => "Saves where a piece of evidence came from, so the answer can point to it.",

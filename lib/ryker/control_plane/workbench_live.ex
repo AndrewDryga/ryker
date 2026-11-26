@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository leave-channel)
   @settings_pages %{
     ["setup"] => :setup,
+    ["skills"] => :skills,
     ["environments"] => :environments,
     ["integrations"] => :integrations,
     ["integrations", "slack"] => :slack,
@@ -2130,6 +2131,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       initialize: fn -> actions.initialize_settings.(viewer) end,
       preview_retention: actions[:preview_retention],
       preview_webhook: actions[:preview_webhook],
+      install_skill: &Settings.install_skill(&1, &2, Actor.of(viewer)),
+      remove_skill: &Settings.remove_skill(&1, &2, Actor.of(viewer)),
+      save_work_skills: &Settings.save_work(%{enabled_skills: &1}, &2, Actor.of(viewer)),
       put_environment: &Settings.put_environment(&1, &2, Actor.of(viewer)),
       put_approvals: fn %{ref: ref, allowed: allowed}, revision ->
         IntegrationSetup.allow_github_approvals(ref, allowed, Actor.of(viewer), revision)

@@ -54,6 +54,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         )
       )
       |> assign(:record_links, request[:record_links] || %{})
+      |> assign(:skill_section, Enum.find(request.sections, &(&1.id == "skills")))
       |> assign(:contract_section, Enum.find(request.sections, &(&1.id == "contract")))
       |> assign(
         :prompt_section,
@@ -134,6 +135,18 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </Components.disclosure>
         <% end %>
       </div>
+      <Components.disclosure
+        :if={@skill_section && !@retention_note}
+        id={"#{@request.id}-skill-documents"}
+        label={@skill_section.title}
+        kind={:source}
+        data-artifact={if @skill_section.artifact.state == :collapsed, do: @skill_section.artifact_id}
+      >
+        <Components.inspection_text
+          :if={@skill_section.artifact.text}
+          text={@skill_section.artifact.text}
+        />
+      </Components.disclosure>
       <section
         :if={@prompt_section && !@retention_note}
         class="final-prompt"

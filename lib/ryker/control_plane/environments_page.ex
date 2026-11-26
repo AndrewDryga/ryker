@@ -110,6 +110,14 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       view={@view}
       commands={@commands}
     />
+    <.live_component
+      :if={@environment}
+      module={Ryker.ControlPlane.SkillSettings}
+      id={"skills-" <> @environment.ref}
+      environment={@environment}
+      view={@view}
+      commands={@commands}
+    />
     <Kit.remove_card
       :if={@environment}
       id="remove-environment"

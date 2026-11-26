@@ -21,6 +21,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
   alias Ryker.Settings
+  alias Ryker.Skills
   alias Ryker.Slack
   alias Ryker.StateTools
   alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
@@ -64,6 +65,12 @@ defmodule Ryker.Work.SubmissionBuilder do
          records <- Records.model_records(episode, session),
          {:ok, metadata} <-
            context_metadata(episode, session, snapshot.active, contract.mode, options),
+         skills =
+           if("read_skill" in metadata["controller_tools"],
+             do: Settings.enabled_skills(session.environment_ref),
+             else: []
+           ),
+         metadata = Map.put(metadata, "skills", Skills.descriptions(skills)),
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
          {receipt, context} = Map.pop(context, "thread_receipt"),
@@ -74,7 +81,8 @@ defmodule Ryker.Work.SubmissionBuilder do
              Prompt.build(context, contract.mode),
              contract.output_schema,
              contract.contract_version,
-             model_artifact_refs(context)
+             model_artifact_refs(context),
+             Map.new(skills, &{&1["name"], &1["document"]})
            ) do
       {:ok,
        %{

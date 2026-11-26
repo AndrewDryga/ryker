@@ -96,6 +96,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     "wait_for" =>
       {"Prepare an event wait", "Event wait prepared",
        "Sets the event or deadline that resumes this work."},
+    "read_skill" => {"Read a skill", "Skill read", "Reads the procedure saved with this turn."},
     "search_memory" =>
       {"Search saved knowledge", "Saved knowledge searched",
        "Looks up relevant memories, guidance and conversation context."},
@@ -703,6 +704,7 @@ defmodule Ryker.ControlPlane.ToolCard do
       {"writable_repository", "Writable project"}
     ],
     "update_conversation_summary" => [],
+    "read_skill" => [{"name", "Skill"}],
     "search_memory" => [{"query", "Search"}, {"kind", "Knowledge type"}],
     "update_goal" => [{"goal_id", "Goal"}, {"state", "Progress"}],
     "wait_for" => [
