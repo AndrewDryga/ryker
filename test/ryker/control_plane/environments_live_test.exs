@@ -73,6 +73,9 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   test "a bundled procedure can be edited, deleted from this installation, and restored" do
     installation!()
     {:ok, view, _} = open("/skills/verify-rollout")
+    assert has_element?(view, ".page-header h1", "Verify rollout")
+    refute has_element?(view, ".page-header .page-description")
+    assert has_element?(view, ".skill-availability + .skill-availability button", "Delete skill")
     view |> element("button", "Edit procedure") |> render_click()
     original = File.read!("priv/skills/verify-rollout/SKILL.md")
     view |> form("#edit-skill-form", document: original <> "\nCheck again.") |> render_submit()
@@ -81,6 +84,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     view |> element("#delete-skill button", "Delete skill") |> render_click()
     assert_redirect(view, "/skills")
     {:ok, catalog, _} = open("/skills")
+    assert has_element?(catalog, "h1", "Global skills")
     assert has_element?(catalog, ".kit-empty", "No skills installed")
     {:ok, install, _} = open("/skills/install/github")
     install |> element("button", "Restore skill") |> render_click()

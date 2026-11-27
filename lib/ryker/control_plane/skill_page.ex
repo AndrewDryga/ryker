@@ -179,28 +179,39 @@ defmodule Ryker.ControlPlane.SkillPage do
     <div id={@id}>
       <Kit.empty :if={!@skill} icon={:book} title="This skill is no longer installed" />
       <div :if={@skill} class="skill-detail">
-        <div class="skill-availability">
-          <div>
-            <strong>Installation-wide</strong><p>
-              Make this procedure available in every environment.
-            </p>
+        <div class="skill-management">
+          <div class="skill-availability">
+            <div>
+              <strong>Installation-wide</strong>
+              <p>Make this skill available in every environment.</p>
+              <p :for={env <- Enum.filter(@view.snapshot.environments, &(@name in &1.enabled_skills))}>
+                Enabled in
+                <.link navigate={Paths.edit_environment(env.ref)}>{env.display_name}</.link>
+              </p>
+            </div>
+            <button
+              class="ui-button secondary"
+              disabled={!is_nil(@draft)}
+              phx-click="toggle"
+              phx-target={@myself}
+              phx-value-revision={@view.revision}
+            >{if @name in @view.snapshot.work.enabled_skills,
+              do: "Disable installation-wide",
+              else: "Enable installation-wide"}</button>
           </div>
-          <button
-            class="ui-button secondary"
-            disabled={!is_nil(@draft)}
-            phx-click="toggle"
-            phx-target={@myself}
-            phx-value-revision={@view.revision}
-          >{if @name in @view.snapshot.work.enabled_skills,
-            do: "Disable installation-wide",
-            else: "Enable installation-wide"}</button>
+          <div class="skill-availability">
+            <div>
+              <strong>Delete skill</strong>
+              <p>Remove this skill from this installation.</p>
+            </div>
+            <button
+              class="ui-button secondary"
+              disabled={!is_nil(@draft)}
+              phx-click="ask-delete"
+              phx-target={@myself}
+            >Delete skill</button>
+          </div>
         </div>
-        <p
-          :for={env <- Enum.filter(@view.snapshot.environments, &(@name in &1.enabled_skills))}
-          class="skill-scope"
-        >
-          Enabled in <.link navigate={Paths.edit_environment(env.ref)}>{env.display_name}</.link>
-        </p>
         <Kit.form_card label="Procedure">
           <div class="skill-document-head">
             <div>
@@ -236,19 +247,11 @@ defmodule Ryker.ControlPlane.SkillPage do
           </form>
         </Kit.form_card>
         <Components.form_feedback :if={@error && !@deleting} message={@error} tone={:error} />
-        <div>
-          <button
-            class="ui-button danger"
-            disabled={!is_nil(@draft)}
-            phx-click="ask-delete"
-            phx-target={@myself}
-          >Delete skill</button>
-        </div>
         <Kit.confirm_modal
           :if={@deleting}
           id="delete-skill"
           title={"Delete " <> title(@name) <> "?"}
-          text="Remove this procedure from this installation’s catalog. Earlier work keeps its saved revision."
+          text="This removes the skill from this installation. Past work keeps the version it used."
           label="Delete skill"
           cancel="cancel"
           target={@myself}

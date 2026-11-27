@@ -165,6 +165,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         description={@page.description}
         back={@page[:back]}
         navigate
+        progress={if @view.applying and is_nil(@notice), do: "Applying…"}
       >
         <:action :if={@section == :skills and is_nil(@form)}>
           <.link navigate="/skills/install/github" class="ui-button primary"><Components.icon name={
@@ -216,12 +217,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
         :if={@notice}
         message={if @view.applying, do: @notice <> " Applying it now…", else: @notice}
         tone={:success}
-        class="page-feedback"
-      />
-      <Components.form_feedback
-        :if={@view.applying and is_nil(@notice)}
-        message="Applying the saved settings…"
-        tone={:info}
         class="page-feedback"
       />
       <Components.form_feedback
@@ -2225,7 +2220,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp heading(:skills, {:install, nil}, _view),
     do: %{
       title: "Install from GitHub",
-      description: "Review a public procedure before adding it to this installation.",
+      description: nil,
       back: {"All skills", "/skills"}
     }
 
@@ -2234,7 +2229,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
     %{
       title: if(skill, do: Ryker.ControlPlane.SkillPage.title(name), else: "Skill unavailable"),
-      description: skill && skill["description"],
+      description: nil,
       back: {"All skills", "/skills"}
     }
   end
@@ -2327,8 +2322,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp page(:skills),
     do: %{
-      title: "Skills",
-      description: "Procedures Ryker can consult while working on a request."
+      title: "Global skills",
+      description: nil
     }
 
   defp page(:environments),
