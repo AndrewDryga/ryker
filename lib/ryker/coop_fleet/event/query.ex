@@ -5,6 +5,15 @@ defmodule Ryker.CoopFleet.Event.Query do
 
   def all, do: from(events in Event, as: :coop_worker_events)
 
+  @doc "Events from every work session generation belonging to this job episode."
+  def by_job_episode(nil), do: where(all(), false)
+
+  def by_job_episode(episode_id) do
+    sessions = Ryker.Work.Session.Query.by_episode_id(episode_id)
+
+    from(e in all(), join: s in subquery(sessions), on: s.id == e.session_id)
+  end
+
   @doc """
   The event placement `placement_id` stored at `sequence`: a session event,
   or with `session_event?` false, any other kind. Session events and the

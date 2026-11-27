@@ -385,6 +385,18 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
+  @doc "Current paid execution excludes cancelled turns, including cancellation pending remote cleanup."
+  def model_execution(query) do
+    from(s in query,
+      left_join: e in Episodes.Episode,
+      on: e.id == s.episode_id,
+      left_join: turn in Turn,
+      on: turn.episode_id == e.id and e.owner_kind == :turn and turn.turn_ref == e.owner_ref,
+      where: is_nil(e.id) or e.state not in [:cancelled, :complete],
+      where: is_nil(turn.cancellation_intent) and s.cleanup_status == :active
+    )
+  end
+
   def select_episode_ids(queryable),
     do: select(queryable, [episode_work_sessions: s], s.episode_id)
 

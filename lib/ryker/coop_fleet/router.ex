@@ -3,7 +3,7 @@ defmodule Ryker.CoopFleet.Router do
   @behaviour Plug
   import Plug.Conn
   alias Ryker.CoopFleet.{Bodies, ControlPlane, Enrollment, Protocol, PublicationGrants}
-  alias Ryker.CoopFleet.SourceGrants
+  alias Ryker.CoopFleet.{ModelGrants, ModelProxy, SourceGrants}
   alias Ryker.HTTPConnection
   alias Ryker.Maps
   alias Ryker.StateTools
@@ -28,6 +28,96 @@ defmodule Ryker.CoopFleet.Router do
   @impl Plug
   def call(conn, options),
     do: conn |> HTTPConnection.close_after_refusal() |> route(options)
+
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["v1", "coop-operators", "service-relays"]} = conn,
+         options
+       ) do
+    with ["Bearer " <> token] when byte_size(token) <= 4096 <-
+           get_req_header(conn, "authorization"),
+         {:ok, binding} <- Ryker.CoopFleet.ServiceRelays.verify(token, options) do
+      Ryker.CoopFleet.ServiceSocket.upgrade(conn, {:operator, binding})
+    else
+      _refused -> json_error(conn, 403, "service_access_refused")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{method: "GET", path_info: ["v1", "coop-workers", "service-relays", id]} = conn,
+         _options
+       ) do
+    with {:ok, cert} <- client_certificate(conn),
+         {:ok, worker} <- Ryker.CoopFleet.ServiceRelays.worker(id, cert) do
+      Ryker.CoopFleet.ServiceSocket.upgrade(conn, worker)
+    else
+      _refused -> json_error(conn, 403, "service_access_refused")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{
+           method: "GET",
+           path_info: ["v1", "coop-workers", "jobs", job, "workspace-input"]
+         } = conn,
+         options
+       ) do
+    with {:ok, certificate} <- client_certificate(conn),
+         {:ok, input} <- Ryker.Operator.WorkspaceInputs.authorize(certificate, job),
+         {:ok, conn} <-
+           Ryker.Operator.WorkspaceInputs.with_download(
+             options,
+             input,
+             &send_workspace_input(conn, certificate, job, input, &1)
+           ) do
+      conn
+    else
+      {:error, :client_certificate} -> json_error(conn, 401, "unauthorized")
+      {:error, :workspace_input_not_authorized} -> json_error(conn, 404, "not_found")
+      _ -> json_error(conn, 503, "body_storage_unavailable")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{
+           method: "POST",
+           path_info: ["v1", "coop-workers", "jobs", job, "model-grants"]
+         } = conn,
+         _options
+       ) do
+    with {:ok, certificate} <- client_certificate(conn),
+         :ok <- json_content_type(conn),
+         {:ok, body, conn} <- bounded_body(conn),
+         {:ok, request} <- Jason.decode(body),
+         {:ok, grant} <- ModelGrants.issue(certificate, job, request) do
+      json_response(conn, 200, grant)
+    else
+      {:error, :model_grant_unavailable} -> json_error(conn, 503, "model_grant_unavailable")
+      _refused -> json_error(conn, 403, "model_grant_refused")
+    end
+  end
+
+  defp route(
+         %Plug.Conn{
+           path_info: ["v1", "coop-workers", "jobs", job, "models", provider, host | path]
+         } = conn,
+         options
+       ) do
+    case client_certificate(conn) do
+      {:ok, certificate} ->
+        ModelProxy.call(
+          conn,
+          certificate,
+          job,
+          provider,
+          host,
+          "/" <> Enum.join(path, "/"),
+          options
+        )
+
+      _unauthorized ->
+        json_error(conn, 401, "unauthorized")
+    end
+  end
 
   defp route(
          %Plug.Conn{
@@ -213,9 +303,18 @@ defmodule Ryker.CoopFleet.Router do
          {:ok, body, conn} <- bounded_body(conn),
          {:ok, poll} <- Protocol.decode_poll(body),
          {:ok, response} <-
-           ControlPlane.handle_poll_certificate(certificate, poll, poll_options(options)),
+           ControlPlane.handle_poll_certificate(
+             certificate,
+             poll,
+             Keyword.put(
+               poll_options(options),
+               :machine_report,
+               get_req_header(conn, "x-coop-machine-report") == ["1"]
+             )
+           ),
          {:ok, encoded} <- Protocol.encode_response(response) do
       conn
+      |> put_resp_header("x-coop-machine-report", "1")
       |> put_resp_content_type("application/json")
       |> put_resp_header("cache-control", "no-store")
       |> send_resp(200, encoded)
@@ -229,6 +328,22 @@ defmodule Ryker.CoopFleet.Router do
   end
 
   defp route(conn, _options), do: json_error(conn, 404, "not_found")
+
+  defp send_workspace_input(conn, certificate, job, input, stream) do
+    authorized? = fn ->
+      Ryker.Operator.WorkspaceInputs.authorize(certificate, job) == {:ok, input}
+    end
+
+    if authorized?.() do
+      conn
+      |> put_resp_content_type("application/octet-stream")
+      |> put_resp_header("cache-control", "no-store")
+      |> send_chunked(200)
+      |> stream_response(Stream.take_while(stream, fn _ -> authorized?.() end))
+    else
+      {:error, :workspace_input_not_authorized}
+    end
+  end
 
   defp send_request_body(conn, certificate, id, stream) do
     with {:ok, _command} <- Bodies.authorize(certificate, id) do

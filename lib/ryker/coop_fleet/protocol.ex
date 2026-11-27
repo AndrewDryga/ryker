@@ -263,9 +263,11 @@ defmodule Ryker.CoopFleet.Protocol do
 
   defp capacity(%{} = document) do
     fields =
-      ~w(session_slots_free session_slots_total turn_slots_free turn_slots_total workspace_slots_free workspace_slots_total state cooldown_until)
+      ~w(session_slots_free session_slots_total turn_slots_free turn_slots_total workspace_slots_free workspace_slots_total state cooldown_until) ++
+        if(Map.has_key?(document, "machine"), do: ["machine"], else: [])
 
     with :ok <- exact_fields(document, fields, :capacity),
+         :ok <- Ryker.CoopFleet.Machine.validate(document["machine"]),
          :ok <-
            slots(document["session_slots_free"], document["session_slots_total"], :session_slots),
          :ok <- slots(document["turn_slots_free"], document["turn_slots_total"], :turn_slots),

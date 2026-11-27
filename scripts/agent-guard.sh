@@ -9,7 +9,7 @@
 #                     (2026-09-11). Set work aside with a wip commit.
 #   pkill, killall    A pattern kill took production down. Kill exact PIDs.
 #   coop login        It deletes the worker's sign-in before it starts, and a
-#                     live worker then has none (scripts/compose.sh model-login
+#                     live worker then has none (Settings → Models
 #                     is the operator's path).
 #   compose.sh replay over SSH
 #                     On the tenant install it records the action as the
@@ -46,7 +46,7 @@ while IFS= read -r segment; do
     refuse "no kill by name or pattern: one took production down. Find the exact PIDs (pgrep -fl, lsof) and kill those."
   fi
   if [[ $segment =~ ^(coop|docker|ssh)[[:space:]] && $segment =~ (^|[[:space:]])coop[[:space:]]+login([[:space:]]|$) ]]; then
-    refuse "coop login deletes the worker's sign-in before it starts. Signing a worker in is the operator's step: scripts/compose.sh model-login."
+    refuse "Provider credentials stay in Ryker. Configure account access in Settings → Models; do not sign in on a worker."
   fi
 done <<<"$segments"
 

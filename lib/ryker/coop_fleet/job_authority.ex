@@ -600,6 +600,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp document(session, work, purpose, source, companions) do
     work
     |> JobTemplates.execution(purpose, not is_nil(source))
+    |> with_operator_input(session)
     |> Map.merge(%{
       "version" => 2,
       "job_ref" => session.external_ref,
@@ -607,6 +608,28 @@ defmodule Ryker.CoopFleet.JobAuthority do
       "companions" => companions
     })
   end
+
+  # Only a local job receipt can narrow a contributor's per-container caps.
+  # Task text and repository configuration cannot change a worker's reservation.
+  defp with_operator_input(job, %{
+         episode_id: episode,
+         workspace_task: %{"offer_ref" => "operator-fleet-job:" <> id}
+       }) do
+    case Repo.peek(Ryker.Operator.FleetJob.Query.by_episode(episode)) do
+      %{id: ^id, resources: requested, workspace_input: input} ->
+        job
+        |> update_in(
+          ["resources"],
+          &Map.merge(&1, requested || %{}, fn _key, cap, value -> min(cap, value) end)
+        )
+        |> Ryker.Maps.put_present("workspace_input", input)
+
+      _default ->
+        job
+    end
+  end
+
+  defp with_operator_input(job, _session), do: job
 
   defp pin(original, revision, job, digest) do
     Repo.transaction(fn ->

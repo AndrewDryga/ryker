@@ -35,7 +35,7 @@ defmodule Ryker.Work.Executor.Validation do
   def ensure_validation_intent(claim, sha256, attempt, artifacts, settings) do
     requirements = workspace_requirements(claim)
 
-    with {:ok, workspace} <- workspace_validation_context(claim, requirements, settings),
+    with {:ok, workspace} <- workspace_validation_context(claim, requirements, settings, sha256),
          {:ok, turn} <-
            Custody.prepare_candidate_validation(
              claim.episode.id,
@@ -334,13 +334,13 @@ defmodule Ryker.Work.Executor.Validation do
      |> Map.put("workspace", workspace)}
   end
 
-  defp workspace_validation_context(_claim, [], _settings), do: {:ok, nil}
+  defp workspace_validation_context(_claim, [], _settings, _sha256), do: {:ok, nil}
 
-  defp workspace_validation_context(claim, goals, settings) do
+  defp workspace_validation_context(claim, goals, settings, sha256) do
     with true <- function_exported?(settings.api, :get_changes, 2),
          {:ok, changes} <-
            Remote.api_call(settings, fn ->
-             settings.api.get_changes(settings.client, claim.session.coop_session_id)
+             candidate_changes(claim, settings, sha256)
            end),
          {:ok, prepared} <- prepare_workspace_changes(changes, goals) do
       purpose = get_in(claim.session.workspace_task || %{}, ["purpose"]) || "implementation"
@@ -356,12 +356,64 @@ defmodule Ryker.Work.Executor.Validation do
       {:ok,
        prepared
        |> Map.put("purpose", purpose)
-       |> Map.put("admitted_source_commit", source_commit)}
+       |> Map.put("admitted_source_commit", source_commit)
+       |> compare_submitted_input(claim.session, changes)}
     else
       false -> {:error, {:invalid_work_executor, :workspace_changes_api}}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp candidate_changes(claim, settings, sha256) do
+    if operator_verification?(claim.session.workspace_task) do
+      if function_exported?(settings.api, :get_verification_changes, 4) do
+        settings.api.get_verification_changes(
+          settings.client,
+          claim.session.coop_session_id,
+          claim.turn.coop_turn_id,
+          sha256
+        )
+      else
+        {:error, {:coop_upgrade_required, :verification_source}}
+      end
+    else
+      settings.api.get_changes(settings.client, claim.session.coop_session_id)
+    end
+  end
+
+  defp operator_verification?(%{
+         "offer_ref" => "operator-fleet-job:" <> _id,
+         "purpose" => "verification"
+       }),
+       do: true
+
+  defp operator_verification?(_task), do: false
+
+  defp compare_submitted_input(workspace, session, changes) do
+    task = session.workspace_task
+
+    if operator_verification?(task) do
+      head = get_in(session.worker_job_document || %{}, ["source", "binding", "selected_commit"])
+
+      expected =
+        task["verification_input_sha256"] ||
+          clean_source_digest(head, workspace["admitted_source_tree"])
+
+      Map.put(
+        workspace,
+        "submitted_input_unchanged",
+        is_binary(expected) and expected == changes["working_source_digest"]
+      )
+    else
+      workspace
+    end
+  end
+
+  defp clean_source_digest(head, tree)
+       when is_binary(head) and is_binary(tree),
+       do: Ryker.Crypto.sha256_hex(head <> "\n" <> tree <> "\n" <> tree <> "\n")
+
+  defp clean_source_digest(_head, _tree), do: nil
 
   defp workspace_requirements(%{
          session: %{

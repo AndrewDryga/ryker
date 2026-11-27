@@ -96,6 +96,20 @@ defmodule Ryker.CoopFleet.Command.Query do
     |> where([coop_worker_commands: c], c.status != :failed)
   end
 
+  @doc "Raw worker API commands that may have created a session on this placement."
+  def raw_session_creates(queryable) do
+    where(
+      queryable,
+      [c],
+      c.kind == "api_request" and
+        fragment(
+          "?::jsonb ->> 'method' = 'POST' AND ?::jsonb ->> 'path' = '/v1/sessions'",
+          c.payload,
+          c.payload
+        )
+    )
+  end
+
   @doc "Every create attempt of this exact local session, including uncertain failures."
   def creates(session_id) do
     session_id

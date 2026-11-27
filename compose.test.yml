@@ -23,7 +23,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ryker_test"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d ryker_test"]
       interval: 200ms
       timeout: 2s
       retries: 30

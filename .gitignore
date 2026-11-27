@@ -41,3 +41,6 @@
 
 # Expert (Elixir language server) tool logs written beside the file it was opened on.
 .expert/
+
+# ExUnit creates per-test working directories here.
+/tmp/

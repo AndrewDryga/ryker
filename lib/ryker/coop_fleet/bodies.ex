@@ -119,13 +119,20 @@ defmodule Ryker.CoopFleet.Bodies do
   def prune_orphans(nil), do: :ok
 
   def prune_orphans(root) do
+    prune_orphans(root, fn id, old? ->
+      WeeklyReport.ReviewTransport.body_prunable?(id) or
+        (old? and not Repo.exists?(Command.Query.by_id(id)))
+    end)
+  end
+
+  def prune_orphans(root, prunable?) do
     with true <- is_binary(root) and Path.type(root) == :absolute and root != "/",
          {:ok, %File.Stat{type: :directory}} <- File.lstat(root),
          {:ok, names} <- File.ls(root) do
       cutoff = System.os_time(:second) - 86_400
 
       Enum.reduce_while(names, :ok, fn name, :ok ->
-        prune_orphan(root, name, cutoff)
+        prune_orphan(root, name, cutoff, prunable?)
       end)
     else
       {:error, :enoent} -> :ok
@@ -136,14 +143,12 @@ defmodule Ryker.CoopFleet.Bodies do
   # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
   # or a generated one.
   # sobelow_skip ["Traversal.FileModule"]
-  defp prune_orphan(root, name, cutoff) do
+  defp prune_orphan(root, name, cutoff, prunable?) do
     path = Path.join(root, name)
 
     with {:ok, ^name} <- Ecto.UUID.cast(name),
          {:ok, %File.Stat{type: :directory, mtime: modified}} <- File.lstat(path, time: :posix),
-         true <-
-           WeeklyReport.ReviewTransport.body_prunable?(name) or
-             (modified < cutoff and not Repo.exists?(Command.Query.by_id(name))) do
+         true <- prunable?.(name, modified < cutoff) do
       # A command is committed before any writer starts. Its row remains
       # while a checkpoint needs its body; UUIDs are never reused. Removing
       # an orphan cannot authorize an in-flight upload to publish or ACK.

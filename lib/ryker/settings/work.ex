@@ -14,9 +14,9 @@ defmodule Ryker.Settings.Work do
   under its name as `coop presets NAME --export-job` writes one; code reviews
   (`code_review_preset`) and code changes (`contributor_preset`) may run one.
 
-  `model_accounts` lists the accounts the worker has signed in, as
-  `provider@name`. A model may only name a listed account; Coop validates the
-  actual worker credentials when admitting the immutable job's target ladder.
+  `model_accounts` lists the controller-managed accounts, as `provider@name`.
+  A model may only name a listed account. Ryker keeps provider credentials and
+  authorizes temporary worker proxy access for the immutable job's target ladder.
   `ready_routing_sessions` is how
   many routing sessions Ryker starts ahead of time (`Ryker.Admission.ReadyPool`);
   0 turns that off. `ready_work_sessions` is for how many kinds of new

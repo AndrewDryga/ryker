@@ -4,6 +4,22 @@ defmodule Ryker.ControlPlane.AccountLimitsProjectionTest do
 
   @now ~U[2026-11-21 01:10:00Z]
 
+  test "controller access is separate from allowance evidence" do
+    entries =
+      AccountLimitsProjection.controller_entries(%{
+        "codex@ready" => %{state: :configured},
+        "claude@missing" => %{state: :missing},
+        "claude@refused" => %{state: :refused},
+        "codex@unreadable" => %{state: :unavailable}
+      })
+
+    assert entries["codex@ready"].state == :unavailable
+    assert entries["codex@ready"].windows == []
+    assert entries["claude@missing"].state == :not_signed_in
+    assert entries["claude@refused"].state == :sign_in_again
+    assert entries["codex@unreadable"].state == :access_unavailable
+  end
+
   defp account(name, fields) do
     Map.merge(
       %{

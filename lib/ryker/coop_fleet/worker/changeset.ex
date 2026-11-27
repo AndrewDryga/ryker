@@ -31,6 +31,13 @@ defmodule Ryker.CoopFleet.Worker.Changeset do
     |> unique_constraint(:certificate_sha256)
   end
 
+  @doc "An operator replaces the worker identity; ordinary renewal keeps its epoch."
+  def enroll(%Worker{} = worker, certificate_sha256, epoch) do
+    worker
+    |> bind_certificate(certificate_sha256)
+    |> put_change(:enrollment_epoch, epoch)
+  end
+
   @doc "What a poll reports about the worker, as of `last_seen_at`."
   def heartbeat(%Worker{} = worker, attributes) do
     worker
@@ -40,6 +47,8 @@ defmodule Ryker.CoopFleet.Worker.Changeset do
     |> check_constraint(:capacity, name: :coop_worker_documents_valid)
     |> check_constraint(:storage, name: :coop_worker_storage_valid)
     |> check_constraint(:account_usage, name: :coop_worker_account_usage_valid)
+    |> check_constraint(:machine_daemon, name: :coop_worker_machine_valid)
+    |> unique_constraint(:machine_daemon)
   end
 
   @doc "An operator asks the worker to take no new work."

@@ -1,14 +1,12 @@
 defmodule Ryker.ControlPlane.AccountLimitsProjection do
   @moduledoc """
-  The allowance each model account has left, as its provider last reported it
-  to the worker that holds it (`Ryker.CoopFleet.AccountUsage`), for Settings ›
-  Models: one line per window, when it was checked, and whether the account is
-  used up. These are the provider's figures for the whole account, use outside
-  Ryker included; Ryker's own run counts and cost estimates are separate.
+  Model account access and provider allowance are separate evidence. The Models
+  page reads controller custody; a worker's local account alias cannot establish
+  which central credential or quota principal its figures describe. Until the
+  controller has matching allowance evidence, those figures remain unavailable.
 
-  The worker reads its providers at most every five minutes, so a check more
-  than twenty minutes old, or one whose latest read failed, is shown as going
-  stale rather than as current.
+  `entries/2` formats recorded provider windows with their check time; reports
+  older than twenty minutes are stale rather than current.
   """
   alias Ryker.CoopFleet
   alias Ryker.Wording
@@ -22,7 +20,13 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
           used_up: boolean()
         }
   @type entry :: %{
-          state: :current | :stale | :unavailable | :not_signed_in | :sign_in_again,
+          state:
+            :current
+            | :stale
+            | :unavailable
+            | :access_unavailable
+            | :not_signed_in
+            | :sign_in_again,
           checked_at: DateTime.t() | nil,
           windows: [window()],
           plan: String.t() | nil,
@@ -32,9 +36,56 @@ defmodule Ryker.ControlPlane.AccountLimitsProjection do
           credits: window() | nil
         }
 
-  @doc "Every account any worker reported, by `provider@name`."
+  @doc "Controller readiness and independently attributed worker allowance reports."
   @spec page(DateTime.t()) :: %{String.t() => entry()}
-  def page(now \\ DateTime.utc_now(:second)), do: entries(CoopFleet.account_usage_reports(), now)
+  def page(now \\ DateTime.utc_now(:second)) do
+    case CoopFleet.model_account_statuses() do
+      {:ok, statuses} ->
+        workers = worker_reports(now)
+
+        Map.new(controller_entries(statuses), fn {name, entry} ->
+          {name, Map.put(entry, :worker_reports, Enum.sort(Map.get(workers, name, [])))}
+        end)
+
+      _unavailable ->
+        %{}
+    end
+  end
+
+  defp worker_reports(now) do
+    for report <- CoopFleet.account_usage_reports(),
+        {name, limits} <- entries([report], now),
+        reduce: %{} do
+      acc ->
+        item = {report.worker_id, limits}
+        Map.update(acc, name, [item], &[item | &1])
+    end
+  end
+
+  @doc "Controller access determines readiness; worker aliases do not prove central quota identity."
+  def controller_entries(statuses) do
+    Map.new(statuses, fn {name, status} ->
+      state =
+        case status.state do
+          :missing -> :not_signed_in
+          :configured -> :unavailable
+          :unavailable -> :access_unavailable
+          _repair -> :sign_in_again
+        end
+
+      {name,
+       %{
+         state: state,
+         checked_at: nil,
+         windows: [],
+         plan: nil,
+         auth: nil,
+         resets: nil,
+         used_up: nil,
+         credits: nil
+       }}
+    end)
+  end
 
   @doc """
   Each account's entry from the workers' reports, most recently seen worker

@@ -1717,6 +1717,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ["environments"] => {:environments, :environment},
     ["settings", "prices"] => {:pricing, :pricing},
     ["settings", "models", "presets"] => {:model, :model_presets},
+    ["settings", "models", "accounts"] => {:model, :model_account},
     ["integrations", "emisar"] => {:emisar, :emisar},
     ["integrations", "webhooks", "credentials"] => {:webhooks, :webhook_credential},
     ["integrations", "webhooks", "sources"] => {:webhooks, :webhooks}
@@ -2145,6 +2146,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       end,
       put_repository: &Settings.put_repository(&1, &2, Actor.of(viewer)),
       put_item: &actions.put_settings_item.(&1, &2, &3, viewer),
+      set_model_concurrency: &Ryker.CoopFleet.set_model_concurrency(&1, &2, Actor.of(viewer)),
+      put_model_key: &Ryker.CoopFleet.put_model_key(&1, &2, Actor.of(viewer)),
+      model_receive_code: &Ryker.CoopFleet.model_receive_code(&1, Actor.of(viewer)),
+      receive_model_account: &Ryker.CoopFleet.receive_model_account(&1, &2, &3, Actor.of(viewer)),
+      remove_model_account: &Ryker.CoopFleet.remove_model_account(&1, Actor.of(viewer)),
       save: &actions.save_settings.(&1, &2, &3, viewer),
       send_weekly_report_preview: actions[:send_weekly_report_preview]
     }

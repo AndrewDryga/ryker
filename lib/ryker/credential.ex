@@ -13,7 +13,9 @@ defmodule Ryker.Credential do
         :github_webhook,
         :github_oauth_secret,
         :emisar,
-        :webhook
+        :webhook,
+        :model_account,
+        :model_import
       ]
     )
 

@@ -66,11 +66,11 @@ defmodule Ryker.ComposeDistributionTest do
     assert lifecycle =~ "prepare_bundled_coop"
     assert lifecycle =~ "docker compose"
     assert lifecycle =~ "0.1.0-source.g"
-    # The worker signs in on its own, through a login that puts the previous
-    # sign-in back when it does not finish. Install copied the host's Codex
-    # sign-in, and the two then shared one refresh token (2026-10-04 review).
+    # Provider credentials are configured in Ryker, never installed in worker volumes.
     refute lifecycle =~ "CODEX_HOME"
-    assert lifecycle =~ ~S'$(cat "$repository/deploy/compose/coop/model-login.sh")'
+    refute lifecycle =~ "model_login"
+    refute lifecycle =~ "coop login"
+    assert lifecycle =~ "Set up model account access in Settings"
     assert worker =~ "coop sessions connect"
     assert worker =~ ~s(--controller "$controller" --token-file "$token")
     assert worker =~ ~s(--ca-file "$ca" --state "$state/sessions")
@@ -197,9 +197,10 @@ defmodule Ryker.ComposeDistributionTest do
         env: [{"MAKEFLAGS", nil}, {"MFLAGS", nil}, {"MAKELEVEL", nil}]
       )
 
-    {tracked, 0} = System.cmd("git", ["ls-files", "*.sh"])
+    {tracked, 0} =
+      System.cmd("git", ["ls-files", "--cached", "--others", "--exclude-standard", "*.sh"])
 
-    for file <- String.split(tracked, "\n", trim: true) do
+    for file <- String.split(tracked, "\n", trim: true), File.regular?(file) do
       assert command =~ file, "make shellcheck skips #{file}"
     end
   end
@@ -518,7 +519,9 @@ defmodule Ryker.ComposeDistributionTest do
             nil -> from
           end
 
-        assert image in stages or image =~ ~r/@sha256:[0-9a-f]{64}$/, "#{path}: FROM #{from}"
+        # Docker supplies scratch internally. It has no remote manifest.
+        assert image == "scratch" or image in stages or image =~ ~r/@sha256:[0-9a-f]{64}$/,
+               "#{path}: FROM #{from}"
       end
     end
 

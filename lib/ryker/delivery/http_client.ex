@@ -67,6 +67,11 @@ defmodule Ryker.Delivery.HTTPClient do
           Finch.Request.t()
   def build(method, url, headers \\ [], body \\ nil), do: Finch.build(method, url, headers, body)
 
+  @doc "Streams response events to a caller that owns backpressure and cancellation."
+  def stream_events(request, finch, receive_timeout, initial, function) do
+    Finch.stream_while(request, finch, initial, function, receive_timeout: receive_timeout)
+  end
+
   @doc """
   Runs `function` with the HTTP pool started, for a process that runs outside
   the application, such as the live acceptance check started from a release

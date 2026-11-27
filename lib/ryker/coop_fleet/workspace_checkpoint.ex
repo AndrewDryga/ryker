@@ -46,6 +46,31 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
 
   def decode_bundle_manifest(_document), do: bundle_error(:document)
 
+  def decode_input_manifest(document, expected) do
+    fields =
+      ~w(version job_ref repository_ref base_revision committed_revision tracked_tree repository untracked_files)
+
+    with {:ok, %{"version" => 1} = m} <- Jason.decode(document),
+         :ok <- manifest_exact_fields(m, fields, :fields),
+         true <- Map.take(m, Map.keys(expected)) == expected,
+         :ok <- manifest_revision(m["base_revision"]),
+         :ok <- manifest_revision(m["committed_revision"]),
+         :ok <- manifest_revision(m["tracked_tree"]),
+         {:ok, content} <- manifest_entry(m["repository"], "repository.tar"),
+         {:ok, files, _, _} <-
+           manifest_files(
+             m["untracked_files"],
+             "untracked",
+             @maximum_checkpoint_files,
+             MapSet.new(["manifest.json", "repository.tar"]),
+             content["byte_size"]
+           ) do
+      {:ok, Map.put(m, "untracked_files", files)}
+    else
+      _invalid -> bundle_error(:workspace_input)
+    end
+  end
+
   defp validate_bundle_manifest(%{} = manifest) do
     with {:ok, content_field, content} <- manifest_content(manifest),
          :ok <- manifest_reference(manifest["checkpoint_ref"]),

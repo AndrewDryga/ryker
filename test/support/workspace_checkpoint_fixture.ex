@@ -94,7 +94,7 @@ defmodule Ryker.Fixtures.WorkspaceCheckpoint do
     {checkpoint, bundle}
   end
 
-  defp tar(members) do
+  def tar(members) do
     members
     |> Enum.map(fn {name, body} -> [tar_header(name, byte_size(body)), body, padding(body)] end)
     |> then(&[&1, :binary.copy(<<0>>, 1_024)])

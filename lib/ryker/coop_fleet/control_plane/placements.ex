@@ -9,14 +9,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   session at all without taking a slot to find out.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, Placement}
+  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, MachineResources, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Repo
   alias Ryker.Retention
   alias Ryker.Work
 
-  @creating_seconds 300
   @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
   @holder_purpose "stop_or_cleanup"
 
@@ -65,7 +64,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   session's frozen job without consulting current settings.
   """
   @spec worker_available?(Work.Session.t(), map()) :: boolean()
-  def worker_available?(%Work.Session{}, requirements) do
+  def worker_available?(%Work.Session{} = session, requirements) do
     case requirements(requirements) do
       {:ok, prepared} ->
         now = Repo.now!()
@@ -76,7 +75,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
           is_nil(worker.admission_stopped_at) and
             worker_current?(worker, prepared.workspace_ref, now) and
             worker_eligible?(worker, prepared, now) and
-            worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now)
+            worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now, session)
         end)
 
       {:error, _reason} ->
@@ -127,11 +126,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # takes seconds, a repository's at most a few minutes; an unbound placement
   # older than that is left over, not a session being created, and must not
   # stop every prepare on its worker.
-  defp session_being_created?(worker_id, now),
-    do: Repo.exists?(Placement.Query.unbound_since(worker_id, creating_since(now)))
-
-  # The oldest a placement can be and still be a create under way.
-  defp creating_since(now), do: DateTime.add(now, -@creating_seconds, :second)
+  defp session_being_created?(worker_id, now) do
+    Repo.exists?(Placement.Query.unbound_since(worker_id, MachineResources.creating_since(now)))
+  end
 
   # A command waits only while the worker can still act on it: one the next poll
   # would deliver. Coop answers neither a command whose placement ended nor a
@@ -690,7 +687,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
         skip(session, requirements, now, cutoff, excluded_ids, worker, storage_refusal(worker))
 
       worker_eligible?(worker, requirements, now) and
-        worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now) ->
+        worker.capacity["state"] == "eligible" and worker_has_capacity?(worker, now, session) ->
         worker
 
       true ->
@@ -738,28 +735,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       Repo.peek(Worker.Query.lock_for_update(query))
   end
 
-  defp worker_has_capacity?(worker, now) do
-    reserved_slots = reserved_placement_slots(worker.id, now)
-
-    # A heartbeat can precede execution of an assigned create. Keep that
-    # reservation until verified remote binding, not merely until the next poll.
-    # Bound sessions use measured worker capacity and may park without a child.
-    Enum.all?(
-      ~w(session turn workspace),
-      &(capacity_slot(worker, "#{&1}_slots_free") > reserved_slots)
-    )
-  end
-
-  # Only a create still under way reserves a slot, for as long as
-  # `session_being_created?/2` counts one. An older unbound placement is left
-  # over, most often from a create Coop refused for good: its session stays
-  # active and unbound and the worker renews the placement on every poll, so
-  # counted it would hold its slot until retention retired the session.
-  defp reserved_placement_slots(worker_id, now) do
-    worker_id
-    |> Placement.Query.unbound_since(creating_since(now))
-    |> Placement.Query.without_closed_session()
-    |> Repo.aggregate(:count)
+  defp worker_has_capacity?(worker, now, session) do
+    MachineResources.fits?(worker, session, MachineResources.creating_since(now))
   end
 
   defp worker_eligible?(worker, requirements, now) do

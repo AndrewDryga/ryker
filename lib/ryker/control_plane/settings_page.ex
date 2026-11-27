@@ -21,10 +21,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
   """
   use Phoenix.Component
   alias Ryker.BundledCoop
-  alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
-  alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
-  alias Ryker.ControlPlane.{SetupPage, ShortTime, WorkerConnect}
-  alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
+  alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations}
+  alias Ryker.ControlPlane.{Kit, ModelAccountAccess, Paths, RunningSystem}
+  alias Ryker.ControlPlane.{SettingsEditor, SettingsRows, SettingsSections, SetupPage}
+  alias Ryker.ControlPlane.{ShortTime, SlackMarkdown, WebhookPreview, WorkerConnect}
   alias Ryker.ConversationRef
   alias Ryker.GitHub
   alias Ryker.Settings
@@ -536,6 +536,26 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   # The one thing a page of one form adds or edits, in its card; a row that is
   # gone says so and leads back to its list instead of showing an empty form.
+  defp form_page(%{form: {:model_account, account}} = assigns) do
+    assigns =
+      assign(assigns,
+        account: account,
+        present: account in assigns.view.snapshot.work.model_accounts
+      )
+
+    ~H"""
+    <.live_component
+      :if={@present}
+      module={ModelAccountAccess}
+      id="model-account-access"
+      account={@account}
+      view={@view}
+      commands={@commands}
+    />
+    <.gone :if={!@present} noun="model account" back="/settings/models" />
+    """
+  end
+
   defp form_page(%{form: {:environment, ref}} = assigns) do
     assigns = assign(assigns, :ref, ref)
 
@@ -2271,6 +2291,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
         ),
       description: "Its name, its API key, whether Ryker watches it for approvals, or remove it.",
       back: {"Emisar", "/integrations/emisar"}
+    }
+
+  defp heading(_section, {:model_account, account}, _view),
+    do: %{
+      title: account,
+      description: "The account Ryker uses for its selected models.",
+      back: {"Models", "/settings/models"}
     }
 
   defp heading(_section, {:webhook_credential, nil}, _view),

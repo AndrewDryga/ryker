@@ -776,9 +776,17 @@ defmodule Ryker.Retention.Data do
     horizon: :operational_data_seconds
   }
 
+  @finished_model_permits %{
+    table: "coop_model_permits",
+    where: "state = 'released'",
+    age: "finished_at",
+    horizon: :operational_data_seconds
+  }
+
   defp prune_operational(result, settings) do
     cutoff = settings.operational_data_seconds
 
+    _model_permits = prune_aged(@finished_model_permits, settings)
     _slack_thread_statuses = prune_aged(@delivered_statuses, settings)
     _worker_enrollment_tokens = prune_aged(@spent_enrollment_tokens, settings)
     worker_commands = prune_aged(@discarded_session_commands, settings)

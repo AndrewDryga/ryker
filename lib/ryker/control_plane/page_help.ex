@@ -75,6 +75,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/integrations/webhooks", :webhooks},
     {"/settings", :settings},
     {"/settings/models", :models},
+    {"/settings/models/accounts/:item/edit", :models},
     {"/settings/models/local-routing", :local_routing},
     {"/settings/retention", :retention},
     {"/settings/prices", :prices},
@@ -690,7 +691,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Adding models and accounts",
        [
          "The models listed are the ones Model prices names. Another model appears once its price is saved there, written like claude:claude-opus-4-6.",
-         "Ryker can't see which accounts the worker has signed in. Sign one in with scripts/compose.sh model-login claude@work, then add it under Model accounts."
+         "Open a model account to add an API key or import a login. To import, copy the receive code and follow the steps on screen. Workers receive temporary access."
        ]},
       {"Account limits",
        [

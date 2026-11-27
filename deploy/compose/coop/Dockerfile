@@ -1,16 +1,23 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
+FROM scratch AS coop-upstream
+
 FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS build
 
-ARG COOP_VERSION=v15.2.1-9-g09340e4d
-ARG COOP_REVISION=09340e4d737b05b70e0f96a92ca20acb10e98677
+ARG COOP_VERSION=v15.5.0-6-g5f5febce
+ARG COOP_REVISION=5f5febce8e4b9e6e67a11c23cbf4706dd0dd7610
 
 # Only the pinned commit, and each download tried again: on 2026-10-17 the tenant host's network
 # broke off a clone of Coop's whole history twice, after 397 s and 36 s, and its worker stayed on
 # the Coop it ran.
-RUN git init --quiet /build/coop \
+# A local rollout can supply a bare Git repository as the coop-upstream build context.
+# Both sources must resolve to the pinned commit.
+RUN --mount=type=bind,from=coop-upstream,target=/upstream \
+    upstream=https://github.com/AndrewDryga/coop.git \
+ && if test -f /upstream/HEAD; then upstream=/upstream; fi \
+ && git init --quiet /build/coop \
  && cd /build/coop \
  && for attempt in 1 2 3 4 5; do \
-      git fetch --quiet --depth 1 https://github.com/AndrewDryga/coop.git "$COOP_REVISION" && break; \
+      git -c safe.directory=/upstream fetch --quiet --depth 1 "$upstream" "$COOP_REVISION" && break; \
       [ "$attempt" -lt 5 ] || exit 1; sleep $((attempt * 10)); \
     done \
  && git checkout --quiet --detach FETCH_HEAD \
@@ -60,7 +67,8 @@ RUN case "$(dpkg --print-architecture)" in \
 
 COPY --from=build /out/coop /usr/local/bin/coop
 RUN coop version \
- && coop help sessions connect >/dev/null
+ && coop help sessions connect >/dev/null \
+ && coop help credentials transfer >/dev/null
 
 # Root's, so a compromised worker cannot rewrite the entrypoint it restarts into.
 COPY deploy/compose/coop/entrypoint.sh /usr/local/bin/ryker-coop-entrypoint

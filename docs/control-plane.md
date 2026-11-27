@@ -716,10 +716,11 @@ recorded reports and are not presented as live-traffic quality scores.
   controller freezes that ordered list into each new job. A save applies to new
   jobs on bundled and remote workers, without rewriting worker configuration. Models are offered
   from Model prices, so a Claude model appears once its `claude:` price is saved.
-  Ryker cannot see the worker's sign-ins, so Model accounts lists them
-  (`provider@name`, from `scripts/compose.sh model-login claude@work`), and a
-  model may only name a listed account. Signing in an account remains a worker
-  operation; a missing sign-in is reported for the affected job. A new fallback starts as
+  Model accounts lists each `provider@name`. Open account access to save an API key or
+  paste an encrypted account bundle from Coop into Ryker. Provider keys and OAuth tokens remain encrypted
+  on the controller; workers receive temporary proxy access for their leased job.
+  Replacing or removing access invalidates running grants. A missing account is reported
+  for the affected job. A new fallback starts as
   the same model on the next listed account the list does not use yet, never as
   a copy Save would refuse. Conversation, standard and deep work must use the
   same accounts in the same order so a rotation does not widen the job's authority,

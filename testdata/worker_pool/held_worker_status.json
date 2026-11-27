@@ -8,5 +8,5 @@
   "drain_requested_at": null,
   "drain_requested_by": null,
   "protocol": "2",
-  "capabilities": "[{\"name\":\"job-setup\",\"version\":\"2\"},{\"name\":\"repository-freshness\",\"version\":\"2\"},{\"name\":\"session-evidence\",\"version\":\"1\"},{\"name\":\"controller-tools\",\"version\":\"1\"},{\"name\":\"review-commit-message\",\"version\":\"1\"}]"
+  "capabilities": "[{\"name\": \"job-setup\", \"version\": \"2\"}, {\"name\": \"repository-freshness\", \"version\": \"2\"}, {\"name\": \"session-evidence\", \"version\": \"1\"}, {\"name\": \"controller-tools\", \"version\": \"1\"}, {\"name\": \"review-commit-message\", \"version\": \"1\"}, {\"name\": \"model-proxy\", \"version\": \"1\"}]"
 }

@@ -6,7 +6,7 @@ defmodule Ryker.ComposeWorkerUpgradeTest do
   """
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-  alias Ryker.CoopFleet.{Command, Placement}
+  alias Ryker.CoopFleet.{Command, ControlPlane, Enrollment, EnrollmentToken, Placement, Worker}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -30,6 +30,35 @@ defmodule Ryker.ComposeWorkerUpgradeTest do
     command!(retired, placement!(retired, 1, :retired))
 
     assert in_flight() == 1
+  end
+
+  test "a restored database keeps work but invalidates the archived worker's authority" do
+    worker = "ryker-compose"
+    certificate = "restore-certificate"
+    assert {:ok, original} = CoopWorkers.authorize(worker, "workspace-main", digest(certificate))
+    assert {:ok, _unused} = Enrollment.issue_token(worker, "workspace-main", "operator:test")
+    assert {:ok, ^worker} = ControlPlane.authenticate_certificate(certificate)
+    session = session!()
+    placement = placement!(session, 1, :active)
+
+    script = File.read!("scripts/compose.sh")
+    [_opener, sql_and_rest] = String.split(script, "<<'RESTORE_FLEET_SQL'\n", parts: 2)
+    [sql, _rest] = String.split(sql_and_rest, "\nRESTORE_FLEET_SQL", parts: 2)
+    Repo.query!(sql)
+
+    assert ControlPlane.authenticate_certificate(certificate) ==
+             {:error, :coop_worker_certificate_not_authorized}
+
+    recovered = Repo.get!(Worker, worker)
+    assert recovered.admission_stopped_by == "controller:restore"
+    refute recovered.enrollment_epoch == original.enrollment_epoch
+    refute Repo.exists?(EnrollmentToken.Query.by_worker_id(worker))
+    assert Repo.get!(Placement, placement.id).state == :revoking
+
+    assert DateTime.compare(Repo.get!(Placement, placement.id).lease_expires_at, Repo.now!()) !=
+             :gt
+
+    assert {:ok, _fresh} = Enrollment.issue_token(worker, "workspace-main", "operator:recovery")
   end
 
   defp in_flight do

@@ -211,7 +211,7 @@ defmodule Ryker.CoopFleet.Enrollment do
       {:ok, %Worker{workspace_ref: ^workspace_ref, state: state} = worker}
       when state != :revoked ->
         worker
-        |> Worker.Changeset.bind_certificate(certificate_sha256)
+        |> Worker.Changeset.enroll(certificate_sha256, Repo.generate_id())
         |> Repo.update()
         |> unwrap_write()
 

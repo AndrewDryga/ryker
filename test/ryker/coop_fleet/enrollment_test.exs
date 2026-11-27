@@ -27,6 +27,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     worker = Repo.peek(Worker.Query.by_id("worker-held"))
     assert worker.admission_stopped_by == "operator:pool"
     assert %DateTime{} = worker.admission_stopped_at
+    assert is_binary(worker.enrollment_epoch)
 
     assert {:ok, _renewed} =
              Enrollment.renew(
@@ -34,6 +35,9 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
                %{"public_key_pem" => public_key_pem(private_key())},
                authority
              )
+
+    renewed = Repo.peek(Worker.Query.by_id("worker-held"))
+    assert renewed.enrollment_epoch == worker.enrollment_epoch
 
     assert {:ok, recovery} =
              Enrollment.issue_token("worker-held", "workspace-main", "operator:recovery", 300)
@@ -45,6 +49,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
              )
 
     recovered = Repo.peek(Worker.Query.by_id("worker-held"))
+    refute recovered.enrollment_epoch == worker.enrollment_epoch
     assert recovered.admission_stopped_at == worker.admission_stopped_at
     assert recovered.admission_stopped_by == worker.admission_stopped_by
 

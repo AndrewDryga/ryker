@@ -137,6 +137,50 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     %{session: session, snapshot: snapshot}
   end
 
+  test "a small operator job freezes the requested agent and sidecar caps", %{session: template} do
+    id = Ecto.UUID.generate()
+    placement = %{repository: "app", environment: "local", cpu_millis: "500", memory_mib: "512"}
+
+    policy = %{
+      name: template.policy,
+      digest: template.policy_digest,
+      repository_ref: "app",
+      environment_ref: "local"
+    }
+
+    resolve = fn "local", "app" -> {:ok, policy} end
+
+    assert {:ok, job} =
+             Ryker.Operator.FleetJobs.submit(id, placement, "Build the change", resolve)
+
+    session = Repo.fetch!(Session.Query.latest_of_episode(job.episode_id))
+
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, "/private/source", &prepare/3, NoRuntimeReader)
+
+    assert pinned.worker_job_document["resources"] == %{
+             "cpu_millis" => 500,
+             "memory_bytes" => 512 * 1_048_576,
+             "pids" => 4096
+           }
+
+    assert pinned.worker_job_document["model_credentials"] == "controller"
+
+    assert Ryker.Operator.FleetJobs.submit(
+             id,
+             %{placement | cpu_millis: "600"},
+             "Build the change",
+             resolve
+           ) == {:error, :fleet_job_idempotency_conflict}
+
+    assert Ryker.Operator.FleetJobs.submit(
+             Ecto.UUID.generate(),
+             %{placement | memory_mib: "0"},
+             "Build the change",
+             resolve
+           ) == {:error, :invalid_fleet_job}
+  end
+
   @tag targets: [
          "codex:gpt-5.6-sol/medium@default",
          "codex:gpt-5.6-terra/high@default",
@@ -160,8 +204,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert job["check"] == %{"argv" => [], "environment" => %{}}
 
     assert job["resources"] == %{
-             "cpu_millis" => 4_000,
-             "memory_bytes" => 8 * 1_073_741_824,
+             "cpu_millis" => 1_500,
+             "memory_bytes" => 2 * 1_073_741_824,
              "pids" => 4_096
            }
 
@@ -284,6 +328,7 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              "version" => 1,
              "dockerfile" => ".agent/Dockerfile",
              "compose" => "compose.test.yml",
+             "max_services" => 1,
              "environment" => %{
                "PGHOST" => "episode-db",
                "PGPORT" => "5432",
@@ -385,6 +430,7 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              "version" => 1,
              "dockerfile" => ".agent/Dockerfile",
              "compose" => "compose.test.yml",
+             "max_services" => 1,
              "environment" => %{
                "PGHOST" => "episode-db",
                "PGPORT" => "5432",

@@ -26,8 +26,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     format: "Choose a model, a reasoning effort and an account for each one.",
     duplicate: "The same model, effort and account is listed twice. Change one or remove it.",
     unknown_account:
-      "Choose an account listed under Model accounts. To use another account, sign it in " <>
-        "on the worker, then add it there.",
+      "Choose an account listed under Model accounts. To use another account, add it " <>
+        "under Model accounts and set up its access in Ryker.",
     unpriced: "Choose a model that has a price under Model prices.",
     shared_accounts:
       "A request can move between Conversation, Standard and Deep work, so these three must " <>
@@ -698,7 +698,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
         }
       ]
     },
-    # The accounts the worker has signed in are listed here and every model
+    # The controller-owned accounts are listed here and every model
     # above names one of them. Each job freezes this selection; later settings
     # changes apply to new jobs only. Under each account the editor shows what
     # its provider last reported to the worker (AccountLimitsProjection).
@@ -712,20 +712,14 @@ defmodule Ryker.ControlPlane.SettingsSections do
       kind: :singleton,
       schema: Settings.Work,
       title: "Model accounts",
-      description:
-        "List the accounts the worker has signed in; each model above runs on one of them. " <>
-          "Under each account are the limits its provider reports, which count use outside " <>
-          "Ryker too.",
+      description: "Choose the accounts each model runs on and set up their access in Ryker.",
       fields: [
         %{
           name: :model_accounts,
           kind: :accounts,
           label: "Accounts",
           help:
-            "One account per row, as provider@name. Sign an account in on the worker first " <>
-              "with scripts/compose.sh model-login claude@work, then add it here. If a model " <>
-              "uses an account the worker has not signed in, the worker keeps running the " <>
-              "models saved before and shows a warning here.",
+            "One account per row, as provider@name. Save the account here, then set up its access.",
           errors: %{
             length: "List at least one account, such as codex@default.",
             format: "Fix the account marked above, then save again.",

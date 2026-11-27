@@ -115,16 +115,16 @@ defmodule Ryker.CoopFleet.JobTemplates do
     installation ++ repository ++ environment
   end
 
-  # Per-container caps every job carries: Coop's job-setup:2 refuses a job
-  # without finite ones. Docker refuses a CPU cap above the host's cores, and
-  # tenant's worker VM has six; 4096 processes is Coop's own default cap.
-  @resources %{"cpu_millis" => 4_000, "memory_bytes" => 8 * 1_073_741_824, "pids" => 4_096}
+  # The stock 4-vCPU, 8-GiB guest reserves a quarter of its capacity for the
+  # host. A warm routing session and a contributor must fit side by side.
+  @resources %{"cpu_millis" => 1_500, "memory_bytes" => 2 * 1_073_741_824, "pids" => 4_096}
 
   # The template starts without repository setup. JobAuthority resolves a
   # writable source's toolchain, test services, environment and check at its
   # base commit before the job is frozen.
   def execution(work, purpose, repository?) do
     %{
+      "model_credentials" => "controller",
       "targets" => Map.fetch!(work, model_field(purpose)),
       "mode" => "normal",
       "environment" => %{},

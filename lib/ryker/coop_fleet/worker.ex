@@ -7,12 +7,15 @@ defmodule Ryker.CoopFleet.Worker do
   schema "coop_workers" do
     field(:workspace_ref, :string)
     field(:certificate_sha256, :string)
+    field(:enrollment_epoch, Ecto.UUID, read_after_writes: true)
     field(:protocol_version, :string)
     field(:build_version, :string)
     field(:clock_at, :utc_datetime_usec)
     field(:sandbox_digest, :string)
     field(:capabilities, Ryker.CanonicalJSON.Type, default: [])
     field(:capacity, Ryker.CanonicalJSON.Type, default: %{})
+    field(:machine_daemon, :string)
+    field(:machine_report_required, :boolean, default: false)
     # Absent means the worker reported no measurement. Unknown is not zero.
     field(:storage, Ryker.CanonicalJSON.Type)
     field(:account_usage, Ryker.CanonicalJSON.Type)

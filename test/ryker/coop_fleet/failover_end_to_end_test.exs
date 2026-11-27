@@ -131,8 +131,20 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
                capture_options
              )
 
+    assert Checkpoints.last_saved(source) ==
+             Map.take(
+               checkpoint,
+               ~w(checkpoint_ref placement_generation committed_revision created_at)
+             )
+
     transfer = Repo.get!(WorkspaceCheckpointTransfer, receipt["transfer_id"])
     assert transfer.body_command_id != nil
+
+    assert {:ok, ^bundle} =
+             Checkpoints.export(source, capture_options, fn saved, bytes ->
+               assert saved == checkpoint
+               {:ok, bytes |> Enum.to_list() |> IO.iodata_to_binary()}
+             end)
 
     expire_and_drain!(source_placement, worker_a.id)
 

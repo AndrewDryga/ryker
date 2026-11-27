@@ -26,7 +26,7 @@ services:
     volumes:
       - ryker-database:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ryker -d ryker"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ryker -d ryker"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -78,7 +78,8 @@ services:
       RYKER_STATE_TOOLS_TOKEN: ${RYKER_STATE_TOOLS_TOKEN:?run ./install.sh first}
       RYKER_WORKER_IP: 0.0.0.0
       RYKER_WORKER_PORT: 4322
-      RYKER_WORKER_PUBLIC_URL: https://172.30.42.10:4322
+      RYKER_WORKER_PUBLIC_URL: https://${RYKER_FLEET_ADDRESS:-172.30.42.10}:4322
+      RYKER_FLEET_ADDRESS: ${RYKER_FLEET_ADDRESS:-}
       RYKER_COMPOSE_WORKER_IP: 172.30.42.10
       RYKER_WORKER_CA_FILE: /var/lib/ryker/pki/ca.pem
       RYKER_WORKER_CA_KEY_FILE: /var/lib/ryker/pki/ca-key.pem
@@ -114,7 +115,7 @@ services:
       - "${RYKER_GITHUB_BIND:-127.0.0.1}:${RYKER_GITHUB_PORT:-4319}:4319"
       - "${RYKER_WEBHOOK_BIND:-127.0.0.1}:${RYKER_WEBHOOK_PORT:-4320}:4320"
       # The isolated worker VM routes only its authenticated gateway here.
-      - "127.0.0.1:4322:4322"
+      - "${RYKER_FLEET_ADDRESS:-127.0.0.1}:4322:4322"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:4321/healthz"]
       interval: 5s

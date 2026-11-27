@@ -2346,7 +2346,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   # shows it: "5-hour limit · 18% left · resets in 42 min". The worker reports
   # what its providers said in its poll; each account shows it once, under its
   # row, and every model on a used-up account says so beside the account.
-  test "each model account shows its provider's limits, and a used-up one shows beside its models" do
+  test "worker-reported limits identify the worker and cannot disable a central account" do
     initialize!()
     now = DateTime.utc_now(:second)
     resets = DateTime.add(now, 42 * 60 + 30) |> DateTime.to_iso8601()
@@ -2403,42 +2403,30 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     {:ok, view, _html} = open("/settings/models")
     limits = "#settings-model_accounts-model_accounts-0-limits"
-    lines = view |> element(limits) |> render() |> LazyHTML.from_fragment() |> LazyHTML.query("p")
+    assert has_element?(view, limits, "Account access is missing")
+    assert has_element?(view, "details summary", "Allowance reported by settings-usage-worker")
 
-    assert Enum.map(lines, &words/1) == [
+    report =
+      view |> element(".settings-account-worker-report") |> render() |> LazyHTML.from_fragment()
+
+    assert report |> LazyHTML.query("p") |> Enum.map(&words/1) == [
              "5-hour limit · used up · resets in 42 min",
              "Weekly limit · 60% left",
              "pro plan · checked just now"
            ]
 
-    assert has_element?(view, limits <> " .settings-account-limit[data-used-up]", "5-hour limit")
-    refute has_element?(view, limits <> " .settings-account-limit[data-used-up]", "Weekly limit")
-
-    # A model on that account carries a clock beside the account whose tooltip
-    # says when it resets. The line it had under the box made its row taller
-    # than its neighbours (Andrew, 2026-11-21: "this looks ugly too").
-    for {field, kind} <- [request_models: :routing_models, other_models: :learning_models] do
-      mark =
-        view
-        |> element("#settings-#{field}-#{kind}-0-used-up")
-        |> render()
-        |> LazyHTML.from_fragment()
-
-      assert LazyHTML.attribute(mark, "title") == ["5-hour limit used up · resets in 42 min"]
-      assert words(mark) == ""
-    end
+    refute has_element?(view, "#settings-request_models-routing_models-0-used-up")
 
     # A worker that no longer reports the account leaves it without figures.
     Repo.update_all(Ryker.CoopFleet.Worker, set: [account_usage: nil])
     {:ok, view, _html} = open("/settings/models")
-    assert has_element?(view, limits, "Limit unavailable")
+    assert has_element?(view, limits, "Account access is missing")
+    refute has_element?(view, ".settings-account-worker-report")
     refute has_element?(view, "#settings-request_models-routing_models-0-used-up")
   end
 
-  # Ryker cannot see which accounts the worker has signed in, and Coop refuses
-  # the whole policy file while one of its models names an account that is
-  # not signed in: the change would never run, and until the worker kept its
-  # last loaded policies every kind of work stopped, not only the one changed.
+  # A model may only select an account the operator has listed. Access to
+  # that account is configured separately in the controller's Models page.
   test "an account not listed under Model accounts is refused in plain words" do
     initialize!()
     {:ok, view, _html} = open("/settings/models")
@@ -2446,7 +2434,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#settings-model_accounts-model_accounts-help",
-             "scripts/compose.sh model-login claude@work"
+             "Save the account here, then set up its access."
            )
 
     # A form sent from a page that still offered an account since removed.
@@ -2457,8 +2445,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#settings-request_models-routing_models .settings-error",
-             "Choose an account listed under Model accounts. To use another account, sign it " <>
-               "in on the worker, then add it there."
+             "Choose an account listed under Model accounts. To use another account, add it " <>
+               "under Model accounts and set up its access in Ryker."
            )
 
     assert Settings.fetch!().work.routing_models == ["codex:gpt-6.2-sol/medium@default"]

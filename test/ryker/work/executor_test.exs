@@ -977,6 +977,60 @@ defmodule Ryker.Work.ExecutorTest do
     assert Activity.page_for_episode(claim.episode.id).events == []
   end
 
+  test "local fleet submission reaches Work and returns its checkpointed accepted answer" do
+    id = Ecto.UUID.generate()
+
+    policy = fn environment, repository ->
+      {:ok,
+       %{
+         name: "work-contributor",
+         digest: String.duplicate("a", 64),
+         environment_ref: environment,
+         repository_ref: repository
+       }}
+    end
+
+    assert {:ok, job} =
+             Ryker.Operator.FleetJobs.submit(
+               id,
+               %{environment: "local", repository: "ryker"},
+               "Verify the fleet change.",
+               policy
+             )
+
+    assert {:ok, claim} = Custody.claim_next("local-fleet-test", 60, :work)
+    assert claim.episode.id == job.episode_id
+    task = claim.session.workspace_task
+    assert task["offer_ref"] == "operator-fleet-job:" <> id
+
+    {:ok, fake} =
+      FakeAPI.start_link([reply("Fleet result retained.")],
+        changes: [
+          workspace_changes(
+            committed: [%{"path" => "lib/fleet.ex", "status" => "modified"}],
+            fork_head: "fleet-commit",
+            fork_tree: "fleet-tree"
+          )
+        ],
+        workspace_task: %{
+          "offer_ref" => task["offer_ref"],
+          "id" => "task:fleet",
+          "queue_id" => "queue:fleet",
+          "task_id" => "task:fleet",
+          "draft_sha256" => String.duplicate("d", 64)
+        }
+      )
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
+    [submission] = Map.values(FakeAPI.state(fake).frozen_submissions)
+    assert Jason.encode!(submission) =~ "Verify the fleet change."
+    assert Jason.encode!(submission) =~ "operator-fleet-job:#{id}"
+    assert [_checkpoint] = FakeAPI.state(fake).checkpoint_keys
+
+    assert {:ok, %{result: "Fleet result retained.", turn_status: :delivery_pending}} =
+             Ryker.Operator.FleetJobs.fetch(id)
+  end
+
   test "accepted writable work is checkpointed before local delivery custody is released" do
     claim = claim_episode!("writable-checkpoint")
 

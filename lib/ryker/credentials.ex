@@ -22,7 +22,9 @@ defmodule Ryker.Credentials do
     :github_webhook,
     :github_oauth_secret,
     :emisar,
-    :webhook
+    :webhook,
+    :model_account,
+    :model_import
   ]
   @name ~r/\A[a-z0-9][a-z0-9_.:-]{0,127}\z/
 
@@ -34,6 +36,8 @@ defmodule Ryker.Credentials do
           | :github_oauth_secret
           | :emisar
           | :webhook
+          | :model_account
+          | :model_import
 
   @doc """
   Seals and stores the credential `kind`/`name` as `actor_ref`, replacing any
@@ -117,7 +121,7 @@ defmodule Ryker.Credentials do
     |> Enum.flat_map(fn credential ->
       case fetch(credential.kind, credential.name) do
         {:ok, value} ->
-          [value]
+          [value | model_secret_values(credential.kind, value)]
 
         # One that no longer decrypts, after a key change, dropped out without a
         # word, so its value could reach worker output unmasked (2026-10-04 review).
@@ -365,6 +369,38 @@ defmodule Ryker.Credentials do
       _missing_or_invalid -> raise "RYKER_CREDENTIAL_KEY is missing or invalid"
     end
   end
+
+  defp model_secret_values(:model_account, value) do
+    case Jason.decode(value) do
+      {:ok, document} -> nested_model_secrets(document)
+      _invalid -> []
+    end
+  end
+
+  defp model_secret_values(_kind, _value), do: []
+
+  defp nested_model_secrets(document) when is_map(document) do
+    Enum.flat_map(document, fn
+      {key, value}
+      when key in ["credential", "access_token", "refresh_token", "id_token"] and
+             is_binary(value) and byte_size(value) >= 8 ->
+        [value]
+
+      {"response", value} when is_binary(value) ->
+        case Jason.decode(value) do
+          {:ok, response} -> nested_model_secrets(response)
+          _invalid -> []
+        end
+
+      {_key, value} ->
+        nested_model_secrets(value)
+    end)
+  end
+
+  defp nested_model_secrets(values) when is_list(values),
+    do: Enum.flat_map(values, &nested_model_secrets/1)
+
+  defp nested_model_secrets(_value), do: []
 
   # -- PubSub ------------------------------------------------------------------
 

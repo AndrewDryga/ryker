@@ -88,8 +88,10 @@ defmodule Ryker.Retention.Worker do
   end
 
   defp prune_bodies(body_root) do
-    case CoopFleet.Bodies.prune_orphans(body_root) do
-      :ok -> :ok
+    with :ok <- CoopFleet.Bodies.prune_orphans(body_root),
+         :ok <- Ryker.Operator.WorkspaceInputs.prune(body_root) do
+      :ok
+    else
       {:error, reason} -> Logger.error("retention body pruning failed: #{inspect(reason)}")
     end
   rescue

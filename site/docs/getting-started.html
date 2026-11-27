@@ -113,7 +113,7 @@ cd ryker
 <div><dt>The console asks for a sign-in link</dt><dd>Run <code>scripts/compose.sh sign-in</code> on the host. Slack operators can also use <code>/ryker sign-in</code>.</dd></div>
 <div><dt>Ryker cannot see the repository</dt><dd>Check the GitHub App installation, the imported repository, and the channel’s environment. All three must include it.</dd></div>
 <div><dt>No Slack reply arrives</dt><dd>Check <strong>Integrations › Slack</strong>, confirm Ryker joined the channel, and mention it directly. Find the request in <strong>Activity</strong>; its timeline and the <strong>Failures</strong> page show where it stopped.</dd></div>
-<div><dt>Work waits for a worker or model</dt><dd>Check <strong>Settings › Advanced</strong> and <strong>Work › Working copies</strong>. If the model needs a new sign-in, run <code>scripts/compose.sh model-login</code>. See <a href="operations.html#health">health and recovery</a> for service checks.</dd></div>
+<div><dt>Work waits for a worker or model</dt><dd>Check <strong>Settings › Advanced</strong> and <strong>Work › Working copies</strong>. If a model needs a sign-in, open <strong>Settings › Models</strong>, choose its account, and select <strong>Import from Coop</strong> or add an API key. See <a href="operations.html#health">health and recovery</a> for service checks.</dd></div>
 </dl>
 <h2 id="next">After the first answer</h2>
 <p>New channels reply only to mentions unless you changed the default. Background learning is on. Proactive participation, draft pull requests, and weekly reports are separate settings.</p>

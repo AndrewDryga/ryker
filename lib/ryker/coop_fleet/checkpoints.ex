@@ -171,6 +171,55 @@ defmodule Ryker.CoopFleet.Checkpoints do
     end)
   end
 
+  @doc "Read and verify the latest retained workspace for this exact session source."
+  def last_saved(session) do
+    case latest_portable_checkpoint(session) do
+      {:ok, checkpoint} ->
+        Map.take(
+          checkpoint.descriptor,
+          ~w(checkpoint_ref placement_generation committed_revision created_at)
+        )
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp latest_portable_checkpoint(session) do
+    saved = session |> WorkspaceCheckpointTransfer.Query.latest_portable() |> Repo.peek()
+
+    with {checkpoint, source} <- saved,
+         true <- Work.RepositorySource.same?(source, session.repository_source) do
+      {:ok, checkpoint}
+    else
+      _missing -> {:error, :checkpoint_not_available}
+    end
+  end
+
+  def export(session, options, consume) do
+    with {:ok, checkpoint} <- latest_portable_checkpoint(session),
+         {:ok, body, _} <-
+           Bodies.fetch(options[:body_root], checkpoint.body_command_id, :response, %{
+             "sha256" => checkpoint.sha256,
+             "byte_size" => checkpoint.byte_size
+           }) do
+      Bodies.with_stream(
+        body,
+        options[:checkpoint_key],
+        &export_verified(checkpoint.descriptor, &1, consume)
+      )
+    else
+      _missing -> {:error, :checkpoint_not_available}
+    end
+  end
+
+  defp export_verified(descriptor, stream, consume) do
+    with {:ok, _manifest} <-
+           WorkspaceCheckpointBundle.validate_stream(descriptor, stream.(), credential_values()) do
+      consume.(descriptor, stream.())
+    end
+  end
+
   # Run outside the heartbeat transaction. A restart retries the same immutable
   # command; polling defers it until this request body has durable custody.
   def prepare_restore(

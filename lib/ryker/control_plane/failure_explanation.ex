@@ -1386,15 +1386,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
        }) do
     cause(
       cause,
-      "The model provider refused the run that reads the message, because the account the worker signs in with is limited. The provider said: \"#{words}\"",
+      "The model provider refused the run that reads the message, because its model account is limited. The provider said: \"#{words}\"",
       :fix_first,
       "It fails until the model account can run again. The provider's words above say when.",
       %{
-        label: "Give the worker a model account that can run",
+        label: "Choose a model account that can run",
         href: "/settings/models",
         link: "See models",
         effect:
-          "Add credits to the account the worker signs in with, or sign the worker in to another model account, then read the message again."
+          "Add credits to the model account, or configure another account in Models, then read the message again."
       }
     )
   end
@@ -1405,7 +1405,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       "The model run that reads the message failed, and the worker had already tried its fallbacks.",
       :unknown,
       if(String.contains?(cause, "sign-in")) do
-        "It works once the worker is signed in to its model account again. Ryker cannot see that from here."
+        "Replace account access in Models, then try reading the message again."
       else
         "It works if the condition named above has been corrected."
       end

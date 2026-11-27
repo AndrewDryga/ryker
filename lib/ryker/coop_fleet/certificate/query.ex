@@ -39,5 +39,17 @@ defmodule Ryker.CoopFleet.Certificate.Query do
     )
   end
 
+  @doc "The authenticated worker and enrollment epoch in one authorization snapshot."
+  def active_worker_binding(sha256) do
+    certificates = sha256 |> by_sha256() |> in_force()
+
+    from(c in certificates,
+      join: w in Worker,
+      on: w.id == c.worker_id,
+      where: w.state != :revoked and is_nil(w.revoked_at),
+      select: {w.id, w.enrollment_epoch}
+    )
+  end
+
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 end

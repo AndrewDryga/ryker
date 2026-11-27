@@ -136,6 +136,8 @@ defmodule Ryker.CoopFleet.JobSpecTest do
           Map.put(runtime, "version", 2),
           Map.put(runtime, "version", 1.0),
           Map.put(runtime, "network", true),
+          Map.put(runtime, "max_services", 1),
+          Map.merge(runtime, %{"compose" => "compose.yml", "max_services" => 65}),
           Map.put(runtime, "dockerfile", "/host/Dockerfile"),
           Map.put(runtime, "dockerfile", "../Dockerfile"),
           Map.put(runtime, "dockerfile", "./Dockerfile"),

@@ -59,7 +59,7 @@ defmodule Ryker.CoopFleet.Requests do
        session_path(payload) <> "/workspace",
        payload
        |> Map.take(~w(expected_revision task))
-       |> Map.update!("task", &Map.delete(&1, "purpose"))
+       |> Map.update!("task", &Map.drop(&1, ~w(purpose verification_input_sha256)))
      )}
   end
 
@@ -144,6 +144,11 @@ defmodule Ryker.CoopFleet.Requests do
   defp request_for(kind, payload, _) when kind in ["fence_operation", "fence_create_operation"] do
     body = Map.take(payload, ~w(method request))
     {:ok, request("POST", "/v1/operations/fence", body)}
+  end
+
+  defp request_for("get_changes", %{"verification_turn" => _turn} = payload, _) do
+    query = URI.encode_query(Map.take(payload, ~w(verification_turn candidate_sha256)))
+    {:ok, request("GET", session_path(payload) <> "/changes?" <> query)}
   end
 
   defp request_for(kind, payload, _)

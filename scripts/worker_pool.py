@@ -406,31 +406,15 @@ class Pool:
             raise RuntimeError("native pool work cannot be inspected; refusing to restart it")
         return True
 
-    def model_login(self, provider):
-        self.verify()
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+(?:@[A-Za-z0-9_.-]+)?", provider):
-            raise RuntimeError("use a provider account name, optionally followed by @profile")
-        script = (ROOT / "deploy/compose/coop/model-login.sh").read_text()
-        result = subprocess.run(self.compose() + ["run", "--rm", "--no-deps", "-w", "/tmp",
-                                "--entrypoint", "sh", "ryker-coop", "-c", script, "pool-model-login", provider], check=False)
-        if result.returncode:
-            raise RuntimeError("pool model sign-in did not complete; previous sign-in stays")
-        account = provider if "@" in provider else provider + "@default"
-        self.state["signed_in_accounts"] = sorted(set(self.state.get("signed_in_accounts", [])) | {account})
-        self.save()
-        if self.state["phase"] in ("qualified", "active"):
-            self.upgrade(force_restart=True)
-        return {"worker": WORKER, "provider": provider, "signed_in": True}
-
     def missing_accounts(self):
-        accounts = json.loads(self.sql(
-            "SELECT COALESCE(json_agg(DISTINCT account), '[]') FROM work_settings "
-            "CROSS JOIN LATERAL unnest(model_accounts) AS account WHERE workspace_ref = 'ryker-compose'"))
-        if not accounts or not all(isinstance(account, str) and
-                                   re.fullmatch(r"(?:codex|claude)@[a-z0-9][a-z0-9_-]{0,63}", account)
-                                   for account in accounts):
+        statuses = self.release('Ryker.Release.model_account_statuses("ryker-compose", log: false)')
+        if not isinstance(statuses, dict) or not statuses or not all(
+                isinstance(account, str) and
+                re.fullmatch(r"(?:codex|claude)@[a-z0-9][a-z0-9_-]{0,63}", account) and
+                isinstance(status, dict) for account, status in statuses.items()):
             raise RuntimeError("pool workspace has no valid model account configuration")
-        return sorted(set(accounts) - set(self.state.get("signed_in_accounts", [])))
+        return sorted(account for account, status in statuses.items()
+                      if status.get("state") != "configured")
 
     def wait_qualified(self, require_hold=False):
         deadline = time.monotonic() + 90
@@ -445,7 +429,7 @@ class Pool:
         self.verify()
         missing = self.missing_accounts()
         if missing:
-            raise RuntimeError("pool needs its own model-login for: " + ", ".join(missing))
+            raise RuntimeError("configure account access in Settings → Models for: " + ", ".join(missing))
         if self.state["phase"] not in ("qualified", "activating", "active"):
             raise RuntimeError("qualify the worker before activating its admission")
         worker = self.wait_qualified(require_hold=self.state["phase"] == "qualified")
@@ -519,17 +503,15 @@ def qualified(worker, require_hold=False):
             and capacity.get("state") == "eligible"
             and all(isinstance(capacity.get(kind + "_slots_free"), int)
                     and capacity[kind + "_slots_free"] > 0 for kind in ("session", "turn", "workspace"))
-            and {"name": "controller-tools", "version": "1"} in (worker.get("capabilities") or []))
+            and all({"name": name, "version": "1"} in (worker.get("capabilities") or [])
+                    for name in ("controller-tools", "model-proxy")))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["install", "start", "status", "maintain", "activate", "upgrade", "model-login"])
-    parser.add_argument("provider", nargs="?")
+    parser.add_argument("command", choices=["install", "start", "status", "maintain", "activate", "upgrade"])
     parser.add_argument("--state-dir", type=Path, default=Path(os.environ.get("RYKER_INSTALL_STATE", ROOT / ".ryker")))
     args = parser.parse_args()
-    if args.provider and args.command != "model-login":
-        parser.error("only model-login takes a provider")
     state_dir = args.state_dir.resolve()
     directory = state_dir / "worker-pool"
     if not directory.exists() and args.command != "install":
@@ -558,10 +540,7 @@ def main():
             elif args.command not in ("maintain", "upgrade"):
                 raise RuntimeError("no worker pool is installed; run python3 -B scripts/worker_pool.py install")
             return
-        if args.command == "model-login":
-            result = pool.model_login(args.provider or "codex")
-        else:
-            result = getattr(pool, args.command)()
+        result = getattr(pool, args.command)()
         if isinstance(result, str):
             if result:
                 print(result)
