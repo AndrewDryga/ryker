@@ -93,7 +93,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
            )
 
     assert has_element?(catalog, ".kit-empty", "No skills installed")
-    {:ok, install, _} = open("/skills/install/github")
+    {:ok, install, _} = open("/skills/catalog/install")
     install |> element("button", "Restore skill") |> render_click()
     assert_redirect(install, "/skills/verify-rollout")
 
@@ -104,27 +104,31 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
 
   test "pasted Markdown can be corrected and installed without a GitHub source" do
     installation!()
-    {:ok, view, _} = open("/skills/install/github")
-    view |> element("a", "Paste Markdown") |> render_click()
-    assert_patch(view, "/skills/install/paste")
+    {:ok, view, _} = open("/skills/catalog/install")
+    assert has_element?(view, "#install-skill-github input[name=url]")
+    assert has_element?(view, "#install-skill-paste textarea[name=document]")
 
     source = File.read!("priv/skills/verify-rollout/SKILL.md")
     document = String.replace(source, "verify-rollout", "local-rollout")
 
-    view |> form(".skill-import-form", document: String.duplicate("x", 32_769)) |> render_submit()
+    view
+    |> form("#install-skill-paste form", document: String.duplicate("x", 32_769))
+    |> render_submit()
+
     assert has_element?(view, "[role=alert]", "32 KiB")
-    view |> form(".skill-import-form", document: "Missing header") |> render_submit()
+    view |> form("#install-skill-paste form", document: "Missing header") |> render_submit()
     assert has_element?(view, "[role=alert]", "name")
     assert has_element?(view, "textarea", "Missing header")
 
-    view |> form(".skill-import-form", document: source) |> render_submit()
+    view |> form("#install-skill-paste form", document: source) |> render_submit()
     view |> element("button", "Install skill") |> render_click()
     assert has_element?(view, "[role=alert]", "already")
     view |> element("button", "Edit Markdown") |> render_click()
     assert has_element?(view, "textarea", "verify-rollout")
 
-    view |> form(".skill-import-form", document: document) |> render_submit()
-    assert has_element?(view, ".skill-review", "Local rollout")
+    view |> form("#install-skill-paste form", document: document) |> render_submit()
+    assert has_element?(view, "#install-skill-paste .skill-review", "Local rollout")
+    assert has_element?(view, "#install-skill-github input[name=url]")
     refute has_element?(view, ".skill-review a", "Source at the reviewed commit")
     assert Settings.fetch!().work.installed_skills == %{}
 
@@ -136,10 +140,10 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     detail |> element("button[phx-click=toggle]") |> render_click()
     assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
 
-    {:ok, again, _} = open("/skills/install/paste")
+    {:ok, again, _} = open("/skills/catalog/install")
 
     again
-    |> form(".skill-import-form", document: document <> "\nAnother edit.")
+    |> form("#install-skill-paste form", document: document <> "\nAnother edit.")
     |> render_submit()
 
     again |> element("button", "Install skill") |> render_click()
@@ -170,7 +174,10 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
              "Verify rollout"
            )
 
-    {:ok, view, _html} = open("/skills/install/github")
+    {:ok, view, _html} = open("/skills/catalog/install")
+
+    pasted = String.replace(document, "check-release", "local-rollout")
+    view |> form("#install-skill-paste form", document: pasted) |> render_submit()
 
     view
     |> form("#install-skill-github form",
@@ -179,6 +186,8 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     |> render_submit()
 
     assert render_async(view) =~ "Install skill"
+    assert has_element?(view, "#install-skill-paste .skill-review", "Local rollout")
+    assert has_element?(view, "#install-skill-github .skill-review", "Check release")
     assert Settings.fetch!().work.installed_skills == %{}
     view |> element("#install-skill-github button", "Install skill") |> render_click()
     assert_redirect(view, "/skills/check-release")

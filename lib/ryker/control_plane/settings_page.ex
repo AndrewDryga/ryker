@@ -168,7 +168,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         progress={if @view.applying and is_nil(@notice), do: "Applying…"}
       >
         <:action :if={@section == :skills and is_nil(@form)}>
-          <.link navigate="/skills/install/github" class="ui-button primary"><Components.icon name={
+          <.link navigate="/skills/catalog/install" class="ui-button primary"><Components.icon name={
             :plus
           } />Install skill</.link>
         </:action>
@@ -243,10 +243,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
         account_limits={@account_limits}
       />
       <.live_component
-        :if={match?({:install, _}, @form)}
-        module={Ryker.ControlPlane.SkillImport}
-        id={"install-skill-" <> elem(@form, 1)}
-        method={elem(@form, 1)}
+        :if={@form == {:install, nil}}
+        module={Ryker.ControlPlane.SkillInstallPage}
+        id="install-skill"
         view={@view}
         commands={@commands}
       />
@@ -2218,7 +2217,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # or edits, with the list it returns to above the title.
   defp heading(section, nil, view), do: page(section, view)
 
-  defp heading(:skills, {:install, _method}, _view),
+  defp heading(:skills, {:install, nil}, _view),
     do: %{
       title: "Install skill",
       description: nil,

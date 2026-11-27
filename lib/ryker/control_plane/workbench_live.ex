@@ -1726,8 +1726,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A settings page, or a page of one form on it: {section, form}, where form
   # is nil or {kind, key}, key nil for a new one. A key comes from the route's
   # decoded parameters, never from the raw path.
-  defp settings_route(["skills", "install", method], _params) when method in ~w(github paste),
-    do: {:skills, {:install, method}}
+  defp settings_route(["skills", "catalog", "install"], _params), do: {:skills, {:install, nil}}
 
   defp settings_route(["skills", _name], %{"ref" => name}), do: {:skills, {:skill, name}}
 

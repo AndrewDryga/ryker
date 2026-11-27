@@ -61,18 +61,6 @@ defmodule Ryker.ControlPlane.SkillImport do
        )}
   end
 
-  def handle_event("restore", %{"name" => name}, %{assigns: a} = socket) do
-    case a.commands.restore_skill.(name, a.view.revision) do
-      {:ok, snapshot} ->
-        send(self(), {:settings_editor_saved, SettingsView.view(snapshot)})
-        {:noreply, push_navigate(socket, to: "/skills/" <> name)}
-
-      {:error, _} ->
-        {:noreply,
-         assign(socket, :error, "Could not restore this skill. Review the current catalog.")}
-    end
-  end
-
   def handle_event("cancel", _params, socket),
     do: {:noreply, assign(socket, preview: nil, error: nil)}
 
@@ -124,24 +112,19 @@ defmodule Ryker.ControlPlane.SkillImport do
   def render(assigns) do
     ~H"""
     <div id={@id}>
-      <Kit.form_card label="Install skill" class="skill-install">
+      <Kit.form_card
+        label={if @method == "github", do: "GitHub URL", else: "Paste Markdown"}
+        class="skill-install"
+      >
         <form
           :if={!@preview}
           phx-submit="preview"
           phx-target={@myself}
           class="kit-form-section skill-import-form"
         >
-          <Kit.segmented
-            label="Skill source"
-            options={[
-              {"GitHub", "/skills/install/github", @method == "github"},
-              {"Paste Markdown", "/skills/install/paste", @method == "paste"}
-            ]}
-            patch
-          />
           <div :if={@method == "paste"} class="settings-field">
-            <label for="skill-markdown">SKILL.md</label>
-            <span id="markdown-help" class="skill-hint">Paste the whole file, including its name and description. Maximum 32 KiB.</span>
+            <h2><label for="skill-markdown">Paste Markdown</label></h2>
+            <span id="markdown-help" class="skill-hint">Paste the contents of your SKILL.md file (up to 32 KiB).</span>
             <textarea
               id="skill-markdown"
               name="document"
@@ -155,8 +138,8 @@ defmodule Ryker.ControlPlane.SkillImport do
             >{@document}</textarea>
           </div>
           <div :if={@method == "github"} class="settings-field">
-            <label for="skill-github-url">GitHub URL</label>
-            <span id="url-help" class="skill-hint">Link to a public repository, a skill folder, or its SKILL.md file.</span>
+            <h2><label for="skill-github-url">GitHub URL</label></h2>
+            <span id="url-help" class="skill-hint">Link to a public repository, skill folder, or SKILL.md file.</span>
             <input
               id="skill-github-url"
               type="url"
@@ -165,13 +148,13 @@ defmodule Ryker.ControlPlane.SkillImport do
               required
               maxlength="2048"
               value={@url}
-              placeholder="https://github.com/owner/repository/tree/main/skills/name"
+              placeholder="https://github.com/owner/repo"
             />
           </div>
           <div class="skill-actions">
             <button type="submit" class="ui-button primary" disabled={@loading}>{if @loading,
               do: "Reading…",
-              else: "Preview skill"}</button><.link navigate="/skills" class="ui-button secondary">Cancel</.link>
+              else: "Preview skill"}</button>
           </div>
         </form>
         <div :if={@preview} class="skill-review">
@@ -183,7 +166,7 @@ defmodule Ryker.ControlPlane.SkillImport do
           </p>
           <p class="skill-hint">Installs the reviewed Markdown only. New skills start disabled.</p>
           <Ryker.ControlPlane.SkillPage.procedure document={@preview["document"]} />
-          <Components.disclosure id="skill-raw" label="View SKILL.md">
+          <Components.disclosure id={@id <> "-raw"} label="View SKILL.md">
             <pre class="model-document-text">{@preview["document"]}</pre>
           </Components.disclosure>
           <div class="skill-actions">
@@ -200,19 +183,6 @@ defmodule Ryker.ControlPlane.SkillImport do
         </div>
         <Components.form_feedback :if={@error} message={@error} tone={:error} />
       </Kit.form_card>
-      <div
-        :for={name <- Skills.names(%{}) -- Skills.names(@view.snapshot.work.installed_skills)}
-        class="skill-availability"
-      >
-        <span>{Ryker.ControlPlane.SkillPage.title(name)} · Bundled with Ryker</span>
-        <button
-          type="button"
-          class="ui-button secondary"
-          phx-click="restore"
-          phx-value-name={name}
-          phx-target={@myself}
-        >Restore skill</button>
-      </div>
     </div>
     """
   end
