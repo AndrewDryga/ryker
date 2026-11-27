@@ -36,6 +36,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       assigns
       |> assign(:headline, headline(request))
       |> assign(:attempt, attempt_label(request))
+      |> assign(
+        :available_skills,
+        if(request.phase == :submission, do: available_skills(request))
+      )
       |> assign(:explanation, explanation(request))
       |> assign(:decision, decision)
       |> assign(:answers, answers)
@@ -94,6 +98,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           <.link navigate="/settings/models" title="Choose models for future work">Model settings →</.link>
         </div>
       </section>
+      <p :if={@available_skills} class="briefing-skills">
+        <strong>Available skills</strong> {@available_skills}
+      </p>
       <Components.outcome
         :if={@choice}
         decision={@choice.value <> if(@choice[:note], do: " · " <> @choice.note, else: "")}
@@ -235,6 +242,24 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       </Components.disclosure>
     </div>
     """
+  end
+
+  defp available_skills(%{source_kind: :work} = request) do
+    case request[:skill_names] do
+      nil -> "Not recorded"
+      [] -> "None"
+      names -> Enum.join(names, ", ")
+    end
+  end
+
+  # These calls have no skill reader. A missing prompt is still missing evidence.
+  defp available_skills(request) do
+    if Enum.any?(
+         request.sections,
+         &(&1.id == "request" and &1.artifact.state in [:retained, :collapsed])
+       ),
+       do: "None",
+       else: "Not recorded"
   end
 
   defp review_items(assigns) do

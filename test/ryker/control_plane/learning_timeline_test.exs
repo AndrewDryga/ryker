@@ -100,6 +100,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
 
     briefing = LazyHTML.query(chapter, "#learning-#{run.id}")
     assert text(briefing, "h3") == "Learning briefing"
+    assert text(briefing, ".briefing-skills") == "Available skills None"
     assert text(briefing, ".request-model-section") =~ "gpt-5.6-luna"
 
     # The briefing sources: what the pass was told and the messages it read.
@@ -205,6 +206,7 @@ defmodule Ryker.ControlPlane.LearningTimelineTest do
     result = LazyHTML.query(chapter, "#learning-#{run.id}-result")
 
     assert text(briefing, "") =~ "Retention removed"
+    assert text(briefing, ".briefing-skills") == "Available skills Not recorded"
     assert text(result, "") =~ "Retention removed"
 
     for card <- [briefing, result],

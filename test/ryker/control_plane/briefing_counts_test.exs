@@ -320,6 +320,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
       |> LazyHTML.query("#admission-#{entry.id}-1")
       |> LazyHTML.text()
 
+    assert String.replace(briefing, ~r/\s+/, " ") =~ "Available skills None"
     refute briefing =~ "How Ryker searched"
     refute briefing =~ "Not supplied"
     refute briefing =~ "left out"
@@ -500,6 +501,29 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     refute html =~ "not sent to the model"
   end
 
+  # The briefing used to hide which skills the model could open. Changing a
+  # skill later must never change the names shown for this turn.
+  test "the Work briefing names the skills in its frozen prompt" do
+    skills = [%{"name" => "rollout-review-note"}, %{"name" => "verify-rollout"}]
+    work = frozen!("skills", nil, skills: skills)
+    assert briefing_skills(work) == "Available skills rollout-review-note, verify-rollout"
+  end
+
+  test "an empty skill list and a missing skill record read differently" do
+    assert briefing_skills(frozen!("empty-skills", nil, skills: [])) == "Available skills None"
+    assert briefing_skills(frozen!("missing-skills", nil)) == "Available skills Not recorded"
+  end
+
+  defp briefing_skills(work) do
+    work.episode
+    |> rendered()
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#request-#{work.turn.id} .briefing-skills")
+    |> LazyHTML.text()
+    |> String.split()
+    |> Enum.join(" ")
+  end
+
   defp counts(episode) do
     {:ok, timeline} = ModelRequests.timeline(episode.key, %{})
     Enum.find_value(timeline.items, %{}, &(&1[:source_kind] == :work && &1[:counts]))
@@ -554,6 +578,11 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
           "records" => []
         }
       end
+
+    context =
+      if Keyword.has_key?(options, :skills),
+        do: Map.put(context, "skills", options[:skills]),
+        else: context
 
     {:ok, submission} =
       Submission.new(

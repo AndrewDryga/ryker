@@ -655,6 +655,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       at: request.at,
       sort_at: request.at,
       counts: Map.get(request, :counts, %{}),
+      skill_names: Map.get(request, :skill_names),
       selection: Map.get(request, :selection),
       sent: Map.get(request, :sent),
       title: request.title,
@@ -1028,6 +1029,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: turn.id,
+      skill_names: skill_names(work, reading),
       counts: Map.put(work_counts(context, selection, saved), :opened, reading.opened),
       selection: selection && Map.take(selection, [:limits]),
       sent: sent(reading, turn.coop_turn_id, submission),
@@ -1439,6 +1441,14 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp admission_milestones(attempt),
     do: %{"phase" => attempt.phase, "milestones" => attempt.milestones}
+
+  defp skill_names(%{"skills" => skills}, reading) when is_list(skills) do
+    if Enum.all?(skills, &match?(%{"name" => name} when is_binary(name), &1)) do
+      skills |> Enum.map(& &1["name"]) |> Redactor.redact(reading.secrets)
+    end
+  end
+
+  defp skill_names(_, _), do: nil
 
   defp skill_section(documents, turn_id, reading)
        when is_map(documents) and map_size(documents) > 0 do

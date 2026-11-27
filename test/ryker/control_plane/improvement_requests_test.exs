@@ -60,6 +60,7 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
 
     text = chapter |> LazyHTML.text() |> String.replace(~r/\s+/, " ")
     assert text =~ "Self-analysis briefing"
+    assert text =~ "Available skills None"
     assert text =~ "Suspected cause: Ryker's instructions (high confidence)"
     refute text =~ "Prompt bug"
     assert text =~ "Routing read the staging question as production."

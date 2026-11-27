@@ -409,8 +409,10 @@ start empty. Turning off an installation selection leaves any environment select
 
 Each newly prepared Work turn, including a continuation, sees the names, descriptions and SHA-256
 revisions of its enabled skills. When a procedure fits the request, Ryker reads its saved text
-through `read_skill`. The briefing shows which revisions were offered and the tool history shows
-which procedure was read. A retry keeps the same text after a setting change or a Ryker upgrade.
+through `read_skill`. **Available skills** on the Work briefing lists the names from that turn.
+Expand the briefing for the revisions offered. A **Skill read** entry shows which one Ryker opened.
+Routing, completion review, learning and self-analysis have no skill reader and show **None**.
+If the skill record is missing, the briefing shows **Not recorded**. A retry keeps the same text after a setting change or a Ryker upgrade.
 Skills grant no access to repositories, tools or Emisar actions.
 
 Each Skills row opens its procedure, source and installation settings. **Edit procedure** saves a local edition under the same skill name. **Delete skill** removes it after every scope has disabled it. Deleted bundled skills can be restored from the install page.

@@ -1435,6 +1435,8 @@
 @media (max-width:580px) { .ryker-app .context-fields > .context-field { grid-template-columns:minmax(0,1fr); gap:0; } }
 
 /* A briefing's model, and why that model: the first section under its header */
+.briefing-skills { margin:8px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:21px; overflow-wrap:anywhere; }
+.briefing-skills strong { margin-right:6px; }
 .request-model-section { margin:14px 0 0; }
 .request-model-section h4 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:13px; line-height:19px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
 .request-model-section .execution-target { flex-direction:row; flex-wrap:wrap; align-items:baseline; gap:0 10px; }

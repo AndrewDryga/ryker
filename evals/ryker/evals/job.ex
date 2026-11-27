@@ -75,6 +75,8 @@ defmodule Ryker.Evals.Job do
           if(kind == :weekly_review, do: :weekly_review, else: :learning),
           false
         )
+        # The dedicated eval socket owns its login. Controller grants belong to fleet leases.
+        |> Map.delete("model_credentials")
         |> Map.merge(%{"version" => 2, "job_ref" => name, "source" => nil, "companions" => []})
 
       with {:ok, digest} <- JobSpec.digest(document),
