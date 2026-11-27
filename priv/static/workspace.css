@@ -3336,7 +3336,7 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .skill-document-head small a { margin-inline-start:8px; }
 .skill-procedure { padding-block:16px 0; overflow-wrap:anywhere; }
 .skill-editor { margin-top:16px; }
-.skill-install-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr)); align-items:start; gap:16px; max-width:1040px; }
+.skill-install-options { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; max-width:780px; }
 .skill-install-options > * { min-width:0; }
 .skill-install-options .skill-install { margin:0; }
 .skill-import-form h2 { margin:0; }
