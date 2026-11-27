@@ -165,9 +165,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
         description={@page.description}
         back={@page[:back]}
         navigate
+        progress={if @view.applying and is_nil(@notice), do: "Applying…"}
       >
         <:action :if={@section == :skills and is_nil(@form)}>
-          <.link navigate="/skills/install/github" class="ui-button primary"><Components.icon name={
+          <.link navigate="/skills/catalog/install" class="ui-button primary"><Components.icon name={
             :plus
           } />Install skill</.link>
         </:action>
@@ -219,12 +220,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
         class="page-feedback"
       />
       <Components.form_feedback
-        :if={@view.applying and is_nil(@notice)}
-        message="Applying the saved settings…"
-        tone={:info}
-        class="page-feedback"
-      />
-      <Components.form_feedback
         :if={match?({:failed, _}, @view.application)}
         message="The newest settings could not be applied. The previous configuration is still running."
         tone={:error}
@@ -249,7 +244,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       />
       <.live_component
         :if={@form == {:install, nil}}
-        module={Ryker.ControlPlane.SkillImport}
+        module={Ryker.ControlPlane.SkillInstallPage}
         id="install-skill"
         view={@view}
         commands={@commands}
@@ -2244,8 +2239,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp heading(:skills, {:install, nil}, _view),
     do: %{
-      title: "Install from GitHub",
-      description: "Review a public procedure before adding it to this installation.",
+      title: "Install skill",
+      description: nil,
       back: {"All skills", "/skills"}
     }
 
@@ -2254,7 +2249,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
     %{
       title: if(skill, do: Ryker.ControlPlane.SkillPage.title(name), else: "Skill unavailable"),
-      description: skill && skill["description"],
+      description: nil,
       back: {"All skills", "/skills"}
     }
   end
@@ -2355,7 +2350,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp page(:skills),
     do: %{
       title: "Skills",
-      description: "Procedures Ryker can consult while working on a request."
+      description: "Skills you enable globally are available in every Ryker session."
     }
 
   defp page(:environments),

@@ -316,12 +316,12 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   test "settings the running system applies stop reading as pending on the open Advanced page" do
     assert {:ok, snapshot} = Settings.initialize(@actor)
     {:ok, view, _html} = open("/settings/advanced")
-    assert has_element?(view, ".page-feedback", "Applying the saved settings")
+    assert has_element?(view, ".page-title-line [role=status]", "Applying…")
 
     assert Settings.record_application(snapshot.installation.revision, :ok) == :ok
 
     assert shows?(fn ->
-             not has_element?(view, ".page-feedback", "Applying the saved settings")
+             not has_element?(view, ".page-title-line [role=status]", "Applying…")
            end)
   end
 
@@ -370,7 +370,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     assert {:ok, snapshot} = Settings.initialize(@actor)
     assert Settings.record_application(snapshot.installation.revision, :ok) == :ok
     {:ok, view, _html} = open("/integrations/emisar")
-    refute has_element?(view, ".page-feedback", "Applying the saved settings")
+    refute has_element?(view, ".page-title-line [role=status]", "Applying…")
 
     assert {:ok, _saved} =
              Settings.put_repository(
@@ -382,7 +382,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     # The open page redraws on the announcement within a few hundred
     # milliseconds; the notice must not come with it.
     refute eventually(
-             fn -> has_element?(view, ".page-feedback", "Applying the saved settings") end,
+             fn -> has_element?(view, ".page-title-line [role=status]", "Applying…") end,
              1_000
            )
   end

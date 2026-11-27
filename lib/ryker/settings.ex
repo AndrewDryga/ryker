@@ -540,10 +540,10 @@ defmodule Ryker.Settings do
     end
   end
 
-  @doc "Install the exact GitHub skill a console operator previewed, or update it from the same file."
+  @doc "Install the exact skill a console operator previewed, or update it from the same GitHub file."
   @spec install_skill(map(), revision(), String.t()) :: write_result()
   def install_skill(skill, revision, actor) do
-    update_skill_catalog(revision, actor, &Ryker.Skills.GitHub.install(&1, skill))
+    update_skill_catalog(revision, actor, &Ryker.Skills.install(&1, skill))
   end
 
   @doc "Restore the bundled edition of a deleted skill to this installation."

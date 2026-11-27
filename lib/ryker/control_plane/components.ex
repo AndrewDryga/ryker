@@ -818,6 +818,8 @@ defmodule Ryker.ControlPlane.Components do
     doc: "Where the record lives outside Ryker (a Slack channel); the title opens it"
   )
 
+  attr(:progress, :string, default: nil)
+
   slot(:action, doc: "A real page-level action that already exists; never a placeholder")
 
   @doc """
@@ -841,6 +843,7 @@ defmodule Ryker.ControlPlane.Components do
       |> assign_new(:action, fn -> [] end)
       |> assign_new(:status, fn -> nil end)
       |> assign_new(:title_href, fn -> nil end)
+      |> assign_new(:progress, fn -> nil end)
 
     ~H"""
     <header class="page-header">
@@ -861,6 +864,7 @@ defmodule Ryker.ControlPlane.Components do
               class="page-title-link"
             ><span>{@title}</span><.icon name={:external} class="page-title-external" /></a>
           </h1>
+          <span :if={@progress} class="page-progress" role="status">{@progress}</span>
           <Kit.state :if={@status} tone={elem(@status, 0)} word={elem(@status, 1)} />
         </div>
       </div>
