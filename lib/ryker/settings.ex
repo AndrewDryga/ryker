@@ -543,19 +543,33 @@ defmodule Ryker.Settings do
   @doc "Install the exact GitHub skill a console operator previewed, or update it from the same file."
   @spec install_skill(map(), revision(), String.t()) :: write_result()
   def install_skill(skill, revision, actor) do
+    update_skill_catalog(revision, actor, &Ryker.Skills.GitHub.install(&1, skill))
+  end
+
+  @doc "Restore the bundled edition of a deleted skill to this installation."
+  def restore_skill(name, revision, actor) do
+    update_skill_catalog(revision, actor, &Ryker.Skills.restore(&1, name))
+  end
+
+  @doc "Save a local edition of a skill under its stable name."
+  def edit_skill(name, document, revision, actor) do
+    update_skill_catalog(revision, actor, &Ryker.Skills.edit(&1, name, document))
+  end
+
+  defp update_skill_catalog(revision, actor, update) do
     with :ok <- authorize(actor) do
-      save(:work, revision, actor, &install_reviewed_skill(&1.work, skill))
+      save(:work, revision, actor, &apply_skill_update(&1.work, update))
     end
   end
 
-  defp install_reviewed_skill(work, skill) do
-    case Ryker.Skills.GitHub.install(work.installed_skills, skill) do
+  defp apply_skill_update(work, update) do
+    case update.(work.installed_skills) do
       {:ok, installed} -> write_installed_skills(work, installed)
       {:error, reason} -> Repo.rollback(reason)
     end
   end
 
-  @doc "Remove an imported skill once every scope has stopped selecting it."
+  @doc "Remove a skill once every scope has stopped selecting it."
   @spec remove_skill(String.t(), revision(), String.t()) :: write_result()
   def remove_skill(name, revision, actor) do
     with :ok <- authorize(actor) do
@@ -573,14 +587,17 @@ defmodule Ryker.Settings do
         else: environments
 
     cond do
-      not Map.has_key?(snapshot.work.installed_skills, name) ->
+      name not in Ryker.Skills.names(snapshot.work.installed_skills) ->
         Repo.rollback(:unknown_skill)
 
       scopes != [] ->
         Repo.rollback({:skill_in_use, scopes})
 
       true ->
-        write_installed_skills(snapshot.work, Map.delete(snapshot.work.installed_skills, name))
+        write_installed_skills(
+          snapshot.work,
+          Ryker.Skills.remove(snapshot.work.installed_skills, name)
+        )
     end
   end
 

@@ -3320,3 +3320,18 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .episode-outcome { margin: 0 0 1rem; padding: 0.875rem 1rem; border-inline-start: 3px solid var(--ryker-accent); overflow-wrap: anywhere; }
 .episode-outcome h2 { margin: 0; font-size: 1rem; }
 .episode-outcome p { margin: 0.35rem 0; }
+
+.skill-detail, .skill-review, .skill-import-form { display:grid; gap:20px; }
+.skill-detail { max-width:780px; }
+.skill-availability, .skill-document-head, .skill-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.skill-availability, .skill-document-head { justify-content:space-between; }
+.skill-availability { padding:4px 0 16px; border-bottom:1px solid var(--ryker-stroke); }
+.skill-availability p, .skill-review p, .skill-document-head h2, .skill-review h2 { margin:0; }
+.skill-document-head h2, .skill-review h2 { font-size:18px; }
+.skill-document-head small, .skill-hint, .skill-availability p { color:var(--ryker-text-secondary); }
+.skill-document-head small a { margin-inline-start:8px; }
+.skill-procedure { padding-block:16px 0; overflow-wrap:anywhere; }
+.skill-editor { margin-top:16px; }
+.skill-editor textarea { width:100%; font-family:var(--ryker-font-mono, monospace); resize:vertical; }
+.skill-actions { padding-top:16px; border-top:1px solid var(--ryker-stroke); }
+.skill-scope { margin:0; }

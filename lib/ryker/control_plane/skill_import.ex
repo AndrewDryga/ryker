@@ -12,8 +12,7 @@ defmodule Ryker.ControlPlane.SkillImport do
      |> assign_new(:url, fn -> "" end)
      |> assign_new(:preview, fn -> nil end)
      |> assign_new(:loading, fn -> false end)
-     |> assign_new(:error, fn -> nil end)
-     |> assign_new(:notice, fn -> nil end)}
+     |> assign_new(:error, fn -> nil end)}
   end
 
   @impl true
@@ -22,7 +21,7 @@ defmodule Ryker.ControlPlane.SkillImport do
 
     {:noreply,
      socket
-     |> assign(url: url, loading: true, preview: nil, notice: nil, error: nil)
+     |> assign(url: url, loading: true, preview: nil, error: nil)
      |> start_async(:preview, fn -> Skills.preview(url) end)}
   end
 
@@ -33,13 +32,7 @@ defmodule Ryker.ControlPlane.SkillImport do
       {:ok, snapshot} ->
         send(self(), {:settings_editor_saved, SettingsView.view(snapshot)})
 
-        {:noreply,
-         assign(socket,
-           preview: nil,
-           url: "",
-           error: nil,
-           notice: "#{preview["name"]} installed."
-         )}
+        {:noreply, push_navigate(socket, to: "/skills/" <> preview["name"])}
 
       {:error, {:settings_conflict, current}} ->
         send(self(), {:settings_editor_saved, SettingsView.view(current)})
@@ -58,6 +51,18 @@ defmodule Ryker.ControlPlane.SkillImport do
          :error,
          "Ryker could not save this skill. Try installing the reviewed version again."
        )}
+  end
+
+  def handle_event("restore", %{"name" => name}, %{assigns: a} = socket) do
+    case a.commands.restore_skill.(name, a.view.revision) do
+      {:ok, snapshot} ->
+        send(self(), {:settings_editor_saved, SettingsView.view(snapshot)})
+        {:noreply, push_navigate(socket, to: "/skills/" <> name)}
+
+      {:error, _} ->
+        {:noreply,
+         assign(socket, :error, "Could not restore this skill. Review the current catalog.")}
+    end
   end
 
   def handle_event("cancel", _params, socket),
@@ -110,16 +115,20 @@ defmodule Ryker.ControlPlane.SkillImport do
   def render(assigns) do
     ~H"""
     <div id={@id}>
-      <Kit.section_card
-        title="Install from GitHub"
-        lede="Import the SKILL.md procedure from a public repository. Companion scripts and files are outside this import."
-      >
-        <form :if={!@preview} phx-submit="preview" phx-target={@myself} class="kit-form-section">
+      <Kit.form_card label="Install from GitHub" class="skill-install">
+        <form
+          :if={!@preview}
+          phx-submit="preview"
+          phx-target={@myself}
+          class="kit-form-section skill-import-form"
+        >
           <div class="settings-field">
             <label for="skill-github-url">GitHub URL</label>
+            <span id="url-help" class="skill-hint">Link to a public repository, a skill folder, or its SKILL.md file.</span>
             <input
               id="skill-github-url"
               type="url"
+              aria-describedby="url-help"
               name="url"
               required
               maxlength="2048"
@@ -127,24 +136,46 @@ defmodule Ryker.ControlPlane.SkillImport do
               placeholder="https://github.com/owner/repository/tree/main/skills/name"
             />
           </div>
-          <button type="submit" class="ui-button secondary" disabled={@loading}>{if @loading,
-            do: "Reading…",
-            else: "Preview skill"}</button>
+          <div class="skill-actions">
+            <button type="submit" class="ui-button primary" disabled={@loading}>{if @loading,
+              do: "Reading…",
+              else: "Preview skill"}</button><.link navigate="/skills" class="ui-button secondary">Cancel</.link>
+          </div>
         </form>
-        <div :if={@preview} class="kit-card-part">
-          <h3>{@preview["name"]}</h3><p>{@preview["description"]}</p>
+        <div :if={@preview} class="skill-review">
+          <h2>{Ryker.ControlPlane.SkillPage.title(@preview["name"])}</h2><p>
+            {@preview["description"]}
+          </p>
           <p><a href={@preview["source"]}>Source at the reviewed commit</a></p>
-          <pre class="model-document-text">{@preview["document"]}</pre>
-          <button type="button" class="ui-button primary" phx-click="install" phx-target={@myself}>
-            {if Map.has_key?(@view.snapshot.work.installed_skills, @preview["name"]),
-              do: "Install this revision",
-              else: "Install skill"}
-          </button>
-          <button type="button" class="ui-button secondary" phx-click="cancel" phx-target={@myself}>Cancel</button>
+          <p class="skill-hint">Installs the reviewed Markdown only. New skills start disabled.</p>
+          <Ryker.ControlPlane.SkillPage.procedure document={@preview["document"]} />
+          <Components.disclosure id="skill-raw" label="View SKILL.md">
+            <pre class="model-document-text">{@preview["document"]}</pre>
+          </Components.disclosure>
+          <div class="skill-actions">
+            <button type="button" class="ui-button primary" phx-click="install" phx-target={@myself}>
+              {if Map.has_key?(@view.snapshot.work.installed_skills, @preview["name"]),
+                do: "Install this revision",
+                else: "Install skill"}
+            </button>
+            <button type="button" class="ui-button secondary" phx-click="cancel" phx-target={@myself}>Change URL</button>
+          </div>
         </div>
         <Components.form_feedback :if={@error} message={@error} tone={:error} />
-        <p :if={@notice} role="status">{@notice}</p>
-      </Kit.section_card>
+      </Kit.form_card>
+      <div
+        :for={name <- Skills.names(%{}) -- Skills.names(@view.snapshot.work.installed_skills)}
+        class="skill-availability"
+      >
+        <span>{Ryker.ControlPlane.SkillPage.title(name)} · Bundled with Ryker</span>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click="restore"
+          phx-value-name={name}
+          phx-target={@myself}
+        >Restore skill</button>
+      </div>
     </div>
     """
   end

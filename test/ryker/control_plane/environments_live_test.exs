@@ -47,8 +47,8 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert Settings.enabled_skills(nil) == []
     assert Settings.enabled_skills("elsewhere") == []
 
-    {:ok, global, _html} = open("/skills")
-    global |> element("#installation-skills button") |> render_click()
+    {:ok, global, _html} = open("/skills/verify-rollout")
+    global |> element("button[phx-click=toggle]") |> render_click()
     assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills(nil)
     assert length(Settings.enabled_skills("staging")) == 1
     {:ok, inherited, _html} = open("/environments/staging/edit")
@@ -64,10 +64,31 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
                @actor
              )
 
-    {:ok, updated_global, _html} = open("/skills")
-    updated_global |> element("#installation-skills button") |> render_click()
+    {:ok, updated_global, _html} = open("/skills/verify-rollout")
+    updated_global |> element("button[phx-click=toggle]") |> render_click()
     assert Settings.enabled_skills(nil) == []
     assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills("staging")
+  end
+
+  test "a bundled procedure can be edited, deleted from this installation, and restored" do
+    installation!()
+    {:ok, view, _} = open("/skills/verify-rollout")
+    view |> element("button", "Edit procedure") |> render_click()
+    original = File.read!("priv/skills/verify-rollout/SKILL.md")
+    view |> form("#edit-skill-form", document: original <> "\nCheck again.") |> render_submit()
+    assert has_element?(view, ".skill-procedure", "Check again.")
+    view |> element("button", "Delete skill") |> render_click()
+    view |> element("#delete-skill button", "Delete skill") |> render_click()
+    assert_redirect(view, "/skills")
+    {:ok, catalog, _} = open("/skills")
+    assert has_element?(catalog, ".kit-empty", "No skills installed")
+    {:ok, install, _} = open("/skills/install/github")
+    install |> element("button", "Restore skill") |> render_click()
+    assert_redirect(install, "/skills/verify-rollout")
+
+    assert Ryker.Skills.find(Settings.fetch!().work.installed_skills, "verify-rollout")[
+             "document"
+           ] == original
   end
 
   test "a public skill is previewed, installed at the reviewed commit, enabled and removed in the console" do
@@ -85,7 +106,15 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
       ^raw, _, _ -> {:ok, document}
     end)
 
-    {:ok, view, _html} = open("/skills")
+    {:ok, list, _html} = open("/skills")
+
+    assert has_element?(
+             list,
+             ".entity-row-link a[href='/skills/verify-rollout']",
+             "Verify rollout"
+           )
+
+    {:ok, view, _html} = open("/skills/install/github")
 
     view
     |> form("#install-skill form", url: "https://github.com/example/runbooks/tree/main/checks")
@@ -94,7 +123,13 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert render_async(view) =~ "Install skill"
     assert Settings.fetch!().work.installed_skills == %{}
     view |> element("#install-skill button", "Install skill") |> render_click()
-    assert has_element?(view, "#procedure-check-release")
+    assert_redirect(view, "/skills/check-release")
+    {:ok, view, _html} = open("/skills/check-release")
+    view |> element("button", "Edit procedure") |> render_click()
+    document = document <> "\nRecord the final revision."
+    view |> form(".skill-editor", document: document) |> render_submit()
+    assert has_element?(view, ".skill-procedure", "Record the final revision.")
+    assert has_element?(view, "small", "Edited locally")
 
     assert has_element?(
              view,
@@ -104,19 +139,19 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert Settings.enabled_skills(nil) == []
 
     toggle =
-      ~s|#installation-skills button[phx-value-name="check-release"][phx-click="set-skill"]|
+      ~s|button[phx-click=toggle]|
 
     view |> element(toggle) |> render_click()
     assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
     view |> element(toggle) |> render_click()
 
     view
-    |> element(~s|button[phx-click="ask-remove"][phx-value-name="check-release"]|)
+    |> element(~s|button[phx-click="ask-delete"]|)
     |> render_click()
 
-    view |> element("button", "Remove skill") |> render_click()
+    view |> element("#delete-skill button", "Delete skill") |> render_click()
     assert Settings.fetch!().work.installed_skills == %{}
-    refute has_element?(view, "#procedure-check-release")
+    assert_redirect(view, "/skills")
   end
 
   test "the Environments page lists each environment with its repositories, Emisar account and channels" do

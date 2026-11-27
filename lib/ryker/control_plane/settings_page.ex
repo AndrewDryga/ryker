@@ -166,6 +166,11 @@ defmodule Ryker.ControlPlane.SettingsPage do
         back={@page[:back]}
         navigate
       >
+        <:action :if={@section == :skills and is_nil(@form)}>
+          <.link navigate="/skills/install/github" class="ui-button primary"><Components.icon name={
+            :plus
+          } />Install skill</.link>
+        </:action>
         <:action :if={@section == :environments and is_nil(@form)}>
           <EnvironmentsPage.add />
         </:action>
@@ -233,7 +238,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </section>
 
       <.form_page
-        :if={@form}
+        :if={@form && @section != :skills}
         emisar_form_feedback={@emisar_form_feedback}
         section={@section}
         form={@form}
@@ -242,24 +247,25 @@ defmodule Ryker.ControlPlane.SettingsPage do
         confirm={@confirm}
         account_limits={@account_limits}
       />
+      <.live_component
+        :if={@form == {:install, nil}}
+        module={Ryker.ControlPlane.SkillImport}
+        id="install-skill"
+        view={@view}
+        commands={@commands}
+      />
+      <.live_component
+        :if={match?({:skill, _}, @form)}
+        module={Ryker.ControlPlane.SkillPage}
+        id={"skill-" <> elem(@form, 1)}
+        name={elem(@form, 1)}
+        view={@view}
+        commands={@commands}
+      />
       <%= if is_nil(@form) do %>
         <SetupPage.render :if={@section == :setup} view={@view} params={@params} />
         <EnvironmentsPage.render :if={@section == :environments} view={@view} params={@params} />
-        <.live_component
-          :if={@section == :skills}
-          module={Ryker.ControlPlane.SkillSettings}
-          id="installation-skills"
-          environment={nil}
-          view={@view}
-          commands={@commands}
-        />
-        <.live_component
-          :if={@section == :skills}
-          module={Ryker.ControlPlane.SkillImport}
-          id="install-skill"
-          view={@view}
-          commands={@commands}
-        />
+        <Ryker.ControlPlane.SkillPage.catalog :if={@section == :skills} view={@view} />
         <.integrations :if={@section == :integrations} view={@view} />
         <.settings_overview :if={@section == :settings} view={@view} />
         <.slack
@@ -2215,6 +2221,23 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # A page's heading: its own, or for a page of one form what the form adds
   # or edits, with the list it returns to above the title.
   defp heading(section, nil, view), do: page(section, view)
+
+  defp heading(:skills, {:install, nil}, _view),
+    do: %{
+      title: "Install from GitHub",
+      description: "Review a public procedure before adding it to this installation.",
+      back: {"All skills", "/skills"}
+    }
+
+  defp heading(:skills, {:skill, name}, view) do
+    skill = Ryker.Skills.find(view.snapshot.work.installed_skills, name)
+
+    %{
+      title: if(skill, do: Ryker.ControlPlane.SkillPage.title(name), else: "Skill unavailable"),
+      description: skill && skill["description"],
+      back: {"All skills", "/skills"}
+    }
+  end
 
   defp heading(_section, {:environment, nil}, _view),
     do: %{

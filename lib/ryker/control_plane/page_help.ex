@@ -47,6 +47,8 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/usage", :usage},
     {"/environments", :environments},
     {"/skills", :skills},
+    {"/skills/install/github", :skill_import},
+    {"/skills/:ref", :skill},
     {"/channels", :channels},
     {"/channels/:workspace/:channel", :channel},
     {"/repositories", :repositories},
@@ -284,6 +286,32 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Choose where it applies",
        [
          "Enable a skill here for the whole installation or open one environment to enable it there. Each new Work turn keeps its own copy of the enabled procedures."
+       ]}
+    ])
+  end
+
+  defp help(:skill_import) do
+    page("How installation works", [
+      {"Reviewed versions",
+       [
+         "The preview captures the file at one Git commit. Installing saves exactly that revision, even if the branch changes afterward."
+       ]},
+      {"Included files",
+       [
+         "Ryker imports the SKILL.md procedure. Companion scripts and assets stay in the repository."
+       ]}
+    ])
+  end
+
+  defp help(:skill) do
+    page("How this skill works", [
+      {"Local edits",
+       [
+         "Changes apply on this installation. Work already in progress keeps the version it received."
+       ]},
+      {"Availability",
+       [
+         "An environment can enable a procedure even when the installation-wide setting is off. Disable it in every scope before deleting it."
        ]}
     ])
   end

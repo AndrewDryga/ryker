@@ -1726,6 +1726,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A settings page, or a page of one form on it: {section, form}, where form
   # is nil or {kind, key}, key nil for a new one. A key comes from the route's
   # decoded parameters, never from the raw path.
+  defp settings_route(["skills", "install", "github"], _params), do: {:skills, {:install, nil}}
+  defp settings_route(["skills", _name], %{"ref" => name}), do: {:skills, {:skill, name}}
+
   defp settings_route(segments, params) do
     case Map.fetch(@settings_pages, segments) do
       {:ok, section} -> {section, nil}
@@ -2132,6 +2135,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       preview_retention: actions[:preview_retention],
       preview_webhook: actions[:preview_webhook],
       install_skill: &Settings.install_skill(&1, &2, Actor.of(viewer)),
+      restore_skill: &Settings.restore_skill(&1, &2, Actor.of(viewer)),
+      edit_skill: &Settings.edit_skill(&1, &2, &3, Actor.of(viewer)),
       remove_skill: &Settings.remove_skill(&1, &2, Actor.of(viewer)),
       save_work_skills: &Settings.save_work(%{enabled_skills: &1}, &2, Actor.of(viewer)),
       put_environment: &Settings.put_environment(&1, &2, Actor.of(viewer)),

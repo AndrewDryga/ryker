@@ -117,6 +117,8 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/repositories/new", Ryker.ControlPlane.WorkbenchLive)
     live("/repositories/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/environments/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/skills/install/github", Ryker.ControlPlane.WorkbenchLive)
+    live("/skills/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/environments/:ref/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/models/local-routing", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/models/presets/new", Ryker.ControlPlane.WorkbenchLive)

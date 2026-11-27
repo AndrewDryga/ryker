@@ -413,9 +413,8 @@ through `read_skill`. The briefing shows which revisions were offered and the to
 which procedure was read. A retry keeps the same text after a setting change or a Ryker upgrade.
 Skills grant no access to repositories, tools or Emisar actions.
 
-The Skills page lists bundled procedures and imports with their pinned GitHub source and full text.
-Paste a public GitHub repository (for a root skill), skill folder, or SKILL.md link into **Install
-from GitHub**. Preview resolves the revision and displays the document. Install saves those exact
+Each Skills row opens its procedure, source and installation settings. **Edit procedure** saves a local edition under the same skill name. **Delete skill** removes it after every scope has disabled it. Deleted bundled skills can be restored from the install page.
+Paste a public GitHub repository (for a root skill), skill folder, or SKILL.md link under **Install skill**. Preview resolves the revision and displays the document. Install saves those exact
 bytes and a new skill starts disabled. Preview and install the same source again to update it.
 Other files, scripts and assets from the repository are outside this Markdown import. Imports
 work without a GitHub connection. Disable an import in every scope before removing it.
