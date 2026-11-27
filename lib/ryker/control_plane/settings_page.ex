@@ -1698,9 +1698,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
           else: "Open an account to rename it, replace its key, pause it or remove it."
       }
     >
-      <:actions :if={@line.unassigned > 0 || @accounts != []}>
-        <.link :if={@line.unassigned > 0} navigate="/environments">Manage environments</.link>
-        <.link :if={@accounts != []} patch="/integrations/emisar/new" class="ui-button secondary">
+      <:actions :if={@accounts != []}>
+        <.link patch="/integrations/emisar/new" class="ui-button secondary">
           <Components.icon name={:plus} />Add account
         </.link>
       </:actions>

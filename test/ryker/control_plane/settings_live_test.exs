@@ -763,7 +763,9 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
              "1 environment without an Emisar account"
            )
 
-    assert has_element?(view, ".section-head a[href='/environments']", "Manage environments")
+    # The unassigned count used to put a second, unrelated action beside Add account.
+    refute has_element?(view, "section[aria-label=Accounts] a[href='/environments']")
+    assert has_element?(view, ".section-head a[href='/integrations/emisar/new']", "Add account")
     refute has_element?(view, "a", "without an Emisar account")
 
     assert has_element?(view, ".entity-row .state-word[data-tone=off]", "Paused")
