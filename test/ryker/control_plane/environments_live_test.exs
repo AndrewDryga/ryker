@@ -84,7 +84,14 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     view |> element("#delete-skill button", "Delete skill") |> render_click()
     assert_redirect(view, "/skills")
     {:ok, catalog, _} = open("/skills")
-    assert has_element?(catalog, "h1", "Global skills")
+    assert has_element?(catalog, ".page-header h1", ~r/^Skills$/)
+
+    assert has_element?(
+             catalog,
+             ".page-header .page-description",
+             "Skills you enable globally are available in every Ryker session."
+           )
+
     assert has_element?(catalog, ".kit-empty", "No skills installed")
     {:ok, install, _} = open("/skills/install/github")
     install |> element("button", "Restore skill") |> render_click()

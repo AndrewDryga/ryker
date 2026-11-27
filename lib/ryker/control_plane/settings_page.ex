@@ -2322,8 +2322,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp page(:skills),
     do: %{
-      title: "Global skills",
-      description: nil
+      title: "Skills",
+      description: "Skills you enable globally are available in every Ryker session."
     }
 
   defp page(:environments),
