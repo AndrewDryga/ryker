@@ -3336,7 +3336,8 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .skill-document-head small a { margin-inline-start:8px; }
 .skill-procedure { padding-block:16px 0; overflow-wrap:anywhere; }
 .skill-editor { margin-top:16px; }
-.skill-editor textarea { width:100%; font-family:var(--ryker-font-mono, monospace); resize:vertical; }
+.skill-import-form > .segmented { justify-self:start; }
+.skill-editor textarea, .skill-import-form textarea { width:100%; font-family:var(--ryker-font-mono, monospace); resize:vertical; }
 .skill-actions { padding-top:16px; border-top:1px solid var(--ryker-stroke); }
 .skill-management .skill-availability { padding:16px 0; }
 .skill-management .skill-availability:first-child { padding-top:0; }

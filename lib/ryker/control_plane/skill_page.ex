@@ -34,6 +34,7 @@ defmodule Ryker.ControlPlane.SkillPage do
     """
   end
 
+  defp origin(%{"origin" => "paste"}), do: "Pasted Markdown"
   defp origin(%{"modified" => true, "source" => _}), do: "GitHub · Edited locally"
   defp origin(%{"modified" => true}), do: "Bundled · Edited locally"
   defp origin(%{"source" => _}), do: "GitHub"

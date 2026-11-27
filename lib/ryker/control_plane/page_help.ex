@@ -48,6 +48,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/environments", :environments},
     {"/skills", :skills},
     {"/skills/install/github", :skill_import},
+    {"/skills/install/paste", :skill_import},
     {"/skills/:ref", :skill},
     {"/channels", :channels},
     {"/channels/:workspace/:channel", :channel},
@@ -281,7 +282,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How skills work", [
       {"Install a skill",
        [
-         "Preview the SKILL.md file from a public GitHub repository, then install the version you reviewed. Preview the same file again to update it."
+         "Paste the contents of a SKILL.md file or link to one on GitHub. Review the skill, then install it."
        ]},
       {"Choose where it applies",
        [
@@ -294,7 +295,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How installation works", [
       {"Reviewed versions",
        [
-         "The preview captures the file at one Git commit. Installing saves exactly that revision, even if the branch changes afterward."
+         "Installing saves the Markdown you previewed. For GitHub imports, the preview also records the source commit."
        ]},
       {"Included files",
        [

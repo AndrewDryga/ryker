@@ -1,5 +1,6 @@
 defmodule Ryker.Skills do
-  @moduledoc "Reviewed Work procedures bundled with this Ryker release."
+  @moduledoc "Bundled and locally installed Work skills."
+  alias Ryker.CanonicalJSON
 
   # Explicit membership makes adding a procedure a release decision. Only these
   # files are read, at compile time. Tool arguments never select a filesystem path.
@@ -22,6 +23,29 @@ defmodule Ryker.Skills do
 
   defdelegate preview(url), to: Ryker.Skills.GitHub
 
+  @doc "Preview a pasted SKILL.md using the same document format as a GitHub import."
+  def preview_paste(document) when is_binary(document) and byte_size(document) > 32_768,
+    do: {:error, :skill_too_large}
+
+  def preview_paste(document) do
+    with {:ok, skill} <- Ryker.Skills.Document.parse(document) do
+      {:ok, Map.put(skill, "origin", "paste")}
+    end
+  end
+
+  def install(installed, %{"source" => _source} = preview),
+    do: Ryker.Skills.GitHub.install(installed, preview)
+
+  def install(installed, %{"origin" => "paste", "name" => name, "document" => document} = preview) do
+    cond do
+      preview_paste(document) != {:ok, preview} -> {:error, :invalid_skill}
+      name in @files or Map.has_key?(installed, name) -> {:error, :skill_name_taken}
+      true -> put_document(installed, preview)
+    end
+  end
+
+  def install(_installed, _preview), do: {:error, :invalid_skill}
+
   @spec names(map()) :: [String.t()]
   def names(installed), do: Enum.map(catalog(installed), & &1["name"])
 
@@ -41,18 +65,23 @@ defmodule Ryker.Skills do
     with %{} = original <- find(installed, name),
          {:ok, %{"name" => ^name} = edited} <- Ryker.Skills.Document.parse(document) do
       entry = original |> Map.merge(edited) |> Map.put("modified", true)
-      updated = Map.put(installed, name, entry)
-
-      case Ryker.CanonicalJSON.validate(updated, max_bytes: 96 * 1024) do
-        :ok -> {:ok, updated}
-        _error -> {:error, :skill_limit}
-      end
+      put_document(installed, entry)
     else
       _invalid -> {:error, :invalid_skill}
     end
   end
 
+  @doc "Keep the catalog within the installation's storage budget."
+  def put_document(installed, skill) do
+    updated = Map.put(installed, skill["name"], skill)
+
+    case CanonicalJSON.validate(updated, max_bytes: 96 * 1024) do
+      :ok -> {:ok, updated}
+      _error -> {:error, :skill_limit}
+    end
+  end
+
   @doc "What the model sees before deciding to read a procedure."
   @spec descriptions([map()]) :: [map()]
-  def descriptions(skills), do: Enum.map(skills, &Map.delete(&1, "document"))
+  def descriptions(skills), do: Enum.map(skills, &Map.drop(&1, ["document", "origin"]))
 end

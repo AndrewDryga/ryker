@@ -1,5 +1,5 @@
 defmodule Ryker.ControlPlane.SkillImport do
-  @moduledoc "Preview an unauthenticated GitHub read before installing the exact server-held document."
+  @moduledoc "Preview and install a skill from pasted Markdown or a public GitHub URL."
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, Kit, SettingsView}
   alias Ryker.Skills
@@ -10,13 +10,21 @@ defmodule Ryker.ControlPlane.SkillImport do
      socket
      |> assign(assigns)
      |> assign_new(:url, fn -> "" end)
+     |> assign_new(:document, fn -> "" end)
      |> assign_new(:preview, fn -> nil end)
      |> assign_new(:loading, fn -> false end)
      |> assign_new(:error, fn -> nil end)}
   end
 
   @impl true
-  def handle_event("preview", %{"url" => url}, socket) when is_binary(url) do
+  def handle_event("preview", %{"document" => document}, %{assigns: %{method: "paste"}} = socket)
+      when is_binary(document) do
+    socket = assign(socket, document: document, error: nil, preview: nil)
+    {:noreply, show_preview(Skills.preview_paste(document), socket)}
+  end
+
+  def handle_event("preview", %{"url" => url}, %{assigns: %{method: "github"}} = socket)
+      when is_binary(url) do
     url = String.trim(url)
 
     {:noreply,
@@ -71,20 +79,21 @@ defmodule Ryker.ControlPlane.SkillImport do
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_async(:preview, {:ok, {:ok, skill}}, socket) do
-    {:noreply,
-     assign(socket,
-       loading: false,
-       preview: skill,
-       reviewed_revision: socket.assigns.view.revision
-     )}
-  end
-
-  def handle_async(:preview, {:ok, {:error, reason}}, socket),
-    do: {:noreply, assign(socket, loading: false, error: message(reason))}
+  def handle_async(:preview, {:ok, result}, socket), do: {:noreply, show_preview(result, socket)}
 
   def handle_async(:preview, {:exit, _reason}, socket),
-    do: {:noreply, assign(socket, loading: false, error: message(:github_unavailable))}
+    do: {:noreply, show_preview({:error, :github_unavailable}, socket)}
+
+  defp show_preview({:ok, skill}, socket) do
+    assign(socket,
+      loading: false,
+      preview: skill,
+      reviewed_revision: socket.assigns.view.revision
+    )
+  end
+
+  defp show_preview({:error, reason}, socket),
+    do: assign(socket, loading: false, error: message(reason))
 
   defp message(:invalid_url) do
     "Use a public github.com repository, skill folder, or SKILL.md file URL. For a branch with slashes, use a commit permalink."
@@ -98,7 +107,7 @@ defmodule Ryker.ControlPlane.SkillImport do
     do: "GitHub refused the public read or reached its request limit. Try again later."
 
   defp message(:skill_name_taken) do
-    "Another skill already uses this name. Only the same GitHub file can update an installed skill."
+    "A skill with this name already exists. Open it to edit it, or choose a different name."
   end
 
   defp message(:skill_too_large), do: "Choose a SKILL.md file no larger than 32 KiB."
@@ -109,20 +118,43 @@ defmodule Ryker.ControlPlane.SkillImport do
   defp message(:invalid_skill),
     do: "The file needs a valid skill name, description and Markdown procedure."
 
-  defp message(_reason), do: "Ryker could not read the skill from GitHub. Try again."
+  defp message(_reason), do: "Ryker could not complete the import. Try again."
 
   @impl true
   def render(assigns) do
     ~H"""
     <div id={@id}>
-      <Kit.form_card label="Install from GitHub" class="skill-install">
+      <Kit.form_card label="Install skill" class="skill-install">
         <form
           :if={!@preview}
           phx-submit="preview"
           phx-target={@myself}
           class="kit-form-section skill-import-form"
         >
-          <div class="settings-field">
+          <Kit.segmented
+            label="Skill source"
+            options={[
+              {"GitHub", "/skills/install/github", @method == "github"},
+              {"Paste Markdown", "/skills/install/paste", @method == "paste"}
+            ]}
+            patch
+          />
+          <div :if={@method == "paste"} class="settings-field">
+            <label for="skill-markdown">SKILL.md</label>
+            <span id="markdown-help" class="skill-hint">Paste the whole file, including its name and description. Maximum 32 KiB.</span>
+            <textarea
+              id="skill-markdown"
+              name="document"
+              aria-describedby="markdown-help"
+              placeholder={
+                ~s(---\nname: my-skill\ndescription: When to use this skill\n---\n\nWrite the instructions here.)
+              }
+              rows="10"
+              spellcheck="false"
+              required
+            >{@document}</textarea>
+          </div>
+          <div :if={@method == "github"} class="settings-field">
             <label for="skill-github-url">GitHub URL</label>
             <span id="url-help" class="skill-hint">Link to a public repository, a skill folder, or its SKILL.md file.</span>
             <input
@@ -146,7 +178,9 @@ defmodule Ryker.ControlPlane.SkillImport do
           <h2>{Ryker.ControlPlane.SkillPage.title(@preview["name"])}</h2><p>
             {@preview["description"]}
           </p>
-          <p><a href={@preview["source"]}>Source at the reviewed commit</a></p>
+          <p :if={@preview["source"]}>
+            <a href={@preview["source"]}>Source at the reviewed commit</a>
+          </p>
           <p class="skill-hint">Installs the reviewed Markdown only. New skills start disabled.</p>
           <Ryker.ControlPlane.SkillPage.procedure document={@preview["document"]} />
           <Components.disclosure id="skill-raw" label="View SKILL.md">
@@ -154,11 +188,14 @@ defmodule Ryker.ControlPlane.SkillImport do
           </Components.disclosure>
           <div class="skill-actions">
             <button type="button" class="ui-button primary" phx-click="install" phx-target={@myself}>
-              {if Map.has_key?(@view.snapshot.work.installed_skills, @preview["name"]),
-                do: "Install this revision",
-                else: "Install skill"}
+              {if @method == "github" and
+                    Map.has_key?(@view.snapshot.work.installed_skills, @preview["name"]),
+                  do: "Install this revision",
+                  else: "Install skill"}
             </button>
-            <button type="button" class="ui-button secondary" phx-click="cancel" phx-target={@myself}>Change URL</button>
+            <button type="button" class="ui-button secondary" phx-click="cancel" phx-target={@myself}>
+              {if @method == "paste", do: "Edit Markdown", else: "Change URL"}
+            </button>
           </div>
         </div>
         <Components.form_feedback :if={@error} message={@error} tone={:error} />

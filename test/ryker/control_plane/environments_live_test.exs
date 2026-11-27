@@ -102,6 +102,51 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
            ] == original
   end
 
+  test "pasted Markdown can be corrected and installed without a GitHub source" do
+    installation!()
+    {:ok, view, _} = open("/skills/install/github")
+    view |> element("a", "Paste Markdown") |> render_click()
+    assert_patch(view, "/skills/install/paste")
+
+    source = File.read!("priv/skills/verify-rollout/SKILL.md")
+    document = String.replace(source, "verify-rollout", "local-rollout")
+
+    view |> form(".skill-import-form", document: String.duplicate("x", 32_769)) |> render_submit()
+    assert has_element?(view, "[role=alert]", "32 KiB")
+    view |> form(".skill-import-form", document: "Missing header") |> render_submit()
+    assert has_element?(view, "[role=alert]", "name")
+    assert has_element?(view, "textarea", "Missing header")
+
+    view |> form(".skill-import-form", document: source) |> render_submit()
+    view |> element("button", "Install skill") |> render_click()
+    assert has_element?(view, "[role=alert]", "already")
+    view |> element("button", "Edit Markdown") |> render_click()
+    assert has_element?(view, "textarea", "verify-rollout")
+
+    view |> form(".skill-import-form", document: document) |> render_submit()
+    assert has_element?(view, ".skill-review", "Local rollout")
+    refute has_element?(view, ".skill-review a", "Source at the reviewed commit")
+    assert Settings.fetch!().work.installed_skills == %{}
+
+    view |> element("button", "Install skill") |> render_click()
+    assert_redirect(view, "/skills/local-rollout")
+    assert Settings.enabled_skills(nil) == []
+    {:ok, detail, _} = open("/skills/local-rollout")
+    assert has_element?(detail, ".skill-document-head", "Pasted Markdown")
+    detail |> element("button[phx-click=toggle]") |> render_click()
+    assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
+
+    {:ok, again, _} = open("/skills/install/paste")
+
+    again
+    |> form(".skill-import-form", document: document <> "\nAnother edit.")
+    |> render_submit()
+
+    again |> element("button", "Install skill") |> render_click()
+    assert has_element?(again, "[role=alert]", "already")
+    assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
+  end
+
   test "a public skill is previewed, installed at the reviewed commit, enabled and removed in the console" do
     installation!()
 
@@ -128,12 +173,14 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     {:ok, view, _html} = open("/skills/install/github")
 
     view
-    |> form("#install-skill form", url: "https://github.com/example/runbooks/tree/main/checks")
+    |> form("#install-skill-github form",
+      url: "https://github.com/example/runbooks/tree/main/checks"
+    )
     |> render_submit()
 
     assert render_async(view) =~ "Install skill"
     assert Settings.fetch!().work.installed_skills == %{}
-    view |> element("#install-skill button", "Install skill") |> render_click()
+    view |> element("#install-skill-github button", "Install skill") |> render_click()
     assert_redirect(view, "/skills/check-release")
     {:ok, view, _html} = open("/skills/check-release")
     view |> element("button", "Edit procedure") |> render_click()

@@ -243,9 +243,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
         account_limits={@account_limits}
       />
       <.live_component
-        :if={@form == {:install, nil}}
+        :if={match?({:install, _}, @form)}
         module={Ryker.ControlPlane.SkillImport}
-        id="install-skill"
+        id={"install-skill-" <> elem(@form, 1)}
+        method={elem(@form, 1)}
         view={@view}
         commands={@commands}
       />
@@ -2217,9 +2218,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # or edits, with the list it returns to above the title.
   defp heading(section, nil, view), do: page(section, view)
 
-  defp heading(:skills, {:install, nil}, _view),
+  defp heading(:skills, {:install, _method}, _view),
     do: %{
-      title: "Install from GitHub",
+      title: "Install skill",
       description: nil,
       back: {"All skills", "/skills"}
     }

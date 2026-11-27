@@ -1,6 +1,5 @@
 defmodule Ryker.Skills.GitHub do
   @moduledoc "Preview a public GitHub procedure at an immutable commit. No GitHub credentials or redirects."
-  alias Ryker.CanonicalJSON
   alias Ryker.Config
   alias Ryker.Delivery
   alias Ryker.Skills
@@ -8,7 +7,6 @@ defmodule Ryker.Skills.GitHub do
 
   @commit ~r/\A[0-9a-f]{40}\z/
   @segment ~r/\A[a-zA-Z0-9_.-]+\z/
-  @maximum_installed_bytes 96 * 1024
 
   @spec preview(String.t()) :: {:ok, map()} | {:error, atom()}
   def preview(url) do
@@ -47,12 +45,9 @@ defmodule Ryker.Skills.GitHub do
            Regex.match?(@commit, commit) and
              preview ==
                Map.put(skill, "source", "https://github.com/#{repo}/blob/#{commit}/#{path}"),
-         :ok <- available(installed, name, repo, path),
-         updated = Map.put(installed, name, preview),
-         :ok <- CanonicalJSON.validate(updated, max_bytes: @maximum_installed_bytes) do
-      {:ok, updated}
+         :ok <- available(installed, name, repo, path) do
+      Skills.put_document(installed, preview)
     else
-      {:error, {:too_large, _bytes, _limit}} -> {:error, :skill_limit}
       {:error, reason} when is_atom(reason) -> {:error, reason}
       _invalid -> {:error, :invalid_skill}
     end

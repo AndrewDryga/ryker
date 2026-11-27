@@ -414,8 +414,8 @@ which procedure was read. A retry keeps the same text after a setting change or 
 Skills grant no access to repositories, tools or Emisar actions.
 
 Each Skills row opens its procedure, source and installation settings. **Edit procedure** saves a local edition under the same skill name. **Delete skill** removes it after every scope has disabled it. Deleted bundled skills can be restored from the install page.
-Paste a public GitHub repository (for a root skill), skill folder, or SKILL.md link under **Install skill**. Preview resolves the revision and displays the document. Install saves those exact
-bytes and a new skill starts disabled. Preview and install the same source again to update it.
+Under **Install skill**, choose **Paste Markdown** to paste a complete SKILL.md, or **GitHub** to link to a public repository, skill folder, or file. Preview the document, then install it. New skills start disabled.
+Edit a pasted skill from its detail page. For a GitHub import, you can also preview and install the same source again to update it.
 Other files, scripts and assets from the repository are outside this Markdown import. Imports
 work without a GitHub connection. Disable an import in every scope before removing it.
 
