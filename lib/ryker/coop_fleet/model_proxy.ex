@@ -1,7 +1,8 @@
 defmodule Ryker.CoopFleet.ModelProxy do
   @moduledoc false
   import Plug.Conn
-  alias Ryker.CoopFleet.{ModelContracts, ModelGrants, ModelPermits, ModelRequest}
+  alias Ryker.CoopFleet.{ModelContracts, ModelGrants, ModelPermits}
+  alias Ryker.CoopFleet.{ModelRequest, ModelRequestBody}
   alias Ryker.Delivery
   alias Ryker.Secret
 
@@ -22,7 +23,9 @@ defmodule Ryker.CoopFleet.ModelProxy do
              conn.query_string
            ),
          {:ok, body, conn} <- read_body(conn, length: @maximum_body, read_length: 64 * 1_024),
-         :ok <- validate_request(conn, binding, provider, path, body) do
+         {:ok, decoded} <-
+           ModelRequestBody.decode(get_req_header(conn, "content-encoding"), body, @maximum_body),
+         :ok <- validate_request(conn, binding, provider, path, decoded) do
       headers = ModelContracts.headers(route, binding.account, conn.req_headers)
 
       dispatch(

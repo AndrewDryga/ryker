@@ -315,7 +315,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
   end
 
   test "one durable command bridges Work to an authenticated outbound worker exactly once" do
-    worker_id = "worker-a"
+    worker_id = "bridge-durable-command-worker"
     certificate_sha256 = digest(worker_id)
 
     assert {:ok, _worker} =

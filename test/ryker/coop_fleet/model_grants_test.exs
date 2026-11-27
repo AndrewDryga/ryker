@@ -105,14 +105,46 @@ defmodule Ryker.CoopFleet.ModelGrantsTest do
       {:ok, :streaming}
     end
 
-    conn =
-      conn(:post, "/models?beta=true", ~s({"model":"claude-sonnet-5-5","messages":[]}))
-      |> Plug.Conn.put_req_header("x-coop-model-grant", grant["token"])
-      |> Plug.Conn.put_req_header("x-api-key", "workload-substitute")
+    json = ~s({"model":"claude-sonnet-5-5","messages":[]})
+    compressed = json |> :zstd.compress(%{contentSizeFlag: false}) |> IO.iodata_to_binary()
 
-    response =
-      ModelProxy.call(
-        conn,
+    for {headers, body} <- [{[], json}, {[{"content-encoding", "zstd"}], compressed}] do
+      conn = conn(:post, "/models?beta=true", body)
+      conn = Enum.reduce(headers, conn, fn {k, v}, acc -> Plug.Conn.put_req_header(acc, k, v) end)
+
+      conn =
+        conn
+        |> Plug.Conn.put_req_header("x-coop-model-grant", grant["token"])
+        |> Plug.Conn.put_req_header("x-api-key", "workload-substitute")
+
+      response =
+        ModelProxy.call(
+          conn,
+          certificate,
+          session.external_ref,
+          "claude",
+          "api.anthropic.com",
+          "/v1/messages",
+          model_stream: stream
+        )
+
+      assert response.status == 200
+      assert response.resp_body =~ "data: reply"
+      assert_received {:upstream, request}
+      assert request.host == "api.anthropic.com"
+      assert request.body == body
+      assert Enum.all?(headers, &(&1 in request.headers))
+      assert {"x-api-key", @key} in request.headers
+      refute Enum.any?(request.headers, fn {name, _} -> name == "x-coop-model-grant" end)
+    end
+
+    refused_body = ~s({"model":"other-model"}) |> :zstd.compress() |> IO.iodata_to_binary()
+
+    refused =
+      conn(:post, "/models?beta=true", refused_body)
+      |> Plug.Conn.put_req_header("x-coop-model-grant", grant["token"])
+      |> Plug.Conn.put_req_header("content-encoding", "zstd")
+      |> ModelProxy.call(
         certificate,
         session.external_ref,
         "claude",
@@ -121,12 +153,8 @@ defmodule Ryker.CoopFleet.ModelGrantsTest do
         model_stream: stream
       )
 
-    assert response.status == 200
-    assert response.resp_body =~ "data: reply"
-    assert_received {:upstream, request}
-    assert request.host == "api.anthropic.com"
-    assert {"x-api-key", @key} in request.headers
-    refute Enum.any?(request.headers, fn {name, _} -> name == "x-coop-model-grant" end)
+    assert refused.status == 403
+    refute_received {:upstream, _}
 
     assert ModelContracts.route(
              "claude",
