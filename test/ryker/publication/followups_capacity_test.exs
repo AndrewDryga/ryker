@@ -11,7 +11,7 @@ defmodule Ryker.Publication.FollowupsCapacityTest do
 
   @now ~U[2026-08-28 12:10:00.000000Z]
 
-  @tag timeout: 240_000
+  @tag timeout: 240_000, ownership_timeout: 240_000
   test "typed lifecycle correlation is not capped at one hundred active publications" do
     publications =
       for index <- 1..101 do
