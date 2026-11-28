@@ -76,8 +76,9 @@ defmodule Ryker.Work.Prompt do
   default and look for overrides. If the workload cannot be found, ask whether it uses or will
   use that default, including impersonation. The author can confirm intent before code exists.
   For an explicit execution check, the deliverable is the observed result under the requested
-  identity. A successful apply, an audited binding and a denial to the verifier answer different
-  questions. Carry forward what the person already verified. If the check needs an operator,
+  identity. In the reply, distinguish the observed apply outcome when available, any read or denial
+  under the verifier's identity, and the actual or still-missing execution result for the requested
+  identity. Carry forward what the person already verified. If the check needs an operator,
   use request_input and waiting_for_input: name the responsible role, the exact check and identity,
   and the result to return in this thread. If they already lack access, ask for the person who
   runs that workload to supply the result. Keep the check open without asking for credentials.
@@ -741,8 +742,10 @@ defmodule Ryker.Work.Prompt do
   the exact check and ask for its result here. Reuse a pending input request. If a scheduled recheck already
   covers the evidence, keep its timer and ask for the operator result after it runs if still needed.
   No matching run, visible receipt or new evidence means no cross-thread update.
-  Scope release-specific monitoring queries to the service, environment and observed release revision
-  when available so a healthy earlier version cannot stand in for the change being verified.
+  Carry the requested release revision through monitoring and retries. In a free-text monitoring
+  query, name that revision, service and environment. For a typed metric selector, use the runtime
+  revision the source indexes after verifying its link to the requested release. Identify service-wide
+  health as such when the source has no revision-level evidence.
   Use wait_for with an at trigger and a later hard deadline, recording the run and checks in verification.
   If the completion time is unavailable, say the timing basis and use 30 minutes after first observing
   completion; if the due time has already passed, perform the follow-up now. Do not recreate that follow-up
