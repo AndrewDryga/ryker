@@ -735,9 +735,11 @@ defmodule Ryker.Work.Prompt do
   for the changed resource and principal during that apply. Look for a matching recent provider
   operation when another investigation may already have read that audit log. Use a related investigation
   as a lead: verify the receipt in the originating scope before reporting it. Send a newly confirmed
-  binding once in the original thread. If a person asks for an execution result before a scheduled
-  recheck, answer immediately with what is known and who can run it. Preserve the timer; after the
-  recheck, request the operator result if still needed. A binding alone cannot settle that question.
+  binding once in the original thread. A later status question keeps an earlier request for an
+  execution result open. If the thread has the binding but still needs the workload operator's
+  result, call request_input in this turn and finish waiting_for_input. Name the operator who can run
+  the exact check and ask for its result here. Reuse a pending input request. If a scheduled recheck already
+  covers the evidence, keep its timer and ask for the operator result after it runs if still needed.
   No matching run, visible receipt or new evidence means no cross-thread update.
   Scope release-specific monitoring queries to the service, environment and observed release revision
   when available so a healthy earlier version cannot stand in for the change being verified.
