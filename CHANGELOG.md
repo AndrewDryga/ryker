@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0
+
+- Run jobs across remote Coop workers. Ryker places each job on a worker with
+  enough CPU and memory, tracks its progress, and can recover supported work
+  from a checkpoint when a worker disappears.
+- Move a signed-in Coop model account into Ryker by pasting a transfer bundle.
+  Ryker keeps the provider credentials, gives workers temporary access for
+  their jobs, and enforces shared account limits across workers.
+- New and restored worker sessions use the model and effort selected for the
+  job before the first prompt.
+- Browse available Skills, see where each is enabled, and install a reviewed
+  skill from GitHub or pasted Markdown. Bundled skills stay available.
+- Manage Emisar access through Accounts in the control plane.
+
 ## 0.6.6
 
 - Fresh Compose installations and development boxes use PostgreSQL 19. Existing
