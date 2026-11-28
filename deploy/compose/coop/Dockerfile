@@ -3,8 +3,8 @@ FROM scratch AS coop-upstream
 
 FROM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS build
 
-ARG COOP_VERSION=v15.5.0-8-gf6b17095
-ARG COOP_REVISION=f6b1709544a83a2f3fa14f042ec4645f6df9b6e6
+ARG COOP_VERSION=v15.5.0-9-g4cdfe027
+ARG COOP_REVISION=4cdfe027fd40eeb41fe2f3dd5a76430a7e4f5dc0
 
 # Only the pinned commit, and each download tried again: on 2026-10-17 the tenant host's network
 # broke off a clone of Coop's whole history twice, after 397 s and 36 s, and its worker stayed on
