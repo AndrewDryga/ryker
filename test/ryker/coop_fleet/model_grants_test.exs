@@ -462,6 +462,25 @@ defmodule Ryker.CoopFleet.ModelGrantsTest do
     assert {:ok, %{active: 0}} = ModelPermits.capacity("claude@work")
   end
 
+  test "a request that expires before activation returns its reserved capacity", %{
+    certificate: certificate,
+    request: request,
+    session: session
+  } do
+    {binding, authorize} =
+      permit_binding(%{certificate: certificate, request: request, session: session})
+
+    binding = %{binding | job: put_in(binding.job, ["limits", "turn_timeout_ms"], 1)}
+    {:ok, lease} = ModelPermits.reserve(binding, authorize)
+    permit = Repo.one!(ModelPermit)
+    Ryker.TestHelpers.clocks_past!(permit.deadline, [:database])
+
+    # No provider request has started. A refusal must leave the owner alive
+    # and release the reservation even when the deadline passes before activation.
+    assert {:error, _reason} = ModelPermits.activate(lease, self())
+    assert {:ok, %{active: 0, unresolved: 0}} = ModelPermits.capacity("claude@work")
+  end
+
   test "an inference deadline stops upstream before returning capacity", %{
     certificate: certificate,
     request: request,
@@ -470,8 +489,10 @@ defmodule Ryker.CoopFleet.ModelGrantsTest do
     {binding, authorize} =
       permit_binding(%{certificate: certificate, request: request, session: session})
 
-    binding = %{binding | job: put_in(binding.job, ["limits", "turn_timeout_ms"], 100)}
+    # Allow the reservation and activation transactions to finish under load.
+    binding = %{binding | job: put_in(binding.job, ["limits", "turn_timeout_ms"], 2_000)}
     {:ok, lease} = ModelPermits.reserve(binding, authorize)
+    deadline = Repo.one!(ModelPermit).deadline
     monitor = Process.monitor(lease)
 
     upstream =
@@ -481,8 +502,10 @@ defmodule Ryker.CoopFleet.ModelGrantsTest do
         end
       end)
 
+    on_exit(fn -> Process.exit(upstream, :kill) end)
     {:ok, _} = ModelPermits.activate(lease, upstream)
     assert_receive {:DOWN, ^monitor, :process, ^lease, :normal}, 5_000
+    assert DateTime.diff(Repo.now!(), deadline, :microsecond) >= -1_000
     refute Process.alive?(upstream)
     assert {:ok, %{active: 0}} = ModelPermits.capacity("claude@work")
   end
