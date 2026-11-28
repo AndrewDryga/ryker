@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -72,7 +73,14 @@ func run() error {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = socket.Close() })
 	defer stop()
-	if err := writeFrame(socket, 1, []byte(`{"type":"response.create","model":"gpt-6.2-sol","input":"hello"}`)); err != nil {
+	if len(os.Args) != 2 {
+		return errors.New("expected the model selected by ACP")
+	}
+	body, err := json.Marshal(map[string]string{"type": "response.create", "model": os.Args[1], "input": "hello"})
+	if err != nil {
+		return err
+	}
+	if err := writeFrame(socket, 1, body); err != nil {
 		return err
 	}
 	for {
