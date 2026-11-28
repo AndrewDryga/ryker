@@ -21,10 +21,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
   """
   use Phoenix.Component
   alias Ryker.BundledCoop
-  alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
-  alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
-  alias Ryker.ControlPlane.{SetupPage, ShortTime, WorkerConnect}
-  alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
+  alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations}
+  alias Ryker.ControlPlane.{Kit, ModelAccountAccess, Paths, RunningSystem}
+  alias Ryker.ControlPlane.{SettingsEditor, SettingsRows, SettingsSections, SetupPage}
+  alias Ryker.ControlPlane.{ShortTime, SlackMarkdown, WebhookPreview, WorkerConnect}
   alias Ryker.ConversationRef
   alias Ryker.GitHub
   alias Ryker.Settings
@@ -165,7 +165,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
         description={@page.description}
         back={@page[:back]}
         navigate
+        progress={if @view.applying and is_nil(@notice), do: "Applying…"}
       >
+        <:action :if={@section == :skills and is_nil(@form)}>
+          <.link navigate="/skills/catalog/install" class="ui-button primary"><Components.icon name={
+            :plus
+          } />Install skill</.link>
+        </:action>
         <:action :if={@section == :environments and is_nil(@form)}>
           <EnvironmentsPage.add />
         </:action>
@@ -214,12 +220,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
         class="page-feedback"
       />
       <Components.form_feedback
-        :if={@view.applying and is_nil(@notice)}
-        message="Applying the saved settings…"
-        tone={:info}
-        class="page-feedback"
-      />
-      <Components.form_feedback
         :if={match?({:failed, _}, @view.application)}
         message="The newest settings could not be applied. The previous configuration is still running."
         tone={:error}
@@ -233,7 +233,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       </section>
 
       <.form_page
-        :if={@form}
+        :if={@form && @section != :skills}
         emisar_form_feedback={@emisar_form_feedback}
         section={@section}
         form={@form}
@@ -242,9 +242,24 @@ defmodule Ryker.ControlPlane.SettingsPage do
         confirm={@confirm}
         account_limits={@account_limits}
       />
+      <Ryker.ControlPlane.SkillInstallPage.render
+        :if={@form == {:install, nil}}
+        id="install-skill"
+        view={@view}
+        commands={@commands}
+      />
+      <.live_component
+        :if={match?({:skill, _}, @form)}
+        module={Ryker.ControlPlane.SkillPage}
+        id={"skill-" <> elem(@form, 1)}
+        name={elem(@form, 1)}
+        view={@view}
+        commands={@commands}
+      />
       <%= if is_nil(@form) do %>
         <SetupPage.render :if={@section == :setup} view={@view} params={@params} />
         <EnvironmentsPage.render :if={@section == :environments} view={@view} params={@params} />
+        <Ryker.ControlPlane.SkillPage.catalog :if={@section == :skills} view={@view} />
         <.integrations :if={@section == :integrations} view={@view} />
         <.settings_overview :if={@section == :settings} view={@view} />
         <.slack
@@ -515,6 +530,26 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   # The one thing a page of one form adds or edits, in its card; a row that is
   # gone says so and leads back to its list instead of showing an empty form.
+  defp form_page(%{form: {:model_account, account}} = assigns) do
+    assigns =
+      assign(assigns,
+        account: account,
+        present: account in assigns.view.snapshot.work.model_accounts
+      )
+
+    ~H"""
+    <.live_component
+      :if={@present}
+      module={ModelAccountAccess}
+      id="model-account-access"
+      account={@account}
+      view={@view}
+      commands={@commands}
+    />
+    <.gone :if={!@present} noun="model account" back="/settings/models" />
+    """
+  end
+
   defp form_page(%{form: {:environment, ref}} = assigns) do
     assigns = assign(assigns, :ref, ref)
 
@@ -1662,9 +1697,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
           else: "Open an account to rename it, replace its key, pause it or remove it."
       }
     >
-      <:actions :if={@line.unassigned > 0 || @accounts != []}>
-        <.link :if={@line.unassigned > 0} navigate="/environments">Manage environments</.link>
-        <.link :if={@accounts != []} patch="/integrations/emisar/new" class="ui-button secondary">
+      <:actions :if={@accounts != []}>
+        <.link patch="/integrations/emisar/new" class="ui-button secondary">
           <Components.icon name={:plus} />Add account
         </.link>
       </:actions>
@@ -2201,6 +2235,23 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # or edits, with the list it returns to above the title.
   defp heading(section, nil, view), do: page(section, view)
 
+  defp heading(:skills, {:install, nil}, _view),
+    do: %{
+      title: "Install skill",
+      description: nil,
+      back: {"All skills", "/skills"}
+    }
+
+  defp heading(:skills, {:skill, name}, view) do
+    skill = Ryker.Skills.find(view.snapshot.work.installed_skills, name)
+
+    %{
+      title: if(skill, do: Ryker.ControlPlane.SkillPage.title(name), else: "Skill unavailable"),
+      description: nil,
+      back: {"All skills", "/skills"}
+    }
+  end
+
   defp heading(_section, {:environment, nil}, _view),
     do: %{
       title: "Add an environment",
@@ -2233,6 +2284,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
         ),
       description: "Its name, its API key, whether Ryker watches it for approvals, or remove it.",
       back: {"Emisar", "/integrations/emisar"}
+    }
+
+  defp heading(_section, {:model_account, account}, _view),
+    do: %{
+      title: account,
+      description: "The account Ryker uses for its selected models.",
+      back: {"Models", "/settings/models"}
     }
 
   defp heading(_section, {:webhook_credential, nil}, _view),
@@ -2286,6 +2344,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp page(:setup),
     do: %{title: "Set up Ryker", description: "Connect Ryker to Slack and your code."}
+
+  defp page(:skills),
+    do: %{
+      title: "Skills",
+      description: "Skills you enable globally are available in every Ryker session."
+    }
 
   defp page(:environments),
     do: %{

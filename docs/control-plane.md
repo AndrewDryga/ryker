@@ -401,6 +401,30 @@ is readable. Emisar still checks target permissions on each action. Unsaved chan
 be saved before checking; a result for an older settings revision is discarded. After an
 access change, start new work in the chosen environment; existing frozen jobs keep their authority.
 
+## Work skills
+
+Open **Work → Skills** to enable a procedure for all Work, including work
+without a repository. Open a saved environment to enable additional skills there. Both selections
+start empty. Turning off an installation selection leaves any environment selections in effect.
+
+Each newly prepared Work turn, including a continuation, sees the names, descriptions and SHA-256
+revisions of its enabled skills. When a procedure fits the request, Ryker reads its saved text
+through `read_skill`. **Available skills** on the Work briefing lists the names from that turn.
+Expand the briefing for the revisions offered. A **Skill read** entry shows which one Ryker opened.
+Routing, completion review, learning and self-analysis have no skill reader and show **None**.
+If the skill record is missing, the briefing shows **Not recorded**. A retry keeps the same text after a setting change or a Ryker upgrade.
+Skills grant no access to repositories, tools or Emisar actions.
+
+Each Skills row opens the procedure and lists the environments where it is enabled. Each environment links to its settings and shows whether it enables the skill directly, inherits it installation-wide, or both. **Edit procedure** saves a local edition under the same skill name. Bundled skills stay in the catalog when disabled. **Delete skill** removes a pasted or GitHub skill after every scope has disabled it.
+Under **Install skill**, paste a complete SKILL.md into **Paste Markdown** or enter a public repository, skill folder, or file link in **GitHub URL**. Preview the document, then install it. New skills start disabled.
+Edit a pasted skill from its detail page. For a GitHub import, you can also preview and install the same source again to update it.
+Other files, scripts and assets from the repository are outside this Markdown import. Imports
+work without a GitHub connection. Disable an import in every scope before removing it.
+
+The first bundled skill, `verify-rollout`, compares the intended release with the revision each
+installation serves and checks readiness. Add reviewed procedures under `priv/skills/<name>/SKILL.md`
+and list them in `Ryker.Skills` to include them in a release.
+
 ## Global and channel instructions
 
 `/instructions` has one installation-wide field, "For every conversation". Below it
@@ -694,10 +718,11 @@ recorded reports and are not presented as live-traffic quality scores.
   controller freezes that ordered list into each new job. A save applies to new
   jobs on bundled and remote workers, without rewriting worker configuration. Models are offered
   from Model prices, so a Claude model appears once its `claude:` price is saved.
-  Ryker cannot see the worker's sign-ins, so Model accounts lists them
-  (`provider@name`, from `scripts/compose.sh model-login claude@work`), and a
-  model may only name a listed account. Signing in an account remains a worker
-  operation; a missing sign-in is reported for the affected job. A new fallback starts as
+  Model accounts lists each `provider@name`. Open account access to save an API key or
+  paste an encrypted account bundle from Coop into Ryker. Provider keys and OAuth tokens remain encrypted
+  on the controller; workers receive temporary proxy access for their leased job.
+  Replacing or removing access invalidates running grants. A missing account is reported
+  for the affected job. A new fallback starts as
   the same model on the next listed account the list does not use yet, never as
   a copy Save would refuse. Conversation, standard and deep work must use the
   same accounts in the same order so a rotation does not widen the job's authority,

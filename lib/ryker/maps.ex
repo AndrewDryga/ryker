@@ -4,6 +4,9 @@ defmodule Ryker.Maps do
   across contexts (Emisar keeps the same one as `Emisar.Maps`).
   """
 
+  @doc "Whether an optional map key, when present, holds a string."
+  def optional_string?(map, key), do: not Map.has_key?(map, key) or is_binary(map[key])
+
   @doc """
   Whether `value` is a map with exactly `keys`, in any order, and with any of
   `optional` besides. A document decoded from a model, a worker or a vendor is

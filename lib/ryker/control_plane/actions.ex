@@ -827,44 +827,12 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp close_task_episode(%Episodes.Episode{state: state} = episode, _request)
-       when state in [:complete, :cancelled],
-       do: {:ok, %{episode: episode, status: :settled}}
-
-  defp close_task_episode(
-         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
-         request
-       ) do
-    Work.Custody.request_cancel(
-      episode.id,
-      episode.key,
-      turn_ref,
-      request.ref,
-      close_task_reason(request.viewer)
-    )
-  end
-
-  defp close_task_episode(
-         %Episodes.Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
-         request
-       )
-       when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
-    command = %Episodes.Command.CancelEpisode{
-      cancel_ref: request.ref,
-      episode_key: episode.key,
-      expected_owner: %{kind: owner_kind, ref: owner_ref},
-      occurred_at: DateTime.utc_now(),
-      reason: close_task_reason(request.viewer)
-    }
-
-    case Episodes.apply(command) do
-      {:ok, transition} -> {:ok, %{episode: transition.episode, status: :settled}}
-      {:error, reason} -> {:error, reason}
+  defp close_task_episode(episode, request) do
+    case Work.Custody.cancel_current(episode, request.ref, close_task_reason(request.viewer)) do
+      {:error, :work_owner_changed} -> {:error, :conversation_lab_task_control_stale}
+      result -> result
     end
   end
-
-  defp close_task_episode(_episode, _request),
-    do: {:error, :conversation_lab_task_control_stale}
 
   defp close_task_reason(viewer), do: "Closed by #{Actor.of(viewer)} from its task card in Chat."
 

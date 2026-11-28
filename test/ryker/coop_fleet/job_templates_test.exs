@@ -53,8 +53,8 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
   test "every job carries caps the smallest worker can enforce" do
     for purpose <- [:admission, :contributor, :learning] do
       assert JobTemplates.execution(%Work{}, purpose, true)["resources"] == %{
-               "cpu_millis" => 4_000,
-               "memory_bytes" => 8 * 1_073_741_824,
+               "cpu_millis" => 1_500,
+               "memory_bytes" => 2 * 1_073_741_824,
                "pids" => 4_096
              }
     end

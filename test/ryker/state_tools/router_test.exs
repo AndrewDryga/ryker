@@ -46,6 +46,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert Enum.map(tools, & &1["name"]) == [
              "get_work_state",
+             "read_skill",
              "cite_source",
              "record_finding",
              "render_chart",
@@ -161,6 +162,7 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert Enum.map(tools, & &1["name"]) == [
              "get_work_state",
+             "read_skill",
              "cite_source",
              "record_finding",
              "list_automations",
@@ -2310,7 +2312,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 20
+    assert length(names) == 21
     refute "record_browser_test" in names
 
     automation =

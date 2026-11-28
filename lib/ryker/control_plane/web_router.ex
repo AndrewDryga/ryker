@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/", Ryker.ControlPlane.WorkbenchLive)
 
     for path <-
-          ~w(conversations activity incident-rooms schedules follow-ups environments channels repositories working-copies failures memory rules instructions usage integrations settings setup) do
+          ~w(conversations activity incident-rooms schedules follow-ups environments skills channels repositories working-copies failures memory rules instructions usage integrations settings setup) do
       live("/#{path}", Ryker.ControlPlane.WorkbenchLive)
     end
 
@@ -117,10 +117,13 @@ defmodule Ryker.ControlPlane.WebRouter do
     live("/repositories/new", Ryker.ControlPlane.WorkbenchLive)
     live("/repositories/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/environments/new", Ryker.ControlPlane.WorkbenchLive)
+    live("/skills/catalog/install", Ryker.ControlPlane.WorkbenchLive)
+    live("/skills/:ref", Ryker.ControlPlane.WorkbenchLive)
     live("/environments/:ref/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/models/local-routing", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/models/presets/new", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/models/presets/:item/edit", Ryker.ControlPlane.WorkbenchLive)
+    live("/settings/models/accounts/:item/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/prices/new", Ryker.ControlPlane.WorkbenchLive)
     live("/settings/prices/:item/edit", Ryker.ControlPlane.WorkbenchLive)
     live("/integrations/emisar/new", Ryker.ControlPlane.WorkbenchLive)

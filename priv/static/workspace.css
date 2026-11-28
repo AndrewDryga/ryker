@@ -195,6 +195,8 @@
 .ryker-app .page-heading h1 { margin:0; font-size:28px; line-height:1.2; font-weight:600; letter-spacing:-.6px; color:var(--ink); overflow-wrap:anywhere; }
 /* The title and the record's state read as one line: the state is seen with the name. */
 .page-title-line { display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; min-width:0; }
+.page-progress { color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
+@media (prefers-reduced-motion:no-preference) { .page-progress { animation:show-page-progress 0s .5s backwards; } @keyframes show-page-progress { from { opacity:0; } to { opacity:1; } } }
 .page-title-line > .state-word { padding:3px 10px 3px 9px; border-radius:999px; background:var(--ryker-surface-emphasis); font-size:14px; line-height:20px; }
 /* A title that opens the record where it lives outside Ryker. */
 .ryker-app .page-title-link { display:flex; align-items:center; gap:8px; color:inherit; text-decoration:none; }
@@ -1263,13 +1265,15 @@
 }
 .form-feedback[hidden] { display:none; }
 .form-feedback-icon { display:grid; flex:0 0 18px; place-items:center; width:18px; height:18px; margin-top:1px; border:1px solid currentColor; border-radius:50%; font-size:13px; font-weight:700; }
-.form-feedback > .form-feedback-check { flex:none; width:18px; height:18px; margin-top:1px; stroke-width:2; }
+.form-feedback > .form-feedback-check { flex:none; width:14px; height:14px; margin-top:2px; stroke-width:2; }
 .form-feedback-error { color:var(--ryker-error); border-color:var(--ryker-error); background:var(--ryker-error-soft); }
 .form-feedback-warning { color:var(--ryker-warning); border-color:var(--ryker-warning); background:var(--ryker-warning-soft); }
-.form-feedback-success { gap:6px; color:var(--ryker-success); border-color:var(--ryker-success); background:var(--ryker-success-soft); }
-.form-feedback-info { color:var(--ryker-info); border-color:var(--ryker-info); background:var(--ryker-info-soft); }
+.form-feedback-success { gap:4px; }
+.form-feedback:is(.form-feedback-info, .form-feedback-success) { padding:0; border:0; background:transparent; color:var(--ryker-text-secondary); font-size:13px; }
+.form-feedback-info > .form-feedback-icon { display:none; }
 .page-feedback { margin:0 0 20px; }
 .lab-native-composer .form-feedback { max-width:none; margin:0; padding:10px 16px; border-width:1px 0 0; border-radius:0; }
+.lab-native-composer .form-feedback:is(.form-feedback-info, .form-feedback-success) { padding:4px 16px; }
 .lab-readiness { padding:16px 18px; border:1px solid var(--ryker-stroke); border-radius:var(--ryker-radius); background:var(--ryker-surface-raised); }
 .lab-readiness strong { display:block; color:var(--ryker-text); font-size:15px; }
 .lab-readiness p { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:14px; }
@@ -1431,6 +1435,8 @@
 @media (max-width:580px) { .ryker-app .context-fields > .context-field { grid-template-columns:minmax(0,1fr); gap:0; } }
 
 /* A briefing's model, and why that model: the first section under its header */
+.briefing-skills { margin:8px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:21px; overflow-wrap:anywhere; }
+.briefing-skills strong { margin-right:6px; }
 .request-model-section { margin:14px 0 0; }
 .request-model-section h4 { margin:0 0 6px; color:var(--ryker-text-secondary); font-size:13px; line-height:19px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
 .request-model-section .execution-target { flex-direction:row; flex-wrap:wrap; align-items:baseline; gap:0 10px; }
@@ -1620,6 +1626,7 @@
 .ryker-app .copy-block-button { align-self:flex-end; position:relative; display:grid; place-items:center; width:44px; height:44px; padding:0; border:0; border-radius:5px; background:transparent; color:var(--ryker-text-secondary); cursor:pointer; }
 .copy-block-button::before { content:""; position:absolute; inset:6px; border:1px solid var(--ryker-stroke); border-radius:5px; background:var(--ryker-surface-raised); }
 .copy-block-button > * { position:relative; }
+.model-receive-code { white-space:pre-wrap; overflow-wrap:anywhere; }
 /* Approved rule ledger owns its layout after the generic mobile fact rules. */
 .standing-rule-list { list-style:none; display:grid; gap:0; margin:4px 0 0; padding:0 16px; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface); }
 .standing-rule, .standing-rule.verdict-matched { position:relative; display:grid; min-width:0; overflow-wrap:anywhere; grid-template-areas:"name verdict" "reason reason" "details details" "link link"; grid-template-columns:minmax(0,1fr) 88px; align-items:baseline; gap:12px 16px; padding:16px 0; border:0; border-top:1px solid var(--ryker-stroke); background:transparent; color:var(--ink); }
@@ -2400,7 +2407,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 .settings-optional-field > summary span { margin-left:6px; font-size:14px; font-weight:400; color:var(--ryker-text-secondary); }
 .settings-optional-field > .settings-field { margin-top:12px; }
 .settings-page .form-feedback { box-sizing:border-box; width:fit-content; max-width:100%; padding:6px 10px; border:0; }
-.settings-page .form-feedback-success { background:transparent; padding-inline:0; }
+.settings-page .form-feedback:is(.form-feedback-success, .form-feedback-info) { padding:0; }
 .settings-actions .form-feedback { margin:0; }
 .settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .settings-saved { font-size:14px; line-height:20px; color:var(--ryker-success); }
@@ -2794,6 +2801,7 @@ html:has(.kit-modal) { overflow:hidden; }
   /* A card's controls go under its title rather than squeeze it. */
   .ryker-app .kit-card > .section-head { flex-wrap:wrap; }
   .kit-card > .section-head > .section-actions { margin-left:0; }
+  .kit-remove-card > .section-head > :first-child { flex-basis:100%; }
   .kit-empty[data-variant=boxed] { padding:32px 16px; }
 }
 @media (max-width:800px) {
@@ -3320,3 +3328,35 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .episode-outcome { margin: 0 0 1rem; padding: 0.875rem 1rem; border-inline-start: 3px solid var(--ryker-accent); overflow-wrap: anywhere; }
 .episode-outcome h2 { margin: 0; font-size: 1rem; }
 .episode-outcome p { margin: 0.35rem 0; }
+
+.skill-detail, .skill-review, .skill-import-form { display:grid; gap:20px; }
+.skill-detail { max-width:780px; }
+.skill-availability, .skill-document-head, .skill-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.skill-availability, .skill-document-head { justify-content:space-between; }
+.skill-availability { padding:4px 0 16px; border-bottom:1px solid var(--ryker-stroke); }
+.skill-availability p, .skill-review p, .skill-document-head h2, .skill-review h2 { margin:0; }
+.skill-document-head h2, .skill-review h2 { font-size:18px; }
+.skill-document-head small, .skill-hint, .skill-availability p { color:var(--ryker-text-secondary); }
+.skill-document-head small a { margin-inline-start:8px; }
+.skill-environment-list { list-style:none; margin:0; padding:0; }
+.skill-environment-list li { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 16px; padding:10px 0; overflow-wrap:anywhere; }
+.skill-environment-list li + li { border-top:1px solid var(--ryker-stroke); }
+.skill-environment-list li:first-child { padding-top:0; }
+.skill-environment-list li:last-child { padding-bottom:0; }
+.skill-environment-list small { color:var(--ryker-text-secondary); }
+.skill-procedure { padding-block:16px 0; overflow-wrap:anywhere; }
+.skill-editor { margin-top:16px; }
+.skill-install-options { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; max-width:780px; }
+.skill-install-options > * { min-width:0; }
+.skill-install-options .skill-install { margin:0; }
+.skill-import-form h2 { margin:0; }
+.skill-import-form h2 label { font-size:18px; line-height:24px; font-weight:600; }
+.skill-import-form .skill-hint { margin-bottom:8px; }
+.skill-install .skill-review { overflow-wrap:anywhere; }
+.skill-editor textarea, .skill-import-form textarea { width:100%; font-family:var(--ryker-font-mono, monospace); resize:vertical; }
+.skill-actions { padding-top:16px; border-top:1px solid var(--ryker-stroke); }
+.skill-management .skill-availability { padding:16px 0; }
+.skill-management .skill-availability:first-child { padding-top:0; }
+@media (max-width:600px) {
+  .skill-management .skill-availability { flex-direction:column; align-items:flex-start; gap:8px; }
+}

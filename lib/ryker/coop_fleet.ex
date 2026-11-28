@@ -9,6 +9,45 @@ defmodule Ryker.CoopFleet do
   alias Ryker.CoopFleet.{Enrollment, PresetCatalog, Worker}
   alias Ryker.Repo
 
+  @doc "Save controller-owned access for a configured provider account."
+  defdelegate put_model_key(reference, secret, actor),
+    to: Ryker.CoopFleet.ModelAccounts,
+    as: :put_key
+
+  defdelegate model_receive_code(account, actor),
+    to: Ryker.CoopFleet.ModelTransfer,
+    as: :receive_code
+
+  defdelegate receive_model_account(account, target, bundle, actor),
+    to: Ryker.CoopFleet.ModelTransfer,
+    as: :receive_bundle
+
+  @doc "Remove provider access and invalidate its outstanding run grants."
+  defdelegate remove_model_account(reference, actor),
+    to: Ryker.CoopFleet.ModelAccounts,
+    as: :remove_account
+
+  @doc "Controller account access states, with no provider credentials or network refresh."
+  defdelegate model_account_statuses(workspace_ref \\ nil),
+    to: Ryker.CoopFleet.ModelAccounts,
+    as: :statuses
+
+  @doc "Controller inference capacity shared by aliases of one provider principal."
+  defdelegate model_capacity(reference), to: Ryker.CoopFleet.ModelPermits, as: :capacity
+
+  @doc "Set concurrent provider requests; lowering a limit does not interrupt admitted work."
+  defdelegate set_model_concurrency(reference, count, actor),
+    to: Ryker.CoopFleet.ModelPermits,
+    as: :set_limit
+
+  @doc "Held inference requests, including unresolved prior controller generations."
+  defdelegate held_model_requests(), to: Ryker.CoopFleet.ModelPermits, as: :held_requests
+
+  @doc "Release a prior controller's hold after the operator verifies that controller stopped."
+  defdelegate confirm_model_controller_stopped(id, boot, actor),
+    to: Ryker.CoopFleet.ModelPermits,
+    as: :acknowledge_stopped
+
   @doc "Approved model presets available to the installation's selected accounts."
   defdelegate model_presets(work), to: PresetCatalog, as: :choices
 

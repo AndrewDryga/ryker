@@ -87,10 +87,19 @@ defmodule Ryker.Evals.JobTest do
     end
   end
 
+  # A production credential field stopped the dedicated eval worker before
+  # any model could run. Its owner-private socket uses its own provider login.
+  test "the evaluation worker uses its own model account" do
+    {:ok, template} = Job.new(:world, "codex:fixture/high@eval")
+    assert {:ok, job, _digest} = Job.bind(template, "eval:skill-proof")
+    refute Map.has_key?(job, "model_credentials")
+  end
+
   test "changing a template's execution authority is refused even with a recomputed digest" do
     {:ok, template} = Job.new(:learning, "codex:fixture/high@eval")
 
     for {field, value} <- [
+          {"model_credentials", "controller"},
           {"repository_read_only", false},
           {"project_env", true},
           {"source", %{}}

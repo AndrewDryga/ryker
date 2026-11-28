@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository leave-channel)
   @settings_pages %{
     ["setup"] => :setup,
+    ["skills"] => :skills,
     ["environments"] => :environments,
     ["integrations"] => :integrations,
     ["integrations", "slack"] => :slack,
@@ -1716,6 +1717,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ["environments"] => {:environments, :environment},
     ["settings", "prices"] => {:pricing, :pricing},
     ["settings", "models", "presets"] => {:model, :model_presets},
+    ["settings", "models", "accounts"] => {:model, :model_account},
     ["integrations", "emisar"] => {:emisar, :emisar},
     ["integrations", "webhooks", "credentials"] => {:webhooks, :webhook_credential},
     ["integrations", "webhooks", "sources"] => {:webhooks, :webhooks}
@@ -1725,6 +1727,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A settings page, or a page of one form on it: {section, form}, where form
   # is nil or {kind, key}, key nil for a new one. A key comes from the route's
   # decoded parameters, never from the raw path.
+  defp settings_route(["skills", "catalog", "install"], _params), do: {:skills, {:install, nil}}
+
+  defp settings_route(["skills", _name], %{"ref" => name}), do: {:skills, {:skill, name}}
+
   defp settings_route(segments, params) do
     case Map.fetch(@settings_pages, segments) do
       {:ok, section} -> {section, nil}
@@ -2130,12 +2136,21 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       initialize: fn -> actions.initialize_settings.(viewer) end,
       preview_retention: actions[:preview_retention],
       preview_webhook: actions[:preview_webhook],
+      install_skill: &Settings.install_skill(&1, &2, Actor.of(viewer)),
+      edit_skill: &Settings.edit_skill(&1, &2, &3, Actor.of(viewer)),
+      remove_skill: &Settings.remove_skill(&1, &2, Actor.of(viewer)),
+      save_work_skills: &Settings.save_work(%{enabled_skills: &1}, &2, Actor.of(viewer)),
       put_environment: &Settings.put_environment(&1, &2, Actor.of(viewer)),
       put_approvals: fn %{ref: ref, allowed: allowed}, revision ->
         IntegrationSetup.allow_github_approvals(ref, allowed, Actor.of(viewer), revision)
       end,
       put_repository: &Settings.put_repository(&1, &2, Actor.of(viewer)),
       put_item: &actions.put_settings_item.(&1, &2, &3, viewer),
+      set_model_concurrency: &Ryker.CoopFleet.set_model_concurrency(&1, &2, Actor.of(viewer)),
+      put_model_key: &Ryker.CoopFleet.put_model_key(&1, &2, Actor.of(viewer)),
+      model_receive_code: &Ryker.CoopFleet.model_receive_code(&1, Actor.of(viewer)),
+      receive_model_account: &Ryker.CoopFleet.receive_model_account(&1, &2, &3, Actor.of(viewer)),
+      remove_model_account: &Ryker.CoopFleet.remove_model_account(&1, Actor.of(viewer)),
       save: &actions.save_settings.(&1, &2, &3, viewer),
       send_weekly_report_preview: actions[:send_weekly_report_preview]
     }

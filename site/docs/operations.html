@@ -96,7 +96,6 @@
 <tr><td><code>scripts/compose.sh stop</code></td><td>Stop services and keep data.</td></tr>
 <tr><td><code>scripts/compose.sh start</code></td><td>Start services with the pinned images.</td></tr>
 <tr><td><code>scripts/compose.sh restart</code></td><td>Restart the project’s services.</td></tr>
-<tr><td><code>scripts/compose.sh model-login</code></td><td>Sign the worker in to its model account and restart only the worker.</td></tr>
 <tr><td><code>scripts/compose.sh sign-in</code></td><td>Print a console sign-in link.</td></tr>
 <tr><td><code>scripts/compose.sh uninstall</code></td><td>Remove containers and the network, keeping volumes, data, and keys.</td></tr>
 </tbody></table>
@@ -122,7 +121,7 @@ curl --fail --include http://127.0.0.1:4321/readyz</code></pre>
 <h2 id="backup">Back up and restore</h2>
 <p>Create a backup before upgrading:</p>
 <pre><code>scripts/compose.sh backup</code></pre>
-<p>The owner-only archive in <code>.ryker/backups/</code> includes the database, private state, worker sign-in and identity, and generated environment with the decryption keys. Keep a protected copy off the host.</p>
+<p>The owner-only archive in <code>.ryker/backups/</code> includes the database, private state, controller model credentials and worker identity, and generated environment with the decryption keys. Keep a protected copy off the host.</p>
 <p>To restore, name the backup you want:</p>
 <pre><code>scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz</code></pre>
 <p>Restore checks the archive’s keys against an existing installation. On a new installation it restores the archived keys before the database. It starts and checks the version recorded in the backup; that image must already be available. Newly generated keys cannot decrypt the old database.</p>
@@ -135,7 +134,7 @@ scripts/compose.sh upgrade</code></pre>
 <p>Upgrade builds the application, stops the old service, runs migrations, and starts the replacement. It checks health, readiness, and the exact version. If migration fails, Ryker stays stopped; restore the pre-upgrade backup.</p>
 <p>Bundled and remote workers keep their current versions. To upgrade the bundled worker to the co:op revision specified by your checkout, run:</p>
 <pre><code>scripts/compose.sh worker-upgrade</code></pre>
-<p>This prepares the new worker before replacement, preserves model sign-in, and waits for active commands. See the <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#upgrade">upgrade reference</a> for remote installs and automatic upgrades.</p>
+<p>This prepares the new worker before replacement, preserves worker identity, and waits for active commands. See the <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#upgrade">upgrade reference</a> for remote installs and automatic upgrades.</p>
 <h2 id="deploy">Deploy a local commit</h2>
 <p>For development on the installation host, use:</p>
 <pre><code>scripts/deploy.sh</code></pre>

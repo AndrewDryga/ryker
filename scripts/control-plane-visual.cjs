@@ -347,6 +347,12 @@ async function discover(page) {
             await checkStandardColumn(page, name);
             await checkKeyboardFocus(page);
             if (/^(setup|integrations|settings)/.test(name)) await checkSettingsPage(page, name);
+            if (name === 'skills-catalog-install') {
+              const github = await page.locator('#install-skill-github').boundingBox();
+              const markdown = await page.locator('#install-skill-paste').boundingBox();
+              assert(github && markdown && markdown.y >= github.y + github.height,
+                'The Markdown installer must sit below the GitHub installer at every width');
+            }
             if (name === 'activity-root' || name === 'activity') await checkFilterToolbar(page, width);
             assert.equal(await page.locator('.nav-caption', {hasText: 'Testing'}).count(), 0, 'The Testing navigation group was removed');
             if (name === 'conversation' && width <= 390) assert(result.layout.composerTop >= result.layout.transcriptBottom, 'Composer obscures the conversation');

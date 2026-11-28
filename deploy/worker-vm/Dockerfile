@@ -15,7 +15,6 @@ COPY --from=worker /usr/local/bin/docker payload/docker
 COPY --from=worker /usr/libexec/docker/cli-plugins/docker-buildx payload/docker-buildx
 COPY --from=worker /usr/libexec/docker/cli-plugins/docker-compose payload/docker-compose
 COPY --from=worker /usr/local/share/ryker/Box.Dockerfile payload/Box.Dockerfile
-COPY deploy/compose/coop/model-login.sh payload/ryker-model-login
 COPY --from=daemon /usr/local/bin/dockerd /usr/local/bin/containerd-shim-runc-v2 /usr/local/bin/runc /usr/local/bin/docker-init /usr/local/bin/docker-proxy payload/engine/
 COPY deploy/worker-vm/guest/ payload/
 RUN genisoimage -quiet -J -r -V COOPTOOLS -o tools.iso payload && rm -rf payload

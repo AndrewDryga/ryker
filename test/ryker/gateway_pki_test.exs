@@ -28,6 +28,31 @@ defmodule Ryker.GatewayPkiTest do
     assert matched =~ "does match certificate"
   end
 
+  test "a private fleet address can change without rotating workers' trust", %{pki: pki} do
+    assert {_out, 0} = run(pki)
+    ca = File.read!(Path.join(pki, "ca.pem"))
+
+    for address <- ["10.23.0.5", "100.64.1.15"] do
+      assert {_out, 0} = run(pki, address)
+
+      assert {_out, 0} =
+               openssl([
+                 "verify",
+                 "-CAfile",
+                 Path.join(pki, "ca.pem"),
+                 "-verify_ip",
+                 address,
+                 server(pki)
+               ])
+
+      assert File.read!(Path.join(pki, "ca.pem")) == ca
+    end
+
+    for address <- ["0.0.0.0", "8.8.8.8", "10.0.0.256", "10.0.0.1,DNS:other"] do
+      assert {_out, 1} = run(pki, address)
+    end
+  end
+
   test "a certificate that ends within 30 days is renewed", %{pki: pki} do
     assert {_out, 0} = run(pki)
     issue!(pki, ca_dir: pki, days: 10)
@@ -61,7 +86,12 @@ defmodule Ryker.GatewayPkiTest do
     refute File.exists?(Path.join(pki, "ca-key.pem"))
   end
 
-  defp run(pki), do: System.cmd("sh", [@script, pki, @worker_ip], stderr_to_stdout: true)
+  defp run(pki, address \\ "") do
+    System.cmd("sh", [@script, pki, @worker_ip],
+      env: [{"RYKER_FLEET_ADDRESS", address}],
+      stderr_to_stdout: true
+    )
+  end
 
   defp openssl(arguments), do: System.cmd("openssl", arguments, stderr_to_stdout: true)
 

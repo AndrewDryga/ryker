@@ -14,7 +14,8 @@ usermod -aG docker coop
 install -m 0755 "$tools"/engine/* /usr/local/bin/
 install -m 0644 "$tools/docker.service" /etc/systemd/system/docker.service
 install -d /usr/local/libexec/docker/cli-plugins
-install -m 0755 "$tools/coop" "$tools/docker" "$tools/ryker-model-login" /usr/local/bin/
+install -m 0755 "$tools/coop" "$tools/docker" /usr/local/bin/
+rm -f /usr/local/bin/ryker-model-login
 install -m 0755 "$tools/docker-buildx" "$tools/docker-compose" /usr/local/libexec/docker/cli-plugins/
 install -m 0755 "$tools/connect.sh" /usr/local/bin/coop-connect
 install -m 0644 "$tools/worker.env" /etc/coop-worker.env

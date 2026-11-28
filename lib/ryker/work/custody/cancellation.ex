@@ -22,6 +22,48 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Work.Custody.{CurrentAuthority, Sessions, Turns}
   alias Ryker.Work.{OperationKeys, Session, Turn}
 
+  @doc "Cancel against this observed owner. Held remote work settles through its usual cancellation proof."
+  def cancel_current(%Episodes.Episode{state: state} = episode, _cancel_ref, _reason)
+      when state in [:complete, :cancelled],
+      do: {:ok, %{episode: episode, status: :settled}}
+
+  def cancel_current(
+        %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
+        cancel_ref,
+        reason
+      ) do
+    request_cancel(
+      episode.id,
+      episode.key,
+      turn_ref,
+      cancel_ref,
+      reason
+    )
+  end
+
+  def cancel_current(
+        %Episodes.Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
+        cancel_ref,
+        reason
+      )
+      when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
+    command = %Episodes.Command.CancelEpisode{
+      cancel_ref: cancel_ref,
+      episode_key: episode.key,
+      expected_owner: %{kind: owner_kind, ref: owner_ref},
+      occurred_at: DateTime.utc_now(),
+      reason: reason
+    }
+
+    case Episodes.apply(command) do
+      {:ok, transition} -> {:ok, %{episode: transition.episode, status: :settled}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def cancel_current(_episode, _cancel_ref, _reason),
+    do: {:error, :work_owner_changed}
+
   @doc false
   @spec request_cancel(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}

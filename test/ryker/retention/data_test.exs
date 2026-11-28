@@ -44,6 +44,39 @@ defmodule Ryker.Retention.DataTest do
 
   @old ~U[2020-01-01 00:00:00.000000Z]
 
+  test "model inference retention removes only released holds" do
+    bucket =
+      Repo.insert!(%Ryker.CoopFleet.ModelBucket{
+        id: String.duplicate("d", 64),
+        concurrency: 1,
+        updated_by: "test"
+      })
+
+    for {state, finished} <- [{:released, @old}, {:active, nil}, {:uncertain, nil}] do
+      Repo.insert!(%Ryker.CoopFleet.ModelPermit{
+        bucket_id: bucket.id,
+        job_ref: "retention-model",
+        provider: "codex",
+        account: "default",
+        account_epoch: 1,
+        owner_boot: Ecto.UUID.generate(),
+        owner_pid: "<0.1.0>",
+        kind: :http,
+        state: state,
+        deadline: @old,
+        finished_at: finished,
+        finish_reason: if(finished, do: "upstream_stopped")
+      })
+    end
+
+    assert {:ok, _} = Data.prune(settings())
+
+    assert Enum.sort(Repo.all(from(p in Ryker.CoopFleet.ModelPermit, select: p.state))) == [
+             :active,
+             :uncertain
+           ]
+  end
+
   test "completion review bodies wait for child cleanup and expire with the parent turn" do
     # A review copies the exact request and evidence: leaving it behind after
     # the parent expires would retain the same source content indefinitely.

@@ -4,12 +4,31 @@ Docker Compose is the supported Ryker deployment. The canonical project contains
 the immutable Ryker image, stores their data in named volumes, and keeps installation roots in the
 owner-only `.ryker/compose.env` file. Do not copy Slack, GitHub, Emisar, or webhook credentials
 into that file; configure those integrations in the local setup UI, where Ryker encrypts them in
-PostgreSQL. Sign the Coop worker in to its model account during install or with
-`scripts/compose.sh model-login`; that sign-in stays in the worker's private volume, and a login
-that does not finish puts the previous sign-in back.
+PostgreSQL. In Settings → Models, list each `provider@account`, open its account access,
+and choose API key or Import from Coop. For a new account, copy the receive code.
+On the signed-in Coop run `coop credentials codex work export` (substitute the source provider and account).
+Paste the code there and paste the encrypted reply in Ryker. Renewing subscription access moves after you confirm
+`MOVE`. API keys are copied. A missed paste can be retried on the same installations using the same code.
+A used receive code still belongs to the same installation. If two sources export to it, select a different unused account of the same provider under Save account as for the second bundle. Ryker remembers each completed import.
+Ryker accepts Codex subscription logins and provider API keys. Claude subscription logins can move between
+Coop installations. For Claude in Ryker, use an Anthropic API key. Ryker encrypts provider keys,
+refresh tokens and OAuth access tokens in PostgreSQL. Workers receive short-lived,
+job-bound proxy capabilities; model requests pass through Ryker. Replacing or removing
+account access invalidates running grants. The controller renews OAuth access and retains
+issued responses durably before projecting new access. An ambiguous renewal requires
+reconciliation or a replacement sign-in instead of replaying a possibly consumed refresh token.
+
+New jobs require a Linux worker with local Docker advertising `model-proxy:1`. Ryker itself
+may run on macOS. Each worker and its Docker guard must share a Linux filesystem for their
+private Unix socket; macOS-hosted Docker workers refuse this new credential mode. Update workers
+before enabling new controller-owned jobs. Previously frozen jobs retain their original credential mode; moving
+an existing installation also requires removing its old worker-local sign-ins after the new
+controller-owned accounts have been verified. The account setup page does not delete files
+from existing worker volumes. Backups must retain both the encrypted database and the
+installation's credential-encryption key.
 
 One lifecycle command runs at a time. The `compose.sh` commands that start, stop or replace part
-of the project (install, restore, start, stop, restart, upgrade, model-login, backup, uninstall,
+of the project (install, restore, start, stop, restart, upgrade, backup, uninstall,
 destroy) hold `.ryker/lifecycle.lock` while they run and refuse while another command holds it. A
 lock left by a process that is gone is taken over.
 
@@ -31,6 +50,34 @@ each job's code identity and settings; Coop fetches code directly on its trusted
 worker policy files, generated worker JSON, or Ryker-side repository checkouts. The shared
 `ryker-coop-config` volume carries only enrollment state and the controller CA; model workspaces
 remain in the worker's private state volume.
+
+Model credentials are saved in Settings → Models on the controller. Workers receive short-lived,
+worker/job/account-bound proxy access; provider API keys and OAuth access/refresh tokens remain
+in Ryker. Grant renewal does not export those credentials. Removing or replacing saved access
+invalidates old runs, including streams already open.
+
+Each account's access page also sets concurrent inference requests across the fleet (default 1;
+0 pauses new requests). Warm sessions and idle model sockets use no inference capacity. Aliases
+of the same API key or native provider identity share one limit and persistent provider cooldown.
+Different opaque API keys belonging to one upstream organization cannot be grouped automatically;
+configure their limits to fit that organization's allowance. Remaining provider allowance is shown
+as unknown unless authoritative evidence is available; adding VMs does not add provider quota.
+
+A real provider 429 imposes shared cooldown using Retry-After (30 seconds if valid advice is
+absent). Local concurrency contention is reported separately and does not create provider cooldown.
+HTTP requests hold capacity until their upstream request stops; WebSocket requests hold it per
+response.create until the matching terminal response or confirmed socket teardown. Provider
+background inference is refused because it could continue after the local request ends.
+
+After an abrupt controller loss, unresolved inference holds remain reserved. On a restored
+controller, inspect `Ryker.Release.held_model_requests(log: false)`. Confirm that the controller
+generation named by `owner_boot` has stopped before calling
+`Ryker.Release.confirm_model_controller_stopped(id, owner_boot, "operator:your-name", log: false)`.
+This acknowledges a specific hold; it is not a timer-based assumption that remote inference ended.
+`Ryker.Release.model_capacity("codex@default", log: false)` reports held capacity and cooldown;
+`Ryker.Release.set_model_concurrency("codex@default", 4, "operator:your-name", log: false)` sets the
+same limit as the account page. Lowering a limit lets already admitted requests finish. Released
+permit history ages out with operational data retention; active and uncertain holds never age out.
 
 Optional models reuse an image whose build-input label matches its pinned recipe and
 model arguments. A missing, unqualified or changed image requires a fresh storage check
@@ -524,6 +571,171 @@ the admission decision. This is separate
 from `worker-drain`, which holds undelivered mutations and is appropriate immediately before a
 quiescent worker is restarted. Stopping admission does not move or delete retained sessions.
 
+### Placing jobs on remote VMs
+
+Give each worker its own enrollment identity, state directory and Docker engine. Use the same
+workspace reference on workers that can run the same jobs. A worker connects outbound to
+Ryker and polls for commands. The environment selects the workspace and approved job setup.
+Ryker selects an eligible worker in that workspace for each new session. An existing session
+keeps its assigned worker.
+
+Machine-aware workers send the Docker engine identity, CPU and memory budgets, and the amounts
+still available for Coop jobs. The budgets reserve a quarter for the host. Free capacity reflects
+active and warm Coop runtime allocations. During initial negotiation the worker can poll and
+receive control responses while new placements wait for its first machine report. Ryker checks
+both CPU and memory, including the agent and approved Compose services. Two connectors reporting
+the same engine identity cannot register it as two machines.
+
+To accept workers from other machines, set `RYKER_FLEET_ADDRESS` in the installed
+controller's `.ryker/compose.env` to its own reachable private IPv4 address (for
+example, `RYKER_FLEET_ADDRESS=10.23.0.5` on a VPN). Run `scripts/compose.sh start` to recreate the
+controller with the setting. The gateway publishes TCP 4322 on that interface, and
+its server certificate includes the address. The bundled worker keeps using the
+internal Docker network. Allow the worker VMs to reach that address through your
+private network. Without this setting the published gateway remains on loopback.
+
+For a fresh installation using a Coop build ahead of the bundled pin, build the matching
+worker image locally and set `RYKER_COOP_IMAGE` on the install command. The installer
+records the supplied image in `.ryker/compose.env` and uses it for the bundled worker.
+
+In Settings → Advanced, use the worker connection instructions to issue a separate
+invitation for each VM, choosing the same workspace for all members of the pool. Copy
+the CA and each worker's invitation to that VM. Start the matching Coop binary with
+Docker access on the VM, using persistent local storage:
+
+```sh
+coop sessions connect --controller https://10.23.0.5:4322 --ca-file controller-ca.pem \
+  --token-file invitation --state /var/lib/coop/sessions
+```
+
+From the installed controller directory, submit a prompt to a reviewed environment and
+repository. The caller supplies a UUID so a retry after a lost response can return the original
+job. Reusing the UUID for another request returns an error. The command reads up to 12,000 bytes
+of UTF-8 prompt text from stdin. The controller's contributor policy determines the source,
+model targets, permitted access and runtime setup.
+
+```sh
+job=$(uuidgen)
+scripts/compose.sh fleet-submit "$job" my-environment my-repository "$(git -C /path/to/target-repo rev-parse HEAD)" < prompt.txt
+scripts/compose.sh fleet-show "$job"
+scripts/compose.sh fleet-list
+scripts/compose.sh fleet-cancel "$job"
+```
+
+For a verification run against a reviewed commit or a submitted working copy, set `RYKER_JOB_PURPOSE=verification` on
+the submission. The worker can run checks and save task artifacts while Ryker verifies that
+the repository still matches its input. For local submissions this includes the unpublished
+HEAD, tracked contents and selected untracked files. The default purpose is `implementation`,
+which requires a committed source change to finish.
+
+To include unpublished commits and tracked working changes, use the managed repository's
+exact approved base commit. Name each additional untracked file explicitly. For example:
+
+```sh
+scripts/compose.sh fleet-submit-local "$job" my-environment my-repository /path/to/target-repo "$base_commit" fixtures/sample.bin < prompt.txt
+```
+
+Coop leaves the local index and worktree intact. Ryker checks the archive against the
+job, repository, commit and controller credential scanner before admitting work.
+The assigned worker downloads the encrypted-at-rest input over its authenticated
+connection. Project setup changes require approval at the managed source commit.
+
+Use `fleet-list [PAGE]` for submissions, `fleet-workers [PAGE]` for reported slots, CPU,
+memory and disk, and `fleet-events JOB_UUID [PAGE]` for the job's retained worker events.
+Pages include the filtered total and page count. Each event names its worker, session and
+placement generation. A worker's last heartbeat dates its measurements. A job waiting to retry
+reports its last error and next attempt in `fleet-show`.
+
+For private service images, pin the approved Compose image by digest and provision it
+on each eligible worker before submission, or configure that worker's Docker credential
+helper for read-only pulls from the registry. The controller's model account settings
+apply to model traffic. They do not provision registry credentials. A replacement worker
+needs access to the same image digest. Store database seeds with the project or supply
+a separately managed database when the job needs data after worker replacement.
+
+Use `fleet-services JOB_UUID` to inspect the active job's frozen Compose services and their
+declared TCP ports. Each service reports whether its container exists on the assigned worker.
+
+Read retained stdout and stderr with `fleet-service-logs JOB_UUID SERVICE CONTAINER [CURSOR]`.
+Copy the service name and container ID from `fleet-services`. Pass the returned cursor to
+read the next page or check for new output after `at_end`. A replaced container or a
+rotated continuation requires a fresh read of the retained history.
+
+For a private HTTP or WebSocket preview, run
+`scripts/compose.sh fleet-forward JOB_UUID SERVICE PORT` and open the printed URL.
+The job must declare the TCP port in its frozen Compose `expose` list. The worker needs
+the network image for its current Coop version (`coop net setup`). The preview listens
+on a random loopback port and hostname for ten minutes. Ctrl-C closes it. The controller
+also closes the connection when the job ends or its placement or worker identity changes.
+The preview gives service-issued cookies a private name and host scope. Credentials saved
+for the Ryker console stay on the console origin.
+
+Use `fleet-show` to see the last saved checkpoint's time, commit and placement generation.
+A null checkpoint means the controller has no saved working copy for this source. Changes
+the worker made after the saved point may be lost when its VM disappears.
+
+If the worker disappears before saving a checkpoint, a pushed PR can supply a recovery
+point. First cancel the old job and fence the disconnected worker with `worker-revoke`.
+Reconcile any pending publication in the configured repository. Open the surviving PR,
+note its full head SHA and confirm its changes are the work you intend to resume. From
+a checkout of that repository, verify the configured origin and current PR ref before
+submitting. The following example stops if PR 42 moved or disappeared.
+
+```sh
+(
+  set -eu
+  pr=42
+  expected=FULL_REVIEWED_HEAD_SHA
+  repo=/path/to/target-repo
+  git -C "$repo" remote get-url origin
+  current=$(git -C "$repo" ls-remote --exit-code origin "refs/pull/$pr/head")
+  test "${current%%[[:space:]]*}" = "$expected"
+  scripts/compose.sh fleet-submit "$(uuidgen)" my-environment my-repository "$expected" < recovery-prompt.txt
+)
+```
+
+Include the old job ID, original instruction, PR number, verified head and remaining checks
+in the recovery prompt. The new job has its own episode and reviews the recovered code against
+current policy. Native conversation state, unsaved edits and service volumes stay on the
+old VM. Updating the original PR requires its normal publication authorization.
+
+After a writable job saves its checkpoint, run
+`scripts/compose.sh fleet-checkout "$job" /path/to/target-repo /path/to/results`.
+Install the matching Coop CLI locally. The command prints the path of a new private
+checkout inside the existing results directory. It verifies the checkpoint, reconstructs
+the Git history, and restores tracked and untracked changes there. Your target repository
+supplies the base Git objects, any upstream commit the worker rebased onto, and the objects
+for each initialized submodule. It keeps its current edits and index. The result remains
+available after worker loss while the controller retains its encrypted checkpoint.
+
+For build outputs, have the job write the named reports or binaries inside its own
+Coop task's `artifacts/` directory. These files travel with its saved checkpoint
+even when the task directory is gitignored. List them with
+`scripts/compose.sh fleet-artifacts "$job" /path/to/results`. Pass relative file names
+after that directory to retrieve them, for example `junit.xml` and `dist/program.zip`.
+The JSON receipt includes the checkpoint, content digests, sizes and media types.
+Retrieval creates a private directory and requires only the controller's retained
+checkpoint. The worker and a local clone can both be offline.
+
+To use a smaller worker, set both `RYKER_JOB_CPU_MILLIS` and `RYKER_JOB_MEMORY_MIB`
+on the submit command. For example, 500 and 512 reserve half a CPU and 512 MiB per
+container. The agent and each approved sidecar count separately. The default is
+1.5 CPUs and 2 GiB per container, so a warm routing session and ordinary work
+fit on a stock 4-vCPU, 8-GiB worker. A job can request 10–4000 millicores and 6–8192 MiB.
+The controller freezes the request on submission. Reusing its ID with different
+resources fails.
+
+The optional commit argument must be a full Git SHA available in the managed repository. Omitting it selects the reviewed repository default.
+
+Each submission owns a Work episode. Status includes the current turn and the latest retained
+accepted response. A running job may still be settling after a cancellation request. An idle
+worker in the selected workspace picks up a suitable assignment when resources are available.
+
+A job selects a provider, model and account from its frozen targets. Configure that account on
+the controller in **Settings → Models**. Workers receive a short-lived grant for a specific
+job and use Ryker's proxy. The account's concurrency setting limits simultaneous provider
+requests across workers, and a provider rate-limit response can put the account into cooldown.
+
 ### A worker pool on Docker
 
 `python3 -B scripts/worker_pool.py install` runs the pool as Compose project `ryker-worker`
@@ -537,14 +749,13 @@ The existing job-runtime sidecar runs as a container in the pool's Compose proje
 The pool owns `ryker-worker_state`, `ryker-worker_config`, `ryker-worker_docker` and
 `ryker-worker_socket`. A private ownership label prevents another installation's volumes
 from being adopted. The pool joins the existing `ryker_default` network, so the stored worker
-URL and public CA remain unchanged. Provider credentials and native session state stay separate
-from the retained worker. Moving an existing pool requires a quiescent custody transfer; do not
-copy rotating credentials into two live workers.
+URL and public CA remain unchanged. Native session state stays separate from the retained worker.
+Provider credentials stay in Ryker.
+Moving an existing pool requires a quiescent custody transfer.
 
 Installation enrolls a new `ryker-pool` identity with admission held before its first heartbeat.
 It copies only the public CA, prepares the box and qualifies filtered networking while the old
-worker continues. Sign in each account listed by status using
-`python3 -B scripts/worker_pool.py model-login ACCOUNT`, inspect
+worker continues. Configure each account listed by status in **Settings → Models**, inspect
 `python3 -B scripts/worker_pool.py status`, then run `python3 -B scripts/worker_pool.py activate`.
 Activation releases only its exact bootstrap hold, then stops new admission on `ryker-compose`.
 Existing sessions remain on the retained worker; retirement requires an empty custody inventory.
@@ -557,8 +768,8 @@ policies bring the pool back with its engine. An explicit start is
 `python3 -B scripts/worker_pool.py upgrade` prepares the pinned worker image, waits for controller
 and native quiescence under its own exact drain, then replaces only the pool worker. The pool
 keeps its current and previous images. The retained worker’s image cleanup also protects the pool’s
-current, previous and pending image pins. Model sign-in uses the pool's own provider volume and a
-guarded restart. Commands explicitly select the saved Docker endpoint, regardless of later shell settings.
+current, previous and pending image pins. Commands explicitly select the saved Docker endpoint,
+regardless of later shell settings.
 
 Controller-only backups remain supported. Full backup, full restore, uninstall and destroy are
 refused while a separate pool exists because those archives do not contain its custody. Preserve
@@ -711,6 +922,16 @@ as it was and Ryker stopped. It then restores the private state and, when the ar
 the worker's state, starts the pinned image without
 building anything, and verifies the exact running version. A missing, wrong or damaged root must
 fail; never generate a replacement key for an existing database.
+
+Before the database swap, restore invalidates the archived worker certificates, enrollment
+invitations, active placement leases and model grants. It preserves checkpoints and unresolved
+model charges. External Git tokens already issued keep their provider-set expiration. Every
+restored worker starts with admission held. For a separate VM, stop the connector and set aside
+its `identity.json` in private storage, issue a fresh `worker-token` for the same worker and
+workspace, then restart it using the existing session state and the new invitation. Verify its
+heartbeat and release the hold with `worker-start-admission WORKER_ID OPERATOR_REF`. A full
+restore re-enrolls the bundled worker from the restored volumes. A controller-only restore leaves
+worker disks with their operators for this recovery step.
 
 ### Rotating the state-tools token
 
@@ -912,8 +1133,8 @@ work it's given and may change files (`delegate`), or works inside the lead's ow
 sign-in per provider, so every model of one provider in a preset uses the same account. Ryker
 saves the recipe `coop presets NAME --export-job` would print for the same choices.
 
-Each model's account must be listed under **Settings → Models → Model accounts** and signed in
-on the workers that run the job. A preset whose account was removed from that list says **Not
+Each model's account must be listed under **Settings → Models → Model accounts**, with its
+access saved in Ryker. Workers use temporary job-bound proxy access. A preset whose account was removed from that list says **Not
 offered** and isn't offered until the account is listed again.
 
 Once a preset can run, **Settings → Models → Other work** offers it for **Code reviews** and

@@ -103,6 +103,7 @@ defmodule Ryker.CoopFleet.JobSetupTest do
                "version" => 1,
                "dockerfile" => "dev/Box.Dockerfile",
                "compose" => "compose.test.yml",
+               "max_services" => 1,
                "environment" => %{"PGHOST" => "episode-db", "PGPORT" => "5432"}
              }
            }
@@ -113,6 +114,7 @@ defmodule Ryker.CoopFleet.JobSetupTest do
              "version" => 1,
              "dockerfile" => ".agent/Dockerfile",
              "compose" => ".agent/compose.yml",
+             "max_services" => 1,
              "environment" => %{}
            }
   end
@@ -126,6 +128,7 @@ defmodule Ryker.CoopFleet.JobSetupTest do
              "version" => 1,
              "dockerfile" => "dev/Box.Dockerfile",
              "compose" => "dev/ryker-compose.yml",
+             "max_services" => 1,
              "environment" => %{"PGHOST" => "db"}
            }
   end
@@ -173,6 +176,7 @@ defmodule Ryker.CoopFleet.JobSetupTest do
              "version" => 1,
              "dockerfile" => "dev/Box.Dockerfile",
              "compose" => "compose.test.yml",
+             "max_services" => 1,
              "environment" => %{}
            }
   end

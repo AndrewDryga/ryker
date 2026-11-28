@@ -15,7 +15,7 @@ def ready_worker():
     return {"state": "eligible", "workspace": "ryker-compose", "protocol": "2", "age": 1,
             "drain_requested_at": None, "admission_stopped_at": "2026-11-03T10:00:00Z",
             "admission_stopped_by": "operator:worker-pool",
-            "capabilities": [{"name": "controller-tools", "version": "1"}],
+            "capabilities": [{"name": "controller-tools", "version": "1"}, {"name": "model-proxy", "version": "1"}],
             "capacity": {"state": "eligible", "session_slots_free": 1,
                          "turn_slots_free": 1, "workspace_slots_free": 1}}
 
@@ -82,34 +82,6 @@ class SharedImageTest(unittest.TestCase):
                                     capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "", "unreadable pool custody must prevent image deletion")
-
-
-class ModelLoginTest(unittest.TestCase):
-    def test_sign_in_uses_the_prepared_worker_box_without_the_worker_entrypoint(self):
-        # The first isolated worker could serve jobs, but its operator could
-        # not sign in: compose run bypassed the entrypoint's box selection
-        # and requested an unbuilt default Coop image instead.
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            binary = root / "coop"
-            binary.write_text('#!/bin/sh\n'
-                              'if [ "${COOP_BASE_IMAGE-}" != ryker-coop-box ]; then\n'
-                              '  echo "default box not built" >&2; exit 1\n'
-                              'fi\n'
-                              'printf "%s\\n" "$1" "$2" "$COOP_BASE_IMAGE"\n')
-            binary.chmod(0o700)
-            for inherited in (None, "unrelated-box"):
-                with self.subTest(inherited=inherited):
-                    env = {**os.environ, "PATH": str(root) + ":" + os.environ["PATH"],
-                           "COOP_CONFIG_DIR": str(root / "agents")}
-                    env.pop("COOP_BASE_IMAGE", None)
-                    if inherited is not None:
-                        env["COOP_BASE_IMAGE"] = inherited
-                    result = subprocess.run(
-                        ["sh", str(pool.ROOT / "deploy/compose/coop/model-login.sh"), "codex@work"],
-                        cwd=root, env=env, capture_output=True, text=True, check=False)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(result.stdout.splitlines(), ["login", "codex@work", "ryker-coop-box"])
 
 
 class NativeEngineTest(unittest.TestCase):
@@ -319,10 +291,10 @@ class CutoverTest(unittest.TestCase):
         subject.release.assert_not_called()
         subject.lifecycle.assert_not_called()
 
-    def test_cutover_requires_separate_sign_ins_for_every_configured_account(self):
+    def test_cutover_requires_controller_access_for_every_configured_account(self):
         subject = operator()
         subject.missing_accounts.return_value = ["codex@default"]
-        with self.assertRaisesRegex(RuntimeError, "own model-login"):
+        with self.assertRaisesRegex(RuntimeError, "configure account access"):
             subject.activate()
         subject.release.assert_not_called()
         subject.lifecycle.assert_not_called()
@@ -331,10 +303,11 @@ class CutoverTest(unittest.TestCase):
     def test_account_readiness_uses_current_controller_configuration(self):
         subject = operator()
         del subject.missing_accounts
-        subject.sql = Mock(return_value='["codex@default", "claude@work"]')
-        subject.state["signed_in_accounts"] = ["codex@default"]
+        subject.release = Mock(return_value={"codex@default": {"state": "configured"}, "claude@work": {"state": "missing"}})
+        subject.state["signed_in_accounts"] = ["codex@default", "claude@work"]
         self.assertEqual(subject.missing_accounts(), ["claude@work"])
-        subject.sql.return_value = '[]'
+        subject.release.assert_called_once_with('Ryker.Release.model_account_statuses("ryker-compose", log: false)')
+        subject.release.return_value = {}
         with self.assertRaisesRegex(RuntimeError, "no valid model account"):
             subject.missing_accounts()
 
@@ -390,7 +363,7 @@ class MonitoringTest(unittest.TestCase):
 class MissingInstallTest(unittest.TestCase):
     def test_interactive_commands_require_installation_but_optional_hooks_remain_noops(self):
         with tempfile.TemporaryDirectory() as directory:
-            for command in ("activate", "model-login", "start", "maintain", "upgrade"):
+            for command in ("activate", "start", "maintain", "upgrade"):
                 result = subprocess.run([pool.sys.executable, "-B", str(pool.ROOT / "scripts/worker_pool.py"),
                                          command, "--state-dir", directory], capture_output=True, check=False)
                 if command in ("maintain", "upgrade"):

@@ -18,7 +18,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   """
   alias Ryker.CoopFleet.Certificate
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
-  alias Ryker.CoopFleet.{Protocol, Worker}
+  alias Ryker.CoopFleet.{Machine, Protocol, Worker}
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
@@ -77,7 +77,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
          :ok <- poll_identity(authenticated_worker_id, poll),
          {:ok, now} <-
            Repo.transaction(fn ->
-             heartbeat(authenticated_worker_id, poll, lease_seconds, certificate_sha256)
+             heartbeat(authenticated_worker_id, poll, lease_seconds, certificate_sha256, options)
            end) do
       body_root = Keyword.get(options, :body_root)
 
@@ -134,7 +134,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   # The worker says it is alive: its heartbeat is saved, its placements are
   # renewed and the commands it acknowledged are marked, before anything it
   # reported is applied.
-  defp heartbeat(worker_id, poll, lease_seconds, certificate_sha256) do
+  defp heartbeat(worker_id, poll, lease_seconds, certificate_sha256, options) do
     now = Repo.now!()
     hello = poll["worker"]
     worker = authenticated_worker!(worker_id, hello["workspace_ref"], certificate_sha256)
@@ -143,23 +143,31 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
     previous = worker
 
+    machine =
+      Machine.heartbeat(worker, hello["capacity"], Keyword.get(options, :machine_report, false))
+
     worker =
       worker
-      |> Worker.Changeset.heartbeat(%{
-        build_version: hello["build_version"],
-        capabilities: hello["capabilities"],
-        capacity: hello["capacity"],
-        clock_at: clock_at,
-        last_seen_at: now,
-        protocol_version: hello["protocol_version"],
-        sandbox_digest: hello["sandbox_digest"],
-        state: heartbeat_state(worker, hello["state"]),
-        storage: hello["storage"],
-        storage_reclaimed_bytes: reclaimed_bytes(worker, hello["storage"]),
-        # A worker that has not read its providers since it started keeps the
-        # last report; each account's check time says how old it is.
-        account_usage: hello["account_usage"] || worker.account_usage
-      })
+      |> Worker.Changeset.heartbeat(
+        Map.merge(
+          machine,
+          %{
+            build_version: hello["build_version"],
+            capabilities: hello["capabilities"],
+            capacity: hello["capacity"],
+            clock_at: clock_at,
+            last_seen_at: now,
+            protocol_version: hello["protocol_version"],
+            sandbox_digest: hello["sandbox_digest"],
+            state: heartbeat_state(worker, hello, machine),
+            storage: hello["storage"],
+            storage_reclaimed_bytes: reclaimed_bytes(worker, hello["storage"]),
+            # A worker that has not read its providers since it started keeps the
+            # last report; each account's check time says how old it is.
+            account_usage: hello["account_usage"] || worker.account_usage
+          }
+        )
+      )
       |> Repo.update()
       |> Shared.unwrap_write()
 
@@ -188,8 +196,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     end
   end
 
-  defp heartbeat_state(%Worker{drain_requested_at: %DateTime{}}, _reported), do: :draining
-  defp heartbeat_state(%Worker{}, reported), do: String.to_existing_atom(reported)
+  defp heartbeat_state(%Worker{drain_requested_at: %DateTime{}}, _hello, _machine), do: :draining
+
+  defp heartbeat_state(_worker, %{"state" => "eligible", "capacity" => capacity}, %{
+         machine_report_required: true
+       }),
+       do: if(is_map(capacity["machine"]), do: :eligible, else: :busy)
+
+  defp heartbeat_state(_worker, hello, _machine), do: String.to_existing_atom(hello["state"])
 
   # Reclamation is only ever the worker's own reported inactive disposable bytes
   # falling. Ryker never estimates bytes it did not measure, so a report that

@@ -75,12 +75,23 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp identity_and_mode?(job) do
-    Maps.exact_keys?(job, @root_fields, ~w(runtime preset)) and
+    Maps.exact_keys?(job, @root_fields, ~w(runtime preset model_credentials workspace_input)) and
+      workspace_input?(job) and
+      job["model_credentials"] in [nil, "controller"] and
       job["version"] == 2 and
       Protocol.reference?(job["job_ref"]) and
       job["mode"] == "normal" and
       is_boolean(job["repository_read_only"])
   end
+
+  defp workspace_input?(%{
+         "workspace_input" => ref,
+         "repository_read_only" => false,
+         "source" => %{}
+       }),
+       do: Protocol.body_reference?(ref)
+
+  defp workspace_input?(job), do: not Map.has_key?(job, "workspace_input")
 
   defp source_and_targets?(job) do
     targets?(job["targets"]) and
@@ -95,12 +106,18 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp runtime?(%{"runtime" => %{} = runtime, "source" => %{}, "repository_read_only" => false}) do
-    Maps.exact_keys?(runtime, ~w(version dockerfile compose environment)) and
+    Maps.exact_keys?(runtime, ~w(version dockerfile compose environment), ~w(max_services)) and
+      service_count?(runtime) and
       runtime["version"] === 1 and runtime_path?(runtime["dockerfile"]) and
       runtime_path?(runtime["compose"]) and runtime_environment?(runtime["environment"])
   end
 
   defp runtime?(job), do: not Map.has_key?(job, "runtime")
+
+  defp service_count?(%{"max_services" => count, "compose" => compose}),
+    do: is_integer(count) and count in 0..64 and (count == 0 or compose != "")
+
+  defp service_count?(_runtime), do: true
 
   @doc false
   def runtime_path?(""), do: true
@@ -244,7 +261,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp rule?(%{} = rule) do
     Maps.exact_keys?(rule, ~w(to), ~w(protocol ports types codes)) and
       destination?(rule["to"]) and
-      optional_string?(rule, "protocol") and
+      Maps.optional_string?(rule, "protocol") and
       optional_list?(rule, "ports", &is_integer/1) and
       optional_list?(rule, "types", &is_binary/1) and
       optional_list?(rule, "codes", &is_integer/1)
@@ -263,8 +280,6 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp destination?(_destination), do: false
-
-  defp optional_string?(map, key), do: not Map.has_key?(map, key) or is_binary(map[key])
 
   defp optional_list?(map, key, valid) do
     not Map.has_key?(map, key) or

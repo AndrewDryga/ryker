@@ -19,7 +19,7 @@ lock_lifecycle() {
 }
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke|worker-stop-admission|worker-start-admission WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup [--controller-only]|restore FILE [--controller-only]|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke|worker-stop-admission|worker-start-admission WORKER_ID OPERATOR_REF|fleet-submit JOB_UUID ENVIRONMENT REPOSITORY [COMMIT] < prompt.txt|fleet-submit-local JOB_UUID ENVIRONMENT REPOSITORY LOCAL_REPO BASE_COMMIT [UNTRACKED_FILE ...] < prompt.txt|fleet-checkout JOB_UUID SOURCE_REPO OUTPUT_PARENT|fleet-artifacts JOB_UUID OUTPUT_PARENT [FILE ...]|fleet-show JOB_UUID|fleet-cancel JOB_UUID|fleet-services JOB_UUID|fleet-forward JOB_UUID SERVICE PORT|fleet-service-logs JOB_UUID SERVICE CONTAINER [CURSOR]|fleet-events JOB_UUID [PAGE]|fleet-workers [PAGE]|fleet-list [PAGE]|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup [--controller-only]|restore FILE [--controller-only]|uninstall|destroy" >&2
   exit 2
 }
 
@@ -75,19 +75,6 @@ require_clean_checkout() {
   fi
 }
 
-# Signs a model account in on the worker volume with
-# deploy/compose/coop/model-login.sh, which puts the previous sign-in back when
-# the login does not finish. The script goes to the worker's shell from this
-# checkout, so the worker image, which a deploy never rebuilds, needs no copy.
-# Coop refuses a sign-in whose project directory holds its own network records,
-# and the container's working directory "/" holds everything, so it runs from
-# /tmp. It also refuses to record a process whose id is 1, so the shell stays
-# process 1 and the script runs coop as its child.
-model_login() {
-  compose run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop \
-    -c "$(cat "$repository/deploy/compose/coop/model-login.sh")" ryker-model-login "$1"
-}
-
 # A worker image named in the environment file is a supplied build, made for
 # example from a Coop checkout ahead of the Dockerfile's pin. Building the
 # worker would tag the pin's image with that name, and a newer Coop may have
@@ -108,6 +95,17 @@ wait_ready() {
     if [ "$healthz_code" = 200 ] && [ "$readyz_code" = 200 ] && [ "$running_version" = "$expected" ]; then
       echo "Ryker is ready: $origin"
       return 0
+    fi
+    # After a restore every archived worker needs a new identity. The controller
+    # can finish recovery before an operator re-enrolls the fleet.
+    if [ "${1:-}" = restore ] && [ "$healthz_code" = 200 ] && [ "$readyz_code" = 503 ] &&
+       [ "$running_version" = "$expected" ]; then
+      case "$readyz_body" in
+        'not ready: no_eligible_workers; no_session_capacity; no_turn_capacity; no_workspace_capacity'|\
+        'not ready: no_eligible_workers; no_session_capacity; no_turn_capacity; no_workspace_capacity; expired_current_placements')
+          echo "Controller restored at $origin. Fleet execution awaits worker re-enrollment and admission."
+          return 0 ;;
+      esac
     fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
       echo "Ryker did not become ready as version $expected at $origin (last: /healthz $healthz_code, /readyz $readyz_code${readyz_body:+ \"$readyz_body\"}, version ${running_version:-none})." >&2
@@ -323,12 +321,19 @@ generate_env() {
       echo "# RYKER_GENERATED_ENV - generated once by install.sh; keep this file with backups."
       echo "RYKER_VERSION=$version"
       echo "RYKER_IMAGE=${RYKER_IMAGE:-ryker:$version}"
+      case ${RYKER_COOP_IMAGE:-} in
+        '') ;;
+        -* | *[!A-Za-z0-9_.:@/-]*) echo "RYKER_COOP_IMAGE requires a Docker image reference." >&2; exit 1 ;;
+        *) echo "RYKER_COOP_IMAGE=$RYKER_COOP_IMAGE" ;;
+      esac
       echo "RYKER_DATABASE_PASSWORD=$db_password"
       echo "RYKER_CHECKPOINT_KEY=$checkpoint_key"
       echo "RYKER_CREDENTIAL_KEY=$credential_key"
       echo "RYKER_STATE_TOOLS_TOKEN=$state_tools_token"
       echo "RYKER_CONTROL_BIND=${RYKER_CONTROL_BIND:-127.0.0.1}"
       echo "RYKER_CONTROL_PORT=${RYKER_CONTROL_PORT:-4321}"
+      case ${RYKER_FLEET_ADDRESS:-} in *[!0-9.]*) echo "RYKER_FLEET_ADDRESS requires a private IPv4 address." >&2; exit 1 ;; esac
+      echo "RYKER_FLEET_ADDRESS=${RYKER_FLEET_ADDRESS:-}"
       echo "RYKER_GITHUB_BIND=${RYKER_GITHUB_BIND:-127.0.0.1}"
       echo "RYKER_GITHUB_PORT=${RYKER_GITHUB_PORT:-4319}"
       echo "RYKER_WEBHOOK_BIND=${RYKER_WEBHOOK_BIND:-127.0.0.1}"
@@ -367,6 +372,13 @@ install_ryker() {
     generate_env
   fi
 
+  if supplied_worker_image; then
+    worker_image=$(compose_env_value RYKER_COOP_IMAGE "$env_file")
+    docker image inspect -- "$worker_image" >/dev/null 2>&1 || {
+      echo "Build or pull the configured worker image $worker_image before installing." >&2
+      exit 1
+    }
+  fi
   compose up --detach --build --wait database ryker ryker-coop-docker
   compose exec -T ryker \
     /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
@@ -382,15 +394,7 @@ install_ryker() {
   compose run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop \
     -c 'umask 077; mkdir -p "$TMPDIR"; coop build; exit $?'
 
-  # The worker signs in on its own. Install used to copy this machine's Codex
-  # sign-in in without asking, and the two then shared one refresh token, so
-  # whichever refreshed second was signed out (2026-10-04 review).
-  if ! compose run --rm --no-deps -T \
-    --entrypoint sh ryker-coop -c \
-    'find /var/lib/coop/agents/codex/profiles -type f -name auth.json -size +0c 2>/dev/null | grep -q .'; then
-    echo "Connect the model account Ryker will use for work. This is stored only in the private worker volume."
-    model_login codex
-  fi
+  echo "Set up model account access in Settings → Models. Provider credentials stay in Ryker."
 
   if supplied_worker_image; then
     compose up --detach --wait ryker-coop
@@ -439,6 +443,14 @@ sign_in_link() {
 # A path an operator names is read from where they stood, before this moves
 # into the checkout (2026-10-04 review).
 caller_dir=$(pwd)
+if [ "${1:-}" = fleet-checkout ] && [ "$#" -eq 4 ]; then
+  source_repo=$(CDPATH='' cd -- "$3" && pwd -P)
+  result_parent=$(CDPATH='' cd -- "$4" && pwd -P)
+  set -- "$1" "$2" "$source_repo" "$result_parent"
+fi
+if [ "${1:-}" = fleet-submit-local ] && [ "$#" -ge 6 ]; then
+  local_source=$(CDPATH='' cd -- "$5" && pwd -P)
+fi
 cd "$repository"
 command=${1:-}
 
@@ -553,6 +565,37 @@ case "$command" in
       echo "The database did not restore. The previous database is unchanged; Ryker remains stopped. Run: scripts/compose.sh start" >&2
       exit 1
     }
+    # The dump predates any revocations made after backup. Fence it offline before
+    # swapping databases, leaving work, checkpoints and uncertain provider charges intact.
+    compose exec -T database psql -X -U ryker -d ryker_restoring -v ON_ERROR_STOP=1 \
+      --single-transaction >/dev/null <<'RESTORE_FLEET_SQL'
+DO $restore$
+BEGIN
+  IF to_regclass('public.coop_workers') IS NULL THEN RETURN; END IF;
+  UPDATE public.coop_worker_certificates SET revoked_at = now(), revoked_by = 'controller:restore'
+    WHERE revoked_at IS NULL;
+  DELETE FROM public.coop_worker_enrollment_tokens WHERE consumed_at IS NULL;
+  UPDATE public.coop_session_placements SET state = 'revoking', lease_expires_at = now(), updated_at = now()
+    WHERE state IN ('active', 'revoking', 'assigning', 'draining');
+  UPDATE public.episode_work_turns t SET state_tools_endpoint = NULL, state_tools_token_sha256 = NULL
+    WHERE state_tools_token_sha256 IS NOT NULL AND EXISTS
+      (SELECT 1 FROM public.coop_session_placements p WHERE p.session_id = t.session_id);
+  UPDATE public.coop_workers SET state = 'offline', last_seen_at = NULL WHERE state <> 'revoked';
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+             AND table_name = 'coop_workers' AND column_name = 'admission_stopped_at') THEN
+    UPDATE public.coop_workers SET admission_stopped_at = now(), admission_stopped_by = 'controller:restore'
+      WHERE state <> 'revoked' AND admission_stopped_at IS NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+             AND table_name = 'coop_workers' AND column_name = 'enrollment_epoch') THEN
+    UPDATE public.coop_workers SET enrollment_epoch = gen_random_uuid();
+  END IF;
+  IF to_regclass('public.coop_model_runs') IS NOT NULL THEN
+    UPDATE public.coop_model_runs SET expires_at = now() WHERE expires_at > now();
+  END IF;
+END
+$restore$;
+RESTORE_FLEET_SQL
     compose exec -T database psql -X -U ryker -d postgres -v ON_ERROR_STOP=1 \
       -c 'DROP DATABASE IF EXISTS ryker_before_restore' \
       -c 'ALTER DATABASE ryker RENAME TO ryker_before_restore' \
@@ -576,6 +619,11 @@ case "$command" in
           echo "Previous worker state retained at $held" >&2
         done
         tar -xzf - -C "$1" coop ryker-coop
+        # The paired worker keeps its workspace. The controller fenced every old
+        # certificate, including the identity and invitation just unpacked here.
+        for entry in coop/sessions/identity.json ryker-coop/enrolled ryker-coop/enrollment-token; do
+          rm -f -- "$1/$entry"
+        done
       ' -- /var/lib <"$scratch/worker-state.tar.gz"
     fi
     if [ "$repin" = 1 ]; then
@@ -587,7 +635,7 @@ case "$command" in
       compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.prepare_bundled_coop(log: false)'
       compose up --detach --no-build --wait ryker-coop
     fi
-    wait_ready
+    wait_ready restore
     echo "The database Ryker ran on before is kept as ryker_before_restore."
     ;;
   status)
@@ -751,14 +799,6 @@ case "$command" in
     require_install
     sign_in_link
     ;;
-  model-login)
-    require_install
-    provider=${2:-codex}
-    [ "$#" -le 2 ] || usage
-    lock_lifecycle model-login
-    model_login "$provider"
-    compose restart ryker-coop
-    ;;
   worker-token)
     # A one-time enrolment token for a worker this installation does not run
     # itself, printed once. Each value is a plain reference, never Elixir.
@@ -796,6 +836,119 @@ case "$command" in
     esac
     compose exec -T ryker /opt/ryker/bin/ryker eval \
       "case Ryker.Release.worker_lifecycle(:$action, \"$2\", \"$3\") do {:ok, _} -> :ok; error -> IO.inspect(:stderr, error); System.halt(1) end"
+    ;;
+  fleet-submit-local)
+    require_install
+    [ "$#" -ge 6 ] || usage
+    need coop
+    id=$2 environment=$3 repo=$4 base=$6
+    shift 6
+    umask 077
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    head -c 12001 > "$tmp/prompt"
+    prompt_bytes=$(wc -c < "$tmp/prompt" | tr -d ' ')
+    if [ "$prompt_bytes" -lt 1 ] || [ "$prompt_bytes" -gt 12000 ]; then
+      echo "The prompt must contain 1 to 12000 UTF-8 bytes." >&2
+      exit 1
+    fi
+    coop sessions fleet snapshot "$id" "$repo" "$local_source" "$base" "$@" > "$tmp/workspace"
+    bytes=$(wc -c < "$tmp/workspace" | tr -d ' ')
+    if command -v sha256sum >/dev/null 2>&1; then
+      digest=$(sha256sum < "$tmp/workspace")
+    else
+      digest=$(shasum -a 256 < "$tmp/workspace")
+    fi
+    cat "$tmp/prompt" "$tmp/workspace" | compose exec -T -e RYKER_JOB_PURPOSE -e RYKER_JOB_CPU_MILLIS -e RYKER_JOB_MEMORY_MIB -e "RYKER_JOB_ID=$id" -e "RYKER_JOB_ENVIRONMENT=$environment" -e "RYKER_JOB_REPOSITORY=$repo" -e "RYKER_JOB_COMMIT=$base" -e "RYKER_JOB_INPUT_BYTES=$bytes" -e "RYKER_JOB_INPUT_SHA=${digest%% *}" -e "RYKER_JOB_PROMPT_BYTES=$prompt_bytes" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_submit_local(System.fetch_env!("RYKER_JOB_ID"), %{environment: System.fetch_env!("RYKER_JOB_ENVIRONMENT"), repository: System.fetch_env!("RYKER_JOB_REPOSITORY"), commit: System.fetch_env!("RYKER_JOB_COMMIT"), purpose: System.get_env("RYKER_JOB_PURPOSE"), cpu_millis: System.get_env("RYKER_JOB_CPU_MILLIS"), memory_mib: System.get_env("RYKER_JOB_MEMORY_MIB")}, String.to_integer(System.fetch_env!("RYKER_JOB_PROMPT_BYTES")), %{"sha256" => System.fetch_env!("RYKER_JOB_INPUT_SHA"), "byte_size" => String.to_integer(System.fetch_env!("RYKER_JOB_INPUT_BYTES"))}) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-submit)
+    require_install
+    [ "$#" -eq 4 ] || [ "$#" -eq 5 ] || usage
+    compose exec -T -e RYKER_JOB_PURPOSE -e RYKER_JOB_CPU_MILLIS -e RYKER_JOB_MEMORY_MIB -e "RYKER_JOB_ID=$2" -e "RYKER_JOB_COMMIT=${5:-}" -e "RYKER_JOB_ENVIRONMENT=$3" -e "RYKER_JOB_REPOSITORY=$4" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_submit(System.fetch_env!("RYKER_JOB_ID"), %{environment: System.fetch_env!("RYKER_JOB_ENVIRONMENT"), repository: System.fetch_env!("RYKER_JOB_REPOSITORY"), purpose: System.get_env("RYKER_JOB_PURPOSE"), cpu_millis: System.get_env("RYKER_JOB_CPU_MILLIS"), memory_mib: System.get_env("RYKER_JOB_MEMORY_MIB"), commit: case System.get_env("RYKER_JOB_COMMIT") do "" -> nil; sha -> sha end}, IO.read(:stdio, 12_001)) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-checkout|fleet-artifacts)
+    require_install
+    case "$1" in
+      fleet-checkout) [ "$#" -eq 4 ] || usage ;;
+      fleet-artifacts) [ "$#" -ge 3 ] || usage ;;
+    esac
+    operation=${1#fleet-}
+    shift
+    need coop
+    # The FIFO separates the binary stream from release logs without spooling the checkpoint.
+    # shellcheck disable=SC2016
+    compose exec -T -e "RYKER_JOB_ID=$1" ryker sh -ec '
+      umask 077
+      tmp=$(mktemp -d)
+      reader=
+      cleanup() {
+        if [ -n "$reader" ]; then kill "$reader" 2>/dev/null || true; wait "$reader" 2>/dev/null || true; fi
+        rm -rf "$tmp"
+      }
+      trap cleanup EXIT
+      cd "$tmp"
+      mkfifo -m 600 workspace.pipe
+      cat workspace.pipe &
+      reader=$!
+      /opt/ryker/bin/ryker eval '\''Ryker.Release.fleet_export(System.fetch_env!("RYKER_JOB_ID")) |> Ryker.Release.print_fleet_result()'\'' >&2
+      wait "$reader"
+      reader=
+    ' | coop sessions fleet "$operation" "$@"
+    ;;
+  fleet-show)
+    require_install
+    [ "$#" -eq 2 ] || usage
+    compose exec -T -e "RYKER_JOB_ID=$2" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_status(System.fetch_env!("RYKER_JOB_ID")) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-cancel)
+    require_install
+    [ "$#" -eq 2 ] || usage
+    compose exec -T -e "RYKER_JOB_ID=$2" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_cancel(System.fetch_env!("RYKER_JOB_ID")) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-forward)
+    require_install
+    [ "$#" -eq 4 ] || usage
+    need coop
+    gateway=$(compose port ryker 4322)
+    # Keep the bearer inside the pipe. The operator URL names only the local preview.
+    # shellcheck disable=SC2016
+    compose exec -T -e "RYKER_JOB_ID=$2" -e "RYKER_SERVICE=$3" -e "RYKER_PORT=$4" ryker sh -ec '
+      umask 077
+      tmp=$(mktemp -d)
+      trap '\''rm -rf "$tmp"'\'' EXIT
+      cd "$tmp"
+      /opt/ryker/bin/ryker eval '\''Ryker.Release.fleet_forward(System.fetch_env!("RYKER_JOB_ID"), System.fetch_env!("RYKER_SERVICE"), System.fetch_env!("RYKER_PORT")) |> Ryker.Release.print_fleet_result()'\'' >&2
+      cat preview.json
+    ' | coop sessions fleet forward "$gateway"
+    ;;
+  fleet-services)
+    require_install
+    [ "$#" -eq 2 ] || usage
+    compose exec -T -e "RYKER_JOB_ID=$2" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_services(System.fetch_env!("RYKER_JOB_ID")) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-service-logs)
+    require_install
+    [ "$#" -ge 4 ] && [ "$#" -le 5 ] || usage
+    compose exec -T -e "RYKER_JOB_ID=$2" -e "RYKER_SERVICE=$3" -e "RYKER_CONTAINER=$4" -e "RYKER_CURSOR=${5:-}" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_service_logs(System.fetch_env!("RYKER_JOB_ID"), System.fetch_env!("RYKER_SERVICE"), System.fetch_env!("RYKER_CONTAINER"), System.fetch_env!("RYKER_CURSOR")) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-events)
+    require_install
+    [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+    compose exec -T -e "RYKER_JOB_ID=$2" -e "RYKER_PAGE=${3:-1}" ryker /opt/ryker/bin/ryker eval \
+      'Ryker.Release.fleet_page(:events, System.fetch_env!("RYKER_JOB_ID"), System.fetch_env!("RYKER_PAGE")) |> Ryker.Release.print_fleet_result()'
+    ;;
+  fleet-list|fleet-workers)
+    require_install
+    [ "$#" -le 2 ] || usage
+    compose exec -T -e "RYKER_VIEW=$1" -e "RYKER_PAGE=${2:-1}" ryker /opt/ryker/bin/ryker eval \
+      'kind = if System.fetch_env!("RYKER_VIEW") == "fleet-list", do: :jobs, else: :workers
+       Ryker.Release.fleet_page(kind, nil, System.fetch_env!("RYKER_PAGE")) |> Ryker.Release.print_fleet_result()'
     ;;
   replay)
     # A private replay of one retained Slack message, as a Slack operator: the

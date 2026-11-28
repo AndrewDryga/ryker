@@ -50,7 +50,8 @@ defmodule Ryker.ControlPlane.WorkerConnectLiveTest do
              "curl -fsSL https://coop.dryga.com/install.sh | sh"
            )
 
-    assert has_element?(view, "#worker-connect-2 pre", "coop login codex@default")
+    assert has_element?(view, "#worker-connect-2", "Open Settings → Models")
+    refute render(view) =~ "coop login"
     refute has_element?(view, "#worker-connect-commands")
 
     view

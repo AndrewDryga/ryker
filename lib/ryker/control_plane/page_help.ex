@@ -46,6 +46,9 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/failures/:kind/:id", :failure},
     {"/usage", :usage},
     {"/environments", :environments},
+    {"/skills", :skills},
+    {"/skills/catalog/install", :skill_import},
+    {"/skills/:ref", :skill},
     {"/channels", :channels},
     {"/channels/:workspace/:channel", :channel},
     {"/repositories", :repositories},
@@ -72,6 +75,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/integrations/webhooks", :webhooks},
     {"/settings", :settings},
     {"/settings/models", :models},
+    {"/settings/models/accounts/:item/edit", :models},
     {"/settings/models/local-routing", :local_routing},
     {"/settings/retention", :retention},
     {"/settings/prices", :prices},
@@ -270,6 +274,45 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Lowering the cost",
        [
          "The tables show which model or kind of work costs most. Choose a cheaper model for a kind of work in Settings › Models."
+       ]}
+    ])
+  end
+
+  defp help(:skills) do
+    page("How skills work", [
+      {"Install a skill",
+       [
+         "Paste the contents of a SKILL.md file or link to one on GitHub. Review the skill, then install it."
+       ]},
+      {"Choose where it applies",
+       [
+         "Enable a skill here for the whole installation or open one environment to enable it there. Each new Work turn keeps its own copy of the enabled procedures."
+       ]}
+    ])
+  end
+
+  defp help(:skill_import) do
+    page("How installation works", [
+      {"Reviewed versions",
+       [
+         "Installing saves the Markdown you previewed. For GitHub imports, the preview also records the source commit."
+       ]},
+      {"Included files",
+       [
+         "Ryker imports the SKILL.md procedure. Companion scripts and assets stay in the repository."
+       ]}
+    ])
+  end
+
+  defp help(:skill) do
+    page("How this skill works", [
+      {"Local edits",
+       [
+         "Changes apply on this installation. Work already in progress keeps the version it received."
+       ]},
+      {"Availability",
+       [
+         "An environment can enable a procedure even when the installation-wide setting is off. Disable it in every scope before deleting it."
        ]}
     ])
   end
@@ -648,7 +691,7 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Adding models and accounts",
        [
          "The models listed are the ones Model prices names. Another model appears once its price is saved there, written like claude:claude-opus-4-6.",
-         "Ryker can't see which accounts the worker has signed in. Sign one in with scripts/compose.sh model-login claude@work, then add it under Model accounts."
+         "Open a model account to add an API key or import a login. To import, copy the receive code and follow the steps on screen. Workers receive temporary access."
        ]},
       {"Account limits",
        [

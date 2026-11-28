@@ -51,6 +51,20 @@ defmodule Ryker.CoopFleet.Placement.Query do
     )
   end
 
+  @doc "All unbound current requests on a daemon; uncertain creates have no age-based release."
+  def unbound_allocations(worker_id, except_session_id) do
+    from(p in all(),
+      join: s in Work.Session,
+      on: s.id == p.session_id,
+      where:
+        p.worker_id == ^worker_id and p.state in ^Placement.current_states() and
+          is_nil(s.coop_session_id),
+      where: s.id != ^except_session_id,
+      select: {p.id, p.inserted_at, s}
+    )
+    |> without_closed_session()
+  end
+
   @doc "Placements through which the worker has not closed its session."
   def without_closed_session(queryable) do
     closed =

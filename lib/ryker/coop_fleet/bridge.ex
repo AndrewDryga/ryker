@@ -156,7 +156,10 @@ defmodule Ryker.CoopFleet.Bridge do
       capability_versions:
         versions
         |> publication_capabilities(session.publication_target)
-        |> fast_capability(session.worker_job_document),
+        |> fast_capability(session.worker_job_document)
+        |> model_proxy_capability(session.worker_job_document)
+        |> service_budget_capability(session.worker_job_document)
+        |> input_capability(session.worker_job_document),
       repository_ref: session.repository_ref,
       workspace_ref: settings.workspace_ref
     }
@@ -174,6 +177,22 @@ defmodule Ryker.CoopFleet.Bridge do
   end
 
   defp fast_capability(versions, _job), do: versions
+
+  defp input_capability(versions, %{"workspace_input" => %{}}),
+    do: Map.put(versions, "fleet-workspace-input", "1")
+
+  defp input_capability(versions, _job), do: versions
+
+  defp service_budget_capability(versions, %{"runtime" => %{"max_services" => count}})
+       when count > 0,
+       do: Map.put(versions, "project-service-budget", "1")
+
+  defp service_budget_capability(versions, _job), do: versions
+
+  defp model_proxy_capability(versions, %{"model_credentials" => "controller"}),
+    do: Map.put(versions, "model-proxy", "1")
+
+  defp model_proxy_capability(versions, _job), do: versions
 
   defp publication_capabilities(versions, nil), do: versions
 

@@ -369,6 +369,8 @@ defmodule Ryker.Work.Custody do
   Otherwise the episode keeps its current owner until a leased worker proves the
   exact remote turn is terminal.
   """
+  defdelegate cancel_current(episode, cancel_ref, reason), to: Cancellation
+
   @spec request_cancel(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   defdelegate request_cancel(episode_id, episode_key, turn_ref, cancel_ref, reason),

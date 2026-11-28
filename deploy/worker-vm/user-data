@@ -3,7 +3,7 @@ users:
   - name: coop
     homedir: /var/lib/coop
     groups: [sudo]
-    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
     shell: /bin/bash
     lock_passwd: true
 ssh_pwauth: false

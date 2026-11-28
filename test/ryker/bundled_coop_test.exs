@@ -75,6 +75,7 @@ defmodule Ryker.BundledCoopTest do
           [workspace_ref: "other"],
           [protocol_version: "1"],
           [capabilities: [%{"name" => "controller-tools", "version" => "2"}]],
+          [capabilities: [%{"name" => "controller-tools", "version" => "1"}]],
           [last_seen_at: DateTime.add(DateTime.utc_now(), -61, :second)],
           [state: :offline],
           [capacity: %{"state" => "eligible", "session_slots_free" => 0}]
@@ -193,7 +194,10 @@ defmodule Ryker.BundledCoopTest do
     update_worker!(
       workspace_ref: "ryker-compose",
       protocol_version: "2",
-      capabilities: [%{"name" => "controller-tools", "version" => "1"}],
+      capabilities: [
+        %{"name" => "controller-tools", "version" => "1"},
+        %{"name" => "model-proxy", "version" => "1"}
+      ],
       capacity: %{
         "state" => "eligible",
         "session_slots_free" => 4,

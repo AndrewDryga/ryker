@@ -646,7 +646,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     {submission, outcome} =
       Enum.split_with(
         request.sections,
-        &(&1.id in ~w(input instructions context tools contract request))
+        &(&1.id in ~w(input instructions context tools contract request skills))
       )
 
     start = %{
@@ -655,6 +655,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       at: request.at,
       sort_at: request.at,
       counts: Map.get(request, :counts, %{}),
+      skill_names: Map.get(request, :skill_names),
       selection: Map.get(request, :selection),
       sent: Map.get(request, :sent),
       title: request.title,
@@ -995,6 +996,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
         "work-#{turn.id}-instructions",
         reading
       ),
+      skill_section(submission["skill_documents"], turn.id, reading),
       section("context", "Messages and selected context", context, reading),
       section(
         "tools",
@@ -1027,6 +1029,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: turn.id,
+      skill_names: skill_names(work, reading),
       counts: Map.put(work_counts(context, selection, saved), :opened, reading.opened),
       selection: selection && Map.take(selection, [:limits]),
       sent: sent(reading, turn.coop_turn_id, submission),
@@ -1039,7 +1042,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
       fingerprint: turn.submission_fingerprint,
       execution_mode: reading.execution_mode,
       sections:
-        Enum.map(sections, fn section ->
+        sections
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(fn section ->
           section
           |> Map.put(:source_kind, :work)
           |> Map.put_new(:artifact_id, "work-#{turn.id}-#{section.id}")
@@ -1436,6 +1441,29 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp admission_milestones(attempt),
     do: %{"phase" => attempt.phase, "milestones" => attempt.milestones}
+
+  defp skill_names(%{"skills" => skills}, reading) when is_list(skills) do
+    if Enum.all?(skills, &match?(%{"name" => name} when is_binary(name), &1)) do
+      skills |> Enum.map(& &1["name"]) |> Redactor.redact(reading.secrets)
+    end
+  end
+
+  defp skill_names(_, _), do: nil
+
+  defp skill_section(documents, turn_id, reading)
+       when is_map(documents) and map_size(documents) > 0 do
+    text = documents |> Enum.sort() |> Enum.map_join("\n\n", fn {_name, document} -> document end)
+
+    folded_section(
+      "skills",
+      "Procedures available on demand",
+      text,
+      "work-#{turn_id}-skills",
+      reading
+    )
+  end
+
+  defp skill_section(_documents, _turn_id, _reading), do: nil
 
   defp section(id, title, value, %Reading{} = reading) do
     artifact = Redactor.artifact(value, redaction(reading))

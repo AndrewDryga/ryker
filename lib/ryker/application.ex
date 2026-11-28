@@ -21,6 +21,8 @@ defmodule Ryker.Application do
         Ryker.Repo,
         {Finch, Ryker.Delivery.HTTPClient.pool_options()},
         Ryker.PubSub,
+        Ryker.CoopFleet.ModelPermitSupervisor,
+        {Registry, keys: :unique, name: Ryker.CoopFleet.ServiceConnections},
         Ryker.Emisar.ToolCache,
         ControlPlane.RepositoryChoices,
         {DynamicSupervisor, name: Ryker.Runtime.Supervisor, strategy: :one_for_one}

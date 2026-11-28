@@ -31,7 +31,7 @@ defmodule Ryker.CoopFleet.JobSetup do
   defp runtime_setup(project, binding, repository, commit, reader) do
     with {:ok, box} <- box(project),
          {:ok, environment} <- environment(box["env"]),
-         {:ok, dockerfile} <-
+         {:ok, dockerfile, _dockerfile_body} <-
            runtime_file(
              box,
              "dockerfile",
@@ -41,16 +41,22 @@ defmodule Ryker.CoopFleet.JobSetup do
              commit,
              reader
            ),
-         {:ok, compose} <- compose_file(box, binding, repository, commit, reader) do
+         {:ok, compose, compose_body} <- compose_file(box, binding, repository, commit, reader),
+         {:ok, service_count} <- service_count(compose, compose_body) do
       {:ok,
        %{
          "check" => check(project["gate"]),
-         "runtime" => %{
-           "version" => 1,
-           "dockerfile" => dockerfile,
-           "compose" => compose,
-           "environment" => environment
-         }
+         "runtime" =>
+           Ryker.Maps.put_present(
+             %{
+               "version" => 1,
+               "dockerfile" => dockerfile,
+               "compose" => compose,
+               "environment" => environment
+             },
+             "max_services",
+             service_count
+           )
        }}
     else
       {:error, reason} -> {:error, reason}
@@ -83,19 +89,34 @@ defmodule Ryker.CoopFleet.JobSetup do
     end
   end
 
-  defp compose_file(%{"auto_up" => false}, _binding, _repository, _commit, _reader), do: {:ok, ""}
-  defp compose_file(%{"network" => false}, _binding, _repository, _commit, _reader), do: {:ok, ""}
+  defp compose_file(%{"auto_up" => false}, _binding, _repository, _commit, _reader),
+    do: {:ok, "", nil}
+
+  defp compose_file(%{"network" => false}, _binding, _repository, _commit, _reader),
+    do: {:ok, "", nil}
 
   defp compose_file(box, binding, repository, commit, reader) do
     case reader.read(binding, repository, @worker_compose, commit) do
       {:ok, text} when is_binary(text) ->
-        {:ok, @worker_compose}
+        {:ok, @worker_compose, text}
 
       {:ok, :not_found} ->
         runtime_file(box, "compose", ".agent/compose.yml", binding, repository, commit, reader)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp service_count("", nil), do: {:ok, nil}
+
+  defp service_count(path, body) do
+    case YamlElixir.read_from_string(body) do
+      {:ok, %{"services" => services}} when is_map(services) and map_size(services) in 1..64 ->
+        {:ok, map_size(services)}
+
+      _invalid ->
+        refused(path, :invalid_service_count)
     end
   end
 
@@ -122,9 +143,9 @@ defmodule Ryker.CoopFleet.JobSetup do
 
     if path != "" and JobSpec.runtime_path?(path) do
       case reader.read(binding, repository, path, commit) do
-        {:ok, :not_found} when not explicit -> {:ok, ""}
+        {:ok, :not_found} when not explicit -> {:ok, "", nil}
         {:ok, :not_found} -> refused(path, :not_found)
-        {:ok, text} when is_binary(text) -> {:ok, path}
+        {:ok, text} when is_binary(text) -> {:ok, path, text}
         {:error, reason} -> {:error, reason}
       end
     else

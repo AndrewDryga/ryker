@@ -164,6 +164,14 @@ defmodule Ryker.Work.Validator do
     do: Work.GuidanceRequirements.violations(context.guidance_requirements, final) ++ violations
 
   defp workspace_violations(violations, %{state: :complete}, %{
+         workspace: %{"purpose" => "verification", "submitted_input_unchanged" => unchanged}
+       }) do
+    if unchanged,
+      do: violations,
+      else: ["Restore the submitted working copy before completing verification." | violations]
+  end
+
+  defp workspace_violations(violations, %{state: :complete}, %{
          workspace: %{"purpose" => "verification"} = workspace
        }) do
     dirty =
@@ -1021,7 +1029,13 @@ defmodule Ryker.Work.Validator do
     fields =
       ~w(admitted_source_tree base_commit committed_count conflict_count fork_head fork_tree goal_ids repository staged_count unstaged_count untracked_count)
 
-    with true <- Maps.exact_keys?(workspace, fields, ["purpose", "admitted_source_commit"]),
+    with true <-
+           Maps.exact_keys?(
+             workspace,
+             fields,
+             ~w(purpose admitted_source_commit submitted_input_unchanged)
+           ),
+         true <- is_boolean(Map.get(workspace, "submitted_input_unchanged", false)),
          true <-
            Map.get(workspace, "purpose", "implementation") in ~w(implementation verification),
          true <-

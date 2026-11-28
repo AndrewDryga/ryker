@@ -3,13 +3,30 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
   alias Ryker.CoopFleet.{CheckpointSecretScan, WorkspaceCheckpoint}
 
   def validate_stream(checkpoint, chunks, secrets \\ Ryker.Secret.new([])) do
-    with {:ok, checkpoint} <- WorkspaceCheckpoint.validate(checkpoint),
-         {:ok, scanner} <- new_scanner(secrets) do
+    with {:ok, checkpoint} <- WorkspaceCheckpoint.validate(checkpoint) do
+      validate_archive(
+        checkpoint["bundle"],
+        chunks,
+        secrets,
+        &checkpoint_manifest(checkpoint, &1)
+      )
+    end
+  end
+
+  defp checkpoint_manifest(checkpoint, encoded) do
+    with {:ok, manifest} <- WorkspaceCheckpoint.decode_bundle_manifest(encoded),
+         :ok <- WorkspaceCheckpoint.validate_pair(checkpoint, manifest),
+         do: {:ok, manifest}
+  end
+
+  def validate_archive(reference, chunks, secrets, decode_manifest) do
+    with {:ok, scanner} <- new_scanner(secrets) do
       state = %{
         phase: {:header, ""},
         manifest: nil,
         expected: [:manifest],
-        checkpoint: checkpoint,
+        reference: reference,
+        decode_manifest: decode_manifest,
         scanner: scanner,
         bytes: 0,
         hash: :crypto.hash_init(:sha256)
@@ -27,7 +44,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
     }
 
     result =
-      if state.bytes <= state.checkpoint["bundle"]["byte_size"],
+      if state.bytes <= state.reference["byte_size"],
         do: feed(state, bytes),
         else: error(:identity)
 
@@ -41,8 +58,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
          {:ok, %{phase: {:terminator, size}, expected: [], manifest: manifest} = state}
        )
        when size >= 1_024 and rem(size, 512) == 0 and is_map(manifest) do
-    if state.bytes == state.checkpoint["bundle"]["byte_size"] and
-         hex(:crypto.hash_final(state.hash)) == state.checkpoint["bundle"]["sha256"],
+    if state.bytes == state.reference["byte_size"] and
+         hex(:crypto.hash_final(state.hash)) == state.reference["sha256"],
        do: {:ok, manifest},
        else: error(:identity)
   end
@@ -150,8 +167,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
   defp finish_member(state, :manifest, _hash, scan, parts) do
     with :ok <- scan_result(CheckpointSecretScan.finish(scan)),
          encoded = parts |> Enum.reverse() |> IO.iodata_to_binary(),
-         {:ok, manifest} <- WorkspaceCheckpoint.decode_bundle_manifest(encoded),
-         :ok <- WorkspaceCheckpoint.validate_pair(state.checkpoint, manifest) do
+         {:ok, manifest} <- state.decode_manifest.(encoded) do
       [padding] = state.expected
 
       {:ok,
@@ -187,7 +203,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
   defp expected_members(manifest) do
     [entry(manifest["repository"], 0o644)] ++
       Enum.map(manifest["untracked_files"], &entry(&1, &1["mode"])) ++
-      Enum.map(manifest["task_projection"]["files"], &entry(&1, &1["mode"])) ++
+      Enum.map(get_in(manifest, ["task_projection", "files"]) || [], &entry(&1, &1["mode"])) ++
       if(manifest["gate_receipt"], do: [entry(manifest["gate_receipt"], 0o644)], else: [])
   end
 

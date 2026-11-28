@@ -155,6 +155,11 @@ and `RYKER_WORKER_CONTROLLER` to the controller's HTTPS origin. To grow an exist
 the backing filesystem first, increase `DATA_GIB`, then restart its worker. The launcher keeps
 larger disks at their existing size if an older setting is restored. The guest firewall permits
 private traffic to the addresses and TCP port of that origin. Copy the controller's public fleet
-CA to `/var/lib/coop/worker-ca.pem` inside the guest, sign in to the model provider there, and put
-the one-time worker enrollment token at `/var/lib/coop/enroll-token`. The worker keeps its
-enrollment and model sign-in on its guest disk.
+CA to `/var/lib/coop/worker-ca.pem` inside the guest and put its one-time enrollment token at
+`/var/lib/coop/enroll-token`. In the controller, open Settings → Models and import the model
+account from its signed-in Coop. The guest stores its worker identity. The controller holds
+the provider login and gives the worker temporary access for each job.
+
+For a local build before the Coop commit is published, pass
+`--build-context coop-upstream=/path/to/bare-coop.git` when building the worker Dockerfile.
+It checks the same pinned commit as the release build.

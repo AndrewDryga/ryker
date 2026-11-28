@@ -35,6 +35,83 @@ defmodule Ryker.Work.SubmissionBuilderTest do
        |> DateTime.truncate(:second)
        |> Map.put(:microsecond, {0, 6})
 
+  test "Work can read only the skill revision saved with its own briefing" do
+    claim = claim_episode!("skills", "Verify the rollout.")
+    actor = "control-plane:local"
+    {:ok, initial} = Ryker.Settings.initialize(actor)
+
+    {:ok, enabled} =
+      Ryker.Settings.save_work(
+        %{enabled_skills: ["verify-rollout"]},
+        initial.installation.revision,
+        actor
+      )
+
+    assert {:ok, submission} = Inspectors.submission(claim)
+
+    assert [%{"name" => "verify-rollout", "sha256" => digest} = descriptor] =
+             submission["context"]["skills"]
+
+    assert Jason.decode!(submission["prompt"])["work"]["skills"] == [descriptor]
+    document = submission["skill_documents"]["verify-rollout"]
+    assert document =~ "Compare the revision reported by the serving application"
+    refute submission["prompt"] =~ "Compare the revision reported by the serving application"
+
+    assert {:ok, frozen} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    assert {:ok, _disabled} =
+             Ryker.Settings.save_work(%{enabled_skills: []}, enabled.installation.revision, actor)
+
+    options = [
+      binding: %{
+        episode: claim.episode,
+        session: claim.session,
+        turn: frozen,
+        state_token: Records.token(frozen)
+      }
+    ]
+
+    assert FixedTools.call("read_skill", %{"name" => "verify-rollout"}, options) ==
+             {:ok, %{"name" => "verify-rollout", "sha256" => digest, "document" => document}}
+
+    assert Submission.prepare(frozen.submission) == {:ok, submission}
+
+    earlier = document <> "\nEarlier revision.\n"
+    earlier_digest = digest(earlier)
+
+    historical =
+      submission
+      |> put_in(["context", "skills"], [%{descriptor | "sha256" => earlier_digest}])
+      |> put_in(["skill_documents", "verify-rollout"], earlier)
+
+    archived = put_in(options, [:binding, :turn], %{frozen | submission: historical})
+
+    assert {:ok, %{"document" => ^earlier, "sha256" => ^earlier_digest}} =
+             FixedTools.call("read_skill", %{"name" => "verify-rollout"}, archived)
+
+    assert Submission.prepare(
+             put_in(submission, ["skill_documents", "verify-rollout"], "changed")
+           ) ==
+             {:error, {:invalid_work_submission, :skills}}
+
+    assert {:error, "skill_unavailable" <> _} =
+             FixedTools.call("read_skill", %{"name" => "other"}, options)
+
+    assert {:ok, fresh} = Inspectors.submission(claim)
+    assert fresh["context"]["skills"] == []
+    refute Map.has_key?(fresh, "skill_documents")
+    options = put_in(options, [:binding, :turn], %{frozen | submission: fresh})
+
+    assert {:error, "skill_unavailable" <> _} =
+             FixedTools.call("read_skill", %{"name" => "verify-rollout"}, options)
+  end
+
   test "a later rollout notification recalls the correction from an earlier review" do
     # A correction learned on 13 October was absent from the next review on
     # 20 October: searching the event wrapper dropped the notification's
@@ -1130,7 +1207,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, submission} = Inspectors.submission(claim)
 
     assert submission["context"]["controller_tools"] ==
-             ~w(get_work_state cite_source record_finding render_chart request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer remember_correction record_guidance_result update_conversation_summary record_feedback)
+             ~w(get_work_state read_skill cite_source record_finding render_chart request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer remember_correction record_guidance_result update_conversation_summary record_feedback)
 
     refute Map.has_key?(submission["context"], "state_tools")
     refute submission["prompt"] =~ Records.token(claim.turn)

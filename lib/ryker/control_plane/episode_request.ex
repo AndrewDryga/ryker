@@ -36,6 +36,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       assigns
       |> assign(:headline, headline(request))
       |> assign(:attempt, attempt_label(request))
+      |> assign(
+        :available_skills,
+        if(request.phase == :submission, do: available_skills(request))
+      )
       |> assign(:explanation, explanation(request))
       |> assign(:decision, decision)
       |> assign(:answers, answers)
@@ -54,6 +58,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         )
       )
       |> assign(:record_links, request[:record_links] || %{})
+      |> assign(:skill_section, Enum.find(request.sections, &(&1.id == "skills")))
       |> assign(:contract_section, Enum.find(request.sections, &(&1.id == "contract")))
       |> assign(
         :prompt_section,
@@ -93,6 +98,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           <.link navigate="/settings/models" title="Choose models for future work">Model settings →</.link>
         </div>
       </section>
+      <p :if={@available_skills} class="briefing-skills">
+        <strong>Available skills</strong> {@available_skills}
+      </p>
       <Components.outcome
         :if={@choice}
         decision={@choice.value <> if(@choice[:note], do: " · " <> @choice.note, else: "")}
@@ -134,6 +142,18 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </Components.disclosure>
         <% end %>
       </div>
+      <Components.disclosure
+        :if={@skill_section && !@retention_note}
+        id={"#{@request.id}-skill-documents"}
+        label={@skill_section.title}
+        kind={:source}
+        data-artifact={if @skill_section.artifact.state == :collapsed, do: @skill_section.artifact_id}
+      >
+        <Components.inspection_text
+          :if={@skill_section.artifact.text}
+          text={@skill_section.artifact.text}
+        />
+      </Components.disclosure>
       <section
         :if={@prompt_section && !@retention_note}
         class="final-prompt"
@@ -222,6 +242,24 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       </Components.disclosure>
     </div>
     """
+  end
+
+  defp available_skills(%{source_kind: :work} = request) do
+    case request[:skill_names] do
+      nil -> "Not recorded"
+      [] -> "None"
+      names -> Enum.join(names, ", ")
+    end
+  end
+
+  # These calls have no skill reader. A missing prompt is still missing evidence.
+  defp available_skills(request) do
+    if Enum.any?(
+         request.sections,
+         &(&1.id == "request" and &1.artifact.state in [:retained, :collapsed])
+       ),
+       do: "None",
+       else: "Not recorded"
   end
 
   defp review_items(assigns) do

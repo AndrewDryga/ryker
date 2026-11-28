@@ -12,6 +12,23 @@ set -eu
 
 pki=$1
 worker_ip=$2
+# The optional address is both the published interface and the TLS identity.
+# Accept only canonical private LAN or shared-address-space VPN IPv4 literals.
+address=${RYKER_FLEET_ADDRESS:-}
+extra_san=
+if [ -n "$address" ]; then
+  if ! printf '%s\n' "$address" | awk -F '.' '
+    NF != 4 {exit 1}
+    {for (i=1; i<=4; i++) if ($i !~ /^(0|[1-9][0-9]?[0-9]?)$/ || $i+0>255) exit 1
+     if (!($1==10 || ($1==172 && $2>=16 && $2<=31) || ($1==192 && $2==168) ||
+           ($1==100 && $2>=64 && $2<=127))) exit 1}
+    END {if (NR != 1) exit 1}'; then
+    echo "RYKER_FLEET_ADDRESS requires a private LAN or VPN IPv4 address on this controller." >&2
+    exit 1
+  fi
+  extra_san=",IP:$address"
+fi
+
 mkdir -p "$pki"
 chmod 0700 "$pki"
 
@@ -46,12 +63,13 @@ fi
 if [ ! -s "$pki/server.pem" ] ||
    ! openssl x509 -in "$pki/server.pem" -noout -checkhost ryker 2>/dev/null | grep -q 'does match certificate' ||
    ! openssl x509 -in "$pki/server.pem" -noout -checkip "$worker_ip" 2>/dev/null | grep -q 'does match certificate' ||
+   { [ -n "$address" ] && ! openssl x509 -in "$pki/server.pem" -noout -checkip "$address" 2>/dev/null | grep -q 'does match certificate'; } ||
    ! openssl verify -CAfile "$pki/ca.pem" "$pki/server.pem" >/dev/null 2>&1 ||
    ! openssl x509 -in "$pki/server.pem" -noout -checkend 2592000 >/dev/null 2>&1; then
   umask 077
   openssl req -new -key "$pki/server-key.pem" -subj "/CN=ryker" \
     -out "$pki/server.csr" >/dev/null 2>&1
-  printf '%s\n' "subjectAltName=DNS:ryker,IP:127.0.0.1,IP:$worker_ip" \
+  printf '%s\n' "subjectAltName=DNS:ryker,IP:127.0.0.1,IP:$worker_ip$extra_san" \
     'extendedKeyUsage=serverAuth' >"$pki/server.ext"
   openssl x509 -req -in "$pki/server.csr" -CA "$pki/ca.pem" -CAkey "$pki/ca-key.pem" \
     -CAcreateserial -out "$pki/server.pem" -days 825 -sha256 -extfile "$pki/server.ext" \

@@ -198,6 +198,19 @@ defmodule Ryker.Settings do
   @spec github_api_url() :: String.t()
   def github_api_url, do: Repo.one(GitHub.Query.select_api_url()) || %GitHub{}.api_url
 
+  @doc "Procedures enabled for the installation or the Work session’s environment."
+  @spec enabled_skills(String.t() | nil) :: [map()]
+  def enabled_skills(environment_ref) do
+    case Repo.one(__MODULE__.Work.Query.skill_selections(environment_ref)) do
+      {installed, global, local} ->
+        names = global ++ (local || [])
+        Enum.filter(Ryker.Skills.catalog(installed), &(&1["name"] in names))
+
+      nil ->
+        []
+    end
+  end
+
   @doc "The default environment of a settings snapshot, or nil when none is chosen."
   @spec default_environment(snapshot()) :: Environment.t() | nil
   def default_environment(snapshot), do: Enum.find(snapshot.environments, & &1.is_default)
@@ -525,6 +538,69 @@ defmodule Ryker.Settings do
         write_changeset(snapshot.work, validate_work_presets(changeset))
       end)
     end
+  end
+
+  @doc "Install the exact skill a console operator previewed, or update it from the same GitHub file."
+  @spec install_skill(map(), revision(), String.t()) :: write_result()
+  def install_skill(skill, revision, actor) do
+    update_skill_catalog(revision, actor, &Ryker.Skills.install(&1, skill))
+  end
+
+  @doc "Save a local edition of a skill under its stable name."
+  def edit_skill(name, document, revision, actor) do
+    update_skill_catalog(revision, actor, &Ryker.Skills.edit(&1, name, document))
+  end
+
+  defp update_skill_catalog(revision, actor, update) do
+    with :ok <- authorize(actor) do
+      save(:work, revision, actor, &apply_skill_update(&1.work, update))
+    end
+  end
+
+  defp apply_skill_update(work, update) do
+    case update.(work.installed_skills) do
+      {:ok, installed} -> write_installed_skills(work, installed)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  @doc "Remove a skill once every scope has stopped selecting it."
+  @spec remove_skill(String.t(), revision(), String.t()) :: write_result()
+  def remove_skill(name, revision, actor) do
+    with :ok <- authorize(actor) do
+      save(:work, revision, actor, &remove_unused_skill(&1, name))
+    end
+  end
+
+  defp remove_unused_skill(snapshot, name) do
+    environments =
+      for env <- snapshot.environments, name in env.enabled_skills, do: env.display_name
+
+    scopes =
+      if name in snapshot.work.enabled_skills,
+        do: ["installation-wide" | environments],
+        else: environments
+
+    cond do
+      Ryker.Skills.bundled?(name) ->
+        Repo.rollback(:bundled_skill)
+
+      name not in Ryker.Skills.names(snapshot.work.installed_skills) ->
+        Repo.rollback(:unknown_skill)
+
+      scopes != [] ->
+        Repo.rollback({:skill_in_use, scopes})
+
+      true ->
+        write_installed_skills(
+          snapshot.work,
+          Map.delete(snapshot.work.installed_skills, name)
+        )
+    end
+  end
+
+  defp write_installed_skills(work, installed) do
+    write_changeset(work, __MODULE__.Work.Changeset.install_skills(work, installed))
   end
 
   @doc """

@@ -37,6 +37,214 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     :ok
   end
 
+  test "operators can enable a built-in skill for one environment or the whole installation" do
+    installation!()
+    environment!("staging", "Staging", [])
+    environment!("qa", "Quality assurance", [])
+    {:ok, disabled, _} = open("/skills/verify-rollout")
+
+    assert has_element?(
+             disabled,
+             "#skill-environments",
+             "No environments have this skill enabled."
+           )
+
+    {:ok, local, _html} = open("/environments/staging/edit")
+    assert has_element?(local, "#skills-staging", "Verify rollout")
+    local |> element("#skills-staging button") |> render_click()
+    assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills("staging")
+    assert Settings.enabled_skills(nil) == []
+    assert Settings.enabled_skills("elsewhere") == []
+
+    {:ok, global, _html} = open("/skills/verify-rollout")
+    staging = "#skill-environments a[href='/environments/staging/edit']"
+    qa = "#skill-environments a[href='/environments/qa/edit']"
+    assert has_element?(global, staging, "Staging")
+    refute has_element?(global, qa)
+
+    global |> element("button[phx-click=toggle]") |> render_click()
+    assert has_element?(global, "#skill-environments li", "Enabled here and installation-wide")
+    assert has_element?(global, qa, "Quality assurance")
+
+    assert has_element?(
+             global,
+             "#skill-environments li",
+             ~r/Quality assurance\s+Installation-wide/
+           )
+
+    assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills(nil)
+    assert length(Settings.enabled_skills("staging")) == 1
+    {:ok, inherited, _html} = open("/environments/staging/edit")
+    assert has_element?(inherited, "#skills-staging", "Enabled here and installation-wide")
+    inherited |> element("#skills-staging button") |> render_click()
+    assert has_element?(inherited, "#skills-staging button", "Keep enabled here")
+    inherited |> element("#skills-staging button") |> render_click()
+
+    assert {:error, {:invalid_settings, _}} =
+             Settings.save_work(
+               %{enabled_skills: ["unknown"]},
+               Settings.fetch!().installation.revision,
+               @actor
+             )
+
+    {:ok, updated_global, _html} = open("/skills/verify-rollout")
+    updated_global |> element("button[phx-click=toggle]") |> render_click()
+    assert Settings.enabled_skills(nil) == []
+    assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills("staging")
+  end
+
+  # Deleting a built-in used to hide it across the installation, even after an upgrade.
+  test "bundled skills stay in the catalog after edits and cannot be deleted" do
+    installation!()
+    name = "verify-rollout"
+    {:ok, view, _} = open("/skills/verify-rollout")
+    assert has_element?(view, ".page-header h1", "Verify rollout")
+    refute has_element?(view, "button", "Delete skill")
+    view |> element("button", "Edit procedure") |> render_click()
+    original = File.read!("priv/skills/verify-rollout/SKILL.md")
+    view |> form("#edit-skill-form", document: original <> "\nCheck again.") |> render_submit()
+    assert has_element?(view, ".skill-procedure", "Check again.")
+    refute has_element?(view, "button", "Delete skill")
+    revision = Settings.fetch!().installation.revision
+    assert Settings.remove_skill(name, revision, @actor) == {:error, :bundled_skill}
+    assert Settings.fetch!().installation.revision == revision
+    assert Ryker.Skills.find(Settings.fetch!().work.installed_skills, name)["modified"]
+
+    {:ok, catalog, _} = open("/skills")
+    assert has_element?(catalog, ".page-header h1", ~r/^Skills$/)
+    assert has_element?(catalog, "a[href='/skills/verify-rollout']", "Verify rollout")
+
+    assert has_element?(
+             catalog,
+             ".page-header .page-description",
+             "Skills you enable globally are available in every Ryker session."
+           )
+  end
+
+  test "a bundled skill hidden by an earlier release is available to enable again" do
+    assert %{"name" => "verify-rollout"} =
+             Ryker.Skills.find(%{"verify-rollout" => nil}, "verify-rollout")
+  end
+
+  test "pasted Markdown can be corrected and installed without a GitHub source" do
+    installation!()
+    {:ok, view, _} = open("/skills/catalog/install")
+    assert has_element?(view, "#install-skill-github input[name=url]")
+    assert has_element?(view, "#install-skill-paste textarea[name=document]")
+
+    source = File.read!("priv/skills/verify-rollout/SKILL.md")
+    document = String.replace(source, "verify-rollout", "local-rollout")
+
+    view
+    |> form("#install-skill-paste form", document: String.duplicate("x", 32_769))
+    |> render_submit()
+
+    assert has_element?(view, "[role=alert]", "32 KiB")
+    view |> form("#install-skill-paste form", document: "Missing header") |> render_submit()
+    assert has_element?(view, "[role=alert]", "name")
+    assert has_element?(view, "textarea", "Missing header")
+
+    view |> form("#install-skill-paste form", document: source) |> render_submit()
+    view |> element("button", "Install skill") |> render_click()
+    assert has_element?(view, "[role=alert]", "already")
+    view |> element("button", "Edit Markdown") |> render_click()
+    assert has_element?(view, "textarea", "verify-rollout")
+
+    view |> form("#install-skill-paste form", document: document) |> render_submit()
+    assert has_element?(view, "#install-skill-paste .skill-review", "Local rollout")
+    assert has_element?(view, "#install-skill-github input[name=url]")
+    refute has_element?(view, ".skill-review a", "Source at the reviewed commit")
+    assert Settings.fetch!().work.installed_skills == %{}
+
+    view |> element("button", "Install skill") |> render_click()
+    assert_redirect(view, "/skills/local-rollout")
+    assert Settings.enabled_skills(nil) == []
+    {:ok, detail, _} = open("/skills/local-rollout")
+    assert has_element?(detail, ".skill-document-head", "Pasted Markdown")
+    detail |> element("button[phx-click=toggle]") |> render_click()
+    assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
+
+    {:ok, again, _} = open("/skills/catalog/install")
+
+    again
+    |> form("#install-skill-paste form", document: document <> "\nAnother edit.")
+    |> render_submit()
+
+    again |> element("button", "Install skill") |> render_click()
+    assert has_element?(again, "[role=alert]", "already")
+    assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
+  end
+
+  test "a public skill is previewed, installed at the reviewed commit, enabled and removed in the console" do
+    installation!()
+
+    document =
+      File.read!("priv/skills/verify-rollout/SKILL.md")
+      |> String.replace("verify-rollout", "check-release")
+
+    commit = String.duplicate("a", 40)
+    raw = "https://raw.githubusercontent.com/example/runbooks/#{commit}/checks/SKILL.md"
+
+    Ryker.Config.put_override(:public_skill_reader, fn
+      "https://api.github.com/repos/example/runbooks/commits/main", _, _ -> {:ok, commit}
+      ^raw, _, _ -> {:ok, document}
+    end)
+
+    {:ok, list, _html} = open("/skills")
+
+    assert has_element?(
+             list,
+             ".entity-row-link a[href='/skills/verify-rollout']",
+             "Verify rollout"
+           )
+
+    {:ok, view, _html} = open("/skills/catalog/install")
+
+    pasted = String.replace(document, "check-release", "local-rollout")
+    view |> form("#install-skill-paste form", document: pasted) |> render_submit()
+
+    view
+    |> form("#install-skill-github form",
+      url: "https://github.com/example/runbooks/tree/main/checks"
+    )
+    |> render_submit()
+
+    assert render_async(view) =~ "Install skill"
+    assert has_element?(view, "#install-skill-paste .skill-review", "Local rollout")
+    assert has_element?(view, "#install-skill-github .skill-review", "Check release")
+    assert Settings.fetch!().work.installed_skills == %{}
+    view |> element("#install-skill-github button", "Install skill") |> render_click()
+    assert_redirect(view, "/skills/check-release")
+    {:ok, view, _html} = open("/skills/check-release")
+    view |> element("button", "Edit procedure") |> render_click()
+    document = document <> "\nRecord the final revision."
+    view |> form(".skill-editor", document: document) |> render_submit()
+    assert has_element?(view, ".skill-procedure", "Record the final revision.")
+    assert has_element?(view, "small", "Edited locally")
+
+    assert has_element?(
+             view,
+             ~s|a[href="https://github.com/example/runbooks/blob/#{commit}/checks/SKILL.md"]|
+           )
+
+    assert Settings.enabled_skills(nil) == []
+
+    toggle =
+      ~s|button[phx-click=toggle]|
+
+    view |> element(toggle) |> render_click()
+    assert [%{"document" => ^document}] = Settings.enabled_skills(nil)
+    view |> element(toggle) |> render_click()
+
+    view
+    |> element(~s|button[phx-click="ask-delete"]|)
+    |> render_click()
+
+    view |> element("#delete-skill button", "Delete skill") |> render_click()
+    assert Settings.fetch!().work.installed_skills == %{}
+    assert_redirect(view, "/skills")
+  end
+
   test "the Environments page lists each environment with its repositories, Emisar account and channels" do
     # Channels used to name one repository each, and Emisar accounts were
     # bound to repositories through routes nobody could see from a channel.

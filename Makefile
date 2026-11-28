@@ -176,10 +176,10 @@ eval-trend:
 control-plane-js-check: elixir-deps-ready
 	node --test test/js/*_test.mjs
 
-# Every tracked shell file, the container entrypoints, install.sh and the Git
-# hooks included.
+# Every present shell file, including uncommitted additions; deleted scripts
+# must not prevent review of an uncommitted candidate. Git hooks are included.
 shellcheck:
-	shellcheck $(shell git ls-files '*.sh' '.githooks/*')
+	shellcheck $(wildcard $(shell git ls-files --cached --others --exclude-standard '*.sh' '.githooks/*'))
 
 # The script self-tests: each breaks its subject on purpose, against a fake
 # control plane and a fake Docker, and watches it complain.

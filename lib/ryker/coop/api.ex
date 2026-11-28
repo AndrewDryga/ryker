@@ -103,6 +103,12 @@ defmodule Ryker.Coop.API do
             ) :: {:ok, [map()]} | {:error, term()}
   @callback get_changes(client :: term(), session_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
+  @callback get_verification_changes(
+              client :: term(),
+              session_id :: String.t(),
+              turn_id :: String.t(),
+              candidate_sha256 :: String.t()
+            ) :: {:ok, map()} | {:error, term()}
   @callback get_changes_page(
               client :: term(),
               session_id :: String.t(),
@@ -229,6 +235,7 @@ defmodule Ryker.Coop.API do
 
   @optional_callbacks list_events: 4,
                       get_changes: 2,
+                      get_verification_changes: 4,
                       get_changes_page: 4,
                       run_review: 4,
                       read_review_gate_output: 4,

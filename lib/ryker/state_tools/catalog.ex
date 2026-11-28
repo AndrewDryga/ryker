@@ -22,6 +22,11 @@ defmodule Ryker.StateTools.Catalog do
   def tools(capabilities) do
     [
       get_work_state_tool(),
+      tool(
+        "read_skill",
+        "Read a procedure by name from this turn's work.skills. Each read returns the revision listed in the briefing. Use it when its description matches the request, within the task's existing permissions.",
+        %{"name" => reference(64)}
+      ),
       cite_source_tool(),
       record_finding_tool(),
       ChartTools.tool(),

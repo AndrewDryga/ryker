@@ -55,7 +55,9 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Query do
       join: source in Work.Session,
       on: source.id == c.session_id,
       where:
-        source.episode_id == ^session.episode_id and source.generation <= ^session.generation and
+        source.episode_id == ^session.episode_id and
+          source.execution_kind == ^session.execution_kind and
+          source.generation <= ^session.generation and
           source.repository_ref == ^session.repository_ref and c.status == :succeeded and
           fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", c.result),
       order_by: [desc: t.inserted_at, desc: t.id],

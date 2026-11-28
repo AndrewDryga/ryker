@@ -12,7 +12,7 @@ defmodule Ryker.Settings.Environment.Changeset do
   use Ryker, :changeset
   alias Ryker.Settings.{Environment, Validation}
 
-  @fields ~w(ref display_name description emisar_connection_ref is_default parallel_goal_limit repositories access)a
+  @fields ~w(ref display_name description emisar_connection_ref is_default parallel_goal_limit enabled_skills repositories access)a
   # A save's repositories and their access become rows (`repository_rows`);
   # neither is a column to cast.
   @cast_fields @fields -- [:repositories, :access]
@@ -39,6 +39,8 @@ defmodule Ryker.Settings.Environment.Changeset do
 
     current
     |> cast(attributes, @cast_fields)
+    |> validate_required([:enabled_skills])
+    |> validate_subset(:enabled_skills, Ryker.Skills.names(snapshot.work.installed_skills))
     |> validate_required([:ref, :display_name, :is_default, :parallel_goal_limit])
     |> validate_format(:ref, Environment.ref_pattern())
     |> validate_length(:display_name, min: 1, max: 80, count: :codepoints)

@@ -454,6 +454,17 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
+  def get_verification_changes(client, coop_session_id, turn_id, candidate_sha256) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
+      execute_read(client, session, "get_changes", %{
+        "coop_session_id" => coop_session_id,
+        "verification_turn" => turn_id,
+        "candidate_sha256" => candidate_sha256
+      })
+    end
+  end
+
+  @impl true
   def get_changes_page(client, coop_session_id, patch_offset, patch_limit) do
     with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_changes_page", %{
@@ -1605,6 +1616,9 @@ defmodule Ryker.CoopFleet.Client do
       _missing_or_ambiguous -> {:error, {:coop_session_not_found, task_ref}}
     end
   end
+
+  @doc "Whether workspace setup may start with the original input under the current recovery decision."
+  def initial_workspace?(%Work.Session{} = session), do: restore_checkpoint(session) == {:ok, nil}
 
   defp restore_checkpoint(%Work.Session{generation: 1}), do: {:ok, nil}
 

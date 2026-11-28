@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.WorkerConnect do
       id="worker-connect"
       class="settings-section worker-connect"
       title="Connect a worker"
-      lede="No worker has connected, so Ryker takes no work. Run one on any Linux or macOS machine with Docker; it connects out to Ryker, so nothing needs to reach it."
+      lede="No worker has connected, so Ryker takes no work. Run one on a Linux machine with Docker; it connects out to Ryker, so nothing needs to reach it."
     >
       <p :if={!@connection} class="settings-problem" role="status">
         This installation accepts no workers of its own yet. Set <code>RYKER_WORKER_PUBLIC_URL</code>
@@ -52,13 +52,10 @@ defmodule Ryker.ControlPlane.WorkerConnect do
             </Components.copy_block>
           </:extra>
         </.step>
-        <.step number={2} title="Sign in the model accounts">
-          Sign in each account the Models page lists, on that machine.
-          <:extra>
-            <Components.copy_block :if={@accounts != []} label="Copy the sign-in commands">
-              <pre>{Enum.map_join(@accounts, "\n", &("coop login " <> &1))}</pre>
-            </Components.copy_block>
-          </:extra>
+        <.step number={2} title="Set up account access in Ryker">
+          Open Settings → Models and save an API key or import the account from Coop.
+          Ryker keeps the provider credentials and gives workers temporary access.
+          <:extra><.link patch="/settings/models" class="ui-button">Open Models</.link></:extra>
         </.step>
         <.step number={3} title="Make a connection token">
           Name the worker and the install it joins. The token works once, within 15 minutes.

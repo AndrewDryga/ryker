@@ -35,6 +35,8 @@ defmodule Ryker.ControlPlane.Paths do
 
   # -- Pages ------------------------------------------------------------------
 
+  def model_account(account), do: ~p"/settings/models/accounts/#{account}/edit"
+
   @doc """
   A request's page: its timeline. `id` is the request's id, or the id of the
   message that started it, which is the same id once routing started the

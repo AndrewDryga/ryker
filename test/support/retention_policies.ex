@@ -371,6 +371,35 @@ defmodule Ryker.RetentionPolicies do
       why: "turn-scoped summary staged until validated result acceptance"
     },
     %{
+      table: "coop_model_buckets",
+      class: :audit,
+      why:
+        "durable principal concurrency policy and provider cooldown shared by all account aliases"
+    },
+    %{
+      table: "coop_model_import_receipts",
+      class: :audit,
+      why:
+        "the spent delivery ID prevents a pasted bundle from restoring access after account removal"
+    },
+    %{
+      table: "coop_model_permits",
+      class: :operational,
+      why:
+        "release proof permits retention pruning, unresolved upstream holds keep their capacity reservation"
+    },
+    %{
+      table: "coop_model_runs",
+      class: :cascade,
+      why: "run identity and credential grant audit belong to the exact session and placement"
+    },
+    %{
+      table: "operator_fleet_jobs",
+      class: :audit,
+      why:
+        "request fingerprint prevents replay from starting a second paid job after episode retention"
+    },
+    %{
       table: "coop_session_placements",
       class: :audit,
       why: "immutable worker placement and authority generation for one Coop session"

@@ -1098,7 +1098,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     """
   end
 
-  # The accounts the worker has signed in, one numbered row each in the box
+  # The controller-owned accounts, one numbered row each in the box
   # the lists of models use, its remove button at its end and Add account as
   # the last row (Andrew, 2026-09-27: "I need a way to add more accounts than
   # one!"). A row says what is wrong with it while it is typed, once it can
@@ -1185,6 +1185,17 @@ defmodule Ryker.ControlPlane.SettingsEditor do
                 id={"#{@id}-#{row.index}-limits"}
                 limits={row.limits}
               />
+              <details
+                :for={{worker, report} <- worker_reports(row.limits)}
+                class="settings-account-worker-report"
+              >
+                <summary>Allowance reported by {worker}</summary>
+                <.account_limits id={"#{@id}-#{row.index}-worker-#{worker}-limits"} limits={report} />
+              </details>
+              <.link
+                :if={row.account in @view.snapshot.work.model_accounts}
+                patch={Paths.model_account(row.account)}
+              >Set up account access</.link>
             </div>
             <div class="settings-ladder-actions">
               <button
@@ -2037,6 +2048,9 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     end
   end
 
+  defp worker_reports(%{worker_reports: reports}), do: reports
+  defp worker_reports(_unknown), do: []
+
   # A saved account's allowance as its provider last reported it, under its row:
   # a line per window, then the plan, the extra resets and when it was checked
   # (Andrew's task, 2026-11-20: "5-hour limit · 18% left · resets in 42 min").
@@ -2066,15 +2080,16 @@ defmodule Ryker.ControlPlane.SettingsEditor do
           prefix="checked "
         /><Kit.caveat_mark
           :if={@limits.state == :stale}
-          hint="May be out of date: the worker's last check of this account failed or is over 20 minutes old"
+          hint="May be out of date: the last check of this account failed or is over 20 minutes old"
         />
       </p>
     </div>
     """
   end
 
-  defp freshness(%{state: :not_signed_in}), do: "Not signed in on the worker"
-  defp freshness(%{state: :sign_in_again}), do: "Sign in again on the worker"
+  defp freshness(%{state: :access_unavailable}), do: "Account access is unavailable"
+  defp freshness(%{state: :not_signed_in}), do: "Account access is missing"
+  defp freshness(%{state: :sign_in_again}), do: "Replace account access in Models"
 
   defp freshness(%{state: :unavailable, auth: auth}) when is_binary(auth),
     do: "Limit unavailable (#{auth})"

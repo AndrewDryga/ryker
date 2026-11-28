@@ -77,6 +77,12 @@ defmodule Ryker.Work.CompletionReviewHistoryTest do
     assert response.owner == {:turn, claim.turn.id}
     assert hd(response.sections).artifact.text =~ judgment["reason"]
     html = render_component(&EpisodeRequest.render/1, request: briefing)
+
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".briefing-skills")
+           |> LazyHTML.text() =~ "None"
+
     assert html =~ "Historical review instructions."
     assert html =~ "Proposed answer"
     refute html =~ "Other fields"

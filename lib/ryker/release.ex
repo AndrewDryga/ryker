@@ -113,6 +113,35 @@ defmodule Ryker.Release do
     end)
   end
 
+  @doc "Read configured controller model access without returning or refreshing credentials."
+  def model_account_statuses(workspace_ref, options \\ []) do
+    with_repo!(settings!(options), fn _repo -> CoopFleet.model_account_statuses(workspace_ref) end)
+  end
+
+  @doc "Read controller-wide inference capacity for one configured model account."
+  def model_capacity(reference, options \\ []) do
+    with_repo!(settings!(options), fn _repo -> CoopFleet.model_capacity(reference) end)
+  end
+
+  @doc "Set provider request concurrency for an account and its aliases."
+  def set_model_concurrency(reference, count, actor, options \\ []) do
+    with_repo!(settings!(options), fn _repo ->
+      CoopFleet.set_model_concurrency(reference, count, actor)
+    end)
+  end
+
+  @doc "List inference holds without provider credentials."
+  def held_model_requests(options \\ []) do
+    with_repo!(settings!(options), fn _repo -> CoopFleet.held_model_requests() end)
+  end
+
+  @doc "Confirm a prior controller has stopped before releasing one of its inference holds."
+  def confirm_model_controller_stopped(id, boot, actor, options \\ []) do
+    with_repo!(settings!(options), fn _repo ->
+      CoopFleet.confirm_model_controller_stopped(id, boot, actor)
+    end)
+  end
+
   @doc """
   Drains a worker (no new work; what it holds finishes), resumes one, or
   revokes one at once with its certificates and unused enrolment tokens, and
@@ -189,6 +218,170 @@ defmodule Ryker.Release do
         )
       end)
     end
+  end
+
+  @doc "Submit a local job using the selected environment's reviewed contributor policy."
+  def fleet_submit(id, placement, prompt, options \\ []) do
+    settings = settings!(options)
+
+    with_repo!(settings, fn _repo ->
+      with_pubsub(fn ->
+        Operator.FleetJobs.submit(id, placement, prompt, &fleet_policy/2)
+      end)
+    end)
+  end
+
+  @doc "Submit local source and its prompt from the operator command's single binary input stream."
+  def fleet_submit_local(id, placement, prompt_size, reference) when prompt_size in 1..12_000 do
+    # Reading the file descriptor in binary mode keeps arbitrary Git objects and
+    # the UTF-8 prompt on the same pipe without terminal encoding or lookahead.
+    File.open!("/dev/stdin", [:read, :binary], fn file ->
+      case :file.read(file, prompt_size) do
+        {:ok, prompt} when byte_size(prompt) == prompt_size ->
+          submit_local_stream(id, placement, prompt, reference, IO.binstream(file, 262_144))
+
+        _incomplete ->
+          {:error, :invalid_fleet_prompt}
+      end
+    end)
+  end
+
+  def fleet_submit_local(_id, _placement, _size, _reference), do: {:error, :invalid_fleet_prompt}
+
+  defp submit_local_stream(id, placement, prompt, reference, chunks) do
+    submit = fn job, placed ->
+      with_pubsub(fn -> Operator.FleetJobs.submit(job, placed, prompt, &fleet_policy/2) end)
+    end
+
+    with_repo!(settings!([]), fn _repo ->
+      Operator.WorkspaceInputs.submit(
+        id,
+        placement,
+        reference,
+        chunks,
+        fleet_body_options(),
+        submit
+      )
+    end)
+  end
+
+  defp fleet_body_options do
+    [
+      body_root: Path.join(Bootstrap.storage_root!(), "worker-bodies"),
+      checkpoint_key: Ryker.Secret.new(Bootstrap.checkpoint_key!())
+    ]
+  end
+
+  defp fleet_policy(environment, repository) do
+    with {:ok, stored} <- Settings.fetch(),
+         {:ok, configuration} <- Runtime.Assembly.build(Bootstrap.load!(), stored),
+         %{} <- Map.get(configuration, :work),
+         %{} = policy <-
+           get_in(configuration, [:control_plane, :task_policies, environment, repository]) do
+      {:ok, policy}
+    else
+      _unavailable -> {:error, :fleet_job_policy_unavailable}
+    end
+  end
+
+  @doc "Read one operator job, or list recent submissions when id is nil."
+  def fleet_status(id, options \\ []) do
+    with_repo!(settings!(options), fn _repo ->
+      if id, do: Operator.FleetJobs.fetch(id), else: Operator.FleetJobs.list()
+    end)
+  end
+
+  @doc "Read a counted page of operator jobs, workers or one job's retained events."
+  def fleet_page(kind, id, raw_page) do
+    case Integer.parse(raw_page) do
+      {page, ""} when page in 1..2_147_483_647 ->
+        with_repo!(settings!([]), fn _repo -> read_fleet_page(kind, id, page) end)
+
+      _invalid ->
+        {:error, :invalid_fleet_page}
+    end
+  end
+
+  defp read_fleet_page(:events, id, page), do: Operator.FleetJobs.events(id, page)
+  defp read_fleet_page(:workers, _id, page), do: Operator.FleetJobs.workers(page)
+  defp read_fleet_page(:jobs, _id, page), do: Operator.FleetJobs.list(page)
+
+  @doc "Inspect the Compose services of the job's current authenticated placement."
+  def fleet_services(id) do
+    with_repo!(settings!([]), fn _repo ->
+      with_pubsub(fn -> Operator.FleetJobs.services(id, fleet_body_options()) end)
+    end)
+  end
+
+  @doc "Read one page of a job-owned Compose container's log records."
+  def fleet_service_logs(id, service, container, cursor) do
+    with_repo!(settings!([]), fn _repo ->
+      with_pubsub(fn ->
+        Operator.FleetJobs.service_logs(id, service, container, cursor, fleet_body_options())
+      end)
+    end)
+  end
+
+  @doc "Write a temporary operator preview grant to the release caller's private directory."
+  def fleet_forward(id, service, port) do
+    with_repo!(settings!([]), fn _repo ->
+      with_pubsub(fn -> issue_fleet_preview(id, service, port) end)
+    end)
+  end
+
+  defp issue_fleet_preview(id, service, port) do
+    with {number, ""} <- Integer.parse(port),
+         {:ok, grant} <-
+           Ryker.CoopFleet.ServiceRelays.issue(id, service, number, fleet_body_options()),
+         %{ca_pem: ca, controller_url: url} <- CoopFleet.worker_connection(),
+         %URI{scheme: "https", host: server} when is_binary(server) <- URI.parse(url) do
+      File.write!(
+        "preview.json",
+        Jason.encode!(Map.merge(grant, %{ca_pem: ca, server_name: server})),
+        [:exclusive]
+      )
+
+      {:ok, %{issued: true}}
+    else
+      _refused -> {:error, :fleet_service_unavailable}
+    end
+  end
+
+  @doc "Stream the authenticated workspace checkpoint through the local operator command's private FIFO."
+  def fleet_export(id) do
+    with_repo!(settings!([]), fn _repo ->
+      Operator.FleetJobs.export(id, fleet_body_options(), &write_fleet_checkpoint/2)
+    end)
+  end
+
+  defp write_fleet_checkpoint(descriptor, chunks) do
+    # The operator command creates this FIFO in a fresh 0700 directory. A failed
+    # invocation must never truncate a regular file or follow a symlink here.
+    %{mode: mode} = File.lstat!("workspace.pipe")
+    if Bitwise.band(mode, 0o170000) != 0o010000, do: raise("expected a checkpoint output pipe")
+
+    File.open!("workspace.pipe", [:write, :binary, :raw], fn file ->
+      :ok = :file.write(file, [Jason.encode!(descriptor), "\n"])
+      Enum.each(chunks, fn chunk -> :ok = :file.write(file, chunk) end)
+    end)
+
+    {:ok, %{checkpoint_ref: descriptor["checkpoint_ref"]}}
+  end
+
+  @doc "Cancel this job using its current Work owner and return the cancellation receipt."
+  def fleet_cancel(id, options \\ []) do
+    with_repo!(settings!(options), fn _repo ->
+      with_pubsub(fn -> Operator.FleetJobs.cancel(id) end)
+    end)
+  end
+
+  @doc false
+  def print_fleet_result({:ok, result}), do: IO.puts(Jason.encode!(result))
+
+  def print_fleet_result({:error, reason}) do
+    code = if is_atom(reason), do: reason, else: :fleet_job_refused
+    IO.puts(:stderr, Jason.encode!(%{error: code}))
+    System.halt(1)
   end
 
   @doc """

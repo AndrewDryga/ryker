@@ -233,6 +233,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
           do: Shared.rollback({:coop_session_placement_not_current, placement_id})
 
         validate_create_placement(placement, kind)
+        Ryker.CoopFleet.MachineResources.verify_enqueue!(placement, session, kind, payload)
 
         case placement_request(placement, kind, payload) do
           :ok -> :ok

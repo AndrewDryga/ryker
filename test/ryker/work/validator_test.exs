@@ -237,6 +237,18 @@ defmodule Ryker.Work.ValidatorTest do
     assert accepted.final.state == :complete
   end
 
+  test "local verification compares submitted edits and requires a matching worker digest" do
+    workspace = Map.put(workspace_changes(staged: 1, untracked: 1), "purpose", "verification")
+    final = candidate(empty_outcome(), "Checked.")
+
+    matching = Map.put(workspace, "submitted_input_unchanged", true)
+    assert {:accept, _} = Validator.validate(final, context(workspace: matching), @now)
+
+    changed = Map.put(workspace, "submitted_input_unchanged", false)
+    assert {:reject, reasons} = Validator.validate(final, context(workspace: changed), @now)
+    assert Enum.any?(reasons, &String.contains?(&1, "submitted working copy"))
+  end
+
   test "verification cannot complete with changed source or new commits" do
     for changes <- [workspace_changes(committed: 1), workspace_changes(staged: 1)] do
       workspace = Map.put(changes, "purpose", "verification")

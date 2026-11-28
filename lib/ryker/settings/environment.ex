@@ -37,6 +37,7 @@ defmodule Ryker.Settings.Environment do
         }
 
   schema "environment_settings" do
+    field(:enabled_skills, {:array, :string}, default: [])
     field(:display_name, :string)
     field(:description, :string)
     field(:emisar_connection_ref, :string)

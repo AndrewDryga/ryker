@@ -194,7 +194,7 @@ defmodule Ryker.BundledCoop do
       Enum.all?(~w(session turn workspace), fn kind ->
         is_integer(capacity["#{kind}_slots_free"]) and capacity["#{kind}_slots_free"] > 0
       end) and
-      %{"name" => "controller-tools", "version" => "1"} in worker.capabilities
+      Enum.all?(~w(controller-tools model-proxy), &CoopFleet.Worker.advertises?(worker, &1, "1"))
   end
 
   defp worker_ready?(_worker), do: false
