@@ -69,10 +69,20 @@ defmodule Ryker.ControlPlane.SkillPage do
   def update(assigns, socket) do
     skill = Skills.find(assigns.view.snapshot.work.installed_skills, assigns.name)
 
+    global? = assigns.name in assigns.view.snapshot.work.enabled_skills
+
+    environments =
+      assigns.view.snapshot.environments
+      |> Enum.filter(&(global? or assigns.name in &1.enabled_skills))
+      |> Enum.sort_by(&{String.downcase(&1.display_name), &1.ref})
+
     {:ok,
      socket
      |> assign(assigns)
      |> assign(:skill, skill)
+     |> assign(:global?, global?)
+     |> assign(:removable?, not is_nil(skill) and not Skills.bundled?(assigns.name))
+     |> assign(:environments, environments)
      |> assign_new(:draft, fn -> nil end)
      |> assign_new(:deleting, fn -> nil end)
      |> assign_new(:error, fn -> nil end)}
@@ -123,10 +133,10 @@ defmodule Ryker.ControlPlane.SkillPage do
     end
   end
 
-  def handle_event("ask-delete", _, socket),
+  def handle_event("ask-delete", _, %{assigns: %{removable?: true}} = socket),
     do: {:noreply, assign(socket, deleting: socket.assigns.view.revision, error: nil)}
 
-  def handle_event("delete", _, %{assigns: %{deleting: revision} = a} = socket)
+  def handle_event("delete", _, %{assigns: %{deleting: revision, removable?: true} = a} = socket)
       when not is_nil(revision),
       do: persist(socket, fn -> a.commands.remove_skill.(a.name, revision) end, :delete)
 
@@ -174,6 +184,10 @@ defmodule Ryker.ControlPlane.SkillPage do
       {:noreply, assign(socket, :error, "Settings are unavailable. Try again.")}
   end
 
+  defp environment_scope(true, true), do: "Enabled here and installation-wide"
+  defp environment_scope(true, false), do: "Installation-wide"
+  defp environment_scope(false, true), do: "Enabled here"
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -185,10 +199,6 @@ defmodule Ryker.ControlPlane.SkillPage do
             <div>
               <strong>Installation-wide</strong>
               <p>Make this skill available in every environment.</p>
-              <p :for={env <- Enum.filter(@view.snapshot.environments, &(@name in &1.enabled_skills))}>
-                Enabled in
-                <.link navigate={Paths.edit_environment(env.ref)}>{env.display_name}</.link>
-              </p>
             </div>
             <button
               class="ui-button secondary"
@@ -196,11 +206,11 @@ defmodule Ryker.ControlPlane.SkillPage do
               phx-click="toggle"
               phx-target={@myself}
               phx-value-revision={@view.revision}
-            >{if @name in @view.snapshot.work.enabled_skills,
+            >{if @global?,
               do: "Disable installation-wide",
               else: "Enable installation-wide"}</button>
           </div>
-          <div class="skill-availability">
+          <div :if={@removable?} class="skill-availability">
             <div>
               <strong>Delete skill</strong>
               <p>Remove this skill from this installation.</p>
@@ -213,6 +223,19 @@ defmodule Ryker.ControlPlane.SkillPage do
             >Delete skill</button>
           </div>
         </div>
+        <Kit.section_card id="skill-environments" title="Environments">
+          <p :if={@environments == []} class="skill-hint">
+            {if @view.snapshot.environments == [],
+              do: "No environments configured.",
+              else: "No environments have this skill enabled."}
+          </p>
+          <ul :if={@environments != []} class="skill-environment-list">
+            <li :for={env <- @environments}>
+              <.link navigate={Paths.edit_environment(env.ref)}>{env.display_name}</.link>
+              <small>{environment_scope(@global?, @name in env.enabled_skills)}</small>
+            </li>
+          </ul>
+        </Kit.section_card>
         <Kit.form_card label="Procedure">
           <div class="skill-document-head">
             <div>
@@ -249,7 +272,7 @@ defmodule Ryker.ControlPlane.SkillPage do
         </Kit.form_card>
         <Components.form_feedback :if={@error && !@deleting} message={@error} tone={:error} />
         <Kit.confirm_modal
-          :if={@deleting}
+          :if={@deleting && @removable?}
           id="delete-skill"
           title={"Delete " <> title(@name) <> "?"}
           text="This removes the skill from this installation. Past work keeps the version it used."

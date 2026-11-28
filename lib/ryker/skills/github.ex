@@ -58,7 +58,7 @@ defmodule Ryker.Skills.GitHub do
   defp available(installed, name, repo, path) do
     cond do
       not Map.has_key?(installed, name) ->
-        if(name in Skills.names(%{}), do: {:error, :skill_name_taken}, else: :ok)
+        if(Skills.bundled?(name), do: {:error, :skill_name_taken}, else: :ok)
 
       match?({:ok, {^repo, _, ^path}}, location(installed[name]["source"])) ->
         :ok

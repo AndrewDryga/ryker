@@ -242,9 +242,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
         confirm={@confirm}
         account_limits={@account_limits}
       />
-      <.live_component
+      <Ryker.ControlPlane.SkillInstallPage.render
         :if={@form == {:install, nil}}
-        module={Ryker.ControlPlane.SkillInstallPage}
         id="install-skill"
         view={@view}
         commands={@commands}

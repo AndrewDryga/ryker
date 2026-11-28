@@ -415,7 +415,7 @@ Routing, completion review, learning and self-analysis have no skill reader and 
 If the skill record is missing, the briefing shows **Not recorded**. A retry keeps the same text after a setting change or a Ryker upgrade.
 Skills grant no access to repositories, tools or Emisar actions.
 
-Each Skills row opens its procedure, source and installation settings. **Edit procedure** saves a local edition under the same skill name. **Delete skill** removes it after every scope has disabled it. Deleted bundled skills can be restored from the install page.
+Each Skills row opens the procedure and lists the environments where it is enabled. Each environment links to its settings and shows whether it enables the skill directly, inherits it installation-wide, or both. **Edit procedure** saves a local edition under the same skill name. Bundled skills stay in the catalog when disabled. **Delete skill** removes a pasted or GitHub skill after every scope has disabled it.
 Under **Install skill**, paste a complete SKILL.md into **Paste Markdown** or enter a public repository, skill folder, or file link in **GitHub URL**. Preview the document, then install it. New skills start disabled.
 Edit a pasted skill from its detail page. For a GitHub import, you can also preview and install the same source again to update it.
 Other files, scripts and assets from the repository are outside this Markdown import. Imports

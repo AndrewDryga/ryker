@@ -546,11 +546,6 @@ defmodule Ryker.Settings do
     update_skill_catalog(revision, actor, &Ryker.Skills.install(&1, skill))
   end
 
-  @doc "Restore the bundled edition of a deleted skill to this installation."
-  def restore_skill(name, revision, actor) do
-    update_skill_catalog(revision, actor, &Ryker.Skills.restore(&1, name))
-  end
-
   @doc "Save a local edition of a skill under its stable name."
   def edit_skill(name, document, revision, actor) do
     update_skill_catalog(revision, actor, &Ryker.Skills.edit(&1, name, document))
@@ -587,6 +582,9 @@ defmodule Ryker.Settings do
         else: environments
 
     cond do
+      Ryker.Skills.bundled?(name) ->
+        Repo.rollback(:bundled_skill)
+
       name not in Ryker.Skills.names(snapshot.work.installed_skills) ->
         Repo.rollback(:unknown_skill)
 
@@ -596,7 +594,7 @@ defmodule Ryker.Settings do
       true ->
         write_installed_skills(
           snapshot.work,
-          Ryker.Skills.remove(snapshot.work.installed_skills, name)
+          Map.delete(snapshot.work.installed_skills, name)
         )
     end
   end

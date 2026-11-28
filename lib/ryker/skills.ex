@@ -17,7 +17,8 @@ defmodule Ryker.Skills do
   @doc "Bundled procedures followed by the installation's reviewed imports in name order."
   @spec catalog(map()) :: [map()]
   def catalog(installed) do
-    Enum.reject(@catalog, &Map.has_key?(installed, &1["name"])) ++
+    # Older installations can have a nil entry for a previously removed built-in.
+    Enum.reject(@catalog, &is_map(installed[&1["name"]])) ++
       (installed |> Map.values() |> Enum.reject(&is_nil/1) |> Enum.sort_by(& &1["name"]))
   end
 
@@ -51,15 +52,7 @@ defmodule Ryker.Skills do
 
   def find(installed, name), do: Enum.find(catalog(installed), &(&1["name"] == name))
 
-  # A nil override hides a bundled procedure on just this installation.
-  def remove(installed, name) when name in @files, do: Map.put(installed, name, nil)
-  def remove(installed, name), do: Map.delete(installed, name)
-
-  def restore(installed, name) do
-    if name in @files and Map.fetch(installed, name) == {:ok, nil},
-      do: {:ok, Map.delete(installed, name)},
-      else: {:error, :unknown_skill}
-  end
+  def bundled?(name), do: name in @files
 
   def edit(installed, name, document) do
     with %{} = original <- find(installed, name),

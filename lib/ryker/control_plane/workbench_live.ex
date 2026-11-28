@@ -2137,7 +2137,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       preview_retention: actions[:preview_retention],
       preview_webhook: actions[:preview_webhook],
       install_skill: &Settings.install_skill(&1, &2, Actor.of(viewer)),
-      restore_skill: &Settings.restore_skill(&1, &2, Actor.of(viewer)),
       edit_skill: &Settings.edit_skill(&1, &2, &3, Actor.of(viewer)),
       remove_skill: &Settings.remove_skill(&1, &2, Actor.of(viewer)),
       save_work_skills: &Settings.save_work(%{enabled_skills: &1}, &2, Actor.of(viewer)),

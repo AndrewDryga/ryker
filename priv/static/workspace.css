@@ -3338,6 +3338,12 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .skill-document-head h2, .skill-review h2 { font-size:18px; }
 .skill-document-head small, .skill-hint, .skill-availability p { color:var(--ryker-text-secondary); }
 .skill-document-head small a { margin-inline-start:8px; }
+.skill-environment-list { list-style:none; margin:0; padding:0; }
+.skill-environment-list li { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 16px; padding:10px 0; overflow-wrap:anywhere; }
+.skill-environment-list li + li { border-top:1px solid var(--ryker-stroke); }
+.skill-environment-list li:first-child { padding-top:0; }
+.skill-environment-list li:last-child { padding-bottom:0; }
+.skill-environment-list small { color:var(--ryker-text-secondary); }
 .skill-procedure { padding-block:16px 0; overflow-wrap:anywhere; }
 .skill-editor { margin-top:16px; }
 .skill-install-options { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; max-width:780px; }

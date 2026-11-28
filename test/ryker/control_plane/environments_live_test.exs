@@ -40,6 +40,15 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   test "operators can enable a built-in skill for one environment or the whole installation" do
     installation!()
     environment!("staging", "Staging", [])
+    environment!("qa", "Quality assurance", [])
+    {:ok, disabled, _} = open("/skills/verify-rollout")
+
+    assert has_element?(
+             disabled,
+             "#skill-environments",
+             "No environments have this skill enabled."
+           )
+
     {:ok, local, _html} = open("/environments/staging/edit")
     assert has_element?(local, "#skills-staging", "Verify rollout")
     local |> element("#skills-staging button") |> render_click()
@@ -48,7 +57,21 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert Settings.enabled_skills("elsewhere") == []
 
     {:ok, global, _html} = open("/skills/verify-rollout")
+    staging = "#skill-environments a[href='/environments/staging/edit']"
+    qa = "#skill-environments a[href='/environments/qa/edit']"
+    assert has_element?(global, staging, "Staging")
+    refute has_element?(global, qa)
+
     global |> element("button[phx-click=toggle]") |> render_click()
+    assert has_element?(global, "#skill-environments li", "Enabled here and installation-wide")
+    assert has_element?(global, qa, "Quality assurance")
+
+    assert has_element?(
+             global,
+             "#skill-environments li",
+             ~r/Quality assurance\s+Installation-wide/
+           )
+
     assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills(nil)
     assert length(Settings.enabled_skills("staging")) == 1
     {:ok, inherited, _html} = open("/environments/staging/edit")
@@ -70,36 +93,37 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     assert [%{"name" => "verify-rollout"}] = Settings.enabled_skills("staging")
   end
 
-  test "a bundled procedure can be edited, deleted from this installation, and restored" do
+  # Deleting a built-in used to hide it across the installation, even after an upgrade.
+  test "bundled skills stay in the catalog after edits and cannot be deleted" do
     installation!()
+    name = "verify-rollout"
     {:ok, view, _} = open("/skills/verify-rollout")
     assert has_element?(view, ".page-header h1", "Verify rollout")
-    refute has_element?(view, ".page-header .page-description")
-    assert has_element?(view, ".skill-availability + .skill-availability button", "Delete skill")
+    refute has_element?(view, "button", "Delete skill")
     view |> element("button", "Edit procedure") |> render_click()
     original = File.read!("priv/skills/verify-rollout/SKILL.md")
     view |> form("#edit-skill-form", document: original <> "\nCheck again.") |> render_submit()
     assert has_element?(view, ".skill-procedure", "Check again.")
-    view |> element("button", "Delete skill") |> render_click()
-    view |> element("#delete-skill button", "Delete skill") |> render_click()
-    assert_redirect(view, "/skills")
+    refute has_element?(view, "button", "Delete skill")
+    revision = Settings.fetch!().installation.revision
+    assert Settings.remove_skill(name, revision, @actor) == {:error, :bundled_skill}
+    assert Settings.fetch!().installation.revision == revision
+    assert Ryker.Skills.find(Settings.fetch!().work.installed_skills, name)["modified"]
+
     {:ok, catalog, _} = open("/skills")
     assert has_element?(catalog, ".page-header h1", ~r/^Skills$/)
+    assert has_element?(catalog, "a[href='/skills/verify-rollout']", "Verify rollout")
 
     assert has_element?(
              catalog,
              ".page-header .page-description",
              "Skills you enable globally are available in every Ryker session."
            )
+  end
 
-    assert has_element?(catalog, ".kit-empty", "No skills installed")
-    {:ok, install, _} = open("/skills/catalog/install")
-    install |> element("button", "Restore skill") |> render_click()
-    assert_redirect(install, "/skills/verify-rollout")
-
-    assert Ryker.Skills.find(Settings.fetch!().work.installed_skills, "verify-rollout")[
-             "document"
-           ] == original
+  test "a bundled skill hidden by an earlier release is available to enable again" do
+    assert %{"name" => "verify-rollout"} =
+             Ryker.Skills.find(%{"verify-rollout" => nil}, "verify-rollout")
   end
 
   test "pasted Markdown can be corrected and installed without a GitHub source" do
